@@ -272,8 +272,12 @@ const FSIm = (function () {
         muteBtn.innerHTML = MUTE_GLYPH;
         muteBtn.addEventListener('click', function (e) {
           e.stopPropagation();
+          if (typeof FSTransport.moderateSessionText !== 'function') {
+            FSUtils.showToast('Moderation is not available.', 'warning');
+            return;
+          }
           muteBtn.disabled = true;
-          Promise.resolve(FSTransport.moderateSessionText(sessionId, member.id, !member.muted))
+          FSTransport.moderateSessionText(sessionId, member.id, !member.muted)
             .catch(function (err) {
               FSUtils.showToast('Moderation failed: ' +
                 (err && err.message ? err.message : err), 'warning');

@@ -47,6 +47,42 @@ const FSTransport = (function () {
     adapter.sendIm(sessionId, text);
   }
 
+  function sendTypingState(sessionId, typing) {
+    if (!adapter || !adapter.sendTypingState) return;
+    adapter.sendTypingState(sessionId, typing);
+  }
+
+  function openGroupChat(groupId, groupName) {
+    if (!adapter || !adapter.openGroupChat) return null;
+    return adapter.openGroupChat(groupId, groupName);
+  }
+
+  function startConference(agentIds, title) {
+    if (!adapter || !adapter.startConference) {
+      return Promise.reject(new Error('Conference chat unavailable'));
+    }
+    return adapter.startConference(agentIds, title);
+  }
+
+  function leaveImSession(sessionId) {
+    if (!adapter || !adapter.leaveImSession) return;
+    adapter.leaveImSession(sessionId);
+  }
+
+  function inviteToSession(sessionId, agentIds) {
+    if (!adapter || !adapter.inviteToSession) {
+      return Promise.reject(new Error('Invite unavailable'));
+    }
+    return adapter.inviteToSession(sessionId, agentIds);
+  }
+
+  function moderateSessionText(sessionId, agentId, muteText) {
+    if (!adapter || !adapter.moderateSessionText) {
+      return Promise.reject(new Error('Moderation unavailable'));
+    }
+    return adapter.moderateSessionText(sessionId, agentId, muteText);
+  }
+
   function replyScriptDialog(objectId, buttonIndex, buttonLabel, chatChannel) {
     if (!adapter || !adapter.replyScriptDialog) {
       return Promise.resolve({ sent: false });
@@ -264,6 +300,12 @@ const FSTransport = (function () {
     logout: logout,
     sendChat: sendChat,
     sendIm: sendIm,
+    sendTypingState: sendTypingState,
+    openGroupChat: openGroupChat,
+    startConference: startConference,
+    leaveImSession: leaveImSession,
+    inviteToSession: inviteToSession,
+    moderateSessionText: moderateSessionText,
     replyScriptDialog: replyScriptDialog,
     replyScriptPermission: replyScriptPermission,
     acceptCallingCard: acceptCallingCard,

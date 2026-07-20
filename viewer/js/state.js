@@ -227,8 +227,10 @@ const FSState = (function () {
   const DEFAULT_SESSION_TITLES = { group: 'Group chat', conference: 'Conference' };
 
   function isDefaultSessionTitle(title) {
-    return !title || title === DEFAULT_SESSION_TITLES.group ||
-      title === DEFAULT_SESSION_TITLES.conference || looksLikeUuid(title);
+    const text = String(title || '').trim();
+    return !text || text === DEFAULT_SESSION_TITLES.group ||
+      text === DEFAULT_SESSION_TITLES.conference || looksLikeUuid(text) ||
+      /^[A-Za-z0-9+/]{12,}={0,2}$/.test(text);
   }
 
   function ensureKeyedSession(sessionId, info) {

@@ -2168,6 +2168,57 @@ const FSSLTransport = (function () {
     return text.trim();
   }
 
+  function tryDecodeBase64Utf8(text) {
+    const raw = String(text || '').trim();
+    if (!raw || raw.length < 8) return '';
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(raw)) return '';
+    try {
+      const bin = atob(raw);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const decoded = new TextDecoder('utf-8').decode(bytes);
+      const nul = decoded.indexOf('\u0000');
+      const clean = (nul >= 0 ? decoded.slice(0, nul) : decoded).trim();
+      if (clean && /^[\x20-\x7e\u00a0-\ufffd]+$/.test(clean)) return clean;
+    } catch (_e) { /* ignore */ }
+    return '';
+  }
+
+  function decodeSessionBucketTitle(bucket) {
+    let text = bucketToText(bucket);
+    if (!text) return '';
+    const decoded = tryDecodeBase64Utf8(text);
+    return decoded || text;
+  }
+
+  function resolveGroupSessionTitle(groupId, bucket) {
+    const id = normAgentId(groupId);
+    if (typeof FSProfiles.getGroupName === 'function') {
+      const name = FSProfiles.getGroupName(id);
+      if (name) return name;
+    }
+    const fromBucket = decodeSessionBucketTitle(bucket);
+    if (fromBucket && !looksLikeUuid(fromBucket) && !/^[A-Za-z0-9+/]{12,}={0,2}$/.test(fromBucket)) {
+      return fromBucket;
+    }
+    return 'Group chat';
+  }
+
+  function isGroupChatSessionId(sessionId, fromGroup) {
+    if (fromGroup) return true;
+    const id = normAgentId(sessionId);
+    if (!id || id === ZERO_UUID) return false;
+    if (typeof FSProfiles.isAgentInGroup === 'function' && FSProfiles.isAgentInGroup(id)) {
+      return true;
+    }
+    const existing = chatSessions.get(sessionKey(id));
+    return !!(existing && existing.type === 'group');
+  }
+
+  function looksLikeUuid(value) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ''));
+  }
+
   function ensureChatSession(sessionId, type, title) {
     const key = sessionKey(sessionId);
     let session = chatSessions.get(key);
@@ -2181,7 +2232,9 @@ const FSSLTransport = (function () {
       chatSessions.set(key, session);
     } else {
       if (type && type === 'group') session.type = 'group';
-      if (title && !session.title) session.title = title;
+      if (title && (!session.title || isDefaultUiSessionTitle(session.title))) {
+        session.title = title;
+      }
     }
     return session;
   }
@@ -2283,15 +2336,22 @@ const FSSLTransport = (function () {
     return chatSessionCapUrl || FSCaps.findCap(regionCaps, 'ChatSessionRequest');
   }
 
-  async function acceptChatInvitation(sessionId) {
+  async function acceptChatInvitation(sessionId, sessionType, title) {
     const key = sessionKey(sessionId);
     if (pendingChatAccepts.has(key)) return;
     const cap = getChatSessionCap();
     if (!bridge || !cap) return;
     pendingChatAccepts.add(key);
+    const type = sessionType || 'conference';
+    const session = ensureChatSession(sessionId, type, title || '');
     try {
-      await FSCaps.chatSessionAccept(bridge, cap, sessionId,
+      const result = await FSCaps.chatSessionAccept(bridge, cap, sessionId,
         loginData && loginData.agent ? loginData.agent.sessionId : null);
+      if (result && applyAgentUpdates(session, result)) {
+        emitRoster(session);
+      } else {
+        emitRoster(session);
+      }
       FSErrors.info('im', 'Joined chat session ' + String(sessionId).slice(0, 8), false);
     } catch (err) {
       FSErrors.warn('im', 'Could not accept chat invitation: ' +
@@ -2299,6 +2359,56 @@ const FSSLTransport = (function () {
     } finally {
       pendingChatAccepts.delete(key);
     }
+  }
+
+  function seedSessionRosterFromState(sessionId, sessionType, title) {
+    if (typeof FSState === 'undefined') return false;
+    const ui = FSState.get().imSessions[sessionId];
+    const transport = ensureChatSession(sessionId, sessionType || (ui && ui.type) || 'group', title || (ui && ui.title) || '');
+    if (ui && ui.type === 'group') transport.type = 'group';
+    if (ui && ui.title && isDefaultUiSessionTitle(transport.title)) {
+      transport.title = ui.title;
+    }
+    let changed = false;
+    const agentId = loginData ? normAgentId(loginData.agent.id) : '';
+    function addRow(id, name) {
+      const key = normAgentId(id);
+      if (!key || key === ZERO_UUID) return;
+      if (!transport.participants.has(key)) {
+        transport.participants.set(key, {
+          id: key,
+          name: pickDisplayName(key, name || ''),
+          online: true,
+          isModerator: false,
+          muted: false
+        });
+        changed = true;
+      }
+    }
+    if (ui && Array.isArray(ui.participants)) {
+      ui.participants.forEach(function (p) {
+        if (p && p.id) addRow(p.id, p.name);
+      });
+    }
+    if (ui && Array.isArray(ui.messages)) {
+      ui.messages.forEach(function (msg) {
+        if (msg && msg.fromId) addRow(msg.fromId, msg.fromName);
+      });
+    }
+    if (agentId) addRow(agentId, agentFullName());
+    if (changed) emitRoster(transport);
+    return changed;
+  }
+
+  function isDefaultUiSessionTitle(title) {
+    const text = String(title || '').trim();
+    return !text || text === 'Group chat' || text === 'Conference' || looksLikeUuid(text) ||
+      /^[A-Za-z0-9+/]{12,}={0,2}$/.test(text);
+  }
+
+  async function refreshSessionRoster(sessionId, sessionType, title) {
+    seedSessionRosterFromState(sessionId, sessionType, title);
+    await acceptChatInvitation(sessionId, sessionType, title);
   }
 
   function handleChatterBoxInvitation(body) {
@@ -2318,8 +2428,12 @@ const FSSLTransport = (function () {
     const displayName = pickDisplayName(fromId, fromName);
 
     const bucket = mp.data ? (mp.data.binary_bucket || mp.data.binaryBucket) : mp.binary_bucket;
-    const title = bucketToText(bucket);
-    const session = ensureChatSession(sessionId, 'conference', title);
+    const isGroup = isGroupChatSessionId(sessionId, false);
+    const sessionType = isGroup ? 'group' : 'conference';
+    const title = isGroup
+      ? resolveGroupSessionTitle(sessionId, bucket)
+      : decodeSessionBucketTitle(bucket);
+    const session = ensureChatSession(sessionId, sessionType, title);
 
     const text = String(mp.message || '');
     if (text && !isDuplicateIm({
@@ -2341,7 +2455,7 @@ const FSSLTransport = (function () {
         }
       });
     }
-    acceptChatInvitation(sessionId);
+    acceptChatInvitation(sessionId, session.type, session.title);
   }
 
   function handleAgentListUpdates(body) {
@@ -4379,10 +4493,13 @@ const FSSLTransport = (function () {
         sessionId = sessionImId;
         messageId = FSUtils.uuid();
         messageImId = sessionImId;
-        const sessionType = fromGroup ? 'group' : 'conference';
-        const title = bucketToText(evt.data.binaryBucket);
+        const isGroupSession = isGroupChatSessionId(sessionImId, fromGroup);
+        const sessionType = isGroupSession ? 'group' : 'conference';
+        const title = isGroupSession
+          ? resolveGroupSessionTitle(sessionImId, evt.data.binaryBucket)
+          : decodeSessionBucketTitle(evt.data.binaryBucket);
         const session = ensureChatSession(sessionId, sessionType, title);
-        if (fromGroup) session.type = 'group';
+        if (isGroupSession) session.type = 'group';
         if (!session.participants.has(fromId)) {
           session.participants.set(fromId, {
             id: fromId, name: displayName, online: true,
@@ -4390,10 +4507,14 @@ const FSSLTransport = (function () {
           });
           emitRoster(session);
         }
+        if (isGroupSession && !session.rosterRefreshStarted) {
+          session.rosterRefreshStarted = true;
+          refreshSessionRoster(sessionId, 'group', session.title);
+        }
         sessionDescriptor = {
           id: sessionId,
           type: session.type,
-          title: session.title || title || (fromGroup ? 'Group chat' : 'Conference')
+          title: session.title || title || (isGroupSession ? 'Group chat' : 'Conference')
         };
       } else {
         sessionId = FSUtils.xorSessionId(agentId, fromId);
@@ -5008,7 +5129,8 @@ const FSSLTransport = (function () {
     if (simActionsBlocked() || !loginData || !circuit) return null;
     const id = String(groupId || '');
     if (!id || id === ZERO_UUID) return null;
-    const session = ensureChatSession(id, 'group', groupName || '');
+    const title = groupName || resolveGroupSessionTitle(id, '');
+    const session = ensureChatSession(id, 'group', title);
     const fromName = agentFullName();
     circuit.sendIm(id, '', fromName, currentRegionId(), {
       dialog: IM_SESSION_GROUP_START,
@@ -5016,7 +5138,9 @@ const FSSLTransport = (function () {
       binaryBucket: ''
     });
     emit('im-session-open', { sessionId: id, type: 'group', title: session.title });
+    seedSessionRosterFromState(id, 'group', session.title);
     emitRoster(session);
+    refreshSessionRoster(id, 'group', session.title);
     return id;
   }
 
