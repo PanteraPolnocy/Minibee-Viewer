@@ -15,9 +15,13 @@ const FSProfile = (function () {
     { id: 'notes', label: 'Notes' }
   ];
 
+  const NOTES_FEEDBACK_MS = 2800;
+  const NOTES_SAVE_TIMEOUT_MS = 5000;
+
   let dialog = null;
   let imageDialog = null;
   let current = null;
+  let notesSaveToken = 0;
 
   function el(id) {
     return document.getElementById(id);
@@ -86,6 +90,30 @@ const FSProfile = (function () {
   function closeDialog() {
     if (dialog && dialog.open) dialog.close();
     current = null;
+  }
+
+  function teleportFromProfileDetail(loc) {
+    if (!loc) return;
+    if (!FSState.gridOnline()) {
+      FSUtils.showToast('Not connected to the grid', 'warning');
+      return;
+    }
+    if (typeof FSMap !== 'undefined') {
+      if (FSMap.showLocation) FSMap.showLocation(loc);
+      if (FSMap.beginMapTeleport) FSMap.beginMapTeleport('requesting');
+    }
+    closeDialog();
+    if (typeof FSTransport.teleportTo !== 'function') return;
+    FSTransport.teleportTo(loc).then(function () {
+      if (typeof FSMap !== 'undefined' && FSMap.beginMapTeleport) {
+        FSMap.beginMapTeleport('starting');
+      }
+    }).catch(function (err) {
+      if (typeof FSMap !== 'undefined' && FSMap.resetTeleportButton) {
+        FSMap.resetTeleportButton();
+      }
+      FSUtils.showToast(err.message || 'Teleport failed', 'error');
+    });
   }
 
   function shortUuid(id) {
@@ -425,10 +453,8 @@ const FSProfile = (function () {
           }
           return;
         }
-        if (action === 'teleport' && typeof FSTransport.teleportTo === 'function') {
-          FSTransport.teleportTo(loc).catch(function (err) {
-            FSUtils.showToast(err.message || 'Teleport failed', 'error');
-          });
+        if (action === 'teleport') {
+          teleportFromProfileDetail(loc);
         }
       });
     });
@@ -535,7 +561,9 @@ const FSProfile = (function () {
         'placeholder="Add private notes...">' + FSUtils.escapeHtml(notes) + '</textarea>' +
       '<div class="profile-notes-actions">' +
       '<button type="button" class="btn btn--primary" id="profile-notes-save">Save notes</button>' +
-      '</div></div>';
+      '</div>' +
+      '<div id="profile-notes-status" class="profile-notes-status" role="status" aria-live="polite"></div>' +
+      '</div>';
   }
 
   function renderAvatarTabs(profile) {
@@ -634,6 +662,81 @@ const FSProfile = (function () {
     }
   }
 
+  function bindNotesSave(profile, root) {
+    const notesInput = root.querySelector('#profile-notes-input');
+    const notesSave = root.querySelector('#profile-notes-save');
+    const notesStatus = root.querySelector('#profile-notes-status');
+    if (!notesInput || !notesSave || !profile.avatarId || isSelfProfile(profile)) return;
+
+    let feedbackTimer = null;
+    let timeoutTimer = null;
+
+    function clearNotesTimers() {
+      if (feedbackTimer) {
+        clearTimeout(feedbackTimer);
+        feedbackTimer = null;
+      }
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
+    }
+
+    function setNotesStatus(message, kind) {
+      if (!notesStatus) return;
+      notesStatus.textContent = message || '';
+      notesStatus.className = 'profile-notes-status' +
+        (kind ? ' profile-notes-status--' + kind : '');
+    }
+
+    function releaseNotesSave(message, kind) {
+      setNotesStatus(message, kind);
+      feedbackTimer = setTimeout(function () {
+        setNotesStatus('', '');
+        notesSave.disabled = false;
+        feedbackTimer = null;
+      }, NOTES_FEEDBACK_MS);
+    }
+
+    notesSave.addEventListener('click', function () {
+      if (notesSave.disabled) return;
+      const text = notesInput.value || '';
+      if (typeof FSTransport.saveAvatarNotes !== 'function') return;
+      const token = ++notesSaveToken;
+      clearNotesTimers();
+      notesSave.disabled = true;
+      setNotesStatus('Saving...', 'pending');
+      timeoutTimer = setTimeout(function () {
+        if (token !== notesSaveToken) return;
+        timeoutTimer = null;
+        releaseNotesSave('Save timed out. Try again.', 'error');
+      }, NOTES_SAVE_TIMEOUT_MS);
+      FSTransport.saveAvatarNotes(profile.avatarId, text).then(function (result) {
+        if (token !== notesSaveToken) return;
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+        }
+        if (result && result.sent) {
+          FSProfiles.mergeAvatarProfile(profile.avatarId, {
+            notes: text,
+            source: 'notes-local'
+          }, { silent: true });
+          releaseNotesSave('Notes saved.', 'success');
+          return;
+        }
+        releaseNotesSave('Could not save notes.', 'error');
+      }).catch(function (err) {
+        if (token !== notesSaveToken) return;
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+        }
+        releaseNotesSave(err.message || 'Could not save notes.', 'error');
+      });
+    });
+  }
+
   function bindAvatarContent(profile, root) {
     if (!root) return;
 
@@ -667,28 +770,7 @@ const FSProfile = (function () {
       });
     });
     bindGroupLinks(root);
-
-    const notesInput = root.querySelector('#profile-notes-input');
-    const notesSave = root.querySelector('#profile-notes-save');
-    if (notesInput && notesSave && profile.avatarId && !isSelfProfile(profile)) {
-      notesSave.addEventListener('click', function () {
-        const text = notesInput.value || '';
-        if (typeof FSTransport.saveAvatarNotes !== 'function') return;
-        notesSave.disabled = true;
-        FSTransport.saveAvatarNotes(profile.avatarId, text).then(function (result) {
-          notesSave.disabled = false;
-          if (result && result.sent) {
-            FSProfiles.mergeAvatarProfile(profile.avatarId, { notes: text, source: 'notes-local' });
-            FSUtils.showToast('Notes saved.', 'success');
-          } else {
-            FSUtils.showToast('Could not save notes.', 'error');
-          }
-        }).catch(function (err) {
-          notesSave.disabled = false;
-          FSUtils.showToast(err.message || 'Could not save notes.', 'error');
-        });
-      });
-    }
+    bindNotesSave(profile, root);
 
     root.querySelectorAll('.profile-tab').forEach(function (tabBtn) {
       tabBtn.addEventListener('click', function () {

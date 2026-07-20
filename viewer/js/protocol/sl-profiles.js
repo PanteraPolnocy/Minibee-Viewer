@@ -198,12 +198,15 @@ const FSProfiles = (function () {
     });
   }
 
-  function mergeAvatarProfile(agentId, patch) {
+  function mergeAvatarProfile(agentId, patch, options) {
     const id = normId(agentId);
     if (isZero(id) || !patch) return null;
+    const opts = options || {};
     const prev = avatarProfiles.get(id) || {};
     const nextPatch = Object.assign({}, patch);
-    if (!nextPatch.notes && prev.notes) delete nextPatch.notes;
+    if (nextPatch.source === 'notes-local') {
+      // Saved notes from this client always win until the server echoes them back.
+    } else if (!nextPatch.notes && prev.notes) delete nextPatch.notes;
     else if (nextPatch.notes && prev.notes &&
         String(prev.notes).length > String(nextPatch.notes).length) {
       delete nextPatch.notes;
@@ -263,7 +266,7 @@ const FSProfiles = (function () {
     if (next.source === 'cap') capFetchActive.delete(id);
     if (patch.imageId) cacheImageId(id, patch.imageId);
     avatarProfiles.set(id, next);
-    emitChange('avatar', id);
+    if (!opts.silent) emitChange('avatar', id);
     return next;
   }
 
