@@ -136,7 +136,18 @@ const FSSLBinary = (function () {
     DirPeopleReply: 4294901796,
     DirGroupsReply: 4294901798,
     MoneyTransferRequest: 4294902071,
-    ParcelMediaUpdate: 4294902180
+    ParcelMediaUpdate: 4294902180,
+    AvatarClassifiedReply: 4294901802,
+    AvatarPropertiesRequest: 4294901929,
+    AvatarPropertiesReply: 4294901931,
+    AvatarGroupsReply: 4294901933,
+    AvatarNotesReply: 4294901936,
+    AvatarPicksReply: 4294901938,
+    GroupProfileRequest: 4294902111,
+    GroupProfileReply: 4294902112,
+    ClassifiedInfoRequest: 4294901803,
+    ClassifiedInfoReply: 4294901804,
+    PickInfoReply: 4294901944
   };
 
   const PacketFlags = { Ack: 0x10, Resent: 0x20, Reliable: 0x40, Zerocoded: 0x80 };

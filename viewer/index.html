@@ -374,7 +374,7 @@
                   <button type="button" id="im-close" class="icon-btn im-action-btn" title="Close conversation" aria-label="Close conversation" disabled>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                   </button>
-                  <button type="button" id="im-profile" class="icon-btn im-action-btn" title="Profile (coming soon)" aria-label="Profile" disabled>
+                  <button type="button" id="im-profile" class="icon-btn im-action-btn" title="Profile" aria-label="Profile">
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                   </button>
                   <button type="button" id="im-pay" class="icon-btn im-action-btn" title="Pay L$" aria-label="Pay L$" disabled>
@@ -796,6 +796,34 @@
       </form>
     </dialog>
 
+    <dialog id="profile-dialog" class="profile-dialog">
+      <form method="dialog" class="profile-dialog__shell">
+        <header class="profile-dialog__header">
+          <div class="profile-dialog__headings">
+            <h2 id="profile-title" class="profile-dialog__title">Profile</h2>
+            <p id="profile-subtitle" class="profile-dialog__subtitle"></p>
+          </div>
+          <button type="button" id="profile-close" class="icon-btn profile-dialog__close" aria-label="Close profile">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </header>
+        <div id="profile-actions" class="profile-dialog__actions"></div>
+        <div class="profile-dialog__body">
+          <p id="profile-loading" class="profile-dialog__loading">Loading profile...</p>
+          <div id="profile-content" class="profile-dialog__content" hidden></div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="profile-image-dialog" class="profile-image-dialog">
+      <form method="dialog" class="profile-image-dialog__shell">
+        <button type="button" id="profile-image-close" class="icon-btn profile-image-dialog__close" aria-label="Close image">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+        <img id="profile-image-full" class="profile-image-dialog__img" alt="">
+      </form>
+    </dialog>
+
     <dialog id="pay-dialog" class="pay-dialog">
       <form id="pay-form" method="dialog">
         <h2 class="pay-dialog__title">Pay L$</h2>
@@ -851,6 +879,7 @@
   <script src="js/protocol/sl-login.js"></script>
   <script src="js/protocol/sl-teleport.js"></script>
   <script src="js/protocol/sl-search.js"></script>
+  <script src="js/protocol/sl-profiles.js"></script>
   <script src="js/protocol/sl-transport.js"></script>
   <script src="js/errors.js"></script>
   <script src="js/ui/navigation.js"></script>
@@ -866,6 +895,8 @@
   <script src="js/ui/land.js"></script>
   <script src="js/ui/destinations.js"></script>
   <script src="js/ui/teleport.js"></script>
+  <script src="js/ui/avatar-thumb.js"></script>
+  <script src="js/ui/profile.js"></script>
   <script src="js/ui/errors.js"></script>
   <script src="js/ui/session-lost.js"></script>
   <script src="js/app.js"></script>

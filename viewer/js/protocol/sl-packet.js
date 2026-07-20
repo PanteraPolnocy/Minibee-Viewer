@@ -51,6 +51,34 @@ const FSSLCircuit = (function () {
     return u32le(buf, pos, Number(h >> 32n));
   }
 
+  function readI32le(buf, pos) {
+    const dv = new DataView(buf.buffer, buf.byteOffset + pos, 4);
+    return { value: dv.getInt32(0, true), pos: pos + 4 };
+  }
+
+  function readU32le(buf, pos) {
+    const dv = new DataView(buf.buffer, buf.byteOffset + pos, 4);
+    return { value: dv.getUint32(0, true), pos: pos + 4 };
+  }
+
+  function readVector3d(buf, pos) {
+    const dv = new DataView(buf.buffer, buf.byteOffset + pos, 24);
+    return {
+      x: dv.getFloat64(0, true),
+      y: dv.getFloat64(8, true),
+      z: dv.getFloat64(16, true),
+      pos: pos + 24
+    };
+  }
+
+  function formatProfileLocation(simName, pos) {
+    if (!simName && !pos) return '';
+    const x = pos ? Math.round(pos.x % 256) : 0;
+    const y = pos ? Math.round(pos.y % 256) : 0;
+    const z = pos ? Math.round(pos.z) : 0;
+    return (simName || 'Unknown') + ' (' + x + ', ' + y + ', ' + z + ')';
+  }
+
   function readU64le(buf, pos) {
     const dv = new DataView(buf.buffer, buf.byteOffset + pos, 8);
     const lo = BigInt(dv.getUint32(0, true));
@@ -128,6 +156,9 @@ const FSSLCircuit = (function () {
   MSG_META[M.LoadURL] = { name: 'LoadURL', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.ScriptTeleportRequest] = { name: 'ScriptTeleportRequest', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.GenericMessage] = { name: 'GenericMessage', freq: MF.FrequencyLow, zero: true };
+  MSG_META[M.AvatarPropertiesRequest] = { name: 'AvatarPropertiesRequest', freq: MF.FrequencyLow, zero: false };
+  MSG_META[M.GroupProfileRequest] = { name: 'GroupProfileRequest', freq: MF.FrequencyLow, zero: false };
+  MSG_META[M.ClassifiedInfoRequest] = { name: 'ClassifiedInfoRequest', freq: MF.FrequencyLow, zero: true };
   MSG_META[M.MoneyBalanceReply] = { name: 'MoneyBalanceReply', freq: MF.FrequencyLow, zero: true };
   MSG_META[M.AgentGroupDataUpdate] = { name: 'AgentGroupDataUpdate', freq: MF.FrequencyLow, zero: true };
   MSG_META[M.MapLayerReply] = { name: 'MapLayerReply', freq: MF.FrequencyLow, zero: false };
@@ -960,6 +991,34 @@ const FSSLCircuit = (function () {
         pos = new B.UUID(data.queryId).write(buf, pos);
         pos = writeVar1(buf, pos, data.name || '');
         break;
+      case M.AvatarPropertiesRequest:
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.avatarId).write(buf, pos);
+        break;
+      case M.GroupProfileRequest:
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.groupId).write(buf, pos);
+        break;
+      case M.ClassifiedInfoRequest:
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.classifiedId).write(buf, pos);
+        break;
+      case M.GenericMessage: {
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.transactionId || B.UUID.zero()).write(buf, pos);
+        pos = writeVar1(buf, pos, data.method || '');
+        pos = new B.UUID(data.invoice || B.UUID.zero()).write(buf, pos);
+        const params = data.params || [];
+        pos = u8(buf, pos, params.length);
+        params.forEach(function (param) {
+          pos = writeVar1(buf, pos, param || '');
+        });
+        break;
+      }
       case M.DirFindQuery:
         pos = new B.UUID(agent).write(buf, pos);
         pos = new B.UUID(session).write(buf, pos);
@@ -1764,6 +1823,371 @@ const FSSLCircuit = (function () {
     }
   }
 
+  function parseAvatarPropertiesReply(buf, pos) {
+    try {
+      if (pos + 32 > buf.length) return null;
+      const agentId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const avatarId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      if (pos + 48 > buf.length) return null;
+      const imageId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const flImageId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const partnerId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const about = readVar2(buf, pos);
+      pos = about.pos;
+      const flAbout = readVar1(buf, pos);
+      pos = flAbout.pos;
+      const bornOn = readVar1(buf, pos);
+      pos = bornOn.pos;
+      const profileUrl = readVar1(buf, pos);
+      pos = profileUrl.pos;
+      const charterMember = readVar1(buf, pos);
+      pos = charterMember.pos;
+      let flags = 0;
+      if (pos + 4 <= buf.length) {
+        flags = new DataView(buf.buffer, buf.byteOffset + pos, 4).getUint32(0, true);
+      }
+      return {
+        agentId: agentId,
+        avatarId: avatarId,
+        imageId: imageId,
+        flImageId: flImageId,
+        partnerId: partnerId,
+        about: about.text || '',
+        flAbout: flAbout.text || '',
+        bornOn: bornOn.text || '',
+        profileUrl: profileUrl.text || '',
+        charterMember: charterMember.text || '',
+        flags: flags
+      };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parseGroupProfileReply(buf, pos) {
+    try {
+      if (pos + 16 > buf.length) return null;
+      pos += 16; // AgentID
+      if (pos + 16 > buf.length) return null;
+      const groupId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const name = readVar1(buf, pos);
+      pos = name.pos;
+      const charter = readVar2(buf, pos);
+      pos = charter.pos;
+      if (pos >= buf.length) return null;
+      const showInList = buf[pos++] !== 0;
+      const memberTitle = readVar1(buf, pos);
+      pos = memberTitle.pos;
+      const powers = readU64le(buf, pos);
+      pos = powers.pos;
+      if (pos + 16 > buf.length) return null;
+      const insigniaId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const founderId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const dv = function (p) {
+        return new DataView(buf.buffer, buf.byteOffset + p, 4);
+      };
+      if (pos + 20 > buf.length) return null;
+      const membershipFee = dv(pos).getInt32(0, true);
+      pos += 4;
+      const openEnrollment = buf[pos++] !== 0;
+      const money = dv(pos).getInt32(0, true);
+      pos += 4;
+      const memberCount = dv(pos).getInt32(0, true);
+      pos += 4;
+      const rolesCount = dv(pos).getInt32(0, true);
+      pos += 4;
+      if (pos + 2 > buf.length) return null;
+      const allowPublish = buf[pos++] !== 0;
+      const maturePublish = buf[pos++] !== 0;
+      let ownerRole = '';
+      if (pos + 16 <= buf.length) {
+        ownerRole = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      }
+      return {
+        groupId: groupId,
+        name: name.text || '',
+        charter: charter.text || '',
+        showInList: showInList,
+        memberTitle: memberTitle.text || '',
+        powersMask: powers.value,
+        insigniaId: insigniaId,
+        founderId: founderId,
+        membershipFee: membershipFee,
+        openEnrollment: openEnrollment,
+        money: money,
+        memberCount: memberCount,
+        rolesCount: rolesCount,
+        allowPublish: allowPublish,
+        maturePublish: maturePublish,
+        ownerRole: ownerRole
+      };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parseAgentGroupDataUpdate(buf, pos) {
+    try {
+      if (pos + 16 > buf.length) return null;
+      const agentId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const groups = [];
+      if (pos < buf.length) {
+        const count = buf[pos++];
+        for (let i = 0; i < count && pos + 16 <= buf.length; i++) {
+          const groupId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+          pos += 16;
+          const powers = readU64le(buf, pos);
+          pos = powers.pos;
+          if (pos >= buf.length) break;
+          const acceptNotices = buf[pos++] !== 0;
+          if (pos + 16 > buf.length) break;
+          const insigniaId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+          pos += 16;
+          if (pos + 4 > buf.length) break;
+          const contribution = new DataView(buf.buffer, buf.byteOffset + pos, 4).getInt32(0, true);
+          pos += 4;
+          const groupName = readVar1(buf, pos);
+          pos = groupName.pos;
+          groups.push({
+            id: groupId,
+            name: groupName.text || '',
+            insigniaId: insigniaId,
+            powers: powers.value,
+            acceptNotices: acceptNotices,
+            contribution: contribution
+          });
+        }
+      }
+      return { agentId: agentId, groups: groups };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parseAvatarGroupsReply(buf, pos) {
+    try {
+      if (pos + 32 > buf.length) return null;
+      const agentId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const avatarId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const groups = [];
+      if (pos < buf.length) {
+        const count = buf[pos++];
+        for (let i = 0; i < count && pos + 8 <= buf.length; i++) {
+          const powers = readU64le(buf, pos);
+          pos = powers.pos;
+          if (pos >= buf.length) break;
+          const acceptNotices = buf[pos++] !== 0;
+          const groupTitle = readVar1(buf, pos);
+          pos = groupTitle.pos;
+          if (pos + 16 > buf.length) break;
+          const groupId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+          pos += 16;
+          const groupName = readVar1(buf, pos);
+          pos = groupName.pos;
+          if (pos + 16 > buf.length) break;
+          const insigniaId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+          pos += 16;
+          groups.push({
+            id: groupId,
+            name: groupName.text || '',
+            title: groupTitle.text || '',
+            insigniaId: insigniaId,
+            powers: powers.value,
+            acceptNotices: acceptNotices
+          });
+        }
+      }
+      return { agentId: agentId, avatarId: avatarId, groups: groups };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parseAvatarPicksReply(buf, pos) {
+    try {
+      if (pos + 32 > buf.length) return null;
+      const agentId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const avatarId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const picks = [];
+      if (pos < buf.length) {
+        const count = buf[pos++];
+        for (let i = 0; i < count && pos + 16 <= buf.length; i++) {
+          const pickId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+          pos += 16;
+          const pickName = readVar1(buf, pos);
+          pos = pickName.pos;
+          picks.push({ id: pickId, name: pickName.text || '' });
+        }
+      }
+      return { agentId: agentId, avatarId: avatarId, picks: picks };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parseAvatarNotesReply(buf, pos) {
+    try {
+      if (pos + 16 > buf.length) return null;
+      pos += 16; // AgentID
+      if (pos + 16 > buf.length) return null;
+      const targetId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const notes = readVar2(buf, pos);
+      return { targetId: targetId, notes: notes.text || '' };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parseAvatarClassifiedReply(buf, pos) {
+    try {
+      if (pos + 32 > buf.length) return null;
+      const agentId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const avatarId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const classifieds = [];
+      if (pos < buf.length) {
+        const count = buf[pos++];
+        for (let i = 0; i < count && pos + 16 <= buf.length; i++) {
+          const classifiedId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+          pos += 16;
+          const classifiedName = readVar1(buf, pos);
+          pos = classifiedName.pos;
+          classifieds.push({ id: classifiedId, name: classifiedName.text || '' });
+        }
+      }
+      return { agentId: agentId, avatarId: avatarId, classifieds: classifieds };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parsePickInfoReply(buf, pos) {
+    try {
+      if (pos + 16 > buf.length) return null;
+      pos += 16; // AgentID
+      if (pos + 16 > buf.length) return null;
+      const pickId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      if (pos + 16 > buf.length) return null;
+      const creatorId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const topPick = pos < buf.length ? buf[pos++] !== 0 : false;
+      if (pos + 16 > buf.length) return null;
+      const parcelId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const name = readVar1(buf, pos);
+      pos = name.pos;
+      const desc = readVar2(buf, pos);
+      pos = desc.pos;
+      if (pos + 16 > buf.length) return null;
+      const snapshotId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const user = readVar1(buf, pos);
+      pos = user.pos;
+      const originalName = readVar1(buf, pos);
+      pos = originalName.pos;
+      const simName = readVar1(buf, pos);
+      pos = simName.pos;
+      const posGlobal = readVector3d(buf, pos);
+      pos = posGlobal.pos;
+      const sortOrder = readI32le(buf, pos);
+      pos = sortOrder.pos;
+      const enabled = pos < buf.length ? buf[pos++] !== 0 : true;
+      return {
+        pickId: pickId,
+        creatorId: creatorId,
+        topPick: topPick,
+        parcelId: parcelId,
+        name: name.text || '',
+        description: desc.text || '',
+        snapshotId: snapshotId,
+        userName: user.text || '',
+        originalName: originalName.text || '',
+        simName: simName.text || '',
+        posGlobal: { x: posGlobal.x, y: posGlobal.y, z: posGlobal.z },
+        sortOrder: sortOrder.value,
+        enabled: enabled,
+        location: formatProfileLocation(simName.text || '', posGlobal)
+      };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parseClassifiedInfoReply(buf, pos) {
+    try {
+      if (pos + 16 > buf.length) return null;
+      pos += 16; // AgentID
+      if (pos + 16 > buf.length) return null;
+      const classifiedId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      if (pos + 16 > buf.length) return null;
+      const creatorId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const creationDate = readU32le(buf, pos);
+      pos = creationDate.pos;
+      const expirationDate = readU32le(buf, pos);
+      pos = expirationDate.pos;
+      const category = readU32le(buf, pos);
+      pos = category.pos;
+      const name = readVar1(buf, pos);
+      pos = name.pos;
+      const desc = readVar2(buf, pos);
+      pos = desc.pos;
+      if (pos + 16 > buf.length) return null;
+      const parcelId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const parentEstate = readU32le(buf, pos);
+      pos = parentEstate.pos;
+      if (pos + 16 > buf.length) return null;
+      const snapshotId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const simName = readVar1(buf, pos);
+      pos = simName.pos;
+      const posGlobal = readVector3d(buf, pos);
+      pos = posGlobal.pos;
+      const parcelName = readVar1(buf, pos);
+      pos = parcelName.pos;
+      const flags = pos < buf.length ? buf[pos++] : 0;
+      const price = readI32le(buf, pos);
+      return {
+        classifiedId: classifiedId,
+        creatorId: creatorId,
+        creationDate: creationDate.value,
+        expirationDate: expirationDate.value,
+        category: category.value,
+        name: name.text || '',
+        description: desc.text || '',
+        parcelId: parcelId,
+        parentEstate: parentEstate.value,
+        snapshotId: snapshotId,
+        simName: simName.text || '',
+        posGlobal: { x: posGlobal.x, y: posGlobal.y, z: posGlobal.z },
+        parcelName: parcelName.text || '',
+        flags: flags,
+        priceForListing: price.value,
+        location: formatProfileLocation(simName.text || '', posGlobal)
+      };
+    } catch (_e) {
+      return null;
+    }
+  }
+
   function parseMoneyBalanceReply(buf, pos) {
     try {
       if (pos + 45 > buf.length) return null;
@@ -2240,6 +2664,42 @@ const FSSLCircuit = (function () {
           out.avatarPickerReply = parseAvatarPickerReply(buf, pos);
           break;
         }
+        case M.AvatarPropertiesReply: {
+          out.avatarPropertiesReply = parseAvatarPropertiesReply(buf, pos);
+          break;
+        }
+        case M.GroupProfileReply: {
+          out.groupProfileReply = parseGroupProfileReply(buf, pos);
+          break;
+        }
+        case M.AgentGroupDataUpdate: {
+          out.agentGroupDataUpdate = parseAgentGroupDataUpdate(buf, pos);
+          break;
+        }
+        case M.AvatarGroupsReply: {
+          out.avatarGroupsReply = parseAvatarGroupsReply(buf, pos);
+          break;
+        }
+        case M.AvatarPicksReply: {
+          out.avatarPicksReply = parseAvatarPicksReply(buf, pos);
+          break;
+        }
+        case M.AvatarNotesReply: {
+          out.avatarNotesReply = parseAvatarNotesReply(buf, pos);
+          break;
+        }
+        case M.AvatarClassifiedReply: {
+          out.avatarClassifiedReply = parseAvatarClassifiedReply(buf, pos);
+          break;
+        }
+        case M.PickInfoReply: {
+          out.pickInfoReply = parsePickInfoReply(buf, pos);
+          break;
+        }
+        case M.ClassifiedInfoReply: {
+          out.classifiedInfoReply = parseClassifiedInfoReply(buf, pos);
+          break;
+        }
         case M.DirPlacesReply: {
           out.dirPlacesReply = parseDirPlacesReply(buf, pos);
           break;
@@ -2260,7 +2720,6 @@ const FSSLCircuit = (function () {
         case M.ScriptControlChange:
         case M.MeanCollisionAlert:
         case M.HealthMessage:
-        case M.AgentGroupDataUpdate:
         case M.MapLayerReply:
           break;
         case M.StartPingCheck:
@@ -3161,6 +3620,42 @@ const FSSLCircuit = (function () {
       this.emit({ type: 'parcel-media-update', data: msg.parcelMediaUpdate });
       return;
     }
+    if (msg.id === M.AvatarPropertiesReply && msg.avatarPropertiesReply) {
+      this.emit({ type: 'avatar-properties-reply', data: msg.avatarPropertiesReply });
+      return;
+    }
+    if (msg.id === M.GroupProfileReply && msg.groupProfileReply) {
+      this.emit({ type: 'group-profile-reply', data: msg.groupProfileReply });
+      return;
+    }
+    if (msg.id === M.AgentGroupDataUpdate && msg.agentGroupDataUpdate) {
+      this.emit({ type: 'agent-group-data-update', data: msg.agentGroupDataUpdate });
+      return;
+    }
+    if (msg.id === M.AvatarGroupsReply && msg.avatarGroupsReply) {
+      this.emit({ type: 'avatar-groups-reply', data: msg.avatarGroupsReply });
+      return;
+    }
+    if (msg.id === M.AvatarPicksReply && msg.avatarPicksReply) {
+      this.emit({ type: 'avatar-picks-reply', data: msg.avatarPicksReply });
+      return;
+    }
+    if (msg.id === M.AvatarNotesReply && msg.avatarNotesReply) {
+      this.emit({ type: 'avatar-notes-reply', data: msg.avatarNotesReply });
+      return;
+    }
+    if (msg.id === M.AvatarClassifiedReply && msg.avatarClassifiedReply) {
+      this.emit({ type: 'avatar-classified-reply', data: msg.avatarClassifiedReply });
+      return;
+    }
+    if (msg.id === M.PickInfoReply && msg.pickInfoReply) {
+      this.emit({ type: 'pick-info-reply', data: msg.pickInfoReply });
+      return;
+    }
+    if (msg.id === M.ClassifiedInfoReply && msg.classifiedInfoReply) {
+      this.emit({ type: 'classified-info-reply', data: msg.classifiedInfoReply });
+      return;
+    }
     ensureMsgMeta(msg.id);
     if (isConsumedInbound(msg)) {
       return;
@@ -3687,6 +4182,39 @@ const FSSLCircuit = (function () {
 
   Circuit.prototype.updateParcel = function (parcel) {
     return this.send(M.ParcelPropertiesUpdate, { parcel: parcel }, true);
+  };
+
+  Circuit.prototype.requestAvatarProperties = function (avatarId) {
+    if (!this.handshakeDone || !avatarId) return Promise.resolve();
+    return this.send(M.AvatarPropertiesRequest, { avatarId: avatarId }, true);
+  };
+
+  Circuit.prototype.requestGroupProfile = function (groupId) {
+    if (!this.handshakeDone || !groupId) return Promise.resolve();
+    return this.send(M.GroupProfileRequest, { groupId: groupId }, true);
+  };
+
+  Circuit.prototype.sendAvatarGenericRequest = function (method, avatarId) {
+    if (!this.handshakeDone || !avatarId || !method) return Promise.resolve();
+    return this.send(M.GenericMessage, {
+      method: method,
+      params: [avatarId],
+      invoice: B.UUID.zero().toString()
+    }, true);
+  };
+
+  Circuit.prototype.sendPickInfoRequest = function (creatorId, pickId) {
+    if (!this.handshakeDone || !creatorId || !pickId) return Promise.resolve();
+    return this.send(M.GenericMessage, {
+      method: 'pickinforequest',
+      params: [creatorId, pickId],
+      invoice: B.UUID.zero().toString()
+    }, true);
+  };
+
+  Circuit.prototype.requestClassifiedInfo = function (classifiedId) {
+    if (!this.handshakeDone || !classifiedId) return Promise.resolve();
+    return this.send(M.ClassifiedInfoRequest, { classifiedId: classifiedId }, true);
   };
 
   return { Circuit: Circuit, decodePacket: decodePacket, encodePacket: encodePacket, Message: M };

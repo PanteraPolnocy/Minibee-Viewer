@@ -1472,6 +1472,7 @@ function seed_bootstrap_cap_names(): array
         'LandResources',
         'ParcelPropertiesUpdate',
         'ViewerBenefits',
+        'AgentProfile',
     ];
 }
 
@@ -1487,6 +1488,8 @@ function fetch_login_seed_caps(string $seedUrl, string $simIp, string $sessionId
     $lists = [
         seed_bootstrap_cap_names(),
         array_merge(seed_bootstrap_cap_names(), [
+            'AgentState', 'AvatarPickerSearch', 'HomeLocation', 'ReadOfflineMsgs',
+            'UserInfo', 'GetMetadata',
             'GetMesh', 'GetMesh2', 'GetTexture', 'FetchInventory2', 'FetchInventoryDescendents2',
             'InventoryAPIv3', 'LibraryAPIv3', 'ViewerAsset', 'SimulatorFeatures',
         ]),

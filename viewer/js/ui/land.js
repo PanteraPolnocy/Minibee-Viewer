@@ -129,6 +129,32 @@ const FSLand = (function () {
     }
   }
 
+  function setProfileField(id, label, entityId, entityType) {
+    const field = document.getElementById(id);
+    if (!field) return;
+    const text = label || entityId || '';
+    field.value = text;
+    field.classList.toggle('land-field--profile', !!(entityId && text));
+    field.dataset.profileId = entityId || '';
+    field.dataset.profileType = entityType || '';
+    field.title = entityId ? ('Open ' + (entityType === 'group' ? 'group' : 'avatar') + ' profile') : '';
+  }
+
+  function bindProfileFields() {
+    ['land-owner', 'land-group'].forEach(function (id) {
+      const field = document.getElementById(id);
+      if (!field || field.dataset.profileBound) return;
+      field.dataset.profileBound = '1';
+      field.addEventListener('click', function () {
+        const entityId = field.dataset.profileId;
+        const entityType = field.dataset.profileType;
+        if (!entityId) return;
+        if (entityType === 'group') FSProfile.openGroup(entityId);
+        else FSProfile.openAvatar(entityId);
+      });
+    });
+  }
+
   function populateForm(parcel) {
     if (!parcel || parcel.stub) return;
 
@@ -146,8 +172,17 @@ const FSLand = (function () {
     setFieldValue('land-traffic', parcel.dwell !== undefined && parcel.dwell !== null
       ? Math.round(parcel.dwell)
       : '');
-    setFieldValue('land-owner', parcel.ownerName || parcel.ownerId || '');
-    setFieldValue('land-group', parcel.groupName || parcel.groupId || '');
+    const ownerLabel = parcel.ownerName ||
+      (typeof FSTransport.getCachedName === 'function' ? FSTransport.getCachedName(parcel.ownerId) : '') ||
+      parcel.ownerId || '';
+    const groupLabel = parcel.groupName ||
+      (typeof FSTransport.getGroupName === 'function' ? FSTransport.getGroupName(parcel.groupId) : '') ||
+      parcel.groupId || '';
+    setProfileField('land-owner', ownerLabel, parcel.ownerId, 'avatar');
+    setProfileField('land-group', groupLabel, parcel.groupId, 'group');
+    if (parcel.groupId && parcel.groupId !== ZERO_UUID && !parcel.groupName) {
+      FSProfiles.queueGroupName(parcel.groupId);
+    }
     updateGroupChatButton(parcel);
     setFieldValue('land-prims', formatPrimLine(primsUsed, primsTotal));
     setFieldValue('land-region-prims', formatPrimLine(
@@ -198,15 +233,32 @@ const FSLand = (function () {
 
     const summary = document.getElementById('land-summary');
     if (summary) {
+      const ownerLink = parcel.ownerId
+        ? '<button type="button" class="profile-inline-link" data-profile-type="avatar" data-profile-id="' +
+          FSUtils.escapeHtml(parcel.ownerId) + '">' + FSUtils.escapeHtml(ownerLabel) + '</button>'
+        : FSUtils.escapeHtml(ownerLabel || 'Unknown');
+      const groupLink = parcel.groupId && parcel.groupId !== ZERO_UUID
+        ? '<button type="button" class="profile-inline-link" data-profile-type="group" data-profile-id="' +
+          FSUtils.escapeHtml(parcel.groupId) + '">' + FSUtils.escapeHtml(groupLabel) + '</button>'
+        : '';
       let html =
         'Standing on <strong>' + FSUtils.escapeHtml(parcel.name) + '</strong><br>' +
-        'Owner: ' + FSUtils.escapeHtml(parcel.ownerName || 'Unknown') +
-        (parcel.groupName ? ' &middot; Group: ' + FSUtils.escapeHtml(parcel.groupName) : '');
+        'Owner: ' + ownerLink +
+        (groupLink ? ' &middot; Group: ' + groupLink : '');
       if (!canEdit) {
         html += '<br><span class="land-summary__note">' +
           FSUtils.escapeHtml(readOnlyNote(parcel)) + '</span>';
       }
       summary.innerHTML = html;
+      summary.querySelectorAll('.profile-inline-link').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const entityId = btn.getAttribute('data-profile-id');
+          const entityType = btn.getAttribute('data-profile-type');
+          if (!entityId) return;
+          if (entityType === 'group') FSProfile.openGroup(entityId);
+          else FSProfile.openAvatar(entityId);
+        });
+      });
     }
   }
 
@@ -313,6 +365,7 @@ const FSLand = (function () {
   }
 
   function init() {
+    bindProfileFields();
     document.getElementById('land-form').addEventListener('submit', handleSubmit);
     document.getElementById('land-refresh').addEventListener('click', async function () {
       showLoading('Refreshing land data...');
@@ -339,8 +392,14 @@ const FSLand = (function () {
     }
 
     FSState.on('change', function (partial) {
-      if (partial.parcel && partial.parcel.groupName && FSNavigation.isTabActive('land')) {
-        setFieldValue('land-group', partial.parcel.groupName);
+      if (partial.parcel && FSNavigation.isTabActive('land')) {
+        const parcel = partial.parcel;
+        if (parcel.groupName) {
+          setProfileField('land-group', parcel.groupName, parcel.groupId, 'group');
+        }
+        if (parcel.ownerName) {
+          setProfileField('land-owner', parcel.ownerName, parcel.ownerId, 'avatar');
+        }
       }
       if (!partial.parcel || !FSNavigation.isTabActive('land')) return;
       if (parcelNeedsLoad(partial.parcel)) {
@@ -350,6 +409,18 @@ const FSLand = (function () {
       }
       applyParcel(partial.parcel);
     });
+
+    if (typeof FSProfiles !== 'undefined') {
+      FSProfiles.onChange(function (evt) {
+        if (!FSNavigation.isTabActive('land')) return;
+        const parcel = FSState.get().parcel;
+        if (!parcel || parcel.stub) return;
+        if (evt.kind === 'group-name' && parcel.groupId && FSUtils.normUuid(parcel.groupId) === evt.id) {
+          const name = FSProfiles.getGroupName(parcel.groupId);
+          if (name) setProfileField('land-group', name, parcel.groupId, 'group');
+        }
+      });
+    }
 
     if (typeof FSTransport !== 'undefined') {
       FSTransport.on('teleport-finish', function () {

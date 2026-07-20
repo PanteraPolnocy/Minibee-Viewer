@@ -31,6 +31,10 @@ const FSRadar = (function () {
     return entry.age === '3d' || name.indexOf('visitor') !== -1;
   }
 
+  function iconProfile() {
+    return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+  }
+
   function renderItem(entry, options) {
     const opts = options || {};
     const names = FSUtils.agentNameLines(entry);
@@ -45,9 +49,8 @@ const FSRadar = (function () {
     li.dataset.id = entry.id;
     const status = entry.status ? ' [' + entry.status + ']' : '';
     li.innerHTML =
-      '<div class="entity-item__avatar">' +
-        FSUtils.escapeHtml(FSUtils.initials(names.title)) +
-      '</div>' +
+      '<div class="entity-item__avatar" data-agent-id="' + FSUtils.escapeHtml(entry.id) +
+        '" data-resolve-image="0" data-label="' + FSUtils.escapeHtml(names.title) + '"></div>' +
       '<div class="entity-item__body">' +
         '<div class="entity-item__name">' + FSUtils.escapeHtml(names.title) + '</div>' +
         (names.subtitle
@@ -56,6 +59,9 @@ const FSRadar = (function () {
         '<div class="entity-item__sub">Age: ' + FSUtils.escapeHtml(entry.age) + status + '</div>' +
       '</div>' +
       '<div class="entity-item__actions">' +
+        '<button type="button" class="icon-btn" data-action="profile" title="Profile" aria-label="Profile">' +
+          iconProfile() +
+        '</button>' +
         '<button type="button" class="icon-btn" data-action="im" title="Send IM" aria-label="Send IM">' +
           '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6l8 5 8-5v12z"/></svg>' +
         '</button>' +
@@ -63,6 +69,11 @@ const FSRadar = (function () {
       '<span class="entity-item__range">' + entry.range + 'm</span>';
 
     li.addEventListener('click', function (e) {
+      if (e.target.closest('[data-action="profile"]')) {
+        e.stopPropagation();
+        FSProfile.openAvatar(entry.id, { agent: entry });
+        return;
+      }
       if (e.target.closest('[data-action="im"]')) {
         e.stopPropagation();
         openIm(entry);
@@ -86,6 +97,7 @@ const FSRadar = (function () {
 
     const actions = [
       { label: 'Send IM', fn: function () { openIm(entry); } },
+      { label: 'Profile', fn: function () { FSProfile.openAvatar(entry.id, { agent: entry }); } },
       { label: 'Track on map', fn: function () { FSUtils.showToast('Map tracking: ' + entry.name); } },
       { label: 'Copy UUID', fn: function () {
         if (navigator.clipboard) {
@@ -148,6 +160,9 @@ const FSRadar = (function () {
         const outOfRange = entry.range > s.radarRange;
         const highlightAlert = s.radarAlerts && isAlertCandidate(entry);
         list.appendChild(renderItem(entry, { outOfRange: outOfRange, highlightAlert: highlightAlert }));
+      });
+      list.querySelectorAll('.entity-item__avatar[data-agent-id]').forEach(function (node) {
+        FSAvatarThumb.refresh(node);
       });
     }
 

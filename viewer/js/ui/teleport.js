@@ -109,14 +109,24 @@ const FSTeleportUI = (function () {
     return String(message).trim();
   }
 
-  async function offerTo(agentId, agentName) {
+  async function offerTo(agentId, agentName, hints) {
+    if (typeof FSTransport.isAgentOnline === 'function' &&
+        !FSTransport.isAgentOnline(agentId, hints)) {
+      FSUtils.showToast((agentName || 'That resident') + ' is offline.', 'warning');
+      return;
+    }
     const message = promptOutgoing('offer', agentName);
     if (message === null) return;
     await FSTransport.sendTeleportOffer(agentId, message || 'Join me!');
     FSUtils.showToast('Teleport offer sent to ' + (agentName || 'resident'), 'success');
   }
 
-  async function requestFrom(agentId, agentName) {
+  async function requestFrom(agentId, agentName, hints) {
+    if (typeof FSTransport.isAgentOnline === 'function' &&
+        !FSTransport.isAgentOnline(agentId, hints)) {
+      FSUtils.showToast((agentName || 'That resident') + ' is offline.', 'warning');
+      return;
+    }
     const message = promptOutgoing('request', agentName);
     if (message === null) return;
     await FSTransport.sendTeleportRequest(agentId, message);

@@ -80,6 +80,11 @@ const FSTransport = (function () {
     return adapter.isBuddy(agentId);
   }
 
+  function isAgentOnline(agentId, hints) {
+    if (!adapter || !adapter.isAgentOnline) return true;
+    return adapter.isAgentOnline(agentId, hints);
+  }
+
   function offerFriendship(destId) {
     if (!adapter || !adapter.offerFriendship) {
       return Promise.resolve({ sent: false });
@@ -236,6 +241,7 @@ const FSTransport = (function () {
     acceptCallingCard: acceptCallingCard,
     declineCallingCard: declineCallingCard,
     isBuddy: isBuddy,
+    isAgentOnline: isAgentOnline,
     offerFriendship: offerFriendship,
     payResident: payResident,
     searchDirectory: searchDirectory,

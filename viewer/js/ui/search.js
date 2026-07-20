@@ -206,7 +206,8 @@ const FSSearch = (function () {
     li.className = 'entity-item search-result';
     const name = row.name || row.displayName || row.userName || 'Resident';
     li.innerHTML =
-      '<div class="entity-item__avatar">' + FSUtils.escapeHtml(FSUtils.initials(name)) + '</div>' +
+      '<div class="entity-item__avatar" data-agent-id="' + FSUtils.escapeHtml(row.id || '') +
+        '" data-resolve-image="0" data-label="' + FSUtils.escapeHtml(name) + '"></div>' +
       '<div class="entity-item__body">' +
         '<div class="entity-item__name">' + FSUtils.escapeHtml(name) + '</div>' +
         (row.userName && row.userName !== name
@@ -214,7 +215,7 @@ const FSSearch = (function () {
           : '') +
       '</div>' +
       '<div class="entity-item__actions">' +
-        '<button type="button" class="icon-btn" data-action="profile" title="Profile (coming soon)" aria-label="Profile" disabled>' +
+        '<button type="button" class="icon-btn" data-action="profile" title="Profile" aria-label="Profile">' +
           iconProfile() + '</button>' +
         '<button type="button" class="icon-btn" data-action="im" title="Start conversation" aria-label="Start conversation">' +
           iconIm() + '</button>' +
@@ -223,6 +224,12 @@ const FSSearch = (function () {
       e.stopPropagation();
       startImAvatar(row);
     });
+    li.querySelector('[data-action="profile"]').addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (row.id) FSProfile.openAvatar(row.id, { agent: row });
+    });
+    const thumb = li.querySelector('.entity-item__avatar[data-agent-id]');
+    if (thumb) FSAvatarThumb.refresh(thumb);
     return li;
   }
 
@@ -231,15 +238,23 @@ const FSSearch = (function () {
     li.className = 'entity-item search-result';
     const members = row.members !== undefined ? (row.members + ' members') : '';
     li.innerHTML =
-      '<div class="entity-item__avatar entity-item__avatar--group">G</div>' +
+      '<div class="entity-item__avatar entity-item__avatar--group" data-agent-id="' +
+        FSUtils.escapeHtml(row.id || '') + '" data-kind="group" data-resolve-image="0" data-label="' +
+        FSUtils.escapeHtml(row.name || 'Group') + '">G</div>' +
       '<div class="entity-item__body">' +
         '<div class="entity-item__name">' + FSUtils.escapeHtml(row.name || 'Group') + '</div>' +
         (members ? '<div class="entity-item__sub">' + FSUtils.escapeHtml(members) + '</div>' : '') +
       '</div>' +
       '<div class="entity-item__actions">' +
-        '<button type="button" class="icon-btn" data-action="profile" title="Group profile (coming soon)" aria-label="Group profile" disabled>' +
+        '<button type="button" class="icon-btn" data-action="profile" title="Group profile" aria-label="Group profile">' +
           iconProfile() + '</button>' +
       '</div>';
+    li.querySelector('[data-action="profile"]').addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (row.id) FSProfile.openGroup(row.id);
+    });
+    const groupThumb = li.querySelector('.entity-item__avatar[data-agent-id]');
+    if (groupThumb) FSAvatarThumb.refresh(groupThumb);
     return li;
   }
 

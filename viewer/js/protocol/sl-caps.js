@@ -103,6 +103,24 @@ const FSCaps = (function () {
     return !!findCap(caps, 'GetDisplayNames');
   }
 
+  function isAgentProfileGrant(names) {
+    return Array.isArray(names) && names.indexOf('AgentProfile') >= 0;
+  }
+
+  function seedGrantSatisfied(merged, requestedNames) {
+    if (isAgentProfileGrant(requestedNames)) {
+      return !!findCap(merged, 'AgentProfile');
+    }
+    return hasRequiredCaps(merged);
+  }
+
+  function seedGrantListForRound(round, fullList) {
+    if (isAgentProfileGrant(fullList)) {
+      return fullList;
+    }
+    return round === 0 ? BOOTSTRAP_CAP_NAMES : fullList;
+  }
+
   function capGrantSummary(caps) {
     const keys = Object.keys(caps || {});
     const preview = keys.slice(0, 10).join(', ');
@@ -152,8 +170,19 @@ const FSCaps = (function () {
     'GetDisplayNames',
     'ChatSessionRequest',
     'AgentPreferences',
-    'EventQueueGet'
+    'EventQueueGet',
+    'AgentProfile'
   ];
+
+  const PROFILE_REGION_CAP_NAMES = [
+    'AbuseCategories', 'AcceptFriendship', 'AcceptGroupInvite', 'AgentPreferences', 'AgentProfile',
+    'AgentState', 'AvatarPickerSearch', 'CharacterProperties', 'ChatSessionRequest', 'DeclineFriendship',
+    'DeclineGroupInvite', 'DispatchRegionInfo', 'EventQueueGet', 'GetDisplayNames', 'GetMetadata',
+    'HomeLocation', 'LandResources', 'ParcelPropertiesUpdate', 'ReadOfflineMsgs', 'RemoteParcelRequest',
+    'SimulatorFeatures', 'UserInfo', 'ViewerBenefits'
+  ];
+
+  const PROFILE_CAP_NAMES = PROFILE_REGION_CAP_NAMES;
 
   const LAND_CAP_NAMES = [
     'RemoteParcelRequest',
@@ -271,7 +300,7 @@ const FSCaps = (function () {
 
     let lastResp = null;
     for (let round = 0; round < rounds; round++) {
-      const list = round === 0 ? BOOTSTRAP_CAP_NAMES : fullList;
+      const list = seedGrantListForRound(round, fullList);
       const result = await postSeedGrantOnce(bridge, url, list, opts);
       lastResp = result.resp;
       if (typeof result.resp.udpListenPort === 'number') {
@@ -284,7 +313,7 @@ const FSCaps = (function () {
         requestBytes = result.resp.requestBytes;
       }
       merged = Object.assign({}, merged, result.caps);
-      if (hasRequiredCaps(merged)) {
+      if (seedGrantSatisfied(merged, fullList)) {
         return merged;
       }
       lastSummary = capGrantSummary(merged);
@@ -302,11 +331,12 @@ const FSCaps = (function () {
 
     const udpHint = (opts.preCircuit || lastUdpPort) ? '' : ' [missing X-SecondLife-UDP-Listen-Port]';
     const bytesHint = requestBytes ? (' reqBytes=' + requestBytes) : '';
-    if (hasRequiredCaps(merged)) {
+    if (seedGrantSatisfied(merged, fullList)) {
       return merged;
     }
+    const missing = isAgentProfileGrant(fullList) ? 'AgentProfile' : 'region caps';
     throw new Error(
-      'Seed grant missing region caps (got: ' + (lastSummary || 'empty') + ')' +
+      'Seed grant missing ' + missing + ' (got: ' + (lastSummary || 'empty') + ')' +
       redirectHint + udpHint + bytesHint + ' rounds=' + rounds +
       proxyDiagSuffix(lastResp || { effectiveUrl: url })
     );
@@ -622,6 +652,20 @@ const FSCaps = (function () {
     }
   }
 
+  async function fetchAgentProfile(bridge, capUrl, agentId, options) {
+    const opts = options || {};
+    const id = String(agentId || '').trim();
+    const url = normalizeCapEndpoint(capUrl) + id;
+    const proxyOpts = { method: 'GET' };
+    if (opts.agentSessionId) proxyOpts.agentSessionId = opts.agentSessionId;
+    const resp = await proxyRequest(bridge, url, proxyOpts);
+    const body = parseCapBody(resp);
+    if (!body || typeof body !== 'object') {
+      throw new Error('Empty AgentProfile response');
+    }
+    return body;
+  }
+
   return {
     fetchCapabilities: fetchCapabilities,
     resolveDisplayNames: resolveDisplayNames,
@@ -634,6 +678,7 @@ const FSCaps = (function () {
     chatSessionModerate: chatSessionModerate,
     agentNameRecord: agentNameRecord,
     enrichBuddies: enrichBuddies,
+    fetchAgentProfile: fetchAgentProfile,
     fetchRemoteParcel: fetchRemoteParcel,
     agentDisplayName: agentDisplayName,
     capUrl: capUrl,
@@ -645,6 +690,8 @@ const FSCaps = (function () {
     REGION_CAP_NAMES: REGION_CAP_NAMES,
     BOOTSTRAP_CAP_NAMES: BOOTSTRAP_CAP_NAMES,
     PRESENCE_CAP_NAMES: PRESENCE_CAP_NAMES,
+    PROFILE_CAP_NAMES: PROFILE_CAP_NAMES,
+    PROFILE_REGION_CAP_NAMES: PROFILE_REGION_CAP_NAMES,
     LAND_CAP_NAMES: LAND_CAP_NAMES,
     EVENTQUEUE_CAP_NAMES: EVENTQUEUE_CAP_NAMES,
     extractAgents: extractAgents,

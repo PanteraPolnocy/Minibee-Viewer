@@ -654,9 +654,16 @@ const FSChat = (function () {
 
     const nameClass = CHAT_TYPE_CLASS[volume] || (msg.source === 'object' ? 'msg__name--object' : '');
     const label = volume === 'whisper' ? 'whispers' : volume === 'shout' ? 'shouts' : '';
+    const speakerId = msg.fromId || '';
+    const avatarHtml = speakerId
+      ? '<span class="msg__avatar avatar-thumb avatar-thumb--chat" data-agent-id="' +
+        FSUtils.escapeHtml(speakerId) + '" data-resolve-image="0" data-label="' +
+        FSUtils.escapeHtml(msg.fromName || '') + '"></span>'
+      : '';
 
     el.innerHTML =
       '<div class="msg__meta">' +
+        avatarHtml +
         '<span class="msg__name ' + nameClass + '">' + FSUtils.escapeHtml(msg.fromName) +
           (label ? ' <span class="msg__volume">' + label + '</span>' : '') +
         '</span>' +
@@ -670,6 +677,19 @@ const FSChat = (function () {
         FSMap.showLocation(link.dataset.slurl || link.textContent);
       });
     });
+
+    const thumb = el.querySelector('.msg__avatar[data-agent-id]');
+    if (thumb) FSAvatarThumb.refresh(thumb);
+    if (speakerId && typeof FSProfile !== 'undefined') {
+      const nameEl = el.querySelector('.msg__name');
+      if (nameEl) {
+        nameEl.classList.add('msg__name--link');
+        nameEl.title = 'View profile';
+        nameEl.addEventListener('click', function () {
+          FSProfile.openAvatar(speakerId);
+        });
+      }
+    }
 
     return el;
   }

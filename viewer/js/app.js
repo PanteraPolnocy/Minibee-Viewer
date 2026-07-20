@@ -240,6 +240,8 @@ const FSApp = (function () {
       FSLand.init();
       FSDestinations.init();
       FSTeleportUI.init();
+      FSAvatarThumb.init();
+      FSProfile.init();
       FSErrorsUI.init();
       FSSessionLost.init();
     } catch (err) {

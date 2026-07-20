@@ -41,7 +41,12 @@ const FSIm = (function () {
     const avatarInner = sessionChat
       ? GROUP_GLYPH + (memberCount
         ? '<span class="im-session__count">' + memberCount + '</span>' : '')
-      : FSUtils.escapeHtml(FSUtils.initials(names.title));
+      : '';
+    const avatarNode = sessionChat
+      ? '<div class="' + avatarClass + '">' + avatarInner + '</div>'
+      : '<div class="' + avatarClass + '" data-agent-id="' + FSUtils.escapeHtml((p && p.id) || '') +
+        '" data-resolve-image="0" data-label="' + FSUtils.escapeHtml(names.title) + '"' +
+        (online ? ' data-online="1"' : '') + '></div>';
     const mutedGlyph = session.muted
       ? '<span class="im-session__muted-glyph" title="Notifications muted">' + MUTE_BELL_GLYPH + '</span>'
       : '';
@@ -52,7 +57,7 @@ const FSIm = (function () {
     openBtn.type = 'button';
     openBtn.className = 'im-session__open';
     openBtn.innerHTML =
-      '<div class="' + avatarClass + '">' + avatarInner + '</div>' +
+      avatarNode +
       '<div class="im-session__body">' +
         '<div class="im-session__top">' +
           '<span class="im-session__name">' + FSUtils.escapeHtml(names.title) + '</span>' +
@@ -85,6 +90,10 @@ const FSIm = (function () {
 
     row.appendChild(openBtn);
     row.appendChild(closeBtn);
+    if (!sessionChat) {
+      const thumb = openBtn.querySelector('[data-agent-id]');
+      if (thumb) FSAvatarThumb.refresh(thumb);
+    }
     return row;
   }
 
@@ -341,9 +350,13 @@ const FSIm = (function () {
     const sessionChat = isSessionChat(session);
     const p2p = hasSession && !sessionChat;
     const participantId = p2p && session.participant ? session.participant.id : '';
+    const participant = p2p && session.participant ? session.participant : null;
     const isFriend = participantId && typeof FSTransport.isBuddy === 'function'
       ? FSTransport.isBuddy(participantId)
       : false;
+    const tpOnline = participant && typeof FSTransport.isAgentOnline === 'function'
+      ? FSTransport.isAgentOnline(participantId, participant)
+      : true;
     const body = document.getElementById('im-thread-body');
     const roster = document.getElementById('im-roster');
     const membersBtn = document.getElementById('im-members');
@@ -366,6 +379,19 @@ const FSIm = (function () {
       btn.hidden = sessionChat;
       btn.disabled = !p2p;
     });
+    if (tpOffer) {
+      tpOffer.disabled = !p2p || !tpOnline;
+      tpOffer.title = !p2p ? 'Offer teleport' : (tpOnline ? 'Offer teleport' : 'Resident is offline');
+    }
+    if (tpRequest) {
+      tpRequest.disabled = !p2p || !tpOnline;
+      tpRequest.title = !p2p ? 'Request teleport' : (tpOnline ? 'Request teleport' : 'Resident is offline');
+    }
+    if (profileBtn) {
+      profileBtn.disabled = !p2p;
+      profileBtn.title = 'Profile';
+      profileBtn.removeAttribute('aria-disabled');
+    }
     if (friendBtn) {
       friendBtn.disabled = !p2p || isFriend;
       friendBtn.title = isFriend ? 'Already friends' : 'Offer friendship';
@@ -639,15 +665,20 @@ const FSIm = (function () {
         if (tab) FSNavigation.switchTab(tab);
       });
     });
+    document.getElementById('im-profile').addEventListener('click', function () {
+      const participant = getActiveParticipant();
+      if (!participant || !participant.id) return;
+      FSProfile.openAvatar(participant.id, { agent: participant });
+    });
     document.getElementById('im-tp-offer').addEventListener('click', function () {
       const session = FSState.get().imSessions[FSState.get().activeImSession];
       if (!session || !session.participant) return;
-      FSTeleportUI.offerTo(session.participant.id, session.participant.name);
+      FSTeleportUI.offerTo(session.participant.id, session.participant.name, session.participant);
     });
     document.getElementById('im-tp-request').addEventListener('click', function () {
       const session = FSState.get().imSessions[FSState.get().activeImSession];
       if (!session || !session.participant) return;
-      FSTeleportUI.requestFrom(session.participant.id, session.participant.name);
+      FSTeleportUI.requestFrom(session.participant.id, session.participant.name, session.participant);
     });
     document.getElementById('im-pay').addEventListener('click', function () {
       const participant = getActiveParticipant();

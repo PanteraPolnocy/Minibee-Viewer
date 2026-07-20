@@ -7,6 +7,10 @@ const FSBuddies = (function () {
   let filter = '';
   let onlineOnly = false;
 
+  function iconProfile() {
+    return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+  }
+
   function rightsLabel(buddy) {
     const parts = [];
     if (buddy.rightsGiven & 1) parts.push('map');
@@ -23,9 +27,9 @@ const FSBuddies = (function () {
     const notes = buddy.notes ? ' - ' + buddy.notes : '';
 
     li.innerHTML =
-      '<div class="entity-item__avatar' + (buddy.online ? ' entity-item__avatar--online' : '') + '">' +
-        FSUtils.escapeHtml(FSUtils.initials(names.title)) +
-      '</div>' +
+      '<div class="entity-item__avatar' + (buddy.online ? ' entity-item__avatar--online' : '') +
+        '" data-agent-id="' + FSUtils.escapeHtml(buddy.id) + '" data-resolve-image="1" data-label="' +
+        FSUtils.escapeHtml(names.title) + '"></div>' +
       '<div class="entity-item__body">' +
         '<div class="entity-item__name">' + FSUtils.escapeHtml(names.title) + '</div>' +
         (names.subtitle
@@ -34,12 +38,20 @@ const FSBuddies = (function () {
         '<div class="entity-item__sub">' + FSUtils.escapeHtml(status + notes) + '</div>' +
       '</div>' +
       '<div class="entity-item__actions">' +
+        '<button type="button" class="icon-btn" data-action="profile" title="Profile" aria-label="Profile">' +
+          iconProfile() +
+        '</button>' +
         '<button type="button" class="icon-btn" data-action="im" title="Send IM" aria-label="Send IM">' +
           '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6l8 5 8-5v12z"/></svg>' +
         '</button>' +
       '</div>';
 
     li.addEventListener('click', function (e) {
+      if (e.target.closest('[data-action="profile"]')) {
+        e.stopPropagation();
+        FSProfile.openAvatar(buddy.id, { agent: buddy });
+        return;
+      }
       if (e.target.closest('[data-action="im"]')) {
         e.stopPropagation();
         FSIm.startImWith(buddy);
@@ -63,9 +75,9 @@ const FSBuddies = (function () {
           FSIm.openConferenceDialog([buddy.id]);
         }
       } },
-      { label: 'Profile', fn: function () { FSUtils.showToast('Profile: ' + buddy.name, 'success'); } },
-      { label: 'Teleport offer', fn: function () { FSTeleportUI.offerTo(buddy.id, buddy.name); } },
-      { label: 'Teleport request', fn: function () { FSTeleportUI.requestFrom(buddy.id, buddy.name); } },
+      { label: 'Profile', fn: function () { FSProfile.openAvatar(buddy.id, { agent: buddy }); } },
+      { label: 'Teleport offer', fn: function () { FSTeleportUI.offerTo(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
+      { label: 'Teleport request', fn: function () { FSTeleportUI.requestFrom(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
       { label: 'Remove friend', fn: function () { FSUtils.showToast('Not implemented yet', 'warning'); }, danger: true }
     ];
 
@@ -74,6 +86,12 @@ const FSBuddies = (function () {
       btn.type = 'button';
       btn.textContent = action.label;
       if (action.danger) btn.dataset.danger = 'true';
+      if (action.disabled) {
+        btn.disabled = true;
+        if (action.label.indexOf('Teleport') === 0) {
+          btn.title = 'Resident is offline';
+        }
+      }
       btn.addEventListener('click', function () {
         menu.hidden = true;
         action.fn();
@@ -120,6 +138,9 @@ const FSBuddies = (function () {
 
     buddies.forEach(function (buddy) {
       list.appendChild(renderItem(buddy));
+    });
+    list.querySelectorAll('.entity-item__avatar[data-agent-id]').forEach(function (node) {
+      FSAvatarThumb.refresh(node);
     });
   }
 

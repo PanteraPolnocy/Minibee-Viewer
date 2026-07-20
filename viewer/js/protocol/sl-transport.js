@@ -238,6 +238,7 @@ const FSSLTransport = (function () {
   let displayNamesCapUrl = null;
   let remoteParcelCapUrl = null;
   let chatSessionCapUrl = null;
+  let agentProfileCapUrl = null;
   const chatSessions = new Map();
   const conferenceTempMap = new Map();
   const pendingChatAccepts = new Set();
@@ -1256,6 +1257,52 @@ const FSSLTransport = (function () {
     return false;
   }
 
+  function isAgentOnline(agentId, hints) {
+    const target = normAgentId(agentId);
+    if (!target) return false;
+
+    if (hints) {
+      if (hints.online === true) return true;
+      if (hints.online === false) return false;
+      if (hints.flags) {
+        if (hints.flags.online === true) return true;
+        if (hints.flags.online === false) return false;
+      }
+    }
+
+    const buddies = FSState.get().buddies || [];
+    const buddy = buddies.find(function (b) {
+      return normAgentId(b.id) === target;
+    });
+    if (buddy) return !!buddy.online;
+
+    const radar = FSState.get().radar || [];
+    if (radar.some(function (r) { return normAgentId(r.id) === target; })) {
+      return true;
+    }
+
+    if (typeof FSProfiles !== 'undefined') {
+      const profile = FSProfiles.getAvatarProfile(target);
+      if (profile && profile.flags) {
+        if (profile.flags.online === true) return true;
+        if (profile.flags.online === false) return false;
+      }
+    }
+
+    const sessions = FSState.get().imSessions || {};
+    const sessionKeys = Object.keys(sessions);
+    for (let i = 0; i < sessionKeys.length; i++) {
+      const session = sessions[sessionKeys[i]];
+      if (!session || !session.participant) continue;
+      if (normAgentId(session.participant.id) !== target) continue;
+      if (session.participant.online === true) return true;
+      if (session.participant.online === false) return false;
+      break;
+    }
+
+    return true;
+  }
+
   function offerFriendship(destId) {
     // User-initiated only.
     if (!circuit || !circuit.offerCallingCard || !destId) {
@@ -1973,6 +2020,9 @@ const FSSLTransport = (function () {
         if (!hasPresence) {
           scheduleCapRetry(6000);
         }
+        if (!agentProfileCapUrl && typeof ensureAgentProfileCap === 'function') {
+          ensureAgentProfileCap().catch(function () {});
+        }
       }).catch(function (err) {
         console.warn('Cap bootstrap failed:', err);
         capsReady = false;
@@ -1983,10 +2033,11 @@ const FSSLTransport = (function () {
   }
 
   function applyCapGrant(caps, source) {
-    regionCaps = caps || {};
-    displayNamesCapUrl = FSCaps.findCap(caps, 'GetDisplayNames');
-    remoteParcelCapUrl = FSCaps.findCap(caps, 'RemoteParcelRequest');
-    chatSessionCapUrl = FSCaps.findCap(caps, 'ChatSessionRequest');
+    regionCaps = Object.assign({}, regionCaps, caps || {});
+    displayNamesCapUrl = FSCaps.findCap(regionCaps, 'GetDisplayNames');
+    remoteParcelCapUrl = FSCaps.findCap(regionCaps, 'RemoteParcelRequest');
+    chatSessionCapUrl = FSCaps.findCap(regionCaps, 'ChatSessionRequest');
+    agentProfileCapUrl = FSCaps.findCap(regionCaps, 'AgentProfile');
     rememberEventQueueCap(caps);
     capsReady = FSCaps.hasPresenceCaps(caps);
     rememberGoodSeedCapability();
@@ -2000,7 +2051,7 @@ const FSSLTransport = (function () {
       lastCapErrorNote = '';
       const count = Object.keys(caps || {}).length;
       FSErrors.info('caps', 'Region caps ready (' + count + ')' +
-        (source ? ' via ' + source : '') + '.', true);
+        (source ? ' via ' + source : '') + '.', false);
     }
     return caps;
   }
@@ -2620,7 +2671,7 @@ const FSSLTransport = (function () {
       };
     }
     if (!force && displayNamesCapUrl) {
-      return { GetDisplayNames: displayNamesCapUrl, RemoteParcelRequest: remoteParcelCapUrl };
+      return regionCaps;
     }
     if (capBootstrapPromise) {
       return capBootstrapPromise;
@@ -2672,10 +2723,55 @@ const FSSLTransport = (function () {
     return capBootstrapPromise;
   }
 
+  async function ensureAgentProfileCap() {
+    if (agentProfileCapUrl) return agentProfileCapUrl;
+    const seed = cleanCapUrl(loginData && loginData.seedCapability);
+    if (!seed || !bridge) return '';
+    const grantOpts = {
+      grantRounds: 3,
+      agentSessionId: (loginData && loginData.sessionId) || ''
+    };
+    const grantLists = [
+      FSCaps.PROFILE_REGION_CAP_NAMES,
+      FSCaps.REGION_CAP_NAMES
+    ];
+    let lastErr = null;
+    try {
+      if (circuit && circuit.pulseCircuit) {
+        await circuit.pulseCircuit();
+      }
+      updateBridgeCircuitContext();
+      for (let i = 0; i < grantLists.length; i++) {
+        try {
+          const caps = await FSCaps.fetchCapabilities(bridge, seed, grantLists[i], grantOpts);
+          applyCapGrant(caps, 'AgentProfile');
+          if (agentProfileCapUrl) {
+            FSErrors.info('caps', 'AgentProfile cap ready.', false);
+            return agentProfileCapUrl;
+          }
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      if (lastErr) {
+        FSErrors.warn('caps', 'AgentProfile cap grant failed: ' + (lastErr.message || String(lastErr)), false);
+        console.warn('AgentProfile cap grant failed:', lastErr);
+      }
+      return '';
+    } catch (err) {
+      FSErrors.warn('caps', 'AgentProfile cap grant failed: ' + (err.message || String(err)), false);
+      console.warn('AgentProfile cap grant failed:', err);
+      return '';
+    }
+  }
+
   function invalidateRegionCaps(source) {
     if (!loginData) return;
     displayNamesCapUrl = null;
     remoteParcelCapUrl = null;
+    chatSessionCapUrl = null;
+    agentProfileCapUrl = null;
+    regionCaps = {};
     eventQueueCapUrl = null;
     FSEventQueue.stop(false, { force: true });
     capBootstrapPromise = null;
@@ -2855,6 +2951,7 @@ const FSSLTransport = (function () {
       }
       if (changed) {
         refreshNamedEntities();
+        emit('names-updated');
       }
     } catch (err) {
       console.warn('Display name lookup failed:', err);
@@ -2979,6 +3076,22 @@ const FSSLTransport = (function () {
       }
     }
 
+    const parcel = FSState.get().parcel;
+    if (parcel && !parcel.stub) {
+      const patch = {};
+      if (parcel.ownerId) {
+        const ownerName = getCachedName(parcel.ownerId);
+        if (ownerName && ownerName !== parcel.ownerName) patch.ownerName = ownerName;
+      }
+      if (parcel.groupId && typeof FSProfiles !== 'undefined') {
+        const groupName = FSProfiles.getGroupName(parcel.groupId);
+        if (groupName && groupName !== parcel.groupName) patch.groupName = groupName;
+      }
+      if (Object.keys(patch).length) {
+        emit('parcel', Object.assign({}, parcel, patch));
+      }
+    }
+
     chatSessions.forEach(function (session) {
       let rosterChanged = false;
       session.participants.forEach(function (row) {
@@ -2990,20 +3103,6 @@ const FSSLTransport = (function () {
       });
       if (rosterChanged) emitRoster(session);
     });
-
-    const parcel = FSState.get().parcel;
-    if (parcel && parcel.ownerId) {
-      const ownerName = getCachedName(parcel.ownerId);
-      const patch = {};
-      if (ownerName && ownerName !== parcel.ownerName) patch.ownerName = ownerName;
-      if (parcel.groupId) {
-        const groupName = getCachedName(parcel.groupId);
-        if (groupName && groupName !== parcel.groupName) patch.groupName = groupName;
-      }
-      if (Object.keys(patch).length) {
-        emit('parcel', Object.assign({}, parcel, patch));
-      }
-    }
   }
 
   function emit(event, data) {
@@ -3787,7 +3886,14 @@ const FSSLTransport = (function () {
       source: src
     };
     if (payload.groupId && payload.groupId !== ZERO_UUID && !payload.groupName) {
-      payload.groupName = pickDisplayName(payload.groupId, getCachedName(payload.groupId));
+      const groupName = typeof FSProfiles !== 'undefined'
+        ? FSProfiles.getGroupName(payload.groupId)
+        : '';
+      if (groupName) {
+        payload.groupName = groupName;
+      } else if (typeof FSProfiles !== 'undefined') {
+        FSProfiles.queueGroupName(payload.groupId);
+      }
     }
     payload.canEdit = FSUtils.canEditParcel(payload, agentId);
     if (p.parcelId) payload.parcelId = p.parcelId;
@@ -4381,7 +4487,92 @@ const FSSLTransport = (function () {
         lastParcelDiag = text;
         FSErrors.warn('parcel', text, true);
       }
+      return;
     }
+    if (evt.type === 'avatar-properties-reply' && evt.data) {
+      FSProfiles.handleAvatarPropertiesReply(evt.data);
+      return;
+    }
+    if (evt.type === 'group-profile-reply' && evt.data) {
+      FSProfiles.handleGroupProfileReply(evt.data);
+      refreshNamedEntities();
+      return;
+    }
+    if (evt.type === 'agent-group-data-update' && evt.data) {
+      FSProfiles.handleAgentGroupDataUpdate(evt.data);
+      refreshNamedEntities();
+      return;
+    }
+    if (evt.type === 'avatar-groups-reply' && evt.data) {
+      FSProfiles.handleAvatarGroupsReply(evt.data);
+      return;
+    }
+    if (evt.type === 'avatar-picks-reply' && evt.data) {
+      FSProfiles.handleAvatarPicksReply(evt.data);
+      return;
+    }
+    if (evt.type === 'avatar-notes-reply' && evt.data) {
+      FSProfiles.handleAvatarNotesReply(evt.data);
+      return;
+    }
+    if (evt.type === 'avatar-classified-reply' && evt.data) {
+      FSProfiles.handleAvatarClassifiedReply(evt.data);
+      return;
+    }
+    if (evt.type === 'pick-info-reply' && evt.data) {
+      FSProfiles.handlePickInfoReply(evt.data);
+      return;
+    }
+    if (evt.type === 'classified-info-reply' && evt.data) {
+      FSProfiles.handleClassifiedInfoReply(evt.data);
+      return;
+    }
+  }
+
+  function initProfiles() {
+    if (typeof FSProfiles === 'undefined') return;
+    FSProfiles.init({
+      getAgentProfileCap: function () { return agentProfileCapUrl; },
+      ensureAgentProfileCap: ensureAgentProfileCap,
+      fetchAgentProfileCap: function (agentId) {
+        if (!bridge) {
+          return Promise.reject(new Error('AgentProfile cap unavailable'));
+        }
+        const requestedId = FSProfiles.normId(agentId);
+        return ensureAgentProfileCap().then(function (capUrl) {
+          if (!capUrl) {
+            return Promise.reject(new Error('AgentProfile cap unavailable'));
+          }
+          const sessionId = (loginData && loginData.sessionId) || bridge.agentSessionId || '';
+          return FSCaps.fetchAgentProfile(bridge, capUrl, requestedId, {
+            agentSessionId: sessionId
+          }).then(function (data) {
+            return FSProfiles.mapAgentProfileCap(data, requestedId);
+          });
+        });
+      },
+      requestAvatarProperties: function (agentId) {
+        if (!circuit || !circuit.requestAvatarProperties) return Promise.resolve();
+        return circuit.requestAvatarProperties(agentId);
+      },
+      requestGroupProfile: function (groupId) {
+        if (!circuit || !circuit.requestGroupProfile) return Promise.resolve();
+        return circuit.requestGroupProfile(groupId);
+      },
+      sendAvatarGenericRequest: function (method, agentId) {
+        if (!circuit || !circuit.sendAvatarGenericRequest) return Promise.resolve();
+        return circuit.sendAvatarGenericRequest(method, agentId);
+      },
+      requestPickInfo: function (creatorId, pickId) {
+        if (!circuit || !circuit.sendPickInfoRequest) return Promise.resolve();
+        return circuit.sendPickInfoRequest(creatorId, pickId);
+      },
+      requestClassifiedInfo: function (classifiedId) {
+        if (!circuit || !circuit.requestClassifiedInfo) return Promise.resolve();
+        return circuit.requestClassifiedInfo(classifiedId);
+      },
+      isBuddy: isBuddy
+    });
   }
 
   async function resolveBuddyNames(buddies) {
@@ -4490,6 +4681,10 @@ const FSSLTransport = (function () {
       noteSeedUrl(loginData.seedCapability, 'login');
     }
     queueNameResolve(buddies.map(function (b) { return b.id; }));
+    initProfiles();
+    buddies.forEach(function (buddy) {
+      if (buddy && buddy.id) FSProfiles.queueAvatarThumb(buddy.id);
+    });
 
     const parcel = {
       localId: 0,
@@ -4550,6 +4745,7 @@ const FSSLTransport = (function () {
     displayNamesCapUrl = null;
     remoteParcelCapUrl = null;
     chatSessionCapUrl = null;
+    agentProfileCapUrl = null;
     chatSessions.clear();
     conferenceTempMap.clear();
     pendingChatAccepts.clear();
@@ -4604,6 +4800,7 @@ const FSSLTransport = (function () {
     refreshParcelQueued = false;
     lastParcelDiag = '';
     nameCache.clear();
+    if (typeof FSProfiles !== 'undefined') FSProfiles.clear();
     clearImDedup();
     clearPaymentDedup();
     pendingNameIds.clear();
@@ -5076,7 +5273,23 @@ const FSSLTransport = (function () {
     acceptCallingCard: acceptCallingCard,
     declineCallingCard: declineCallingCard,
     isBuddy: isBuddy,
+    isAgentOnline: isAgentOnline,
     offerFriendship: offerFriendship,
+    getCachedName: getCachedName,
+    getCachedNameInfo: getCachedNameInfo,
+    queueNameResolve: queueNameResolve,
+    getGroupName: function (groupId) {
+      return typeof FSProfiles !== 'undefined' ? FSProfiles.getGroupName(groupId) : '';
+    },
+    fetchAvatarProfile: function (agentId, options) {
+      return FSProfiles.fetchAvatarProfile(agentId, options);
+    },
+    fetchGroupProfile: function (groupId, options) {
+      return FSProfiles.fetchGroupProfile(groupId, options);
+    },
+    queueAvatarThumb: function (agentId) {
+      if (typeof FSProfiles !== 'undefined') FSProfiles.queueAvatarThumb(agentId);
+    },
     payResident: payResident,
     searchDirectory: searchDirectory,
     sendIm: sendIm,
