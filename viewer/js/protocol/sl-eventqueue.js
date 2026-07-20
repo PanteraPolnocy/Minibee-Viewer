@@ -16,7 +16,7 @@ const FSEventQueue = (function () {
   const EQ_POLL_MS = 95000;
   const EQ_POLL_MS_IDLE = 65000;
   const EQ_POLL_MIN_HOLD_MS = 10000;
-  const EQ_POLL_ERROR_RETRY_SECONDS = 1000;
+  const EQ_POLL_ERROR_RETRY_MS = 1000;
   const EQ_POLL_ERROR_RETRY_INC_MS = 3000;
   const EQ_POLL_MAX_ERRORS = 15;
   let teleportActive = false;
@@ -370,7 +370,7 @@ const FSEventQueue = (function () {
   }
 
   function handoffRetryDelayMs() {
-    return EQ_POLL_ERROR_RETRY_SECONDS +
+    return EQ_POLL_ERROR_RETRY_MS +
       handoffErrorCount * EQ_POLL_ERROR_RETRY_INC_MS;
   }
 

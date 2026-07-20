@@ -174,25 +174,24 @@ const FSSLBinary = (function () {
   function fromUtf8(buf, start, len) { return td.decode(buf.subarray(start, start + len)); }
 
   function zerocodeEncode(buf, start, end) {
-    let saved = 0;
+    let outLen = start;
     let zero = 0;
     for (let i = start; i <= end; i++) {
-      if (buf[i] === 0) zero++;
-      else if (zero > 0) { saved += zero - 2; zero = 0; }
+      if (buf[i] === 0) { zero++; continue; }
+      if (zero > 0) { outLen += 2 * Math.ceil(zero / 255); zero = 0; }
+      outLen++;
     }
-    if (zero > 0) saved += zero - 2;
-    const out = new Uint8Array(end + 1 - saved);
+    if (zero > 0) outLen += 2 * Math.ceil(zero / 255);
+    const out = new Uint8Array(outLen);
     out.set(buf.subarray(0, start));
     let oi = start;
     zero = 0;
     for (let i = start; i <= end; i++) {
-      if (buf[i] === 0) zero++;
-      else {
-        if (zero > 0) { out[oi++] = 0; out[oi++] = zero; zero = 0; }
-        out[oi++] = buf[i];
-      }
+      if (buf[i] === 0) { zero++; continue; }
+      while (zero > 0) { const run = zero > 255 ? 255 : zero; out[oi++] = 0; out[oi++] = run; zero -= run; }
+      out[oi++] = buf[i];
     }
-    if (zero > 0) { out[oi++] = 0; out[oi++] = zero; }
+    while (zero > 0) { const run = zero > 255 ? 255 : zero; out[oi++] = 0; out[oi++] = run; zero -= run; }
     return out;
   }
 

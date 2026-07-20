@@ -1,21 +1,21 @@
 /**
  * HTTP client for the Minibee bridge daemons.
  *
- * Caps bridge (8765): UI, login, proxy, map.
- * Poll bridge (8766): UDP circuit only - never shares a process with long proxy calls.
+ * Caps bridge (8794): UI, login, proxy, map.
+ * Poll bridge (8795): UDP circuit only - never shares a process with long proxy calls.
  *
  * Circuit poll/exchange/send use the poll URL on a priority lane (immediate fetch).
  */
 const FSBridge = (function () {
   'use strict';
 
-  const DEFAULT_CAPS_URL = 'http://127.0.0.1:8765';
-  const DEFAULT_POLL_URL = 'http://127.0.0.1:8766';
+  const DEFAULT_CAPS_URL = 'http://127.0.0.1:8794';
+  const DEFAULT_POLL_URL = 'http://127.0.0.1:8795';
 
   function derivePollUrl(capsUrl) {
     try {
       const u = new URL(capsUrl || DEFAULT_CAPS_URL);
-      const port = parseInt(u.port || '8765', 10);
+      const port = parseInt(u.port || '8794', 10);
       u.port = String(port + 1);
       return u.origin;
     } catch (_e) {

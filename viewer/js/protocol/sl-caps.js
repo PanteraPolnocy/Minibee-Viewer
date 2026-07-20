@@ -343,6 +343,95 @@ const FSCaps = (function () {
     return names;
   }
 
+  function xmlText(value) {
+    return String(value === undefined || value === null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function chatSessionBodyXml(payload) {
+    const p = payload || {};
+    let inner = '<key>method</key><string>' + xmlText(p.method) + '</string>';
+    if (p.sessionId) {
+      inner += '<key>session-id</key><uuid>' + xmlText(p.sessionId) + '</uuid>';
+    }
+    if (Array.isArray(p.params)) {
+      let arr = '';
+      p.params.forEach(function (id) {
+        if (id) arr += '<uuid>' + xmlText(id) + '</uuid>';
+      });
+      inner += '<key>params</key><array>' + arr + '</array>';
+    } else if (p.muteParams && typeof p.muteParams === 'object') {
+      const mp = p.muteParams;
+      const mi = mp.mute_info || {};
+      let info = '';
+      Object.keys(mi).forEach(function (key) {
+        info += '<key>' + xmlText(key) + '</key><boolean>' +
+          (mi[key] ? '1' : '0') + '</boolean>';
+      });
+      inner += '<key>params</key><map>' +
+        '<key>agent_id</key><uuid>' + xmlText(mp.agent_id) + '</uuid>' +
+        '<key>mute_info</key><map>' + info + '</map>' +
+        '</map>';
+    }
+    if (p.altParams && typeof p.altParams === 'object') {
+      let alt = '';
+      Object.keys(p.altParams).forEach(function (key) {
+        alt += '<key>' + xmlText(key) + '</key><string>' +
+          xmlText(p.altParams[key]) + '</string>';
+      });
+      inner += '<key>alt_params</key><map>' + alt + '</map>';
+    }
+    return '<?xml version="1.0"?><llsd><map>' + inner + '</map></llsd>';
+  }
+
+  async function chatSessionRequest(bridge, capUrl, payload, sessionAuthId) {
+    const base = normalizeCapEndpoint(capUrl);
+    if (!base) throw new Error('ChatSessionRequest capability unavailable');
+    const proxyOpts = {
+      body: chatSessionBodyXml(payload),
+      contentType: 'application/llsd+xml'
+    };
+    if (sessionAuthId) proxyOpts.agentSessionId = sessionAuthId;
+    const resp = await proxyRequest(bridge, base, proxyOpts);
+    return parseCapBody(resp);
+  }
+
+  function chatSessionAccept(bridge, capUrl, sessionId, sessionAuthId) {
+    return chatSessionRequest(bridge, capUrl,
+      { method: 'accept invitation', sessionId: sessionId }, sessionAuthId);
+  }
+
+  function chatSessionDecline(bridge, capUrl, sessionId, sessionAuthId) {
+    return chatSessionRequest(bridge, capUrl,
+      { method: 'decline invitation', sessionId: sessionId }, sessionAuthId);
+  }
+
+  function chatSessionStartConference(bridge, capUrl, tempSessionId, agentIds, sessionAuthId) {
+    return chatSessionRequest(bridge, capUrl, {
+      method: 'start conference',
+      sessionId: tempSessionId,
+      params: (agentIds || []).filter(Boolean)
+    }, sessionAuthId);
+  }
+
+  function chatSessionInvite(bridge, capUrl, sessionId, agentIds, sessionAuthId) {
+    return chatSessionRequest(bridge, capUrl, {
+      method: 'invite',
+      sessionId: sessionId,
+      params: (agentIds || []).filter(Boolean)
+    }, sessionAuthId);
+  }
+
+  function chatSessionModerate(bridge, capUrl, sessionId, agentId, muteText, sessionAuthId) {
+    return chatSessionRequest(bridge, capUrl, {
+      method: 'mute update',
+      sessionId: sessionId,
+      muteParams: { agent_id: agentId, mute_info: { text: !!muteText } }
+    }, sessionAuthId);
+  }
+
   async function resolveAgentNames(bridge, capUrl, agentIds, sessionId) {
     const ids = (agentIds || []).filter(Boolean);
     const base = normalizeCapEndpoint(capUrl);
@@ -537,6 +626,12 @@ const FSCaps = (function () {
     fetchCapabilities: fetchCapabilities,
     resolveDisplayNames: resolveDisplayNames,
     resolveAgentNames: resolveAgentNames,
+    chatSessionRequest: chatSessionRequest,
+    chatSessionAccept: chatSessionAccept,
+    chatSessionDecline: chatSessionDecline,
+    chatSessionStartConference: chatSessionStartConference,
+    chatSessionInvite: chatSessionInvite,
+    chatSessionModerate: chatSessionModerate,
     agentNameRecord: agentNameRecord,
     enrichBuddies: enrichBuddies,
     fetchRemoteParcel: fetchRemoteParcel,

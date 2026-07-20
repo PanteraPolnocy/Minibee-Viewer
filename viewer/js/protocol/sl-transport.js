@@ -12,6 +12,12 @@ const FSSLTransport = (function () {
   const nameCache = new Map();
   const IM_TYPING_START = 41;
   const IM_TYPING_STOP = 42;
+  const IM_SESSION_INVITE = 13;
+  const IM_SESSION_P2P_INVITE = 14;
+  const IM_SESSION_GROUP_START = 15;
+  const IM_SESSION_CONFERENCE_START = 16;
+  const IM_SESSION_SEND = 17;
+  const IM_SESSION_LEAVE = 18;
 
   function agentFullName() {
     if (!loginData) return '';
@@ -111,11 +117,11 @@ const FSSLTransport = (function () {
     recentPaymentKeys.clear();
   }
 
-  function isDuplicateIm(data) {
+  function isDuplicateIm(data, isSessionIm) {
     const now = Date.now();
     pruneImDedup(now);
     const imId = normAgentId(data.imId);
-    if (imId && imId !== ZERO_UUID) {
+    if (!isSessionIm && imId && imId !== ZERO_UUID) {
       if (recentImIds.has(imId)) return true;
       recentImIds.set(imId, now);
       return false;
@@ -123,7 +129,8 @@ const FSSLTransport = (function () {
     const fromId = normAgentId(data.fromAgentId);
     const text = String(data.text || '');
     if (!fromId || !text) return false;
-    const key = fromId + '\0' + String(data.dialog || 0) + '\0' + text;
+    const key = (isSessionIm ? imId : '') + '\0' + fromId + '\0' +
+      String(data.dialog || 0) + '\0' + text;
     const last = recentImFallback.get(key);
     if (last && now - last < IM_DEDUP_FALLBACK_MS) return true;
     recentImFallback.set(key, now);
@@ -230,6 +237,10 @@ const FSSLTransport = (function () {
   let nameResolveTimer = null;
   let displayNamesCapUrl = null;
   let remoteParcelCapUrl = null;
+  let chatSessionCapUrl = null;
+  const chatSessions = new Map();
+  const conferenceTempMap = new Map();
+  const pendingChatAccepts = new Set();
   let regionCaps = {};
   let eventQueueCapUrl = null;
   let eventQueueRecoverPromise = null;
@@ -1975,6 +1986,7 @@ const FSSLTransport = (function () {
     regionCaps = caps || {};
     displayNamesCapUrl = FSCaps.findCap(caps, 'GetDisplayNames');
     remoteParcelCapUrl = FSCaps.findCap(caps, 'RemoteParcelRequest');
+    chatSessionCapUrl = FSCaps.findCap(caps, 'ChatSessionRequest');
     rememberEventQueueCap(caps);
     capsReady = FSCaps.hasPresenceCaps(caps);
     rememberGoodSeedCapability();
@@ -1991,6 +2003,253 @@ const FSSLTransport = (function () {
         (source ? ' via ' + source : '') + '.', true);
     }
     return caps;
+  }
+
+  function sessionKey(id) {
+    return String(id || '').toLowerCase();
+  }
+
+  function bucketToText(value) {
+    if (!value) return '';
+    let text = '';
+    if (typeof value === 'string') {
+      text = value;
+    } else if (value instanceof Uint8Array) {
+      try {
+        text = new TextDecoder('utf-8').decode(value);
+      } catch (err) {
+        text = String.fromCharCode.apply(null, value);
+      }
+    } else {
+      return '';
+    }
+    const nul = text.indexOf('\u0000');
+    if (nul >= 0) text = text.slice(0, nul);
+    return text.trim();
+  }
+
+  function ensureChatSession(sessionId, type, title) {
+    const key = sessionKey(sessionId);
+    let session = chatSessions.get(key);
+    if (!session) {
+      session = {
+        id: String(sessionId),
+        type: type || 'conference',
+        title: title || '',
+        participants: new Map()
+      };
+      chatSessions.set(key, session);
+    } else {
+      if (type && type === 'group') session.type = 'group';
+      if (title && !session.title) session.title = title;
+    }
+    return session;
+  }
+
+  function rosterArray(session) {
+    const rows = [];
+    session.participants.forEach(function (row) {
+      rows.push({
+        id: row.id,
+        name: pickDisplayName(row.id, row.name),
+        online: row.online !== false,
+        isModerator: !!row.isModerator,
+        muted: !!row.muted
+      });
+    });
+    rows.sort(function (a, b) {
+      if (!!a.isModerator !== !!b.isModerator) return a.isModerator ? -1 : 1;
+      return String(a.name).localeCompare(String(b.name));
+    });
+    return rows;
+  }
+
+  function emitRoster(session) {
+    if (!session) return;
+    emit('im-roster', {
+      sessionId: session.id,
+      type: session.type,
+      title: session.title,
+      moderator: !!session.localModerator,
+      participants: rosterArray(session)
+    });
+  }
+
+  // Parse the LLSD agent-list payload used by both ChatterBoxSessionStartReply
+  // (initial roster) and ChatterBoxSessionAgentListUpdates (deltas). Mirrors
+  // LLIMSpeakerMgr::setSpeakers / updateSpeakers.
+  function applyAgentUpdates(session, body) {
+    if (!body || typeof body !== 'object') return false;
+    let changed = false;
+    const newIds = [];
+
+    function addParticipant(agentId, info) {
+      const id = normAgentId(agentId);
+      if (!id || id === ZERO_UUID) return;
+      let row = session.participants.get(id);
+      if (!row) {
+        row = { id: id, name: '', online: true, isModerator: false, muted: false };
+        session.participants.set(id, row);
+        newIds.push(id);
+        changed = true;
+      }
+      if (info && typeof info === 'object') {
+        if (info.is_moderator !== undefined) row.isModerator = !!info.is_moderator;
+        if (info.mutes && info.mutes.text !== undefined) row.muted = !!info.mutes.text;
+      }
+    }
+
+    function removeParticipant(agentId) {
+      const id = normAgentId(agentId);
+      if (session.participants.delete(id)) changed = true;
+    }
+
+    if (Array.isArray(body.agents)) {
+      body.agents.forEach(function (id) { addParticipant(id, null); });
+    }
+    if (body.agent_info && typeof body.agent_info === 'object') {
+      Object.keys(body.agent_info).forEach(function (id) {
+        addParticipant(id, body.agent_info[id]);
+      });
+    }
+
+    if (body.agent_updates && typeof body.agent_updates === 'object') {
+      Object.keys(body.agent_updates).forEach(function (id) {
+        const entry = body.agent_updates[id] || {};
+        if (entry.transition === 'LEAVE') {
+          removeParticipant(id);
+        } else {
+          addParticipant(id, entry.info);
+        }
+      });
+    }
+
+    if (body.updates && typeof body.updates === 'object') {
+      Object.keys(body.updates).forEach(function (id) {
+        if (body.updates[id] === 'LEAVE') removeParticipant(id);
+        else addParticipant(id, null);
+      });
+    }
+
+    const selfId = normAgentId(loginData && loginData.agent ? loginData.agent.id : '');
+    const selfRow = selfId ? session.participants.get(selfId) : null;
+    if (selfRow) session.localModerator = !!selfRow.isModerator;
+
+    if (newIds.length) queueNameResolve(newIds);
+    return changed;
+  }
+
+  function getChatSessionCap() {
+    return chatSessionCapUrl || FSCaps.findCap(regionCaps, 'ChatSessionRequest');
+  }
+
+  async function acceptChatInvitation(sessionId) {
+    const key = sessionKey(sessionId);
+    if (pendingChatAccepts.has(key)) return;
+    const cap = getChatSessionCap();
+    if (!bridge || !cap) return;
+    pendingChatAccepts.add(key);
+    try {
+      await FSCaps.chatSessionAccept(bridge, cap, sessionId,
+        loginData && loginData.agent ? loginData.agent.sessionId : null);
+      FSErrors.info('im', 'Joined chat session ' + String(sessionId).slice(0, 8), false);
+    } catch (err) {
+      FSErrors.warn('im', 'Could not accept chat invitation: ' +
+        (err && err.message ? err.message : err), false);
+    } finally {
+      pendingChatAccepts.delete(key);
+    }
+  }
+
+  function handleChatterBoxInvitation(body) {
+    if (!loginData) return;
+    const im = body && (body.instantmessage || body.instant_message);
+    if (!im) return;
+    const mp = im.message_params || im.messageParams || {};
+    const fromId = normAgentId(mp.from_id || mp.fromId);
+    const sessionId = String(mp.id || mp.session_id || mp.sessionId || '');
+    if (!fromId || !sessionId || sessionId === ZERO_UUID) return;
+    const agentId = normAgentId(loginData.agent.id);
+    if (fromId === agentId) return;
+
+    const fromName = String(mp.from_name || mp.fromName || '');
+    if (fromName) cacheName(fromId, fromName);
+    queueNameResolve([fromId]);
+    const displayName = pickDisplayName(fromId, fromName);
+
+    const bucket = mp.data ? (mp.data.binary_bucket || mp.data.binaryBucket) : mp.binary_bucket;
+    const title = bucketToText(bucket);
+    const session = ensureChatSession(sessionId, 'conference', title);
+
+    const text = String(mp.message || '');
+    if (text && !isDuplicateIm({
+      imId: sessionId, fromAgentId: fromId,
+      dialog: IM_SESSION_SEND, text: text
+    }, true)) {
+      emit('im', {
+        sessionId: sessionId,
+        participant: { id: fromId, name: displayName, online: true },
+        session: { id: sessionId, type: session.type, title: session.title },
+        message: {
+          id: FSUtils.uuid(),
+          imId: sessionId,
+          fromId: fromId,
+          fromName: displayName,
+          text: text,
+          outgoing: false,
+          timestamp: Date.now()
+        }
+      });
+    }
+    acceptChatInvitation(sessionId);
+  }
+
+  function handleAgentListUpdates(body) {
+    const sessionId = String((body && (body.session_id || body.sessionId)) || '');
+    if (!sessionId) return;
+    const session = ensureChatSession(sessionId, null, '');
+    if (applyAgentUpdates(session, body)) {
+      emitRoster(session);
+    }
+  }
+
+  function handleSessionStartReply(body) {
+    if (!body) return;
+    const tempId = String(body.temp_session_id || body.tempSessionId || '');
+    const realId = String(body.session_id || body.sessionId || '');
+    const success = body.success === undefined ? true : !!body.success;
+    if (!success) {
+      if (tempId) {
+        chatSessions.delete(sessionKey(tempId));
+        emit('im-session-force-close', {
+          sessionId: tempId,
+          reason: String(body.error || 'Could not start chat session')
+        });
+      }
+      return;
+    }
+    if (!realId) return;
+
+    let session = chatSessions.get(sessionKey(tempId));
+    const title = (session && session.title) ||
+      bucketToText(body.session_name) || '';
+    if (session && sessionKey(tempId) !== sessionKey(realId)) {
+      // Ad-hoc conference: migrate the temp session id to the sim-assigned id.
+      conferenceTempMap.set(sessionKey(tempId), realId);
+      chatSessions.delete(sessionKey(tempId));
+      session.id = realId;
+      chatSessions.set(sessionKey(realId), session);
+      emit('im-session-remap', {
+        tempId: tempId,
+        sessionId: realId,
+        type: session.type,
+        title: session.title
+      });
+    } else {
+      session = ensureChatSession(realId, null, title);
+    }
+    applyAgentUpdates(session, body);
+    emitRoster(session);
   }
 
   function handleEventQueueMessage(ev) {
@@ -2062,6 +2321,36 @@ const FSSLTransport = (function () {
         circuit._agentParcelLocalId = parcel.localId;
       }
       emitParcelFromData(parcel, 'eventqueue');
+      return;
+    }
+    if (name === 'ChatterBoxInvitation') {
+      handleChatterBoxInvitation(body);
+      return;
+    }
+    if (name === 'ChatterBoxSessionAgentListUpdates') {
+      handleAgentListUpdates(body);
+      return;
+    }
+    if (name === 'ChatterBoxSessionStartReply') {
+      handleSessionStartReply(body);
+      return;
+    }
+    if (name === 'ForceCloseChatterBoxSession') {
+      const sid = String((body && (body.session_id || body.sessionId)) || '');
+      if (sid) {
+        chatSessions.delete(sessionKey(sid));
+        emit('im-session-force-close', {
+          sessionId: sid,
+          reason: String((body && body.reason) || 'The chat session was closed')
+        });
+      }
+      return;
+    }
+    if (name === 'ChatterBoxSessionEventReply') {
+      if (body && body.success === false) {
+        FSErrors.warn('im', 'Chat session error: ' +
+          String(body.error || body.event || 'unknown'), false);
+      }
       return;
     }
     if (pendingTeleportLoc) {
@@ -2689,6 +2978,18 @@ const FSSLTransport = (function () {
         emit('radar-update', updated);
       }
     }
+
+    chatSessions.forEach(function (session) {
+      let rosterChanged = false;
+      session.participants.forEach(function (row) {
+        const resolved = getCachedName(row.id);
+        if (resolved && resolved !== row.name) {
+          row.name = resolved;
+          rosterChanged = true;
+        }
+      });
+      if (rosterChanged) emitRoster(session);
+    });
 
     const parcel = FSState.get().parcel;
     if (parcel && parcel.ownerId) {
@@ -3485,11 +3786,8 @@ const FSSLTransport = (function () {
       stub: false,
       source: src
     };
-    if (payload.groupId && payload.groupId !== ZERO_UUID) {
-      queueNameResolve([payload.groupId]);
-      if (!payload.groupName) {
-        payload.groupName = pickDisplayName(payload.groupId, getCachedName(payload.groupId));
-      }
+    if (payload.groupId && payload.groupId !== ZERO_UUID && !payload.groupName) {
+      payload.groupName = pickDisplayName(payload.groupId, getCachedName(payload.groupId));
     }
     payload.canEdit = FSUtils.canEditParcel(payload, agentId);
     if (p.parcelId) payload.parcelId = p.parcelId;
@@ -3769,13 +4067,27 @@ const FSSLTransport = (function () {
       const agentId = normAgentId(loginData.agent.id);
       const fromId = normAgentId(evt.data.fromAgentId);
       const toId = normAgentId(evt.data.toAgentId);
+      const dialog = evt.data.dialog || 0;
+      const fromGroup = !!evt.data.fromGroup;
+      const isSessionIm = fromGroup ||
+        dialog === IM_SESSION_SEND ||
+        dialog === IM_SESSION_GROUP_START ||
+        dialog === IM_SESSION_CONFERENCE_START;
       if (!fromId || fromId === agentId) return;
-      if (toId && toId !== agentId &&
-          toId !== '00000000-0000-0000-0000-000000000000') {
+      if (toId && toId !== agentId && toId !== ZERO_UUID && !isSessionIm) {
         return;
       }
-      const dialog = evt.data.dialog || 0;
       if (dialog === IM_TYPING_START || dialog === IM_TYPING_STOP) {
+        if (!isSessionIm) {
+          if (evt.data.fromName) cacheName(fromId, evt.data.fromName);
+          queueNameResolve([fromId]);
+          emit('im-typing', {
+            sessionId: FSUtils.xorSessionId(agentId, fromId),
+            fromId: fromId,
+            fromName: pickDisplayName(fromId, evt.data.fromName),
+            typing: dialog === IM_TYPING_START
+          });
+        }
         return;
       }
       if (evt.data.fromName) {
@@ -3827,29 +4139,60 @@ const FSSLTransport = (function () {
       if (!String(evt.data.text || '').trim()) {
         return;
       }
-      if (isDuplicateIm(evt.data)) {
+      if (isDuplicateIm(evt.data, isSessionIm)) {
         return;
       }
-      const sessionId = FSUtils.xorSessionId(agentId, fromId);
       const participant = {
         id: fromId,
         name: displayName,
         online: evt.data.offline === 0
       };
-      const imId = evt.data.imId || FSUtils.uuid();
-      emit('im', {
+      const sessionImId = evt.data.imId && evt.data.imId !== ZERO_UUID
+        ? evt.data.imId : '';
+      let sessionId;
+      let sessionDescriptor = null;
+      let messageId;
+      let messageImId;
+      if (isSessionIm && sessionImId) {
+        sessionId = sessionImId;
+        messageId = FSUtils.uuid();
+        messageImId = sessionImId;
+        const sessionType = fromGroup ? 'group' : 'conference';
+        const title = bucketToText(evt.data.binaryBucket);
+        const session = ensureChatSession(sessionId, sessionType, title);
+        if (fromGroup) session.type = 'group';
+        if (!session.participants.has(fromId)) {
+          session.participants.set(fromId, {
+            id: fromId, name: displayName, online: true,
+            isModerator: false, muted: false
+          });
+          emitRoster(session);
+        }
+        sessionDescriptor = {
+          id: sessionId,
+          type: session.type,
+          title: session.title || title || (fromGroup ? 'Group chat' : 'Conference')
+        };
+      } else {
+        sessionId = FSUtils.xorSessionId(agentId, fromId);
+        messageId = evt.data.imId || FSUtils.uuid();
+        messageImId = messageId;
+      }
+      const imPayload = {
         sessionId: sessionId,
         participant: participant,
         message: {
-          id: imId,
-          imId: imId,
+          id: messageId,
+          imId: messageImId,
           fromId: fromId,
           fromName: displayName,
           text: evt.data.text,
           outgoing: false,
           timestamp: Date.now()
         }
-      });
+      };
+      if (sessionDescriptor) imPayload.session = sessionDescriptor;
+      emit('im', imPayload);
     }
     if (evt.type === 'radar' && evt.data) {
       const coarse = evt.data;
@@ -4206,6 +4549,10 @@ const FSSLTransport = (function () {
     loginData = null;
     displayNamesCapUrl = null;
     remoteParcelCapUrl = null;
+    chatSessionCapUrl = null;
+    chatSessions.clear();
+    conferenceTempMap.clear();
+    pendingChatAccepts.clear();
     eventQueueCapUrl = null;
     if (eventQueueRestartTimer) {
       clearTimeout(eventQueueRestartTimer);
@@ -4295,18 +4642,21 @@ const FSSLTransport = (function () {
     if (simActionsBlocked() || !loginData) return;
     const session = FSState.get().imSessions[sessionId];
     if (!session) return;
-    const toId = normAgentId(session.participant.id);
+    const isSessionChat = session.type === 'group' || session.type === 'conference';
+    const toId = isSessionChat ? sessionId : normAgentId(session.participant.id);
     const fromName = loginData.agent.first + ' ' + loginData.agent.last;
     const regionId = (circuit && circuit.regionId) ||
       (loginData.region && loginData.region.id) ||
       '00000000-0000-0000-0000-000000000000';
-    const imId = FSUtils.uuid();
-    circuit.sendIm(toId, text, fromName, regionId, { imId: imId });
-    emit('im', {
+    const imId = isSessionChat ? sessionId : FSUtils.uuid();
+    const sendOpts = { imId: imId };
+    if (isSessionChat) sendOpts.dialog = IM_SESSION_SEND;
+    circuit.sendIm(toId, text, fromName, regionId, sendOpts);
+    const payload = {
       sessionId: sessionId,
       participant: session.participant,
       message: {
-        id: imId,
+        id: isSessionChat ? FSUtils.uuid() : imId,
         imId: imId,
         fromId: loginData.agent.id,
         fromName: loginData.agent.displayName,
@@ -4314,7 +4664,126 @@ const FSSLTransport = (function () {
         outgoing: true,
         timestamp: Date.now()
       }
+    };
+    if (isSessionChat) {
+      payload.session = { id: sessionId, type: session.type, title: session.title };
+    }
+    emit('im', payload);
+  }
+
+  function openGroupChat(groupId, groupName) {
+    if (simActionsBlocked() || !loginData || !circuit) return null;
+    const id = String(groupId || '');
+    if (!id || id === ZERO_UUID) return null;
+    const session = ensureChatSession(id, 'group', groupName || '');
+    const fromName = agentFullName();
+    circuit.sendIm(id, '', fromName, currentRegionId(), {
+      dialog: IM_SESSION_GROUP_START,
+      imId: id,
+      binaryBucket: ''
     });
+    emit('im-session-open', { sessionId: id, type: 'group', title: session.title });
+    emitRoster(session);
+    return id;
+  }
+
+  async function startConference(agentIds, title) {
+    if (simActionsBlocked() || !loginData) {
+      throw new Error('Not connected');
+    }
+    const ids = (agentIds || []).map(normAgentId).filter(function (id) {
+      return id && id !== ZERO_UUID && id !== normAgentId(loginData.agent.id);
+    });
+    if (!ids.length) throw new Error('Select at least one participant');
+    const cap = getChatSessionCap();
+    if (!cap) throw new Error('Conference chat is unavailable on this region');
+
+    const tempId = FSUtils.uuid();
+    const session = ensureChatSession(tempId, 'conference', title || '');
+    ids.forEach(function (id) {
+      session.participants.set(id, {
+        id: id, name: pickDisplayName(id, ''), online: true,
+        isModerator: false, muted: false
+      });
+    });
+    queueNameResolve(ids);
+    emit('im-session-open', { sessionId: tempId, type: 'conference', title: session.title });
+    emitRoster(session);
+
+    try {
+      await FSCaps.chatSessionStartConference(bridge, cap, tempId, ids,
+        loginData.agent ? loginData.agent.sessionId : null);
+    } catch (err) {
+      chatSessions.delete(sessionKey(tempId));
+      emit('im-session-cleanup', { sessionId: tempId });
+      throw err;
+    }
+    return tempId;
+  }
+
+  function leaveImSession(sessionId) {
+    const id = String(sessionId || '');
+    if (!id) return;
+    const session = chatSessions.get(sessionKey(id));
+    if (loginData && circuit && !simActionsBlocked() &&
+        session && (session.type === 'group' || session.type === 'conference')) {
+      circuit.sendIm(id, '', agentFullName(), currentRegionId(), {
+        dialog: IM_SESSION_LEAVE,
+        imId: id,
+        binaryBucket: ''
+      });
+    }
+    chatSessions.delete(sessionKey(id));
+  }
+
+  function sendTypingState(sessionId, typing) {
+    if (simActionsBlocked() || !loginData || !circuit) return;
+    const session = FSState.get().imSessions[sessionId];
+    if (!session || !session.participant) return;
+    if (session.type === 'group' || session.type === 'conference') return;
+    const toId = normAgentId(session.participant.id);
+    if (!toId || toId === ZERO_UUID) return;
+    circuit.sendIm(toId, 'typing', agentFullName(), currentRegionId(), {
+      dialog: typing ? IM_TYPING_START : IM_TYPING_STOP,
+      imId: sessionId
+    });
+  }
+
+  async function inviteToSession(sessionId, agentIds) {
+    if (simActionsBlocked() || !loginData) throw new Error('Not connected');
+    const session = chatSessions.get(sessionKey(sessionId));
+    if (session && session.type === 'group') {
+      throw new Error('You cannot invite people to a group chat');
+    }
+    const cap = getChatSessionCap();
+    if (!cap) throw new Error('Conference invites are unavailable on this region');
+    const ids = (agentIds || []).map(normAgentId).filter(function (id) {
+      return id && id !== ZERO_UUID && id !== normAgentId(loginData.agent.id);
+    });
+    if (!ids.length) throw new Error('Select at least one participant');
+    await FSCaps.chatSessionInvite(bridge, cap, sessionId, ids,
+      loginData.agent ? loginData.agent.sessionId : null);
+    queueNameResolve(ids);
+    return ids.length;
+  }
+
+  async function moderateSessionText(sessionId, agentId, muteText) {
+    if (simActionsBlocked() || !loginData) throw new Error('Not connected');
+    const cap = getChatSessionCap();
+    if (!cap) throw new Error('Moderation is unavailable on this region');
+    const target = normAgentId(agentId);
+    if (!target || target === ZERO_UUID) throw new Error('Invalid participant');
+    await FSCaps.chatSessionModerate(bridge, cap, sessionId, target, !!muteText,
+      loginData.agent ? loginData.agent.sessionId : null);
+    const session = chatSessions.get(sessionKey(sessionId));
+    if (session) {
+      const row = session.participants.get(target);
+      if (row) {
+        row.muted = !!muteText;
+        emitRoster(session);
+      }
+    }
+    return !!muteText;
   }
 
   async function updateParcel(data) {
@@ -4611,6 +5080,12 @@ const FSSLTransport = (function () {
     payResident: payResident,
     searchDirectory: searchDirectory,
     sendIm: sendIm,
+    sendTypingState: sendTypingState,
+    openGroupChat: openGroupChat,
+    startConference: startConference,
+    leaveImSession: leaveImSession,
+    inviteToSession: inviteToSession,
+    moderateSessionText: moderateSessionText,
     sendTeleportOffer: sendTeleportOffer,
     sendTeleportRequest: sendTeleportRequest,
     acceptTeleportOffer: acceptTeleportOffer,

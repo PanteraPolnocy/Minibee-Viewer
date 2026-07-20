@@ -1370,11 +1370,277 @@ html.require-http #app {
   position: relative;
 }
 
+.im-sessions-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.im-sessions__toolbar {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-deep);
+  flex-shrink: 0;
+}
+
+.im-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  justify-content: center;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.im-new-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 .im-sessions {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+.im-thread__body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.im-thread__body[hidden] { display: none; }
+
+.im-thread__body #im-messages {
+  flex: 1;
+  min-width: 0;
+}
+
+.im-roster {
+  width: 176px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.im-roster[hidden] { display: none; }
+
+.im-roster__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.im-roster__count {
+  background: var(--bg-input);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  color: var(--text);
+}
+
+.im-roster__list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0;
+}
+
+.im-roster__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px 4px 10px;
+  color: var(--text);
+  border-radius: 6px;
+}
+
+.im-roster__item:hover { background: var(--bg-surface); }
+
+.im-roster__name-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.im-roster__name-btn--static { cursor: default; }
+
+.im-roster__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.im-roster__dot--online { background: var(--success, #3fb950); }
+
+.im-roster__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.im-roster__name--muted {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.im-roster__mod {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.im-roster__mute {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.im-roster__item:hover .im-roster__mute,
+.im-roster__mute--active { opacity: 1; }
+
+.im-roster__mute:hover { background: var(--bg-input); color: var(--text); }
+
+.im-roster__mute--active { color: var(--danger, #f85149); }
+
+.im-typing[hidden] { display: none; }
+
+.im-typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px 6px;
+  min-height: 20px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.im-typing__dots {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.im-typing__dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.4;
+  animation: im-typing-bounce 1.2s infinite ease-in-out;
+}
+
+.im-typing__dots span:nth-child(2) { animation-delay: 0.2s; }
+.im-typing__dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes im-typing-bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+.im-session__preview--typing {
+  color: var(--accent);
+  font-style: italic;
+}
+
+.im-session__muted-glyph {
+  margin-left: 4px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.conference-dialog__hint {
+  margin: 4px 0 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.conference-picker {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+}
+
+.conference-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.conference-picker__row:hover { background: var(--bg-surface); }
+
+.conference-picker__empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.field-with-action {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.field-with-action input { flex: 1; min-width: 0; }
+
+.land-group-chat {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+}
+
+.land-group-chat[hidden] { display: none; }
 
 .im-thread {
   display: flex;
@@ -1438,6 +1704,13 @@ html.require-http #app {
   font-weight: 700;
   line-height: 1;
 }
+
+.im-action-btn--active {
+  color: var(--accent);
+  background: var(--bg-input);
+}
+
+.im-thread__actions .icon-btn[hidden] { display: none; }
 
 .im-thread__actions .icon-btn {
   font-size: 0.72rem;
@@ -1553,6 +1826,31 @@ html.require-http #app {
   height: 10px;
   border-radius: 50%;
   background: var(--online);
+  border: 2px solid var(--bg-surface);
+}
+
+.im-session__avatar--session {
+  background: var(--bg-input);
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-input));
+  color: var(--accent);
+}
+
+.im-session__avatar svg { display: block; }
+
+.im-session__count {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
   border: 2px solid var(--bg-surface);
 }
 
@@ -2683,7 +2981,7 @@ html.require-http #app {
 
 @media (min-width: 481px) {
   .im-layout { flex-direction: row; }
-  .im-sessions { width: min(320px, 34%); border-right: 1px solid var(--border); flex: none; }
+  .im-sessions-pane { width: min(320px, 34%); border-right: 1px solid var(--border); flex: none; }
   .im-thread {
     position: relative;
     inset: auto;

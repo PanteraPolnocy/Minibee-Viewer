@@ -115,6 +115,20 @@ const FSLand = (function () {
     return '';
   }
 
+  const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
+
+  function updateGroupChatButton(parcel) {
+    const btn = document.getElementById('land-group-chat');
+    if (!btn) return;
+    const groupId = parcel && parcel.groupId;
+    const hasGroup = !!groupId && groupId !== ZERO_UUID;
+    btn.hidden = !hasGroup;
+    if (hasGroup) {
+      btn.dataset.groupId = groupId;
+      btn.dataset.groupName = parcel.groupName || '';
+    }
+  }
+
   function populateForm(parcel) {
     if (!parcel || parcel.stub) return;
 
@@ -134,6 +148,7 @@ const FSLand = (function () {
       : '');
     setFieldValue('land-owner', parcel.ownerName || parcel.ownerId || '');
     setFieldValue('land-group', parcel.groupName || parcel.groupId || '');
+    updateGroupChatButton(parcel);
     setFieldValue('land-prims', formatPrimLine(primsUsed, primsTotal));
     setFieldValue('land-region-prims', formatPrimLine(
       parcel.simWideTotalPrims || 0,
@@ -314,6 +329,14 @@ const FSLand = (function () {
         setLandTab(btn.getAttribute('data-land-tab'));
       });
     });
+
+    const groupChatBtn = document.getElementById('land-group-chat');
+    if (groupChatBtn && typeof FSIm !== 'undefined' && FSIm.openGroupChat) {
+      groupChatBtn.addEventListener('click', function () {
+        const groupId = groupChatBtn.dataset.groupId;
+        if (groupId) FSIm.openGroupChat(groupId, groupChatBtn.dataset.groupName || '');
+      });
+    }
 
     FSState.on('change', function (partial) {
       if (partial.parcel && partial.parcel.groupName && FSNavigation.isTabActive('land')) {

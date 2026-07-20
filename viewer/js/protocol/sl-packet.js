@@ -1983,8 +1983,8 @@ const FSSLCircuit = (function () {
   function parseImprovedInstantMessage(buf, pos) {
     const fromAgent = new B.UUID(buf.subarray(pos, pos + 16)).toString();
     pos += 16;
-    pos += 16; // SessionID
-    pos += 1; // FromGroup
+    pos += 16; // AgentData.SessionID - sender circuit session
+    const fromGroup = buf[pos++] !== 0; // MessageBlock.FromGroup
     const toAgent = new B.UUID(buf.subarray(pos, pos + 16)).toString();
     pos += 16;
     pos += 4; // ParentEstateID
@@ -1992,6 +1992,7 @@ const FSSLCircuit = (function () {
     pos += 12; // Position
     const offline = buf[pos++];
     const dialog = buf[pos++];
+    // MessageBlock.ID - the IM/session UUID (group or conference id for session dialogs)
     const imId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
     pos += 16;
     pos += 4; // Timestamp
@@ -2003,6 +2004,7 @@ const FSSLCircuit = (function () {
     return {
       fromAgentId: fromAgent,
       toAgentId: toAgent,
+      fromGroup: fromGroup,
       fromName: fromName.text,
       text: message.text,
       dialog: dialog,

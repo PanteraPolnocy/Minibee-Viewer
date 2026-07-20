@@ -58,6 +58,11 @@ const FSBuddies = (function () {
 
     const actions = [
       { label: 'Send IM', fn: function () { FSIm.startImWith(buddy); } },
+      { label: 'Start conference...', fn: function () {
+        if (FSIm && typeof FSIm.openConferenceDialog === 'function') {
+          FSIm.openConferenceDialog([buddy.id]);
+        }
+      } },
       { label: 'Profile', fn: function () { FSUtils.showToast('Profile: ' + buddy.name, 'success'); } },
       { label: 'Teleport offer', fn: function () { FSTeleportUI.offerTo(buddy.id, buddy.name); } },
       { label: 'Teleport request', fn: function () { FSTeleportUI.requestFrom(buddy.id, buddy.name); } },

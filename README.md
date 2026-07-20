@@ -1,10 +1,10 @@
 # Minibee Viewer (JS Experiment)
 
-Pure JavaScript / HTML / CSS / PHP UI for Second Life — chat, IM, events, search, radar, map, land, destination guide, and teleport. No 3D rendering.
+Pure JavaScript / HTML / CSS / PHP UI for Second Life - chat, IM (1:1, group, and conference), events, search, radar, map, land, destination guide, and teleport. No 3D rendering.
 
 ## Important notice
 
-Minibee is **experimental software** — a lightweight work-in-progress, not a finished or official Second Life client. It is not endorsed by Linden Lab or the Firestorm team.
+Minibee is **experimental software** - a lightweight work-in-progress, not a finished or official Second Life client. It is not endorsed by Linden Lab or the Firestorm team.
 
 **You choose to use it at your own responsibility.** That includes logging in, spending Linden dollars, accepting script permissions, opening URLs, and any other actions you take in-world. The code has been written carefully and in good faith, with attention to protocol correctness and sensible safety defaults (for example, script dialogs and permission prompts require an explicit tap before anything is sent back to the simulator). Even so, experimental code can have gaps, bugs, or behaviour that does not match a full viewer.
 
@@ -46,7 +46,7 @@ cd viewer
 php bridge/run.php
 ```
 
-`start-minibee.bat` and `run.php` start **poll** in the background and **caps** in the foreground in the **same window**. Ctrl+C stops both. `start-minibee.bat` also opens **`http://127.0.0.1:8765/`** in your default browser when the bridge is ready.
+`start-minibee.bat` and `run.php` start **poll** in the background and **caps** in the foreground in the **same window**. Ctrl+C stops both. `start-minibee.bat` also opens **`http://127.0.0.1:8794/`** in your default browser when the bridge is ready.
 
 To debug poll alone: `php bridge/poll.php` in a separate terminal (from `viewer/`).
 
@@ -72,7 +72,7 @@ If auto-download fails, the viewer shows a modal with manual steps. You can also
 
 ### Opening the viewer
 
-Run **`viewer/start-minibee.bat`** (Windows) or **`php bridge/run.php`** from `viewer/`. The batch launcher opens **`http://127.0.0.1:8765/`** automatically once the bridge is listening. You can also open that URL yourself at any time.
+Run **`viewer/start-minibee.bat`** (Windows) or **`php bridge/run.php`** from `viewer/`. The batch launcher opens **`http://127.0.0.1:8794/`** automatically once the bridge is listening. You can also open that URL yourself at any time.
 
 Do **not** open `viewer/index.html` directly from the filesystem (`file://`). The viewer blocks that and shows instructions to use the bridge URL instead.
 
@@ -91,7 +91,7 @@ viewer/
   js/state.js                    Shared UI/session state and unread counts
   js/errors.js                   Error log and diagnostics
   js/ui/chat.js                  Nearby chat composer and rendering
-  js/ui/im.js                    IM sessions, pay dialog, close conversation
+  js/ui/im.js                    IM, group & conference chat, roster, typing, moderation, pay dialog
   js/ui/events.js                Script dialogs, permissions, prompts, payments
   js/ui/buddies.js               Friends list and context actions
   js/ui/search.js                People / places / groups search UI
@@ -112,11 +112,11 @@ viewer/
   js/protocol/sl-search.js       Directory search (UDP + caps)
   js/protocol/sl-slurl.js        SLURL / map coordinate helpers
   js/protocol/sl-teleport.js     Teleport flags, lure buckets, SLURL helpers
-  js/protocol/bridge.js          HTTP client (caps 8765 + poll 8766, priority lane)
+  js/protocol/bridge.js          HTTP client (caps 8794 + poll 8795, priority lane)
   js/version.json                Viewer version metadata (channel, semver, build)
   js/version.js                  Loads version.json for login label and bridge user-agent
-  bridge/poll.php                UDP circuit relay (127.0.0.1:8766)
-  bridge/caps.php                Login proxy + UI + map (127.0.0.1:8765)
+  bridge/poll.php                UDP circuit relay (127.0.0.1:8795)
+  bridge/caps.php                Login proxy + UI + map (127.0.0.1:8794)
   bridge/daemon.php              Shared core (library; use --check-ca / --fetch-ca only)
   bridge/run.php                 One-terminal launcher (poll child + caps foreground)
   start-minibee.bat              Windows launcher (poll + caps + browser)
@@ -126,19 +126,19 @@ The bridge runs as **two processes** for isolation:
 
 | Process | Port | Role |
 |---------|------|------|
-| **poll** | 8766 | UDP circuit: `/circuit/poll`, send, exchange — never blocked by caps |
-| **caps** | 8765 | Viewer UI, login, `/proxy`, map, destinations |
+| **poll** | 8795 | UDP circuit: `/circuit/poll`, send, exchange - never blocked by caps |
+| **caps** | 8794 | Viewer UI, login, `/proxy`, map, destinations |
 
 The JS client sends circuit traffic to poll on a **priority lane** (immediate fetch) and everything else to caps. Each process uses concurrent HTTP internally (`stream_select`; caps uses `curl_multi` for proxy). EventQueue long-polls are **single-flight** per session so reconnects do not orphan sim-side polls.
 
 ### Connection flow
 
-1. `POST /login` — XML-RPC `login_to_simulator` (optional seed cap grant in the same response)
-2. `POST /circuit/open` — local UDP socket toward `sim_ip:sim_port`
-3. Handshake — `UseCircuitCode`, `CompleteAgentMovement`, etc. via `/circuit/send` and `/circuit/exchange`
-4. `GET /circuit/poll` — receive chat, IM, radar, parcel packets
-5. HTTP caps — presence caps (`GetDisplayNames`, etc.) at login; land caps deferred until the Land tab is opened
-6. `EventQueueGet` — started when a teleport is in progress; delivers `TeleportFinish`, `CrossedRegion`, etc.
+1. `POST /login` - XML-RPC `login_to_simulator` (optional seed cap grant in the same response)
+2. `POST /circuit/open` - local UDP socket toward `sim_ip:sim_port`
+3. Handshake - `UseCircuitCode`, `CompleteAgentMovement`, etc. via `/circuit/send` and `/circuit/exchange`
+4. `GET /circuit/poll` - receive chat, IM, radar, parcel packets
+5. HTTP caps - presence caps (`GetDisplayNames`, etc.) at login; land caps deferred until the Land tab is opened
+6. `EventQueueGet` - started when a teleport is in progress; delivers `TeleportFinish`, `CrossedRegion`, etc.
 
 Use the **Log** tab (protocol diagnostics) when debugging parcel or UDP issues (`pkts`, `udp` counters on parcel lines). The Log tab also has a **Settings** subtab for saved preferences (non-secret keys only).
 
@@ -146,12 +146,12 @@ Use the **Log** tab (protocol diagnostics) when debugging parcel or UDP issues (
 
 Tabs fetch and render their data only when you open them. This keeps login light and avoids unnecessary bridge traffic:
 
-- **Chat / IM / Events / Buddies / Radar** — render on first visit; UDP data still flows in the background once connected
-- **Search** — directory queries run when you submit a search
-- **Map** — tiles and region names load when the Map tab is active
-- **Land** — parcel refresh and land HTTP caps run when the Land tab is opened
-- **Guide** — destination feeds load on first visit
-- **Log** — error log and settings browser render when opened
+- **Chat / IM / Events / Buddies / Radar** - render on first visit; UDP data still flows in the background once connected
+- **Search** - directory queries run when you submit a search
+- **Map** - tiles and region names load when the Map tab is active
+- **Land** - parcel refresh and land HTTP caps run when the Land tab is opened
+- **Guide** - destination feeds load on first visit
+- **Log** - error log and settings browser render when opened
 
 ## Features
 
@@ -167,13 +167,17 @@ Tabs fetch and render their data only when you open them. This keeps login light
 | Linden dollar balance | Yes (top bar; `MoneyBalanceReply`) |
 | SLT clock | Yes (top bar, US Pacific) |
 | IM (send and receive) | Yes (UDP) |
+| Group chat | Yes (`IM_SESSION_GROUP_START`; sim-streamed session) |
+| Conference (ad-hoc) chat | Yes (`ChatSessionRequest` cap; invite participants) |
+| Session roster + moderation | Yes (live member list; moderator text mute) |
+| Typing indicators | Yes (1:1; `IM_TYPING_START/STOP`) |
 | IM pay resident | Yes (L$ transfer dialog) |
-| Close IM conversation | Yes |
+| Close / leave conversation | Yes |
 | Buddies + display names | Yes (`GetDisplayNames` cap) |
 | Buddy teleport offer / request | Yes (context menu) |
-| Search — people | Yes (UDP directory + avatar cap; start IM from results) |
-| Search — places | Yes (UDP directory; show on map, expandable details) |
-| Search — groups | Yes (UDP directory; view-only for now) |
+| Search - people | Yes (UDP directory + avatar cap; start IM from results) |
+| Search - places | Yes (UDP directory; show on map, expandable details) |
+| Search - groups | Yes (UDP directory; view-only for now) |
 | Radar (coarse positions) | Yes (`CoarseLocationUpdate`; filter, range, optional alerts) |
 | World map + tiles | Yes (map server JPEG tiles via bridge) |
 | Region lookup / SLURL | Yes (map location field, linkified chat/IM) |
@@ -190,9 +194,9 @@ Tabs fetch and render their data only when you open them. This keeps login light
 
 ## Shell and navigation
 
-- **Side navigation** — Chat, IM, Events, Buddies, Search, Radar, Map, Land, Guide, and Log tabs along the left edge.
-- **Top bar** — connection status dot, agent name, region name, L$ balance, SLT clock, sim FPS, theme toggle, logout.
-- **Unread badges** — numeric badges on Chat, IM, and Events; dots on Radar (new avatars in range), Land (parcel updated), and Log (new errors).
+- **Side navigation** - Chat, IM, Events, Buddies, Search, Radar, Map, Land, Guide, and Log tabs along the left edge.
+- **Top bar** - connection status dot, agent name, region name, L$ balance, SLT clock, sim FPS, theme toggle, logout.
+- **Unread badges** - numeric badges on Chat, IM, and Events; dots on Radar (new avatars in range), Land (parcel updated), and Log (new errors).
 
 ## Chat and Events
 
@@ -204,6 +208,17 @@ Tabs fetch and render their data only when you open them. This keeps login light
 - Payment / economy notices (deduplicated when the sim retries the same transaction)
 
 Nothing in Events auto-replies. Unresolved items increment the Events badge until you open the tab.
+
+## Instant messages
+
+The **IM** tab handles 1:1, group, and conference conversations in one list:
+
+- **1:1 IM** - direct `ImprovedInstantMessage`; shows a "typing..." indicator while the other person composes.
+- **Group chat** - open from the Land tab's parcel group; the simulator streams messages to members over UDP (`IM_SESSION_GROUP_START`).
+- **Conference chat** - start an ad-hoc session from the IM tab or a buddy's context menu; incoming invitations are accepted through the `ChatSessionRequest` capability. Use **Invite** to add more people to an open conference.
+- **Roster** - a collapsible member sidebar lists participants with online state and resolved display names; click a member to open a 1:1 IM.
+- **Moderation** - session moderators can mute or unmute a participant's text (`ChatSessionRequest` "mute update").
+- **Mute** - silence a noisy session locally so it stops raising the unread badge; **Leave** exits a group or conference server-side.
 
 ## Search
 
@@ -219,11 +234,11 @@ Avatar hits are enriched with `GetDisplayNames` when the cap is available. Radar
 
 ## Map and teleport
 
-- **Map** — pan, centre on avatar (`@`), click a region tile to select, enter a SLURL or region name and **Show on map**, then **Teleport Here** or **Teleport Home**.
-- **Invalid region names** — map does not move; you get a toast instead of centring on a bogus location.
+- **Map** - pan, centre on avatar (`@`), click a region tile to select, enter a SLURL or region name and **Show on map**, then **Teleport Here** or **Teleport Home**.
+- **Invalid region names** - map does not move; you get a toast instead of centring on a bogus location.
 - **SLURLs** in chat and IM open the map tab with the location pre-filled.
 - Region names on the map are resolved via sim `MapBlock` UDP and HTTP region lookup where available.
-- **In-progress teleports** — the teleport button shows stage and percentage; clicking again does not cancel an outbound teleport.
+- **In-progress teleports** - the teleport button shows stage and percentage; clicking again does not cancel an outbound teleport.
 
 ### Teleport types
 
@@ -242,7 +257,7 @@ Coarse avatar positions from `CoarseLocationUpdate`. Filter by name, adjust rang
 
 Standing parcel data comes from UDP `ParcelProperties` and HTTP `RemoteParcelRequest` (name, area, flags, owner). Open the Land tab or tap refresh to request an update.
 
-Prim **capacity** is taken from UDP when available; otherwise it is estimated from parcel area (15 prims per 512 m²). Prim **usage** requires UDP counts from the sim. Check Log → Diagnostics for lines like `prims=used/total` if the field looks wrong.
+Prim **capacity** is taken from UDP when available; otherwise it is estimated from parcel area (15 prims per 512 m2). Prim **usage** requires UDP counts from the sim. Check Log -> Diagnostics for lines like `prims=used/total` if the field looks wrong.
 
 Editable fields (name, description, access, build/script flags) work on parcels you own; group land and others' parcels are view-only.
 
@@ -262,16 +277,17 @@ Each entry shows name, description, maturity rating, and thumbnail. Use **Map** 
 
 ## Session disconnect
 
-If the simulator drops the session (`LogoutReply`, kick, circuit loss, or bridge session 404), the viewer shows a **Connection lost** overlay. You can dismiss it to **browse offline** — read chat/IM/log history and switch tabs while grid actions stay disabled. The status dot and logout button use a slow gentle pulse as a reminder. Use **Return to Login** when ready to reconnect.
+If the simulator drops the session (`LogoutReply`, kick, circuit loss, or bridge session 404), the viewer shows a **Connection lost** overlay. You can dismiss it to **browse offline** - read chat/IM/log history and switch tabs while grid actions stay disabled. The status dot and logout button use a slow gentle pulse as a reminder. Use **Return to Login** when ready to reconnect.
 
 ## Limitations
 
 - No world rendering, inventory, attachments, or built-in movement beyond teleport
 - Buddy names may show as UUID briefly until `GetDisplayNames` returns
+- Group-IM titles may show a placeholder until group-name resolution lands (messages still work)
 - Radar uses 1 m coarse positions from the sim
 - Land prim usage depends on UDP `ParcelProperties`; capacity may be estimated from area when the sim does not send counts
 - Search group/people profile buttons are placeholders
-- Bridge must run on localhost (`127.0.0.1:8765`); close other SL viewers if UDP bind or circuit behaviour is odd
+- Bridge must run on localhost (`127.0.0.1:8794`); close other SL viewers if UDP bind or circuit behaviour is odd
 - Windows Firewall must allow `php.exe` UDP if receive stays at zero packets
 - Destination Guide requires the bridge (Linden API is fetched server-side to avoid browser CORS)
 
@@ -281,11 +297,11 @@ All paths relative to `viewer/`:
 
 | File | Purpose |
 |------|---------|
-| `bridge/poll.php` | UDP circuit relay (port 8766) |
-| `bridge/caps.php` | Viewer UI, login, proxy, map (port 8765) |
+| `bridge/poll.php` | UDP circuit relay (port 8795) |
+| `bridge/caps.php` | Viewer UI, login, proxy, map (port 8794) |
 | `bridge/daemon.php` | Shared PHP core (not a server; `--check-ca` / `--fetch-ca` only) |
 | `bridge/run.php` | One-terminal launcher (poll child + caps foreground) |
-| `start-minibee.bat` | Windows launcher — starts poll + caps and opens the viewer |
+| `start-minibee.bat` | Windows launcher - starts poll + caps and opens the viewer |
 
 No Composer, Node, or build step for the viewer itself.
 

@@ -70,10 +70,52 @@ const FSApp = (function () {
     });
 
     FSTransport.on('im', function (data) {
-      if (data.participant) {
+      const isSession = data.session && data.session.type && data.session.type !== 'p2p';
+      if (data.participant && !isSession) {
         FSState.ensureImSession(data.participant);
       }
-      FSState.addImMessage(data.sessionId, data.message, data.participant);
+      FSState.addImMessage(data.sessionId, data.message, data.participant, data.session);
+    });
+
+    FSTransport.on('im-session-open', function (data) {
+      if (!data || !data.sessionId) return;
+      FSState.ensureKeyedSession(data.sessionId, { type: data.type, title: data.title });
+    });
+
+    FSTransport.on('im-roster', function (data) {
+      if (!data || !data.sessionId) return;
+      FSState.ensureKeyedSession(data.sessionId, { type: data.type, title: data.title });
+      if (data.title) FSState.renameSession(data.sessionId, data.title);
+      if (data.type) FSState.setSessionType(data.sessionId, data.type);
+      FSState.updateSessionRoster(data.sessionId, data.participants || [], data.moderator);
+    });
+
+    FSTransport.on('im-typing', function (data) {
+      if (!data || !data.sessionId) return;
+      if (!FSState.get().imSessions[data.sessionId]) return;
+      FSState.setSessionTyping(data.sessionId, data.typing, data.fromName);
+    });
+
+    FSTransport.on('im-session-remap', function (data) {
+      if (!data || !data.tempId || !data.sessionId) return;
+      FSState.migrateSession(data.tempId, data.sessionId, {
+        type: data.type,
+        title: data.title
+      });
+    });
+
+    FSTransport.on('im-session-force-close', function (data) {
+      if (!data || !data.sessionId) return;
+      const session = FSState.get().imSessions[data.sessionId];
+      const label = session ? (session.title || 'chat session') : 'chat session';
+      FSState.closeImSession(data.sessionId);
+      FSUtils.showToast((data.reason || 'The chat session was closed') +
+        ' (' + label + ')', 'warning', 5000);
+    });
+
+    FSTransport.on('im-session-cleanup', function (data) {
+      if (!data || !data.sessionId) return;
+      FSState.closeImSession(data.sessionId);
     });
 
     FSTransport.on('radar-update', function (entries) {

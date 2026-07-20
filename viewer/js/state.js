@@ -185,20 +185,157 @@ const FSState = (function () {
     emit('chat', msg);
   }
 
-  function addImMessage(sessionId, msg, participant) {
-    if (!state.imSessions[sessionId] && participant) {
-      ensureImSession(participant);
+  const DEFAULT_SESSION_TITLES = { group: 'Group chat', conference: 'Conference' };
+
+  function isDefaultSessionTitle(title) {
+    return !title || title === DEFAULT_SESSION_TITLES.group ||
+      title === DEFAULT_SESSION_TITLES.conference || looksLikeUuid(title);
+  }
+
+  function ensureKeyedSession(sessionId, info) {
+    if (!sessionId || state.imSessions[sessionId]) return sessionId;
+    const type = (info && info.type) || 'group';
+    const title = (info && info.title) ||
+      (type === 'conference' ? DEFAULT_SESSION_TITLES.conference : DEFAULT_SESSION_TITLES.group);
+    state.imSessions[sessionId] = {
+      id: sessionId,
+      type: type,
+      title: title,
+      participant: { id: sessionId, name: title, isSession: true },
+      participants: [],
+      messages: [],
+      unread: 0,
+      lastMessage: '',
+      updatedAt: Date.now()
+    };
+    emit('im-session-new', state.imSessions[sessionId]);
+    return sessionId;
+  }
+
+  function updateSessionRoster(sessionId, participants, moderator) {
+    const session = state.imSessions[sessionId];
+    if (!session) return false;
+    session.participants = Array.isArray(participants) ? participants : [];
+    if (moderator !== undefined) session.canModerate = !!moderator;
+    emit('im-roster-updated', {
+      sessionId: sessionId,
+      participants: session.participants,
+      moderator: !!session.canModerate
+    });
+    return true;
+  }
+
+  function setSessionTyping(sessionId, typing, fromName) {
+    const session = state.imSessions[sessionId];
+    if (!session) return false;
+    const active = !!typing;
+    const name = active ? (fromName || '') : '';
+    if (!!session.typing === active && session.typingName === name) return false;
+    session.typing = active;
+    session.typingName = name;
+    emit('im-typing-changed', { sessionId: sessionId, typing: active, fromName: name });
+    return true;
+  }
+
+  function setSessionMuted(sessionId, muted) {
+    const session = state.imSessions[sessionId];
+    if (!session) return false;
+    const next = muted === undefined ? !session.muted : !!muted;
+    if (!!session.muted === next) return next;
+    session.muted = next;
+    if (next && session.unread) {
+      state.unreadIm = Math.max(0, state.unreadIm - session.unread);
+      session.unread = 0;
+      emit('change', { unreadIm: state.unreadIm });
+    }
+    emit('im-sessions-updated');
+    return next;
+  }
+
+  function renameSession(sessionId, title) {
+    const session = state.imSessions[sessionId];
+    if (!session || !title || isDefaultSessionTitle(title)) return false;
+    if (session.title === title) return false;
+    session.title = title;
+    if (session.participant && session.participant.isSession) {
+      session.participant.name = title;
+    }
+    emit('im-sessions-updated');
+    return true;
+  }
+
+  function setSessionType(sessionId, type) {
+    const session = state.imSessions[sessionId];
+    if (!session || !type || session.type === type) return false;
+    if (session.type === 'group' && type === 'conference') return false;
+    session.type = type;
+    emit('im-sessions-updated');
+    return true;
+  }
+
+  function migrateSession(tempId, realId, info) {
+    if (!tempId || !realId || tempId === realId) return realId;
+    const session = state.imSessions[tempId];
+    if (!session) return ensureKeyedSession(realId, info);
+
+    if (state.imSessions[realId]) {
+      const target = state.imSessions[realId];
+      session.messages.forEach(function (m) {
+        if (!target.messages.some(function (x) { return x.id === m.id; })) {
+          target.messages.push(m);
+        }
+      });
+      target.updatedAt = Date.now();
+    } else {
+      session.id = realId;
+      if (info && info.type) session.type = info.type;
+      if (info && info.title && !isDefaultSessionTitle(info.title)) session.title = info.title;
+      if (session.participant) {
+        session.participant.id = realId;
+        session.participant.name = session.title;
+      }
+      state.imSessions[realId] = session;
+    }
+    delete state.imSessions[tempId];
+    if (state.activeImSession === tempId) state.activeImSession = realId;
+    emit('im-session-migrated', { tempId: tempId, sessionId: realId });
+    emit('im-sessions-updated');
+    return realId;
+  }
+
+  function addImMessage(sessionId, msg, participant, sessionInfo) {
+    if (!state.imSessions[sessionId]) {
+      if (sessionInfo && sessionInfo.type && sessionInfo.type !== 'p2p') {
+        ensureKeyedSession(sessionId, sessionInfo);
+      } else if (participant) {
+        ensureImSession(participant);
+      }
     }
     if (!state.imSessions[sessionId]) return;
     const session = state.imSessions[sessionId];
+    if (sessionInfo && sessionInfo.type === 'group' && session.type !== 'group') {
+      session.type = 'group';
+    }
+    if (sessionInfo && sessionInfo.title && !isDefaultSessionTitle(sessionInfo.title) &&
+        isDefaultSessionTitle(session.title)) {
+      session.title = sessionInfo.title;
+      if (session.participant && session.participant.isSession) {
+        session.participant.name = sessionInfo.title;
+      }
+    }
     if (msg && msg.id) {
       const dup = session.messages.some(function (m) { return m.id === msg.id; });
       if (dup) return;
     }
+    if (msg && !msg.outgoing && session.typing) {
+      session.typing = false;
+      session.typingName = '';
+    }
     session.messages.push(msg);
     session.lastMessage = msg.text;
     session.updatedAt = msg.timestamp;
-    if (isImUnread(msg) && state.activeTab !== 'im' && state.activeImSession !== sessionId) {
+    if (isImUnread(msg) && state.activeTab !== 'im' &&
+        state.activeImSession !== sessionId && !session.muted) {
       session.unread = (session.unread || 0) + 1;
       state.unreadIm += 1;
     }
@@ -301,6 +438,13 @@ const FSState = (function () {
     addImMessage: addImMessage,
     closeImSession: closeImSession,
     ensureImSession: ensureImSession,
+    ensureKeyedSession: ensureKeyedSession,
+    updateSessionRoster: updateSessionRoster,
+    setSessionTyping: setSessionTyping,
+    setSessionMuted: setSessionMuted,
+    renameSession: renameSession,
+    setSessionType: setSessionType,
+    migrateSession: migrateSession,
     refreshImSessionPresence: refreshImSessionPresence,
     resolveParticipantPresence: resolveParticipantPresence,
     get: get,

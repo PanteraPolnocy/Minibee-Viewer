@@ -40,7 +40,16 @@ function bridge_caps_port(): int
     if ($fromEnv !== false && $fromEnv !== '') {
         return (int)$fromEnv;
     }
-    return 8765;
+    return 8794;
+}
+
+function bridge_poll_port(): int
+{
+    $fromEnv = getenv('FS_BRIDGE_POLL_PORT');
+    if ($fromEnv !== false && $fromEnv !== '') {
+        return (int)$fromEnv;
+    }
+    return 8795;
 }
 
 /** Open the viewer URL once the caps bridge responds (start-minibee.bat sets MINIBEE_OPEN_BROWSER=1). */
@@ -96,8 +105,10 @@ function bridge_process_stop($process): void
 $bridgeDir = __DIR__;
 $php = bridge_php_binary();
 
-bridge_kill_port_listeners(8765);
-bridge_kill_port_listeners(8766);
+$capsPort = bridge_caps_port();
+$pollPort = bridge_poll_port();
+bridge_kill_port_listeners($capsPort);
+bridge_kill_port_listeners($pollPort);
 
 $null = bridge_null_device();
 $pollSpec = [
@@ -139,16 +150,15 @@ if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
 
 usleep(600000);
 
-$capsPort = bridge_caps_port();
 bridge_open_browser_when_ready($capsPort);
 
-fwrite(STDOUT, "Poll bridge: http://127.0.0.1:8766 (background)\n");
+fwrite(STDOUT, "Poll bridge: http://127.0.0.1:{$pollPort} (background)\n");
 fwrite(STDOUT, "Caps bridge: http://127.0.0.1:{$capsPort} (foreground)\n\n");
 
 $capsCode = 0;
 passthru(escapeshellarg($php) . ' ' . escapeshellarg($bridgeDir . '/caps.php'), $capsCode);
 
 $stopPoll();
-bridge_kill_port_listeners(8766);
+bridge_kill_port_listeners($pollPort);
 
 exit($capsCode);

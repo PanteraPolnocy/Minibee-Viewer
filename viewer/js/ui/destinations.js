@@ -36,7 +36,7 @@ const FSDestinations = (function () {
     if (typeof FSTransport !== 'undefined' && FSTransport.getBridgeUrl) {
       return String(FSTransport.getBridgeUrl() || '').replace(/\/$/, '');
     }
-    return 'http://127.0.0.1:8765';
+    return 'http://127.0.0.1:8794';
   }
 
   function isFeedMarker(name) {

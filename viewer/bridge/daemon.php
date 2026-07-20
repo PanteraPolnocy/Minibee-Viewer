@@ -7,8 +7,8 @@
 declare(strict_types=1);
 
 const HOST = '127.0.0.1';
-const PORT = 8765;
-const POLL_PORT = 8766;
+const PORT = 8794;
+const POLL_PORT = 8795;
 const POLL_MS = 50;
 const CA_BUNDLE_URL = 'https://curl.se/ca/cacert.pem';
 

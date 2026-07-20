@@ -362,12 +362,12 @@ const FSLogin = (function () {
         try {
           const poll = await b.pollHealth();
           if (!poll || !poll.ok) {
-            el.textContent = 'Poll bridge offline (8766) - restart start-minibee.bat';
+            el.textContent = 'Poll bridge offline (8795) - restart start-minibee.bat';
             caBundleReady = false;
             return;
           }
         } catch (_pollErr) {
-          el.textContent = 'Poll bridge offline (8766) - restart start-minibee.bat';
+          el.textContent = 'Poll bridge offline (8795) - restart start-minibee.bat';
           caBundleReady = false;
           return;
         }

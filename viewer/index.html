@@ -103,7 +103,7 @@
       <p class="require-http-cmd"><code>start-minibee.bat</code></p>
       <p class="require-http-alt">Or: <code>php bridge/run.php</code> (one terminal, both processes)</p>
       <p class="require-http-step">Your browser should open automatically at:</p>
-      <a class="btn btn--primary btn--block" href="http://127.0.0.1:8765/">http://127.0.0.1:8765/</a>
+      <a class="btn btn--primary btn--block" href="http://127.0.0.1:8794/">http://127.0.0.1:8794/</a>
     </div>
       </div>
     </div>
@@ -343,7 +343,15 @@
         <!-- IM -->
         <div id="panel-im" class="panel" data-panel="im" role="tabpanel" aria-label="Instant messages" hidden>
           <div class="im-layout">
-            <aside id="im-sessions" class="im-sessions" aria-label="Conversations"></aside>
+            <div class="im-sessions-pane">
+              <div class="im-sessions__toolbar">
+                <button type="button" id="im-new-conference" class="im-new-btn" title="Start a group conference chat">
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                  <span>New conference</span>
+                </button>
+              </div>
+              <aside id="im-sessions" class="im-sessions" aria-label="Conversations"></aside>
+            </div>
             <div id="im-thread" class="im-thread">
               <header class="im-thread__header">
                 <button type="button" id="im-back" class="icon-btn im-back" aria-label="Back to conversations">
@@ -354,6 +362,15 @@
                   <span id="im-thread-status" class="im-thread__status"></span>
                 </div>
                 <div class="im-thread__actions">
+                  <button type="button" id="im-members" class="icon-btn im-action-btn" title="Show members" aria-label="Toggle member list" hidden>
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                  </button>
+                  <button type="button" id="im-invite" class="icon-btn im-action-btn" title="Invite to conference" aria-label="Invite participants" hidden>
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                  </button>
+                  <button type="button" id="im-mute-session" class="icon-btn im-action-btn" title="Mute notifications" aria-label="Mute session notifications" aria-pressed="false" hidden>
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+                  </button>
                   <button type="button" id="im-close" class="icon-btn im-action-btn" title="Close conversation" aria-label="Close conversation" disabled>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                   </button>
@@ -383,7 +400,20 @@
                   <button type="button" class="im-tab-link" data-tab-link="radar">Radar</button>.
                 </p>
               </div>
-              <div id="im-messages" class="message-list message-list--im" role="log" aria-live="polite" hidden></div>
+              <div id="im-thread-body" class="im-thread__body" hidden>
+                <div id="im-messages" class="message-list message-list--im" role="log" aria-live="polite"></div>
+                <aside id="im-roster" class="im-roster" aria-label="Session members" hidden>
+                  <div class="im-roster__head">
+                    <span>Members</span>
+                    <span id="im-roster-count" class="im-roster__count">0</span>
+                  </div>
+                  <div id="im-roster-list" class="im-roster__list"></div>
+                </aside>
+              </div>
+              <div id="im-typing" class="im-typing" aria-live="polite" hidden>
+                <span class="im-typing__dots"><span></span><span></span><span></span></span>
+                <span id="im-typing-text" class="im-typing__text"></span>
+              </div>
               <form id="im-form" class="composer composer--disabled">
                 <input type="text" id="im-input" class="composer__input" placeholder="Type a message..." maxlength="1024" autocomplete="off" disabled>
                 <button type="submit" class="btn btn--primary composer__send" aria-label="Send IM" disabled>Send</button>
@@ -520,7 +550,10 @@
                   </label>
                   <label class="field">
                     <span>Group</span>
-                    <input type="text" id="land-group" readonly>
+                    <div class="field-with-action">
+                      <input type="text" id="land-group" readonly>
+                      <button type="button" id="land-group-chat" class="btn btn--ghost land-group-chat" title="Open group chat" hidden>Chat</button>
+                    </div>
                   </label>
                 </div>
               </fieldset>
@@ -778,6 +811,22 @@
         <div class="pay-dialog__actions">
           <button type="button" class="btn btn--ghost" id="pay-cancel">Cancel</button>
           <button type="submit" class="btn btn--primary" id="pay-submit">Send</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="conference-dialog" class="pay-dialog conference-dialog">
+      <form id="conference-form" method="dialog">
+        <h2 class="pay-dialog__title" id="conference-dialog-title">New conference chat</h2>
+        <label class="field" id="conference-title-field">
+          <span>Session name (optional)</span>
+          <input type="text" id="conference-title" maxlength="63" autocomplete="off" placeholder="Conference">
+        </label>
+        <p class="conference-dialog__hint">Select people to invite:</p>
+        <div id="conference-picker" class="conference-picker" role="group" aria-label="Select participants"></div>
+        <div class="pay-dialog__actions">
+          <button type="button" class="btn btn--ghost" id="conference-cancel">Cancel</button>
+          <button type="submit" class="btn btn--primary" id="conference-submit">Start</button>
         </div>
       </form>
     </dialog>

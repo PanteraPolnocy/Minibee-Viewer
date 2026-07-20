@@ -211,7 +211,7 @@ const FSTransport = (function () {
   }
 
   function getBridgeUrl() {
-    if (!adapter || !adapter.getBridgeUrl) return 'http://127.0.0.1:8765';
+    if (!adapter || !adapter.getBridgeUrl) return 'http://127.0.0.1:8794';
     return adapter.getBridgeUrl();
   }
 

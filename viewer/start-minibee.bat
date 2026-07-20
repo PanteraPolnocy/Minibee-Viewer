@@ -3,6 +3,10 @@ setlocal EnableDelayedExpansion
 REM Minibee viewer - poll + caps in one terminal; opens browser when ready
 cd /d "%~dp0"
 
+REM Bridge ports: caps = UI/login/proxy/map, poll = UDP circuit (poll must be caps + 1)
+set "FS_BRIDGE_CAPS_PORT=8794"
+set "FS_BRIDGE_POLL_PORT=8795"
+
 set "PHP=php"
 if defined FS_BRIDGE_PHP set "PHP=%FS_BRIDGE_PHP%"
 
@@ -35,7 +39,7 @@ if errorlevel 1 (
 
 set "MINIBEE_OPEN_BROWSER=1"
 echo Using: %PHP% %PHP_FLAGS%
-echo Starting Minibee bridge - browser will open at http://127.0.0.1:8765/
+echo Starting Minibee bridge - browser will open at http://127.0.0.1:%FS_BRIDGE_CAPS_PORT%/
 echo.
 %PHP% %PHP_FLAGS% bridge\run.php
 set "EC=%ERRORLEVEL%"
