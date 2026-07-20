@@ -149,6 +149,20 @@ const FSTransport = (function () {
     return adapter.leaveGroup(groupId);
   }
 
+  function activateGroup(groupId) {
+    if (!adapter || !adapter.activateGroup) {
+      return Promise.resolve({ sent: false });
+    }
+    return adapter.activateGroup(groupId);
+  }
+
+  function saveGroupTitle(groupId, roleId) {
+    if (!adapter || !adapter.saveGroupTitle) {
+      return Promise.resolve({ sent: false });
+    }
+    return adapter.saveGroupTitle(groupId, roleId);
+  }
+
   function saveAvatarNotes(targetId, notes) {
     if (!adapter || !adapter.saveAvatarNotes) {
       return Promise.resolve({ sent: false });
@@ -316,6 +330,8 @@ const FSTransport = (function () {
     removeFriendship: removeFriendship,
     joinGroup: joinGroup,
     leaveGroup: leaveGroup,
+    activateGroup: activateGroup,
+    saveGroupTitle: saveGroupTitle,
     saveAvatarNotes: saveAvatarNotes,
     payResident: payResident,
     searchDirectory: searchDirectory,

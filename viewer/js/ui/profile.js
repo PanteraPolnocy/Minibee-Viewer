@@ -22,6 +22,8 @@ const FSProfile = (function () {
   let imageDialog = null;
   let current = null;
   let notesSaveToken = 0;
+  let groupRefreshTimer = null;
+  let lastGroupViewKey = '';
 
   function el(id) {
     return document.getElementById(id);
@@ -341,15 +343,54 @@ const FSProfile = (function () {
     return profile.about || '';
   }
 
-  function renderGroupsList(groups) {
-    if (!groups || !groups.length) {
-      return '<p class="profile-section__empty">No groups listed</p>';
+  function renderGroupsList(groups, activeGroupId, showClearActive) {
+    let html = '';
+    if (showClearActive) {
+      html += '<button type="button" class="profile-link profile-groups-list__clear" data-clear-active-group>' +
+        'Set active group to none</button>';
     }
-    return '<div class="profile-groups-list">' + groups.map(function (g) {
-      const label = FSUtils.escapeHtml(g.title ? (g.name + ' - ' + g.title) : g.name);
-      return '<button type="button" class="profile-link profile-groups-list__item" data-group-id="' +
+    if (!groups || !groups.length) {
+      return html + '<p class="profile-section__empty">No groups listed</p>';
+    }
+    const activeId = FSProfiles.normId(activeGroupId || '');
+    html += '<div class="profile-groups-list">' + groups.map(function (g) {
+      const hidden = g.listInProfile === false;
+      const baseLabel = g.name || 'Group';
+      const label = FSUtils.escapeHtml(baseLabel);
+      const isActive = activeId && FSProfiles.normId(g.id) === activeId;
+      const cls = 'profile-link profile-groups-list__item' +
+        (isActive ? ' profile-groups-list__item--active' : '') +
+        (hidden ? ' profile-groups-list__item--hidden' : '');
+      return '<button type="button" class="' + cls + '" data-group-id="' +
         FSUtils.escapeHtml(g.id) + '">' + label + '</button>';
     }).join('') + '</div>';
+    return html;
+  }
+
+  function patchSelfGroupsSection(profile) {
+    const section = document.querySelector('.profile-section--groups');
+    if (!section || !profile || !isSelfProfile(profile)) return false;
+    const h3 = section.querySelector('.profile-section__title');
+    const titleHtml = h3 ? h3.outerHTML : '<h3 class="profile-section__title">Groups</h3>';
+    section.innerHTML = titleHtml + renderGroupsList(
+      typeof FSProfiles.getProfileGroupsForDisplay === 'function'
+        ? FSProfiles.getProfileGroupsForDisplay(profile.avatarId, profile)
+        : (profile.groups || []),
+      FSProfiles.getActiveGroupId(),
+      true
+    );
+    bindAvatarContent(profile, el('profile-content'));
+    return true;
+  }
+
+  function highlightActiveGroupInList() {
+    const activeId = typeof FSProfiles.getActiveGroupId === 'function'
+      ? FSProfiles.normId(FSProfiles.getActiveGroupId())
+      : '';
+    document.querySelectorAll('.profile-groups-list__item').forEach(function (btn) {
+      const id = FSProfiles.normId(btn.getAttribute('data-group-id') || '');
+      btn.classList.toggle('profile-groups-list__item--active', !!(activeId && id === activeId));
+    });
   }
 
   function renderSplitList(rows, emptyText, itemClass, layout) {
@@ -371,8 +412,8 @@ const FSProfile = (function () {
   }
 
   function isSelfProfile(profile) {
-    const selfId = String((FSState.get().agent || {}).id || '').toLowerCase();
-    return !!(profile && profile.avatarId && profile.avatarId === selfId);
+    const selfId = FSProfiles.normId((FSState.get().agent || {}).id);
+    return !!(profile && profile.avatarId && FSProfiles.normId(profile.avatarId) === selfId);
   }
 
   function profileDetailLocation(detail) {
@@ -515,7 +556,13 @@ const FSProfile = (function () {
       '</div></div>' +
       '<section class="profile-section profile-section--groups">' +
       '<h3 class="profile-section__title">Groups</h3>' +
-      renderGroupsList(profile.groups || []) +
+      renderGroupsList(
+        typeof FSProfiles.getProfileGroupsForDisplay === 'function'
+          ? FSProfiles.getProfileGroupsForDisplay(profile.avatarId, profile)
+          : (profile.groups || []),
+        isSelfProfile(profile) ? FSProfiles.getActiveGroupId() : '',
+        isSelfProfile(profile)
+      ) +
       '</section></div>';
   }
 
@@ -766,10 +813,24 @@ const FSProfile = (function () {
 
     root.querySelectorAll('[data-avatar-id]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        openAvatar(btn.getAttribute('data-avatar-id'));
+        openAvatarFromLink(btn, profile);
       });
     });
-    bindGroupLinks(root);
+    bindGroupLinks(root, profile);
+    const clearActiveBtn = root.querySelector('[data-clear-active-group]');
+    if (clearActiveBtn && isSelfProfile(profile)) {
+      clearActiveBtn.addEventListener('click', function () {
+        if (typeof FSTransport.activateGroup !== 'function') return;
+        FSTransport.activateGroup(ZERO_UUID).then(function (result) {
+          if (result && result.sent) {
+            FSUtils.showToast('Active group cleared.', 'success');
+            highlightActiveGroupInList();
+            return;
+          }
+          FSUtils.showToast('Could not clear active group.', 'warning');
+        });
+      });
+    }
     bindNotesSave(profile, root);
 
     root.querySelectorAll('.profile-tab').forEach(function (tabBtn) {
@@ -847,16 +908,29 @@ const FSProfile = (function () {
     }
   }
 
-  function isGroupMember(profile) {
+  function profileShowsAsMember(profile) {
     if (!profile || !profile.groupId) return false;
-    return typeof FSProfiles.isAgentInGroup === 'function' && FSProfiles.isAgentInGroup(profile.groupId);
+    if (typeof FSProfiles.isAgentInGroup === 'function' &&
+        FSProfiles.isAgentInGroup(profile.groupId)) {
+      return true;
+    }
+    return !!(current && current.type === 'group' &&
+      FSProfiles.normId(current.id) === FSProfiles.normId(profile.groupId) &&
+      current.isMemberHint);
   }
 
   function enrichGroupProfile(profile) {
     if (!profile) return profile;
     const next = Object.assign({}, profile);
-    next.isMember = isGroupMember(next);
+    next.isMember = profileShowsAsMember(next);
     if (!next.isMember) next.memberTitle = '';
+    next.isActive = typeof FSProfiles.isActiveGroup === 'function' && FSProfiles.isActiveGroup(next.groupId);
+    next.titles = typeof FSProfiles.getGroupTitles === 'function'
+      ? FSProfiles.getGroupTitles(next.groupId)
+      : [];
+    const selectedTitle = next.titles.find(function (row) { return row.selected; });
+    next.selectedTitleRoleId = selectedTitle ? selectedTitle.roleId : '';
+    if (selectedTitle && selectedTitle.title) next.memberTitle = selectedTitle.title;
     if (current && current.nameHint) {
       const hintName = String(current.nameHint.name || '').trim();
       if (hintName && !next.name) next.name = hintName;
@@ -903,6 +977,63 @@ const FSProfile = (function () {
       FSUtils.escapeHtml(title || 'Member') + '</span></div>';
   }
 
+  function renderGroupTitleSection(profile) {
+    if (!profile.isMember) return '';
+    const titles = profile.titles || [];
+    const settled = typeof FSProfiles.isGroupTitlesFetchSettled === 'function' &&
+      FSProfiles.isGroupTitlesFetchSettled(profile.groupId);
+    if (!titles.length) {
+      const fallback = String(profile.memberTitle || '').trim();
+      if (settled && fallback) {
+        return '<section class="profile-section profile-section--your-title">' +
+          '<h3 class="profile-section__title">Your title</h3>' +
+          '<div class="profile-field"><span>' + FSUtils.escapeHtml(fallback) + '</span></div>' +
+          '</section>' +
+          '<section class="profile-section profile-section--title">' +
+          '<h3 class="profile-section__title">Active title</h3>' +
+          '<p class="profile-group-title-hint">Your current title for this group.</p>' +
+          '<div class="profile-field"><span>' + FSUtils.escapeHtml(fallback) + '</span></div>' +
+          '</section>';
+      }
+      if (settled) {
+        return '<section class="profile-section profile-section--title">' +
+          '<h3 class="profile-section__title">Active title</h3>' +
+          '<p class="profile-section__empty">No titles available for this group.</p></section>';
+      }
+      return '<section class="profile-section profile-section--title">' +
+        '<h3 class="profile-section__title">Active title</h3>' +
+        '<p class="profile-section__empty">Loading titles...</p></section>';
+    }
+    const selectedId = profile.selectedTitleRoleId || '';
+    const selectedTitle = titles.find(function (row) { return row.roleId === selectedId; }) ||
+      titles.find(function (row) { return row.selected; }) || titles[0];
+    const yourTitleRows = titles.map(function (row) {
+      return '<div class="profile-field"><span>' + FSUtils.escapeHtml(row.title) + '</span></div>';
+    }).join('');
+    const options = titles.map(function (row) {
+      const selected = row.roleId === selectedId ? ' selected' : '';
+      return '<option value="' + FSUtils.escapeHtml(row.roleId) + '"' + selected + '>' +
+        FSUtils.escapeHtml(row.title) + '</option>';
+    }).join('');
+    const disabled = titles.length <= 1 ? ' disabled' : '';
+    return '<section class="profile-section profile-section--your-title">' +
+      '<h3 class="profile-section__title">Your title</h3>' +
+      yourTitleRows +
+      '</section>' +
+      '<section class="profile-section profile-section--title">' +
+      '<h3 class="profile-section__title">Active title</h3>' +
+      '<p class="profile-group-title-hint">Your current title for this group.</p>' +
+      '<div class="profile-group-title-row">' +
+      '<select id="profile-group-title-select" class="profile-group-title-select"' + disabled + '>' +
+      options + '</select>' +
+      '<button type="button" class="btn btn--primary" id="profile-group-title-save"' + disabled + '>Save</button>' +
+      '</div>' +
+      (selectedTitle ? '<div class="profile-field profile-field--active-title"><span>' +
+        FSUtils.escapeHtml(selectedTitle.title) + '</span></div>' : '') +
+      '<div id="profile-group-title-status" class="profile-notes-status" role="status" aria-live="polite"></div>' +
+      '</section>';
+  }
+
   function renderGroupSideMeta(profile) {
     let html = '<div class="profile-field"><span class="profile-field__label">Join fee</span><span>' +
       FSUtils.escapeHtml(formatGroupJoinFee(profile)) + '</span></div>';
@@ -940,15 +1071,19 @@ const FSProfile = (function () {
       '<div class="profile-resident__about profile-group__about">' +
       renderGroupKeyMeta(profile) +
       renderAboutBlock(charterHtml, 'No charter text.') +
-      '</div></div></div>';
+      '</div></div>' +
+      renderGroupTitleSection(profile) +
+      '</div>';
   }
 
   function bindGroupContent(profile, root) {
     if (!root) return;
     const title = profile.name || 'Group';
+    const insigniaId = profile.insigniaId || FSProfiles.getGroupInsigniaId(profile.groupId);
     FSAvatarThumb.mountIn(root.querySelector('#profile-group-insignia-slot'), profile.groupId, {
       kind: 'group',
       label: title,
+      imageId: insigniaId,
       className: 'profile-avatar-btn__thumb avatar-thumb--profile',
       resolveImage: true
     });
@@ -961,7 +1096,72 @@ const FSProfile = (function () {
     }
     root.querySelectorAll('[data-avatar-id]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        openAvatar(btn.getAttribute('data-avatar-id'));
+        openAvatarFromLink(btn, profile);
+      });
+    });
+    bindGroupTitleSave(profile, root);
+  }
+
+  function bindGroupTitleSave(profile, root) {
+    const select = root.querySelector('#profile-group-title-select');
+    const saveBtn = root.querySelector('#profile-group-title-save');
+    const statusEl = root.querySelector('#profile-group-title-status');
+    if (!select || !saveBtn || !profile.isMember || !profile.groupId) return;
+
+    const savedRoleId = profile.selectedTitleRoleId || '';
+    const titles = profile.titles || [];
+
+    function setStatus(message, kind) {
+      if (!statusEl) return;
+      statusEl.textContent = message || '';
+      statusEl.className = 'profile-notes-status' +
+        (kind ? ' profile-notes-status--' + kind : '');
+    }
+
+    function updateSaveState() {
+      if (titles.length <= 1) {
+        saveBtn.disabled = true;
+        return;
+      }
+      saveBtn.disabled = select.value === savedRoleId;
+    }
+
+    select.addEventListener('change', updateSaveState);
+    updateSaveState();
+
+    saveBtn.addEventListener('click', function () {
+      if (saveBtn.disabled) return;
+      if (typeof FSProfiles.isAgentInGroup === 'function' &&
+          !FSProfiles.isAgentInGroup(profile.groupId)) {
+        setStatus('You are not a member of this group.', 'error');
+        return;
+      }
+      const roleId = select.value;
+      if (!roleId) return;
+      saveBtn.disabled = true;
+      setStatus('Saving...', 'pending');
+      const save = typeof FSTransport.saveGroupTitle === 'function'
+        ? FSTransport.saveGroupTitle(profile.groupId, roleId)
+        : Promise.resolve({ sent: false });
+      save.then(function (result) {
+        if (!current || current.type !== 'group' || current.id !== profile.groupId) return;
+        if (result && result.notMember) {
+          setStatus('You are not a member of this group.', 'error');
+          const cached = FSProfiles.getGroupProfile(profile.groupId);
+          renderGroup(enrichGroupProfile(Object.assign({}, cached || profile, { isMember: false })));
+          return;
+        }
+        if (result && result.sent) {
+          setStatus('Title saved.', 'success');
+          const cached = FSProfiles.getGroupProfile(profile.groupId);
+          renderGroup(enrichGroupProfile(Object.assign({}, cached || profile)));
+          return;
+        }
+        setStatus('Could not save title.', 'error');
+        updateSaveState();
+      }).catch(function (err) {
+        setStatus(err.message || 'Could not save title.', 'error');
+        updateSaveState();
       });
     });
   }
@@ -976,6 +1176,35 @@ const FSProfile = (function () {
         closeDialog();
         FSIm.openGroupChat(groupId, profile.name || '');
       }, { primary: true });
+      if (profile.isActive) {
+        addAction('Active group', function () {}, {
+          disabled: true,
+          title: 'This is your active group'
+        });
+      } else {
+        addAction('Activate', function () {
+          if (typeof FSTransport.activateGroup !== 'function') return;
+          FSTransport.activateGroup(groupId).then(function (result) {
+            if (result && result.alreadyActive) {
+              FSUtils.showToast('Group is already active.', 'warning');
+              renderGroup(enrichGroupProfile(Object.assign({}, profile)));
+              return;
+            }
+            if (result && result.sent) {
+              FSUtils.showToast('Active group updated.', 'success');
+              renderGroup(enrichGroupProfile(Object.assign({}, profile, { isActive: true })));
+              return;
+            }
+            if (result && result.notMember) {
+              FSUtils.showToast('You are not a member of this group.', 'warning');
+              const next = enrichGroupProfile(Object.assign({}, profile, { isMember: false }));
+              renderGroup(next);
+              return;
+            }
+            FSUtils.showToast('Could not activate group.', 'warning');
+          });
+        });
+      }
       addAction('Leave group', function () {
         if (!window.confirm('Leave ' + groupName + '?')) return;
         FSTransport.leaveGroup(groupId).then(function (result) {
@@ -1023,11 +1252,17 @@ const FSProfile = (function () {
     }
   }
 
-  function bindGroupLinks(root) {
+  function bindGroupLinks(root, profile) {
     if (!root) return;
+    const fromSelf = profile && profile.avatarId && isSelfProfile(profile);
     root.querySelectorAll('[data-group-id]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        openGroup(btn.getAttribute('data-group-id'));
+        const groupId = btn.getAttribute('data-group-id');
+        const opts = {};
+        const label = String(btn.textContent || '').trim();
+        if (label) opts.group = { name: label };
+        if (fromSelf) opts.isMember = true;
+        openGroup(groupId, opts);
       });
     });
   }
@@ -1047,17 +1282,119 @@ const FSProfile = (function () {
     setLoading(false);
   }
 
+  function queueGroupTitles(profile) {
+    if (!profile || !profile.groupId || !profileShowsAsMember(profile)) return;
+    if (typeof FSProfiles.fetchGroupTitles !== 'function') return;
+    const groupId = profile.groupId;
+    const settled = typeof FSProfiles.isGroupTitlesFetchSettled === 'function' &&
+      FSProfiles.isGroupTitlesFetchSettled(groupId);
+    const hasTitles = typeof FSProfiles.hasGroupTitlesCache === 'function' &&
+      FSProfiles.hasGroupTitlesCache(groupId);
+    if (current && current.titlesRequested === groupId && (hasTitles || settled)) {
+      return;
+    }
+    if (current) current.titlesRequested = groupId;
+    const opts = { isMember: true };
+    if (settled && !hasTitles) opts.force = true;
+    FSProfiles.fetchGroupTitles(groupId, opts).then(function (titles) {
+      if (!current || current.type !== 'group' || current.id !== FSProfiles.normId(groupId)) return;
+      if (titles && titles.length) {
+        const cached = FSProfiles.getGroupProfile(groupId);
+        if (cached) patchGroupTitles(cached);
+      }
+    }).catch(function () {});
+  }
+
+  function groupViewKey(profile) {
+    const enriched = enrichGroupProfile(profile);
+    const titles = (enriched.titles || []).map(function (row) {
+      return row.roleId + ':' + (row.selected ? '1' : '0') + ':' + row.title;
+    }).join('|');
+    return [
+      enriched.groupId,
+      enriched.name,
+      enriched.charter,
+      enriched.isMember ? 1 : 0,
+      enriched.isActive ? 1 : 0,
+      enriched.memberTitle,
+      enriched.founderId,
+      enriched.founderName,
+      enriched.insigniaId,
+      titles
+    ].join('\n');
+  }
+
+  function patchGroupTitles(profile) {
+    const enriched = enrichGroupProfile(Object.assign({}, profile));
+    const titles = enriched.titles || [];
+    const settled = typeof FSProfiles.isGroupTitlesFetchSettled === 'function' &&
+      FSProfiles.isGroupTitlesFetchSettled(enriched.groupId);
+    if (!titles.length && !settled) return false;
+    const content = el('profile-content');
+    if (!content) return false;
+    const panel = content.querySelector('.profile-main-panel');
+    if (!panel) return false;
+    const html = renderGroupTitleSection(enriched);
+    if (!html) return false;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    const next = wrap.firstElementChild;
+    if (!next) return false;
+    const existing = panel.querySelector('.profile-section--title');
+    if (existing) existing.replaceWith(next);
+    else panel.appendChild(next);
+    bindGroupTitleSave(enriched, content);
+    renderGroupActions(enriched);
+    lastGroupViewKey = groupViewKey(enriched);
+    return true;
+  }
+
+  function updateGroupFounderLabel(profile) {
+    if (!profile || !profile.founderId || profile.founderId === ZERO_UUID) return;
+    const content = el('profile-content');
+    if (!content) return;
+    const btn = content.querySelector('[data-avatar-id="' + profile.founderId + '"]');
+    if (!btn) return;
+    const label = profile.founderName || 'View profile';
+    if (btn.textContent !== label) btn.textContent = label;
+  }
+
+  function scheduleGroupRefresh() {
+    if (groupRefreshTimer) clearTimeout(groupRefreshTimer);
+    groupRefreshTimer = setTimeout(function () {
+      groupRefreshTimer = null;
+      if (!current || current.type !== 'group' || !dialog || !dialog.open) return;
+      const profile = FSProfiles.getGroupProfile(current.id);
+      if (profile) renderGroup(Object.assign({}, profile));
+    }, 100);
+  }
+
+  function refreshGroupLabels(profile) {
+    const enriched = enrichGroupProfile(Object.assign({}, profile));
+    updateGroupHeader(enriched);
+    updateGroupFounderLabel(enriched);
+  }
+
   function renderGroup(profile) {
     if (dialog) {
       dialog.classList.remove('profile-dialog--avatar');
       dialog.classList.add('profile-dialog--group');
     }
     const enriched = enrichGroupProfile(profile);
-    updateGroupHeader(enriched);
-    queueGroupNames(enriched);
-
+    const viewKey = groupViewKey(enriched);
     const content = el('profile-content');
     if (!content) return;
+    if (viewKey === lastGroupViewKey && content.querySelector('.profile-main-panel')) {
+      updateGroupHeader(enriched);
+      updateGroupFounderLabel(enriched);
+      renderGroupActions(enriched);
+      setLoading(false);
+      return;
+    }
+    lastGroupViewKey = viewKey;
+    updateGroupHeader(enriched);
+    queueGroupNames(enriched);
+    queueGroupTitles(enriched);
     content.innerHTML = '<div class="profile-main-panel">' + renderGroupTab(enriched) + '</div>';
     bindGroupContent(enriched, content);
     renderGroupActions(enriched);
@@ -1119,6 +1456,40 @@ const FSProfile = (function () {
     }, 2000);
   }
 
+  function looksLikeUuidLabel(text) {
+    const value = String(text || '').trim().toLowerCase();
+    if (!value) return false;
+    if (value.endsWith('...') && value.length === 11) {
+      return /^[0-9a-f]+$/.test(value.slice(0, 8));
+    }
+    return value.length >= 13 && value.charAt(8) === '-' && value.charAt(13) === '-' &&
+      /^[0-9a-f-]+$/.test(value);
+  }
+
+  function openAvatarFromLink(btn, context) {
+    if (!btn) return;
+    const avatarId = btn.getAttribute('data-avatar-id');
+    if (!avatarId) return;
+    const opts = {};
+    let hint = null;
+    if (context && context.founderId &&
+        FSProfiles.normId(context.founderId) === FSProfiles.normId(avatarId)) {
+      const founderName = String(context.founderName || '').trim();
+      if (founderName && founderName !== 'View profile' && !looksLikeUuidLabel(founderName)) {
+        hint = { id: avatarId, name: founderName, displayName: founderName };
+      }
+    }
+    if (!hint) {
+      const label = String(btn.textContent || '').trim();
+      if (label && label !== 'View profile' && !looksLikeUuidLabel(label)) {
+        hint = { id: avatarId, name: label, displayName: label };
+      }
+    }
+    if (!hint) hint = findKnownAgent(avatarId);
+    if (hint) opts.agent = hint;
+    openAvatar(avatarId, opts);
+  }
+
   function openAvatar(agentId, options) {
     const id = FSProfiles.normId(agentId);
     if (FSProfiles.isZero(id)) return;
@@ -1161,6 +1532,10 @@ const FSProfile = (function () {
     FSProfiles.fetchAvatarProfile(id, { force: true, quiet: true }).then(function (fresh) {
       if (!current || current.id !== id || current.type !== 'avatar') return;
       finishAvatarProfile(fresh);
+      if (typeof FSTransport.getCachedNameInfo === 'function') {
+        const info = FSTransport.getCachedNameInfo(id);
+        if (info && info.label) updateProfileHeader(enrichAvatarProfile(Object.assign({}, fresh)));
+      }
       if (typeof FSProfiles.needsCapProfileFetch === 'function' &&
           FSProfiles.needsCapProfileFetch(fresh) &&
           typeof FSProfiles.hasAgentProfileCap === 'function' &&
@@ -1183,7 +1558,14 @@ const FSProfile = (function () {
     if (FSProfiles.isZero(id)) return;
     if (!dialog) return;
     const nameHint = (options && options.group) || null;
-    current = { type: 'group', id: id, nameHint: nameHint };
+    current = {
+      type: 'group',
+      id: id,
+      nameHint: nameHint,
+      isMemberHint: !!(options && options.isMember),
+      titlesRequested: ''
+    };
+    lastGroupViewKey = '';
     setLoading(true);
     clearActions();
     if (typeof dialog.showModal === 'function') dialog.showModal();
@@ -1266,7 +1648,44 @@ const FSProfile = (function () {
         return;
       }
       if (current.type === 'group' && evt.kind === 'group' && evt.id === current.id) {
-        refreshCurrentProfile();
+        const profile = FSProfiles.getGroupProfile(current.id);
+        if (!profile) return;
+        if (patchGroupTitles(profile)) return;
+        scheduleGroupRefresh();
+        return;
+      }
+      if (current.type === 'group' && evt.kind === 'group-titles' && evt.id === current.id) {
+        const profile = FSProfiles.getGroupProfile(current.id);
+        if (profile && patchGroupTitles(profile)) return;
+        return;
+      }
+      if (current.type === 'group' && evt.kind === 'active-group') {
+        const profile = FSProfiles.getGroupProfile(current.id);
+        if (!profile) return;
+        renderGroupActions(enrichGroupProfile(Object.assign({}, profile)));
+        return;
+      }
+      if (current.type === 'group' && evt.kind === 'membership') {
+        lastGroupViewKey = '';
+        if (current.id) {
+          const openProfile = FSProfiles.getGroupProfile(current.id);
+          if (openProfile) {
+            queueGroupTitles(enrichGroupProfile(Object.assign({}, openProfile)));
+          }
+        }
+        scheduleGroupRefresh();
+        return;
+      }
+      if (current.type === 'avatar' && evt.kind === 'membership' &&
+          isSelfProfile({ avatarId: current.id })) {
+        const profile = FSProfiles.getAvatarProfile(current.id);
+        if (profile && !patchSelfGroupsSection(profile)) refreshCurrentProfile();
+        return;
+      }
+      if (current.type === 'avatar' && evt.kind === 'active-group' && isSelfProfile({ avatarId: current.id })) {
+        const profile = FSProfiles.getAvatarProfile(current.id);
+        if (profile && !patchSelfGroupsSection(profile)) highlightActiveGroupInList();
+        else highlightActiveGroupInList();
         return;
       }
       if (current.type !== 'avatar') return;
@@ -1296,7 +1715,7 @@ const FSProfile = (function () {
         }
         if (current.type === 'group') {
           const profile = FSProfiles.getGroupProfile(current.id);
-          if (profile) renderGroup(Object.assign({}, profile));
+          if (profile) refreshGroupLabels(profile);
         }
       });
       FSTransport.on('buddies-updated', function () {

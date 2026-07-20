@@ -59,8 +59,10 @@ const FSAvatarThumb = (function () {
     const online = el.dataset.online === '1';
     const resolve = shouldResolveImage(el);
     if (kind === 'group') {
-      const insigniaId = FSProfiles.getGroupInsigniaId(agentId);
-      const url = insigniaId ? FSProfiles.textureImageUrl(insigniaId, 64) : '';
+      const insigniaId = el.dataset.imageId || FSProfiles.getGroupInsigniaId(agentId);
+      const url = insigniaId && !FSProfiles.isZero(insigniaId)
+        ? FSProfiles.textureImageUrl(insigniaId, 64)
+        : '';
       if (url) setImage(el, url, agentId, { kind: 'group', label: label });
       else setInitials(el, GROUP_GLYPH);
       return;
@@ -82,6 +84,8 @@ const FSAvatarThumb = (function () {
     el.dataset.kind = opts.kind || 'avatar';
     if (opts.label) el.dataset.label = opts.label;
     if (opts.online) el.dataset.online = '1';
+    if (opts.imageId && !FSProfiles.isZero(opts.imageId)) el.dataset.imageId = FSProfiles.normId(opts.imageId);
+    else delete el.dataset.imageId;
     if (opts.resolveImage) el.dataset.resolveImage = '1';
     else delete el.dataset.resolveImage;
     applyClasses(el, opts);
@@ -104,6 +108,8 @@ const FSAvatarThumb = (function () {
     else delete el.dataset.label;
     if (opts.online) el.dataset.online = '1';
     else delete el.dataset.online;
+    if (opts.imageId && !FSProfiles.isZero(opts.imageId)) el.dataset.imageId = FSProfiles.normId(opts.imageId);
+    else delete el.dataset.imageId;
     if (opts.resolveImage) el.dataset.resolveImage = '1';
     else delete el.dataset.resolveImage;
     el.className = el.className.replace(/\bavatar-thumb[^\s]*/g, '').trim();

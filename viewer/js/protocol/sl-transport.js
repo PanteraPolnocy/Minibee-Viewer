@@ -1376,6 +1376,38 @@ const FSSLTransport = (function () {
     });
   }
 
+  function activateGroup(groupId) {
+    if (simActionsBlocked() || !circuit || !circuit.activateGroup) {
+      return Promise.resolve({ sent: false });
+    }
+    const id = groupId ? normAgentId(groupId) : '';
+    const clearing = !id || id === ZERO_UUID;
+    if (!clearing) {
+      if (typeof FSProfiles.isAgentInGroup === 'function' && !FSProfiles.isAgentInGroup(id)) {
+        return Promise.resolve({ sent: false, notMember: true });
+      }
+      if (typeof FSProfiles.isActiveGroup === 'function' && FSProfiles.isActiveGroup(id)) {
+        return Promise.resolve({ sent: false, alreadyActive: true });
+      }
+    }
+    return circuit.activateGroup(clearing ? ZERO_UUID : id).then(function (result) {
+      if (result && result.sent && typeof FSProfiles.setActiveGroup === 'function') {
+        if (clearing) {
+          FSProfiles.setActiveGroup(ZERO_UUID, { title: '' });
+        } else {
+          const row = typeof FSProfiles.getGroupProfile === 'function'
+            ? FSProfiles.getGroupProfile(id)
+            : null;
+          FSProfiles.setActiveGroup(id, {
+            name: typeof FSProfiles.getGroupName === 'function' ? FSProfiles.getGroupName(id) : '',
+            insigniaId: row && row.insigniaId ? row.insigniaId : ''
+          });
+        }
+      }
+      return result || { sent: false };
+    });
+  }
+
   function handleJoinGroupReply(data) {
     if (!data || !data.groupId) return;
     const id = normAgentId(data.groupId);
@@ -2268,9 +2300,9 @@ const FSSLTransport = (function () {
     });
   }
 
-  // Parse the LLSD agent-list payload used by both ChatterBoxSessionStartReply
-  // (initial roster) and ChatterBoxSessionAgentListUpdates (deltas). Mirrors
-  // LLIMSpeakerMgr::setSpeakers / updateSpeakers.
+  // Group IM moderation (MOD tags, text mute) is sim-authoritative via
+  // ChatterBoxSessionAgentListUpdates + ChatSessionRequest "mute update".
+  // It does not use profile GroupTitles or GroupRoleData.
   function applyAgentUpdates(session, body) {
     if (!body || typeof body !== 'object') return false;
     let changed = false;
@@ -2287,8 +2319,20 @@ const FSSLTransport = (function () {
         changed = true;
       }
       if (info && typeof info === 'object') {
-        if (info.is_moderator !== undefined) row.isModerator = !!info.is_moderator;
-        if (info.mutes && info.mutes.text !== undefined) row.muted = !!info.mutes.text;
+        if (info.is_moderator !== undefined) {
+          const nextMod = !!info.is_moderator;
+          if (row.isModerator !== nextMod) {
+            row.isModerator = nextMod;
+            changed = true;
+          }
+        }
+        if (info.mutes && info.mutes.text !== undefined) {
+          const nextMuted = !!info.mutes.text;
+          if (row.muted !== nextMuted) {
+            row.muted = nextMuted;
+            changed = true;
+          }
+        }
       }
     }
 
@@ -2326,7 +2370,13 @@ const FSSLTransport = (function () {
 
     const selfId = normAgentId(loginData && loginData.agent ? loginData.agent.id : '');
     const selfRow = selfId ? session.participants.get(selfId) : null;
-    if (selfRow) session.localModerator = !!selfRow.isModerator;
+    const nextLocalModerator = !!(selfRow && selfRow.isModerator);
+    if (!!session.localModerator !== nextLocalModerator) {
+      session.localModerator = nextLocalModerator;
+      changed = true;
+    } else if (selfRow) {
+      session.localModerator = nextLocalModerator;
+    }
 
     if (newIds.length) queueNameResolve(newIds);
     return changed;
@@ -2371,23 +2421,36 @@ const FSSLTransport = (function () {
     }
     let changed = false;
     const agentId = loginData ? normAgentId(loginData.agent.id) : '';
-    function addRow(id, name) {
+    function addRow(id, name, flags) {
       const key = normAgentId(id);
       if (!key || key === ZERO_UUID) return;
+      const opts = flags || {};
       if (!transport.participants.has(key)) {
         transport.participants.set(key, {
           id: key,
           name: pickDisplayName(key, name || ''),
-          online: true,
-          isModerator: false,
-          muted: false
+          online: opts.online !== false,
+          isModerator: !!opts.isModerator,
+          muted: !!opts.muted
         });
+        changed = true;
+        return;
+      }
+      const row = transport.participants.get(key);
+      if (opts.isModerator !== undefined && row.isModerator !== !!opts.isModerator) {
+        row.isModerator = !!opts.isModerator;
+        changed = true;
+      }
+      if (opts.muted !== undefined && row.muted !== !!opts.muted) {
+        row.muted = !!opts.muted;
         changed = true;
       }
     }
     if (ui && Array.isArray(ui.participants)) {
       ui.participants.forEach(function (p) {
-        if (p && p.id) addRow(p.id, p.name);
+        if (p && p.id) {
+          addRow(p.id, p.name, { isModerator: p.isModerator, muted: p.muted, online: p.online });
+        }
       });
     }
     if (ui && Array.isArray(ui.messages)) {
@@ -2396,6 +2459,16 @@ const FSSLTransport = (function () {
       });
     }
     if (agentId) addRow(agentId, agentFullName());
+    if (agentId) {
+      const selfRow = transport.participants.get(agentId);
+      const nextLocalModerator = !!(selfRow && selfRow.isModerator) || !!(ui && ui.canModerate);
+      if (!!transport.localModerator !== nextLocalModerator) {
+        transport.localModerator = nextLocalModerator;
+        changed = true;
+      } else {
+        transport.localModerator = nextLocalModerator;
+      }
+    }
     if (changed) emitRoster(transport);
     return changed;
   }
@@ -4692,15 +4765,30 @@ const FSSLTransport = (function () {
       }
     }
     if (evt.type === 'uuid-names' && evt.names) {
+      let changed = false;
       evt.names.forEach(function (row) {
-        if (row.id && row.name) cacheName(row.id, row.name);
+        if (!row.id || !row.name) return;
+        const before = getCachedNameInfo(row.id);
+        cacheName(row.id, row.name);
+        const after = getCachedNameInfo(row.id);
+        if (!before || !after || before.label !== after.label) changed = true;
       });
       refreshNamedEntities();
+      if (changed) emit('names-updated');
       return;
     }
     if (evt.type === 'agent-name' && evt.data) {
+      const before = getCachedNameInfo(evt.data.agentId);
       cacheName(evt.data.agentId, evt.data.name);
+      const after = getCachedNameInfo(evt.data.agentId);
+      if (evt.data.activeGroupId !== undefined && typeof FSProfiles.setActiveGroup === 'function') {
+        FSProfiles.setActiveGroup(evt.data.activeGroupId, {
+          name: evt.data.groupName || '',
+          title: evt.data.groupTitle || ''
+        });
+      }
       refreshNamedEntities();
+      if (!before || !after || before.label !== after.label) emit('names-updated');
       return;
     }
     if (evt.type === 'parcel' && evt.data) {
@@ -4735,12 +4823,28 @@ const FSSLTransport = (function () {
       refreshNamedEntities();
       return;
     }
+    if (evt.type === 'group-titles-reply' && evt.data) {
+      FSProfiles.handleGroupTitlesReply(evt.data);
+      return;
+    }
+    if (evt.type === 'group-role-data-reply' && evt.data) {
+      FSProfiles.handleGroupRoleDataReply(evt.data);
+      return;
+    }
     if (evt.type === 'join-group-reply' && evt.data) {
       handleJoinGroupReply(evt.data);
       return;
     }
     if (evt.type === 'leave-group-reply' && evt.data) {
       handleLeaveGroupReply(evt.data);
+      return;
+    }
+    if (evt.type === 'trusted-message' && evt.name) {
+      if (evt.name === 'AgentGroupDataUpdate' &&
+          typeof FSProfiles.handleHttpAgentGroupDataUpdate === 'function') {
+        FSProfiles.handleHttpAgentGroupDataUpdate(evt.body, evt.contentType);
+        refreshNamedEntities();
+      }
       return;
     }
     if (evt.type === 'agent-group-data-update' && evt.data) {
@@ -4777,6 +4881,9 @@ const FSSLTransport = (function () {
   function initProfiles() {
     if (typeof FSProfiles === 'undefined') return;
     FSProfiles.init({
+      getSelfAgentId: function () {
+        return loginData && loginData.agent ? loginData.agent.id : '';
+      },
       getAgentProfileCap: function () { return agentProfileCapUrl; },
       ensureAgentProfileCap: ensureAgentProfileCap,
       fetchAgentProfileCap: function (agentId) {
@@ -4792,7 +4899,24 @@ const FSSLTransport = (function () {
           return FSCaps.fetchAgentProfile(bridge, capUrl, requestedId, {
             agentSessionId: sessionId
           }).then(function (data) {
-            return FSProfiles.mapAgentProfileCap(data, requestedId);
+            const profile = FSProfiles.mapAgentProfileCap(data, requestedId);
+            if (data && typeof data === 'object') {
+              const userName = String(data.username || data.user_name || data.legacy_name || '').trim();
+              const displayRaw = String(data.display_name || data.displayName || '').trim();
+              const isDefault = data.is_display_name_default === true ||
+                data.is_display_name_default === 'true' ||
+                data.is_display_name_default === 1;
+              const displayName = (!isDefault && displayRaw) ? displayRaw : '';
+              if (userName || displayName) {
+                cacheNameInfo(requestedId, {
+                  displayName: displayName,
+                  userName: userName,
+                  label: displayName || userName,
+                  nameLookupDone: true
+                });
+              }
+            }
+            return profile;
           });
         });
       },
@@ -4803,6 +4927,18 @@ const FSSLTransport = (function () {
       requestGroupProfile: function (groupId) {
         if (!circuit || !circuit.requestGroupProfile) return Promise.resolve();
         return circuit.requestGroupProfile(groupId);
+      },
+      requestGroupTitles: function (groupId, requestId) {
+        if (!circuit || !circuit.requestGroupTitles) return Promise.resolve({ sent: false });
+        return circuit.requestGroupTitles(groupId, requestId);
+      },
+      requestGroupRoleData: function (groupId, requestId) {
+        if (!circuit || !circuit.requestGroupRoleData) return Promise.resolve({ sent: false });
+        return circuit.requestGroupRoleData(groupId, requestId);
+      },
+      updateGroupTitle: function (groupId, titleRoleId) {
+        if (!circuit || !circuit.updateGroupTitle) return Promise.resolve({ sent: false });
+        return circuit.updateGroupTitle(groupId, titleRoleId);
       },
       sendAvatarGenericRequest: function (method, agentId) {
         if (!circuit || !circuit.sendAvatarGenericRequest) return Promise.resolve();
@@ -4965,8 +5101,12 @@ const FSSLTransport = (function () {
 
     emit('connected', payload);
     startPositionSync();
+    scheduleParcelRefreshAfterArrival();
     if (!capsReady) {
       scheduleCapBootstrap(false);
+    }
+    if (typeof FSProfiles !== 'undefined' && loginData.agent && loginData.agent.id) {
+      FSProfiles.fetchAvatarProfile(loginData.agent.id, { quiet: true }).catch(function () {});
     }
     postLoginMotdChat(loginData.message);
     postRegionArrivalChat(loginData.region.name);
@@ -5538,6 +5678,7 @@ const FSSLTransport = (function () {
     removeFriendship: removeFriendship,
     joinGroup: joinGroup,
     leaveGroup: leaveGroup,
+    activateGroup: activateGroup,
     saveAvatarNotes: saveAvatarNotes,
     getCachedName: getCachedName,
     getCachedNameInfo: getCachedNameInfo,
@@ -5550,6 +5691,18 @@ const FSSLTransport = (function () {
     },
     fetchGroupProfile: function (groupId, options) {
       return FSProfiles.fetchGroupProfile(groupId, options);
+    },
+    fetchGroupTitles: function (groupId, options) {
+      return FSProfiles.fetchGroupTitles(groupId, options);
+    },
+    saveGroupTitle: function (groupId, roleId) {
+      return FSProfiles.saveGroupTitle(groupId, roleId);
+    },
+    getActiveGroupId: function () {
+      return typeof FSProfiles.getActiveGroupId === 'function' ? FSProfiles.getActiveGroupId() : '';
+    },
+    isActiveGroup: function (groupId) {
+      return typeof FSProfiles.isActiveGroup === 'function' ? FSProfiles.isActiveGroup(groupId) : false;
     },
     queueAvatarThumb: function (agentId) {
       if (typeof FSProfiles !== 'undefined') FSProfiles.queueAvatarThumb(agentId);

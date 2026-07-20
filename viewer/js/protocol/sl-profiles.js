@@ -8,6 +8,7 @@ const FSProfiles = (function () {
   const THUMB_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   const PROFILE_TTL_MS = 4 * 60 * 60 * 1000;
   const GROUP_TTL_MS = 24 * 60 * 60 * 1000;
+  const GROUP_TITLES_TTL_MS = 15 * 60 * 1000;
   const STORAGE_KEY = 'minibee_profile_cache_v1';
   const CAP_FETCH_GAP_MS = 900;
   const CAP_RATE_RETRY_MS = 2000;
@@ -18,7 +19,11 @@ const FSProfiles = (function () {
   const avatarProfiles = new Map();
   const groupProfiles = new Map();
   const groupNames = new Map();
+  const groupTitles = new Map();
   const agentGroups = new Map();
+  const pendingGroupTitles = new Map();
+  let activeGroupId = '';
+  let activeGroupTitle = '';
   const imageIds = new Map();
   const pendingAvatar = new Map();
   const pendingGroup = new Map();
@@ -117,6 +122,11 @@ const FSProfiles = (function () {
     avatarProfiles.clear();
     groupProfiles.clear();
     groupNames.clear();
+    groupTitles.clear();
+    agentGroups.clear();
+    pendingGroupTitles.clear();
+    activeGroupId = '';
+    activeGroupTitle = '';
     imageIds.clear();
     pendingAvatar.clear();
     pendingGroup.clear();
@@ -164,9 +174,13 @@ const FSProfiles = (function () {
     const id = normId(groupId);
     const label = String(name || '').trim();
     if (isZero(id) || !label) return;
+    const prev = groupNames.get(id);
+    const nextInsignia = insigniaId && !isZero(insigniaId)
+      ? normId(insigniaId)
+      : ((prev && prev.insigniaId) || '');
     groupNames.set(id, {
       name: label,
-      insigniaId: insigniaId ? normId(insigniaId) : '',
+      insigniaId: nextInsignia,
       fetchedAt: Date.now()
     });
     persistStorage();
@@ -204,6 +218,9 @@ const FSProfiles = (function () {
     const opts = options || {};
     const prev = avatarProfiles.get(id) || {};
     const nextPatch = Object.assign({}, patch);
+    if (Array.isArray(nextPatch.groups)) {
+      nextPatch.groups = mergeProfileGroupLists(prev.groups, nextPatch.groups);
+    }
     if (nextPatch.source === 'notes-local') {
       // Saved notes from this client always win until the server echoes them back.
     } else if (!nextPatch.notes && prev.notes) delete nextPatch.notes;
@@ -266,6 +283,9 @@ const FSProfiles = (function () {
     if (next.source === 'cap') capFetchActive.delete(id);
     if (patch.imageId) cacheImageId(id, patch.imageId);
     avatarProfiles.set(id, next);
+    if (next.groups && next.groups.length && id === getSelfAgentId()) {
+      mergeProfileGroupsIntoMembership(id, next.groups);
+    }
     if (!opts.silent) emitChange('avatar', id);
     return next;
   }
@@ -277,17 +297,23 @@ const FSProfiles = (function () {
     return row;
   }
 
-  function mergeGroupProfile(groupId, patch) {
+  function mergeGroupProfile(groupId, patch, options) {
     const id = normId(groupId);
     if (isZero(id) || !patch) return null;
+    const opts = options || {};
     const prev = groupProfiles.get(id) || {};
-    const next = Object.assign({}, prev, patch, {
+    const nextPatch = Object.assign({}, patch);
+    if (isZero(nextPatch.insigniaId) && prev.insigniaId && !isZero(prev.insigniaId)) {
+      delete nextPatch.insigniaId;
+    }
+    const prevFp = groupProfileFingerprint(prev);
+    const next = Object.assign({}, prev, nextPatch, {
       groupId: id,
       fetchedAt: Date.now()
     });
     if (next.name) cacheGroupName(id, next.name, next.insigniaId);
     groupProfiles.set(id, next);
-    emitChange('group', id);
+    if (!opts.silent && groupProfileFingerprint(next) !== prevFp) emitChange('group', id);
     return next;
   }
 
@@ -356,19 +382,33 @@ const FSProfiles = (function () {
       return { id: normId(p.id), name: String(p.name || '').trim() };
     }).filter(function (p) { return p.id && p.name; }) : [];
     const groups = Array.isArray(data.groups) ? data.groups.map(function (g) {
+      const listInProfile = g.list_in_profile;
       return {
         id: normId(g.id),
         name: String(g.name || '').trim(),
         insigniaId: normId(g.image_id || g.imageId || ''),
-        title: String(g.title || '').trim()
+        title: String(g.title || '').trim(),
+        listInProfile: listInProfile === undefined || listInProfile === null
+          ? true
+          : !!(listInProfile === true || listInProfile === 1 || listInProfile === 'true')
       };
     }).filter(function (g) { return g.id && g.name; }) : [];
     groups.forEach(function (g) { cacheGroupName(g.id, g.name, g.insigniaId); });
+    const userName = String(data.username || data.user_name || data.legacy_name || '').trim();
+    const displayRaw = String(data.display_name || data.displayName || '').trim();
+    const isDefault = data.is_display_name_default === true ||
+      data.is_display_name_default === 'true' ||
+      data.is_display_name_default === 1;
+    const displayName = (!isDefault && displayRaw) ? displayRaw : '';
     return {
       avatarId: avatarId,
       imageId: normId(data.sl_image_id || data.image_id || ''),
       flImageId: normId(data.fl_image_id || ''),
       partnerId: normId(data.partner_id || ''),
+      displayName: displayName,
+      userName: userName,
+      legacyName: userName,
+      name: displayName || userName,
       about: capAboutText(data),
       flAbout: capFlAboutText(data),
       bornOn: data.member_since || data.born_on || '',
@@ -415,26 +455,418 @@ const FSProfiles = (function () {
     });
   }
 
-  function isAgentInGroup(groupId) {
-    return agentGroups.has(normId(groupId));
+  function getSelfAgentId() {
+    if (!hooks || typeof hooks.getSelfAgentId !== 'function') return '';
+    return normId(hooks.getSelfAgentId());
   }
 
-  function addAgentGroup(groupId, info) {
+  function selfProfileGroups() {
+    const selfId = getSelfAgentId();
+    if (!selfId) return [];
+    const profile = avatarProfiles.get(selfId);
+    return profile && Array.isArray(profile.groups) ? profile.groups : [];
+  }
+
+  function getAgentMembershipGroups() {
+    const rows = [];
+    agentGroups.forEach(function (g) {
+      if (!g || !g.id) return;
+      rows.push({
+        id: normId(g.id),
+        name: g.name || getGroupName(g.id) || '',
+        insigniaId: g.insigniaId || '',
+        title: g.title || ''
+      });
+    });
+    return rows;
+  }
+
+  function mergeProfileGroupLists(prev, incoming) {
+    const byId = new Map();
+    (prev || []).forEach(function (g) {
+      if (!g || !g.id) return;
+      byId.set(normId(g.id), Object.assign({}, g, { id: normId(g.id) }));
+    });
+    (incoming || []).forEach(function (g) {
+      if (!g || !g.id) return;
+      const id = normId(g.id);
+      const row = byId.get(id) || {};
+      byId.set(id, Object.assign({}, row, g, { id: id }));
+    });
+    return Array.from(byId.values());
+  }
+
+  function mergeProfileGroupsIntoMembership(avatarId, groups) {
+    const selfId = getSelfAgentId();
+    if (!selfId || normId(avatarId) !== selfId || !Array.isArray(groups)) return;
+    groups.forEach(function (g) {
+      if (!g || !g.id) return;
+      addAgentGroup(g.id, {
+        name: g.name || '',
+        insigniaId: g.insigniaId || '',
+        title: g.title || '',
+        listInProfile: g.listInProfile
+      }, { silent: true });
+    });
+  }
+
+  function buildSelfProfileGroupRow(gid, agentRow, capRow, active) {
+    let title = String((capRow && capRow.title) || (agentRow && agentRow.title) || '').trim();
+    if (!title && active && active.id === gid) title = String(active.title || '').trim();
+    return {
+      id: gid,
+      name: String((capRow && capRow.name) || (agentRow && agentRow.name) ||
+        getGroupName(gid) || 'Group').trim(),
+      title: title,
+      insigniaId: normId((capRow && capRow.insigniaId) || (agentRow && agentRow.insigniaId)),
+      listInProfile: agentRow && agentRow.listInProfile !== undefined
+        ? !!agentRow.listInProfile
+        : (capRow && capRow.listInProfile !== undefined
+          ? !!capRow.listInProfile
+          : true)
+    };
+  }
+
+  function getProfileGroupsForDisplay(avatarId, profile) {
+    const id = normId(avatarId);
+    const selfId = getSelfAgentId();
+    const capRows = profile && Array.isArray(profile.groups) ? profile.groups : [];
+    if (!selfId || id !== selfId) {
+      return capRows.filter(function (g) {
+        return g && g.id && g.listInProfile !== false;
+      });
+    }
+    const byId = new Map();
+    capRows.forEach(function (g) {
+      if (!g || !g.id) return;
+      byId.set(normId(g.id), Object.assign({}, g, { id: normId(g.id) }));
+    });
+    const active = getActiveGroupInfo();
+    const ids = new Set();
+    agentGroups.forEach(function (g) {
+      if (g && g.id) ids.add(normId(g.id));
+    });
+    capRows.forEach(function (g) {
+      if (g && g.id) ids.add(normId(g.id));
+    });
+    const merged = [];
+    ids.forEach(function (gid) {
+      merged.push(buildSelfProfileGroupRow(
+        gid,
+        agentGroups.get(gid),
+        byId.get(gid),
+        active
+      ));
+    });
+    merged.sort(function (a, b) {
+      return String(a.name).localeCompare(String(b.name));
+    });
+    return merged;
+  }
+
+  function isAgentInGroup(groupId) {
+    const id = normId(groupId);
+    if (isZero(id)) return false;
+    if (agentGroups.has(id)) return true;
+    const groups = selfProfileGroups();
+    let i;
+    for (i = 0; i < groups.length; i++) {
+      if (normId(groups[i].id) === id) return true;
+    }
+    return false;
+  }
+
+  function getActiveGroupId() {
+    return normId(activeGroupId);
+  }
+
+  function getActiveGroupInfo() {
+    if (!activeGroupId || isZero(activeGroupId)) return null;
+    return {
+      id: activeGroupId,
+      name: getGroupName(activeGroupId) || '',
+      title: activeGroupTitle || ''
+    };
+  }
+
+  function isActiveGroup(groupId) {
+    const id = normId(groupId);
+    const active = normId(activeGroupId);
+    return !!(id && active && id === active);
+  }
+
+  function setActiveGroup(groupId, info) {
+    const opts = info || {};
+    const nextId = isZero(normId(groupId)) ? '' : normId(groupId);
+    const prevId = normId(activeGroupId);
+    const idChanged = nextId !== prevId;
+    let titleChanged = false;
+    if (opts.title !== undefined) {
+      const nextTitle = String(opts.title || '').trim();
+      titleChanged = nextTitle !== activeGroupTitle;
+      if (titleChanged) activeGroupTitle = nextTitle;
+    } else if (idChanged) {
+      activeGroupTitle = '';
+    }
+    const nameUpdate = !!(opts.name && opts.name !== getGroupName(nextId));
+    const insigniaUpdate = !!(opts.insigniaId && !isZero(opts.insigniaId));
+    if (!idChanged && !titleChanged && !nameUpdate && !insigniaUpdate) return;
+    activeGroupId = nextId;
+    if (nextId && opts.name) {
+      cacheGroupName(nextId, opts.name, opts.insigniaId || '');
+    } else if (nextId && insigniaUpdate) {
+      cacheGroupName(nextId, getGroupName(nextId) || 'Group', opts.insigniaId);
+    }
+    if (idChanged || titleChanged) emitChange('active-group', nextId || ZERO_UUID);
+  }
+
+  function groupProfileFingerprint(row) {
+    if (!row) return '';
+    return [
+      row.name || '',
+      row.charter || '',
+      row.memberTitle || '',
+      row.insigniaId || '',
+      row.founderId || '',
+      row.memberCount,
+      row.openEnrollment ? 1 : 0,
+      row.maturePublish ? 1 : 0,
+      row.membershipFee,
+      row.money,
+      row.rolesCount,
+      row.powersMask
+    ].join('|');
+  }
+
+  function hasGroupTitlesCache(groupId) {
+    const row = groupTitles.get(normId(groupId));
+    if (!row || !row.complete) return false;
+    if (Date.now() - (row.fetchedAt || 0) > GROUP_TITLES_TTL_MS) return false;
+    return !!(row.titles && row.titles.length);
+  }
+
+  function isGroupTitlesFetchSettled(groupId) {
+    const row = groupTitles.get(normId(groupId));
+    if (!row || !row.complete) return false;
+    return Date.now() - (row.fetchedAt || 0) <= GROUP_TITLES_TTL_MS;
+  }
+
+  function getGroupTitles(groupId) {
+    const row = groupTitles.get(normId(groupId));
+    if (!row || !row.titles) return [];
+    if (Date.now() - (row.fetchedAt || 0) > GROUP_TITLES_TTL_MS) return [];
+    return row.titles;
+  }
+
+  function selectedGroupTitle(groupId) {
+    const titles = getGroupTitles(groupId);
+    let i;
+    for (i = 0; i < titles.length; i++) {
+      if (titles[i].selected) return titles[i];
+    }
+    return null;
+  }
+
+  function rolesToTitles(groupId, roles) {
+    if (!Array.isArray(roles)) return [];
+    const id = normId(groupId);
+    const profile = groupProfiles.get(id) || {};
+    const worn = String(profile.memberTitle || '').trim();
+    const active = getActiveGroupInfo();
+    const activeTitle = active && active.id === id ? String(active.title || '').trim() : '';
+    const compare = worn || activeTitle;
+    const rows = [];
+    let i;
+    for (i = 0; i < roles.length; i++) {
+      const role = roles[i];
+      if (!role) continue;
+      const title = String(role.title || role.name || '').trim();
+      const roleId = normId(role.id || role.roleId);
+      if (!title || isZero(roleId)) continue;
+      rows.push({
+        title: title,
+        roleId: roleId,
+        selected: compare ? title === compare : !!role.selected
+      });
+    }
+    if (compare && !rows.some(function (row) { return row.selected; })) {
+      for (i = 0; i < rows.length; i++) {
+        if (rows[i].title === compare) rows[i].selected = true;
+      }
+    }
+    return rows;
+  }
+
+  function finishGroupTitlesFetch(id, pending, titles, complete) {
+    if (pending && pending.timer) clearTimeout(pending.timer);
+    if (pending) pendingGroupTitles.delete(id);
+    const rows = storeGroupTitles(id, titles, complete);
+    if (pending && pending.resolve) pending.resolve(rows);
+    return rows;
+  }
+
+  function storeGroupTitles(groupId, titles, complete) {
+    const id = normId(groupId);
+    if (isZero(id) || !Array.isArray(titles)) return [];
+    const rows = titles.map(function (row) {
+      return {
+        title: String(row.title || '').trim(),
+        roleId: normId(row.roleId),
+        selected: !!row.selected
+      };
+    }).filter(function (row) { return row.title && !isZero(row.roleId); });
+    const prevRow = groupTitles.get(id);
+    const prevJson = prevRow ? JSON.stringify(prevRow.titles || []) : '';
+    const nextJson = JSON.stringify(rows);
+    groupTitles.set(id, {
+      titles: rows,
+      fetchedAt: Date.now(),
+      complete: complete !== false
+    });
+    const selected = selectedGroupTitle(id);
+    if (selected) {
+      mergeGroupProfile(id, { memberTitle: selected.title }, { silent: true });
+    }
+    if (prevJson !== nextJson) emitChange('group-titles', id);
+    return rows;
+  }
+
+  function handleGroupTitlesReply(data) {
+    if (!data || isZero(data.groupId) || !Array.isArray(data.titles)) return null;
+    const selfId = getSelfAgentId();
+    if (selfId && data.agentId && normId(data.agentId) !== selfId) return null;
+    const id = normId(data.groupId);
+    const pending = pendingGroupTitles.get(id);
+    if (pending && data.requestId && !isZero(data.requestId) &&
+        normId(data.requestId) !== normId(pending.requestId)) {
+      return null;
+    }
+    if (pending) {
+      finishGroupTitlesFetch(id, pending, data.titles, true);
+    } else {
+      storeGroupTitles(id, data.titles, true);
+    }
+    return getGroupTitles(id);
+  }
+
+  function handleGroupRoleDataReply(data) {
+    if (!data || isZero(data.groupId) || !Array.isArray(data.roles)) return null;
+    return getGroupTitles(normId(data.groupId));
+  }
+
+  function fetchGroupTitles(groupId, options) {
+    const id = normId(groupId);
+    const opts = options || {};
+    const isMember = opts.isMember === true || isAgentInGroup(id);
+    if (isZero(id) || !isMember) {
+      return Promise.resolve([]);
+    }
+    if (opts.force) {
+      const stale = pendingGroupTitles.get(id);
+      if (stale) {
+        if (stale.timer) clearTimeout(stale.timer);
+        pendingGroupTitles.delete(id);
+      }
+      groupTitles.delete(id);
+    }
+    if (!opts.force && hasGroupTitlesCache(id)) {
+      return Promise.resolve(getGroupTitles(id));
+    }
+    if (!opts.force && isGroupTitlesFetchSettled(id)) {
+      return Promise.resolve(getGroupTitles(id));
+    }
+    if (pendingGroupTitles.has(id)) return pendingGroupTitles.get(id).promise;
+    if (!hooks || typeof hooks.requestGroupTitles !== 'function') {
+      return Promise.resolve([]);
+    }
+
+    let resolveFn;
+    const promise = new Promise(function (resolve) {
+      resolveFn = resolve;
+    });
+    const requestId = FSUtils.uuid();
+    const timer = setTimeout(function () {
+      if (!pendingGroupTitles.has(id)) return;
+      finishGroupTitlesFetch(id, pendingGroupTitles.get(id), getGroupTitles(id), true);
+    }, 8000);
+    pendingGroupTitles.set(id, {
+      promise: promise,
+      resolve: resolveFn,
+      requestId: requestId,
+      timer: timer
+    });
+
+    hooks.requestGroupTitles(id, requestId).then(function (result) {
+      if (!pendingGroupTitles.has(id)) return;
+      if (!result || !result.sent) {
+        finishGroupTitlesFetch(id, pendingGroupTitles.get(id), [], true);
+      }
+    }).catch(function () {
+      if (!pendingGroupTitles.has(id)) return;
+      finishGroupTitlesFetch(id, pendingGroupTitles.get(id), [], true);
+    });
+
+    return promise;
+  }
+
+  function saveGroupTitle(groupId, roleId) {
+    const id = normId(groupId);
+    const role = normId(roleId);
+    if (isZero(id) || !isAgentInGroup(id)) {
+      return Promise.resolve({ sent: false, notMember: true });
+    }
+    if (!hooks || typeof hooks.updateGroupTitle !== 'function') {
+      return Promise.resolve({ sent: false });
+    }
+    return hooks.updateGroupTitle(id, role).then(function (result) {
+      if (!result || !result.sent) return result || { sent: false };
+      const row = groupTitles.get(id);
+      if (row && row.titles) {
+        row.titles.forEach(function (title) {
+          title.selected = normId(title.roleId) === role;
+        });
+        const selected = row.titles.find(function (title) { return title.selected; });
+        mergeGroupProfile(id, { memberTitle: selected ? selected.title : '' }, { silent: true });
+        emitChange('group-titles', id);
+      }
+      return result;
+    });
+  }
+
+  function addAgentGroup(groupId, info, options) {
+    const opts = options || {};
     const id = normId(groupId);
     if (!id || isZero(id)) return;
     const existing = agentGroups.get(id);
+    const name = String((info && info.name) || (existing && existing.name) ||
+      getGroupName(id) || '').trim();
+    const insigniaId = normId((info && info.insigniaId) || (existing && existing.insigniaId));
+    const title = String((info && info.title) || (existing && existing.title) || '').trim();
+    let listInProfile = existing ? existing.listInProfile !== false : true;
+    if (info && info.listInProfile !== undefined && info.listInProfile !== null) {
+      listInProfile = !!info.listInProfile;
+    }
+    const changed = !existing || existing.name !== name || existing.insigniaId !== insigniaId ||
+      existing.title !== title || existing.listInProfile !== listInProfile;
     agentGroups.set(id, {
       id: id,
-      name: String((info && info.name) || (existing && existing.name) || groupNames.get(id) || '').trim(),
-      insigniaId: normId((info && info.insigniaId) || (existing && existing.insigniaId))
+      name: name,
+      insigniaId: insigniaId,
+      title: title,
+      listInProfile: listInProfile
     });
-    emitChange('group', id);
+    if (!opts.silent && changed) emitChange('group', id);
   }
 
   function removeAgentGroup(groupId) {
     const id = normId(groupId);
     if (!id || !agentGroups.has(id)) return;
     agentGroups.delete(id);
+    groupTitles.delete(id);
+    if (activeGroupId === id) {
+      activeGroupId = '';
+      emitChange('active-group', ZERO_UUID);
+    }
     emitChange('group', id);
   }
 
@@ -530,8 +962,10 @@ const FSProfiles = (function () {
 
   function handleGroupProfileReply(data) {
     if (!data || isZero(data.groupId)) return null;
+    const groupId = normId(data.groupId);
+    const member = isAgentInGroup(groupId);
     const patch = {
-      groupId: normId(data.groupId),
+      groupId: groupId,
       name: data.name || '',
       charter: data.charter || '',
       insigniaId: normId(data.insigniaId),
@@ -541,8 +975,8 @@ const FSProfiles = (function () {
       maturePublish: !!data.maturePublish,
       membershipFee: data.membershipFee,
       money: data.money,
-      memberTitle: data.memberTitle || '',
-      powersMask: data.powersMask,
+      memberTitle: member ? (data.memberTitle || '') : '',
+      powersMask: member ? data.powersMask : 0,
       showInList: data.showInList,
       allowPublish: data.allowPublish,
       rolesCount: data.rolesCount,
@@ -556,18 +990,69 @@ const FSProfiles = (function () {
     return mergeGroupProfile(patch.groupId, patch);
   }
 
-  function handleAgentGroupDataUpdate(data) {
-    if (!data || !Array.isArray(data.groups)) return;
-    data.groups.forEach(function (g) {
+  function mapHttpAgentGroupDataUpdate(input) {
+    let body = input || {};
+    if (body.body && typeof body.body === 'object') body = body.body;
+    if (body.body && typeof body.body === 'object') body = body.body;
+    const agentRows = body.AgentData || body.agent_data || [];
+    const agentRow = Array.isArray(agentRows) ? agentRows[0] : agentRows;
+    const agentId = normId((agentRow && (agentRow.AgentID || agentRow.agent_id)) || '');
+    const groupRows = body.GroupData || body.group_data || [];
+    const newRows = body.NewGroupData || body.new_group_data || [];
+    const groups = (Array.isArray(groupRows) ? groupRows : []).map(function (g, i) {
+      const listRow = Array.isArray(newRows) ? (newRows[i] || {}) : {};
+      const listInProfile = listRow.ListInProfile !== undefined
+        ? !!listRow.ListInProfile
+        : (listRow.list_in_profile !== undefined ? !!listRow.list_in_profile : true);
+      return {
+        id: normId(g.GroupID || g.group_id),
+        name: String(g.GroupName || g.group_name || '').trim(),
+        insigniaId: normId(g.GroupInsigniaID || g.group_insignia_id),
+        acceptNotices: g.AcceptNotices !== false && g.accept_notices !== false,
+        contribution: g.Contribution || g.contribution || 0,
+        listInProfile: listInProfile
+      };
+    }).filter(function (g) { return g.id && !isZero(g.id) && g.name; });
+    return { agentId: agentId, groups: groups };
+  }
+
+  function applyAgentGroupRows(groups) {
+    if (!Array.isArray(groups)) return false;
+    let changed = false;
+    groups.forEach(function (g) {
       if (!g || !g.id) return;
       const id = normId(g.id);
-      agentGroups.set(id, {
-        id: id,
-        name: g.name || '',
-        insigniaId: normId(g.insigniaId)
-      });
+      const existing = agentGroups.get(id);
+      addAgentGroup(id, {
+        name: g.name || (existing && existing.name) || '',
+        insigniaId: g.insigniaId || (existing && existing.insigniaId) || '',
+        title: g.title || (existing && existing.title) || '',
+        listInProfile: g.listInProfile
+      }, { silent: true });
       if (g.name) cacheGroupName(id, g.name, g.insigniaId);
+      changed = true;
     });
+    return changed;
+  }
+
+  function handleAgentGroupDataUpdate(data) {
+    if (!data || !Array.isArray(data.groups)) return;
+    const selfId = getSelfAgentId();
+    if (selfId && data.agentId && normId(data.agentId) !== selfId) return;
+    if (!applyAgentGroupRows(data.groups)) return;
+    emitChange('membership', selfId || ZERO_UUID);
+    if (selfId) emitChange('avatar', selfId);
+  }
+
+  function handleHttpAgentGroupDataUpdate(body, contentType) {
+    if (!body || typeof FSLLSD === 'undefined' || typeof FSLLSD.parse !== 'function') return null;
+    try {
+      const parsed = FSLLSD.parse(body, contentType);
+      handleAgentGroupDataUpdate(mapHttpAgentGroupDataUpdate(parsed));
+      return getAgentMembershipGroups();
+    } catch (_e) {
+      return null;
+    }
   }
 
   function handleAvatarGroupsReply(data) {
@@ -577,11 +1062,17 @@ const FSProfiles = (function () {
         id: normId(g.id),
         name: g.name || '',
         title: g.title || '',
-        insigniaId: normId(g.insigniaId)
+        insigniaId: normId(g.insigniaId),
+        listInProfile: g.listInProfile !== false
       };
     }).filter(function (g) { return g.id && g.name; });
     groups.forEach(function (g) { cacheGroupName(g.id, g.name, g.insigniaId); });
-    return mergeAvatarProfile(data.avatarId, { groups: groups, source: 'udp-groups' });
+    const prev = getAvatarProfile(data.avatarId);
+    const mergedGroups = mergeProfileGroupLists(prev && prev.groups, groups);
+    if (normId(data.avatarId) === getSelfAgentId()) {
+      mergeProfileGroupsIntoMembership(data.avatarId, mergedGroups);
+    }
+    return mergeAvatarProfile(data.avatarId, { groups: mergedGroups, source: 'udp-groups' });
   }
 
   function handleAvatarPicksReply(data) {
@@ -910,7 +1401,12 @@ const FSProfiles = (function () {
     const capProfile = hasAgentProfileCap() && row.source === 'cap';
     let flags = extrasRequested.get(id) || {};
 
-    if ((!capProfile || !row.groups || !row.groups.length) && !flags.groups) {
+    if (id === getSelfAgentId()) {
+      if (!flags.groups) {
+        flags.groups = true;
+        hooks.sendAvatarGenericRequest('avatargroupsrequest', avatarId);
+      }
+    } else if ((!capProfile || !row.groups || !row.groups.length) && !flags.groups) {
       flags.groups = true;
       hooks.sendAvatarGenericRequest('avatargroupsrequest', avatarId);
     }
@@ -1095,7 +1591,20 @@ const FSProfiles = (function () {
     cacheGroupName: cacheGroupName,
     getGroupName: getGroupName,
     getGroupInsigniaId: getGroupInsigniaId,
+    getAgentMembershipGroups: getAgentMembershipGroups,
+    getProfileGroupsForDisplay: getProfileGroupsForDisplay,
     isAgentInGroup: isAgentInGroup,
+    getActiveGroupId: getActiveGroupId,
+    getActiveGroupInfo: getActiveGroupInfo,
+    isActiveGroup: isActiveGroup,
+    setActiveGroup: setActiveGroup,
+    hasGroupTitlesCache: hasGroupTitlesCache,
+    isGroupTitlesFetchSettled: isGroupTitlesFetchSettled,
+    getGroupTitles: getGroupTitles,
+    fetchGroupTitles: fetchGroupTitles,
+    saveGroupTitle: saveGroupTitle,
+    handleGroupTitlesReply: handleGroupTitlesReply,
+    handleGroupRoleDataReply: handleGroupRoleDataReply,
     addAgentGroup: addAgentGroup,
     removeAgentGroup: removeAgentGroup,
     needsCapProfileFetch: needsCapProfileFetch,
@@ -1114,6 +1623,7 @@ const FSProfiles = (function () {
     handleAvatarPropertiesReply: handleAvatarPropertiesReply,
     handleGroupProfileReply: handleGroupProfileReply,
     handleAgentGroupDataUpdate: handleAgentGroupDataUpdate,
+    handleHttpAgentGroupDataUpdate: handleHttpAgentGroupDataUpdate,
     handleAvatarGroupsReply: handleAvatarGroupsReply,
     handleAvatarPicksReply: handleAvatarPicksReply,
     handleAvatarNotesReply: handleAvatarNotesReply,

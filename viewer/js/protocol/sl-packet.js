@@ -163,6 +163,10 @@ const FSSLCircuit = (function () {
   MSG_META[M.GenericMessage] = { name: 'GenericMessage', freq: MF.FrequencyLow, zero: true };
   MSG_META[M.AvatarPropertiesRequest] = { name: 'AvatarPropertiesRequest', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.GroupProfileRequest] = { name: 'GroupProfileRequest', freq: MF.FrequencyLow, zero: false };
+  MSG_META[M.ActivateGroup] = { name: 'ActivateGroup', freq: MF.FrequencyLow, zero: true };
+  MSG_META[M.GroupRoleDataRequest] = { name: 'GroupRoleDataRequest', freq: MF.FrequencyLow, zero: false };
+  MSG_META[M.GroupTitlesRequest] = { name: 'GroupTitlesRequest', freq: MF.FrequencyLow, zero: false };
+  MSG_META[M.GroupTitleUpdate] = { name: 'GroupTitleUpdate', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.JoinGroupRequest] = { name: 'JoinGroupRequest', freq: MF.FrequencyLow, zero: true };
   MSG_META[M.LeaveGroupRequest] = { name: 'LeaveGroupRequest', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.JoinGroupReply] = { name: 'JoinGroupReply', freq: MF.FrequencyLow, zero: false };
@@ -1013,11 +1017,30 @@ const FSSLCircuit = (function () {
         pos = new B.UUID(session).write(buf, pos);
         pos = new B.UUID(data.groupId).write(buf, pos);
         break;
+      case M.ActivateGroup:
       case M.JoinGroupRequest:
       case M.LeaveGroupRequest:
         pos = new B.UUID(agent).write(buf, pos);
         pos = new B.UUID(session).write(buf, pos);
         pos = new B.UUID(data.groupId).write(buf, pos);
+        break;
+      case M.GroupRoleDataRequest:
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.groupId).write(buf, pos);
+        pos = new B.UUID(data.requestId).write(buf, pos);
+        break;
+      case M.GroupTitlesRequest:
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.groupId).write(buf, pos);
+        pos = new B.UUID(data.requestId).write(buf, pos);
+        break;
+      case M.GroupTitleUpdate:
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.groupId).write(buf, pos);
+        pos = new B.UUID(data.titleRoleId || B.UUID.zero().toString()).write(buf, pos);
         break;
       case M.ClassifiedInfoRequest:
         pos = new B.UUID(agent).write(buf, pos);
@@ -2051,6 +2074,9 @@ const FSSLCircuit = (function () {
             acceptNotices: acceptNotices
           });
         }
+        for (let i = 0; i < groups.length && pos < buf.length; i++) {
+          groups[i].listInProfile = buf[pos++] !== 0;
+        }
       }
       return { agentId: agentId, avatarId: avatarId, groups: groups };
     } catch (_e) {
@@ -2376,8 +2402,117 @@ const FSSLCircuit = (function () {
       const first = readVar1(buf, pos);
       pos = first.pos;
       const last = readVar1(buf, pos);
+      pos = last.pos;
       const name = last.text === 'Resident' ? first.text : (first.text + ' ' + last.text);
-      return { agentId: agentId, name: name.trim() };
+      const update = { agentId: agentId, name: name.trim() };
+      if (pos >= buf.length) return update;
+      const groupTitle = readVar1(buf, pos);
+      pos = groupTitle.pos;
+      if (pos + 16 > buf.length) return update;
+      const activeGroupId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      update.groupTitle = groupTitle.text || '';
+      update.activeGroupId = activeGroupId;
+      if (pos + 8 > buf.length) return update;
+      const powers = readU64le(buf, pos);
+      pos = powers.pos;
+      update.groupPowers = powers.value;
+      const groupName = readVar1(buf, pos);
+      update.groupName = groupName.text || '';
+      return update;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parseGroupTitlesReply(buf, pos) {
+    try {
+      if (pos + 48 > buf.length) return null;
+      const agentId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const groupId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const requestId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const titles = [];
+      if (pos < buf.length) {
+        const count = buf[pos++];
+        for (let i = 0; i < count && pos + 17 <= buf.length; i++) {
+          const title = readVar1(buf, pos);
+          pos = title.pos;
+          const roleId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+          pos += 16;
+          if (pos >= buf.length) break;
+          const selected = buf[pos++] !== 0;
+          const label = String(title.text || '').trim();
+          if (!label) continue;
+          titles.push({
+            title: label,
+            roleId: roleId,
+            selected: selected
+          });
+        }
+      }
+      return {
+        agentId: agentId,
+        groupId: groupId,
+        requestId: requestId,
+        titles: titles
+      };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function parseGroupRoleDataReply(buf, pos) {
+    try {
+      if (pos + 16 > buf.length) return null;
+      const agentId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      if (pos + 36 > buf.length) return null;
+      const groupId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const requestId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const roleCount = new DataView(buf.buffer, buf.byteOffset + pos, 4).getInt32(0, true);
+      pos += 4;
+      const roles = [];
+      if (pos < buf.length) {
+        let blockCount = roleCount;
+        if (buf[pos] === roleCount && roleCount > 0 && roleCount < 128) {
+          blockCount = buf[pos++];
+        }
+        for (let i = 0; i < blockCount && pos + 16 <= buf.length; i++) {
+          const roleId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+          pos += 16;
+          const roleName = readVar1(buf, pos);
+          pos = roleName.pos;
+          const roleTitle = readVar1(buf, pos);
+          pos = roleTitle.pos;
+          const roleDesc = readVar2(buf, pos);
+          pos = roleDesc.pos;
+          if (pos + 12 > buf.length) break;
+          const powers = readU64le(buf, pos);
+          pos = powers.pos;
+          const members = new DataView(buf.buffer, buf.byteOffset + pos, 4).getUint32(0, true);
+          pos += 4;
+          roles.push({
+            id: roleId,
+            name: roleName.text || '',
+            title: roleTitle.text || '',
+            description: roleDesc.text || '',
+            powers: powers.value,
+            members: members
+          });
+        }
+      }
+      return {
+        agentId: agentId,
+        groupId: groupId,
+        requestId: requestId,
+        roleCount: roleCount,
+        roles: roles
+      };
     } catch (_e) {
       return null;
     }
@@ -2718,6 +2853,14 @@ const FSSLCircuit = (function () {
           out.groupProfileReply = parseGroupProfileReply(buf, pos);
           break;
         }
+        case M.GroupTitlesReply: {
+          out.groupTitlesReply = parseGroupTitlesReply(buf, pos);
+          break;
+        }
+        case M.GroupRoleDataReply: {
+          out.groupRoleDataReply = parseGroupRoleDataReply(buf, pos);
+          break;
+        }
         case M.JoinGroupReply: {
           out.joinGroupReply = parseGroupMembershipReply(buf, pos);
           break;
@@ -3017,6 +3160,28 @@ const FSSLCircuit = (function () {
     });
   };
 
+  Circuit.prototype._processHttpMessages = function (messages) {
+    const self = this;
+    (messages || []).forEach(function (msg) {
+      if (!msg || !msg.name) return;
+      self.emit({
+        type: 'trusted-message',
+        name: msg.name,
+        body: msg.body || '',
+        contentType: msg.contentType || 'application/llsd+xml'
+      });
+    });
+  };
+
+  Circuit.prototype._processRecvPayload = function (resp) {
+    const self = this;
+    const packets = (resp && resp.packets) || [];
+    return self._processPackets(packets).then(function () {
+      self._processHttpMessages(resp && resp.httpMessages);
+      return resp;
+    });
+  };
+
   Circuit.prototype._packetB64 = function (packet) {
     let binary = '';
     const bytes = packet instanceof Uint8Array ? packet : new Uint8Array(packet);
@@ -3042,7 +3207,7 @@ const FSSLCircuit = (function () {
         if (typeof resp.localPort === 'number') self._lastLocalPort = resp.localPort;
         if (typeof resp.sendError === 'number') self._lastSendError = resp.sendError;
         if (typeof resp.recvError === 'number') self._lastRecvError = resp.recvError;
-        return self._processPackets(resp.packets || []).then(function () {
+        return self._processRecvPayload(resp).then(function () {
           if (self._outbox.length > 0) {
             const more = self._outbox.splice(0).map(function (p) { return self._packetB64(p); });
             return round(more);
@@ -3682,6 +3847,14 @@ const FSSLCircuit = (function () {
       this.emit({ type: 'group-profile-reply', data: msg.groupProfileReply });
       return;
     }
+    if (msg.id === M.GroupTitlesReply && msg.groupTitlesReply) {
+      this.emit({ type: 'group-titles-reply', data: msg.groupTitlesReply });
+      return;
+    }
+    if (msg.id === M.GroupRoleDataReply && msg.groupRoleDataReply) {
+      this.emit({ type: 'group-role-data-reply', data: msg.groupRoleDataReply });
+      return;
+    }
     if (msg.id === M.JoinGroupReply && msg.joinGroupReply) {
       this.emit({ type: 'join-group-reply', data: msg.joinGroupReply });
       return;
@@ -3800,12 +3973,13 @@ const FSSLCircuit = (function () {
           return;
         }
         const packets = resp.packets || [];
-        return self._processPackets(packets).then(function () {
+        return self._processRecvPayload(resp).then(function () {
           if (!self.active) {
             self._pollBusy = false;
             return;
           }
-          const hadPackets = packets.length > 0;
+          const hadPackets = packets.length > 0 ||
+            (resp.httpMessages && resp.httpMessages.length > 0);
           const kicked = token.aborted;
           if (hadPackets || kicked) {
             scheduleNext(true);
@@ -4254,6 +4428,44 @@ const FSSLCircuit = (function () {
   Circuit.prototype.requestGroupProfile = function (groupId) {
     if (!this.handshakeDone || !groupId) return Promise.resolve();
     return this.send(M.GroupProfileRequest, { groupId: groupId }, true);
+  };
+
+  Circuit.prototype.activateGroup = function (groupId) {
+    if (!this.handshakeDone) return Promise.resolve({ sent: false });
+    const id = groupId || B.UUID.zero().toString();
+    return this.send(M.ActivateGroup, { groupId: id }, true).then(function (seq) {
+      return { sent: seq !== undefined && seq !== null };
+    });
+  };
+
+  Circuit.prototype.requestGroupRoleData = function (groupId, requestId) {
+    if (!this.handshakeDone || !groupId || !requestId) return Promise.resolve({ sent: false });
+    return this.send(M.GroupRoleDataRequest, {
+      groupId: groupId,
+      requestId: requestId
+    }, true).then(function (seq) {
+      return { sent: seq !== undefined && seq !== null };
+    });
+  };
+
+  Circuit.prototype.requestGroupTitles = function (groupId, requestId) {
+    if (!this.handshakeDone || !groupId || !requestId) return Promise.resolve({ sent: false });
+    return this.send(M.GroupTitlesRequest, {
+      groupId: groupId,
+      requestId: requestId
+    }, true).then(function (seq) {
+      return { sent: seq !== undefined && seq !== null };
+    });
+  };
+
+  Circuit.prototype.updateGroupTitle = function (groupId, titleRoleId) {
+    if (!this.handshakeDone || !groupId) return Promise.resolve({ sent: false });
+    return this.send(M.GroupTitleUpdate, {
+      groupId: groupId,
+      titleRoleId: titleRoleId || B.UUID.zero().toString()
+    }, true).then(function (seq) {
+      return { sent: seq !== undefined && seq !== null };
+    });
   };
 
   Circuit.prototype.sendAvatarGenericRequest = function (method, avatarId) {

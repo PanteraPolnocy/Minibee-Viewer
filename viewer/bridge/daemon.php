@@ -1253,7 +1253,10 @@ function open_circuit(array $body): string
         'last_send_error' => 0,
         'last_recv_error' => 0,
         'inbox' => [],
+        'http_inbox' => [],
+        'http_clients' => [],
     ];
+    ensure_circuit_http_server($id);
     return $id;
 }
 
@@ -1283,8 +1286,218 @@ function close_circuit(string $id): void
     if (!isset($sessions[$id])) {
         return;
     }
+    close_circuit_http($id);
     @socket_close($sessions[$id]['sock']);
     unset($sessions[$id]);
+}
+
+/** @param array<string, mixed> $session */
+function circuit_pending_recv_count(array $session): int
+{
+    return count($session['inbox'] ?? []) + count($session['http_inbox'] ?? []);
+}
+
+/**
+ * @param array<string, mixed> $session
+ * @return array{packets:list<string>, httpMessages?:list<array<string, string>>}
+ */
+function circuit_take_recv_payload(array &$session): array
+{
+    $payload = ['packets' => $session['inbox'] ?? []];
+    $session['inbox'] = [];
+    $http = $session['http_inbox'] ?? [];
+    if ($http) {
+        $payload['httpMessages'] = $http;
+        $session['http_inbox'] = [];
+    }
+    return $payload;
+}
+
+function close_circuit_http(string $id): void
+{
+    global $sessions;
+    if (!isset($sessions[$id])) {
+        return;
+    }
+    $s = &$sessions[$id];
+    foreach ($s['http_clients'] ?? [] as $client) {
+        if (!empty($client['stream'])) {
+            @fclose($client['stream']);
+        }
+    }
+    if (!empty($s['http_server'])) {
+        @fclose($s['http_server']);
+    }
+    unset($s['http_server'], $s['http_clients'], $s['http_listen_failed']);
+}
+
+function ensure_circuit_http_server(string $id): void
+{
+    global $sessions;
+    if (!isset($sessions[$id])) {
+        return;
+    }
+    $s = &$sessions[$id];
+    if (!empty($s['http_server']) || !empty($s['http_listen_failed'])) {
+        return;
+    }
+    $port = (int)($s['local_port'] ?? 0);
+    if ($port <= 0) {
+        return;
+    }
+    $errno = 0;
+    $errstr = '';
+    $server = @stream_socket_server(
+        'tcp://0.0.0.0:' . $port,
+        $errno,
+        $errstr,
+        STREAM_SERVER_BIND | STREAM_SERVER_LISTEN
+    );
+    if ($server === false) {
+        $s['http_listen_failed'] = true;
+        return;
+    }
+    stream_set_blocking($server, false);
+    $s['http_server'] = $server;
+    if (!isset($s['http_clients']) || !is_array($s['http_clients'])) {
+        $s['http_clients'] = [];
+    }
+    if (!isset($s['http_inbox']) || !is_array($s['http_inbox'])) {
+        $s['http_inbox'] = [];
+    }
+}
+
+function circuit_http_respond($stream): void
+{
+    $body = "<llsd><map></map></llsd>\n";
+    $response = "HTTP/1.1 200 OK\r\n"
+        . "Content-Type: application/llsd+xml\r\n"
+        . "Content-Length: " . strlen($body) . "\r\n"
+        . "Connection: close\r\n\r\n"
+        . $body;
+    @fwrite($stream, $response);
+    @fclose($stream);
+}
+
+function circuit_http_message_name(string $path): string
+{
+    $path = trim($path);
+    if (preg_match('#/(?:trusted-message|message)/([^/?]+)#i', $path, $matches)) {
+        return (string)$matches[1];
+    }
+    return '';
+}
+
+function circuit_http_handle_request(string $sessionId, string $raw): void
+{
+    global $sessions;
+    if (!isset($sessions[$sessionId])) {
+        return;
+    }
+    $parts = explode("\r\n\r\n", $raw, 2);
+    $headerBlock = $parts[0] ?? '';
+    $body = $parts[1] ?? '';
+    $lines = preg_split("/\r\n/", $headerBlock) ?: [];
+    if (!$lines) {
+        return;
+    }
+    $requestLine = array_shift($lines);
+    if (!is_string($requestLine) || stripos($requestLine, 'POST ') !== 0) {
+        return;
+    }
+    $bits = preg_split('/\s+/', trim($requestLine)) ?: [];
+    $path = (string)($bits[1] ?? '');
+    $name = circuit_http_message_name($path);
+    if ($name === '' || $body === '') {
+        return;
+    }
+    $contentType = 'application/llsd+xml';
+    foreach ($lines as $line) {
+        if (stripos($line, 'Content-Type:') === 0) {
+            $contentType = trim(substr($line, strlen('Content-Type:')));
+            break;
+        }
+    }
+    $sessions[$sessionId]['http_inbox'][] = [
+        'name' => $name,
+        'body' => $body,
+        'contentType' => $contentType,
+    ];
+}
+
+function drain_circuit_http(string $id): void
+{
+    global $sessions;
+    if (!isset($sessions[$id])) {
+        return;
+    }
+    ensure_circuit_http_server($id);
+    $s = &$sessions[$id];
+    if (empty($s['http_server'])) {
+        return;
+    }
+    while (true) {
+        $client = @stream_socket_accept($s['http_server'], 0);
+        if ($client === false) {
+            break;
+        }
+        stream_set_blocking($client, false);
+        $s['http_clients'][] = ['stream' => $client, 'buffer' => ''];
+    }
+    $keep = [];
+    foreach ($s['http_clients'] as $client) {
+        $stream = $client['stream'] ?? null;
+        if (!$stream) {
+            continue;
+        }
+        $chunk = @fread($stream, 65536);
+        if ($chunk === false) {
+            @fclose($stream);
+            continue;
+        }
+        if ($chunk !== '') {
+            $client['buffer'] .= $chunk;
+        }
+        if ($chunk === '' && feof($stream)) {
+            if ($client['buffer'] !== '') {
+                circuit_http_handle_request($id, $client['buffer']);
+            }
+            circuit_http_respond($stream);
+            continue;
+        }
+        if (strpos($client['buffer'], "\r\n\r\n") !== false) {
+            circuit_http_handle_request($id, $client['buffer']);
+            circuit_http_respond($stream);
+            continue;
+        }
+        if (strlen($client['buffer']) > 1048576) {
+            @fclose($stream);
+            continue;
+        }
+        $keep[] = $client;
+    }
+    $s['http_clients'] = $keep;
+}
+
+function drain_all_circuit_http(): void
+{
+    global $sessions;
+    foreach (array_keys($sessions) as $sid) {
+        drain_circuit_http($sid);
+    }
+}
+
+/** @return list<resource> */
+function circuit_http_servers(): array
+{
+    global $sessions;
+    $servers = [];
+    foreach ($sessions as $s) {
+        if (!empty($s['http_server'])) {
+            $servers[] = $s['http_server'];
+        }
+    }
+    return $servers;
 }
 
 function drain_udp(string $id): void
@@ -1991,10 +2204,9 @@ function handle_request(string $method, string $path): HttpResponse
             return json_response_data(404, ['error' => 'Unknown session']);
         }
         wait_for_udp($id, $timeout);
-        if (count($sessions[$id]['inbox']) > 0) {
-            $packets = $sessions[$id]['inbox'];
-            $sessions[$id]['inbox'] = [];
-            return json_response_data(200, ['packets' => $packets]);
+        drain_circuit_http($id);
+        if (circuit_pending_recv_count($sessions[$id]) > 0) {
+            return json_response_data(200, circuit_take_recv_payload($sessions[$id]));
         }
         return json_response_data(200, ['packets' => []]);
     }
@@ -2031,19 +2243,20 @@ function handle_request(string $method, string $path): HttpResponse
             }
         }
         drain_udp($id);
-        if (count($sessions[$id]['inbox']) === 0) {
+        if (circuit_pending_recv_count($sessions[$id]) === 0) {
             wait_for_udp($id, $timeout);
         }
+        drain_circuit_http($id);
         $meta = circuit_exchange_meta($sessions[$id]);
-        if (count($sessions[$id]['inbox']) > 0) {
-            $received = $sessions[$id]['inbox'];
-            $sessions[$id]['inbox'] = [];
+        if (circuit_pending_recv_count($sessions[$id]) > 0) {
+            $payload = circuit_take_recv_payload($sessions[$id]);
+            $received = $payload['packets'] ?? [];
             return json_response_data(200, array_merge([
                 'packets' => $received,
                 'sent' => $sent,
                 'recv' => count($received),
                 'bytesSent' => $bytesSent,
-            ], $meta));
+            ], $payload, $meta));
         }
         return json_response_data(200, array_merge([
             'packets' => [],
@@ -2522,10 +2735,9 @@ function bridge_resolve_poll_waiters(array &$waiters): void
             unset($waiters[$idx]);
             continue;
         }
-        if (count($sessions[$sid]['inbox']) > 0) {
-            $packets = $sessions[$sid]['inbox'];
-            $sessions[$sid]['inbox'] = [];
-            $waiter['client']->response = json_response_data(200, ['packets' => $packets]);
+        if (circuit_pending_recv_count($sessions[$sid]) > 0) {
+            $payload = circuit_take_recv_payload($sessions[$sid]);
+            $waiter['client']->response = json_response_data(200, $payload);
             unset($waiters[$idx]);
             continue;
         }
@@ -2556,16 +2768,16 @@ function bridge_resolve_exchange_waiters(array &$waiters): void
             unset($waiters[$idx]);
             continue;
         }
-        if (count($sessions[$sid]['inbox']) > 0) {
-            $received = $sessions[$sid]['inbox'];
-            $sessions[$sid]['inbox'] = [];
+        if (circuit_pending_recv_count($sessions[$sid]) > 0) {
+            $payload = circuit_take_recv_payload($sessions[$sid]);
+            $received = $payload['packets'] ?? [];
             $meta = circuit_exchange_meta($sessions[$sid]);
             $waiter['client']->response = json_response_data(200, array_merge([
                 'packets' => $received,
                 'sent' => $waiter['sent'],
                 'recv' => count($received),
                 'bytesSent' => $waiter['bytesSent'],
-            ], $meta));
+            ], $payload, $meta));
             unset($waiters[$idx]);
             continue;
         }
@@ -2615,10 +2827,10 @@ function bridge_dispatch_client(
             return;
         }
         drain_udp($id);
-        if (count($sessions[$id]['inbox']) > 0) {
-            $packets = $sessions[$id]['inbox'];
-            $sessions[$id]['inbox'] = [];
-            $client->response = json_response_data(200, ['packets' => $packets]);
+        drain_circuit_http($id);
+        if (circuit_pending_recv_count($sessions[$id]) > 0) {
+            $payload = circuit_take_recv_payload($sessions[$id]);
+            $client->response = json_response_data(200, $payload);
             return;
         }
         $pollWaiters[] = [
@@ -2664,16 +2876,17 @@ function bridge_dispatch_client(
             }
         }
         drain_udp($id);
-        if (count($sessions[$id]['inbox']) > 0) {
-            $received = $sessions[$id]['inbox'];
-            $sessions[$id]['inbox'] = [];
+        drain_circuit_http($id);
+        if (circuit_pending_recv_count($sessions[$id]) > 0) {
+            $payload = circuit_take_recv_payload($sessions[$id]);
+            $received = $payload['packets'] ?? [];
             $meta = circuit_exchange_meta($sessions[$id]);
             $client->response = json_response_data(200, array_merge([
                 'packets' => $received,
                 'sent' => $sent,
                 'recv' => count($received),
                 'bytesSent' => $bytesSent,
-            ], $meta));
+            ], $payload, $meta));
             return;
         }
         $exchangeWaiters[] = [
@@ -2863,6 +3076,7 @@ function bridge_run_concurrent_server($server): void
 
     while (true) {
         drain_all_udp_sessions();
+        drain_all_circuit_http();
         bridge_resolve_poll_waiters($pollWaiters);
         bridge_resolve_exchange_waiters($exchangeWaiters);
         if ($enableProxy && $curlMulti !== false) {
@@ -2870,6 +3084,9 @@ function bridge_run_concurrent_server($server): void
         }
 
         $read = [$server];
+        foreach (circuit_http_servers() as $httpServer) {
+            $read[] = $httpServer;
+        }
         foreach ($clients as $client) {
             if ($client->response === null) {
                 $read[] = $client->stream;

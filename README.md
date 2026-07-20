@@ -179,8 +179,8 @@ Tabs fetch and render their data only when you open them. This keeps login light
 | Buddies + display names | Yes (`GetDisplayNames` cap) |
 | Buddy teleport offer / request | Yes (context menu) |
 | Remove friend | Yes (buddies context menu + profile; confirmation prompt) |
-| Avatar profiles | Yes (`AgentProfile` cap + UDP; full about text, picks, classifieds, groups, notes) |
-| Group profiles | Partial (charter, insignia, membership; join / leave with confirmation; open group chat when member) |
+| Avatar profiles | Yes (`AgentProfile` cap + UDP; about, picks, classifieds, notes) — **own profile groups list incomplete** (hidden memberships; see Limitations) |
+| Group profiles | Yes (charter, insignia, join / leave, activate, YOUR TITLE + ACTIVE TITLE picker + save, open group chat when member) |
 | Avatar thumbnails in lists | Partial (buddies resolve profile images; others show initials) |
 | Search - people | Yes (UDP directory + avatar cap; profile + IM from results) |
 | Search - places | Yes (UDP directory; show on map, expandable details) |
@@ -202,7 +202,7 @@ Tabs fetch and render their data only when you open them. This keeps login light
 ## Shell and navigation
 
 - **Side navigation** - Chat, IM, Events, Buddies, Search, Radar, Map, Land, Guide, and Log tabs along the left edge.
-- **Top bar** - connection status dot, agent name (click to open your profile when connected), region name, L$ balance, SLT clock, sim FPS, theme toggle, logout.
+- **Top bar** - connection status dot beside agent name (vertically aligned), agent name (click to open your profile when connected), **active group title** under the name (or "No active group title"; group name is not shown here), parcel name and region, L$ balance, SLT clock, sim FPS, theme toggle, logout.
 - **Unread badges** - numeric badges on Chat, IM, and Events; dots on Radar (new avatars in range), Land (parcel updated), and Log (new errors). Incoming IM increments the IM badge without switching tabs automatically.
 
 ## Chat and Events
@@ -225,7 +225,7 @@ The **IM** tab handles 1:1, group, and conference conversations in one list:
 - **Group chat** - open from the Land tab's parcel group, a group profile, or when another member starts chatting; the simulator streams messages to members over UDP (`IM_SESSION_GROUP_START`). Session title resolves from your group membership, not the binary bucket.
 - **Conference chat** - start an ad-hoc session from the IM tab or a buddy's context menu; incoming invitations are accepted through the `ChatSessionRequest` capability. Use **Invite** to add more people to an open conference.
 - **Roster** - a collapsible member sidebar lists participants with online state and resolved display names; click a member to open a 1:1 IM. Reopening group chat requests the roster from the sim and seeds from recent participants.
-- **Moderation** - session moderators can mute or unmute a participant's text (`ChatSessionRequest` "mute update").
+- **Moderation** - session moderators can mute or unmute a participant's text (`ChatSessionRequest` "mute update"). Moderator status comes from the sim roster (`is_moderator` on `ChatterBoxSessionAgentListUpdates`), not from group role data in the profile floater.
 - **Mute** - silence a noisy session locally so it stops raising the unread badge; **Leave** exits a group or conference server-side.
 
 ## Profiles
@@ -236,13 +236,22 @@ Open a resident or group profile from **Search**, **Buddies**, **Radar**, **IM**
 
 - Display name and username in the header; account level (membership tier) in the subtitle
 - Resident tab: profile photo, born date, partner, payment info, about text (scrollable), groups list
+  - **Your own profile:** should list every membership (including hidden) with the active group bold — **not working yet** (see Limitations)
+  - **Other residents:** profile-visible groups only
 - Places, Classifieds, Web, More (First Life), and Notes tabs when data is present
 - Pick / classified detail: resolved parcel + region location, map preview, teleport (closes profile like Destination Guide)
 - Actions: IM, Pay, Offer teleport, Request teleport, Add friend / Remove friend (with confirmation)
 
-**Group profiles** show name, charter, insignia, enrollment flags, and member count. Members can open group chat from the profile. **Join** and **Leave** send `JoinGroupRequest` / `LeaveGroupRequest` (with confirmation). Activate group is not implemented yet.
+**Group profiles** show name, charter, insignia, enrollment flags, member count, and founder (linked name when resolved). Members can:
 
-Profile images in list rows are resolved for **buddies** only (to limit sim traffic); other surfaces show initials until you open the full profile.
+- Open group chat from the profile
+- **Activate** the group (`ActivateGroup`; confirmed via `AgentDataUpdate`)
+- **Your title** and **Active title** sections: pooled titles from `GroupTitlesRequest`, pick in a dropdown, **Save** (`GroupTitleUpdate`)
+- **Join** or **Leave** with confirmation (`JoinGroupRequest` / `LeaveGroupRequest`)
+
+Non-members can join when enrollment is open (fee shown in the join prompt).
+
+Profile images in list rows are resolved for **buddies** only (to limit sim traffic); other surfaces show initials until you open the full profile or the image is already cached (`localStorage` TTL, 7 days).
 
 ## Search
 
@@ -306,13 +315,14 @@ If the simulator drops the session (`LogoutReply`, kick, circuit loss, or bridge
 ## Limitations
 
 - No world rendering, inventory, attachments, or built-in movement beyond teleport
+- **No RLV / RLVa** - Minibee does not implement Restrained Love viewer restrictions (`@getstatus`, folder locks, sit/touch blocks, etc.)
 - Buddy names may show as UUID briefly until `GetDisplayNames` returns
 - Avatar profile about text requires the `AgentProfile` cap; without it, about is limited to the UDP packet size (~512 bytes)
+- **Own avatar profile — groups list** Groups with **Show in profile** disabled should still appear on **your** profile (muted styling); the active group should be **bold**. Code exists (`getProfileGroupsForDisplay`, bridge HTTP `AgentGroupDataUpdate` listener, `agentGroups` merge) but **end-to-end delivery is not working** — you typically only see cap-visible groups. Needs a proper fix; restart the bridge after `daemon.php` changes.
 - List thumbnails resolve profile images for buddies only; radar, search, chat, and IM use initials unless the image is already cached
 - Radar uses 1 m coarse positions from the sim
 - Land prim usage depends on UDP `ParcelProperties`; capacity may be estimated from area when the sim does not send counts
-- Group **activate** (set active group) is not implemented from the profile floater
-- Bridge must run on localhost (`127.0.0.1:8794`); close other SL viewers if UDP bind or circuit behaviour is odd
+- Bridge must run on localhost (`127.0.0.1:8794` / `8795`); close other SL viewers if UDP bind or circuit behaviour is odd. Restart poll + caps after bridge (`daemon.php`) updates.
 - Windows Firewall must allow `php.exe` UDP if receive stays at zero packets
 - Destination Guide requires the bridge (Linden API is fetched server-side to avoid browser CORS)
 
@@ -324,7 +334,7 @@ All paths relative to `viewer/`:
 |------|---------|
 | `bridge/poll.php` | UDP circuit relay (port 8795) |
 | `bridge/caps.php` | Viewer UI, login, proxy, map (port 8794) |
-| `bridge/daemon.php` | Shared PHP core (not a server; `--check-ca` / `--fetch-ca` only) |
+| `bridge/daemon.php` | Shared PHP core: UDP circuit, cap proxy, **HTTP `AgentGroupDataUpdate` on circuit listen port** (`httpMessages` to JS) |
 | `bridge/run.php` | One-terminal launcher (poll child + caps foreground) |
 | `start-minibee.bat` | Windows launcher - starts poll + caps and opens the viewer |
 

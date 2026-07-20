@@ -145,14 +145,16 @@ const FSApp = (function () {
     });
 
     FSTransport.on('parcel', function (parcel) {
-      const prev = FSState.get().parcel;
       if (!parcel) return;
-      if (parcel.stub || (prev && prev.stub)) {
+      const prev = FSState.get().parcel || {};
+      if (parcel.stub && (!prev || prev.stub)) {
         FSState.patch({ parcel: parcel });
-        return;
+      } else {
+        const next = Object.assign({}, prev, parcel);
+        if (parcel.stub !== true) next.stub = false;
+        FSState.patch({ parcel: next });
       }
-      FSState.patch({ parcel: Object.assign({}, prev, parcel) });
-      if (!FSNavigation.isTabActive('land')) {
+      if (!parcel.stub && !FSNavigation.isTabActive('land')) {
         FSState.patch({ landUpdated: true });
       }
     });

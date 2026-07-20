@@ -208,11 +208,62 @@ const FSNavigation = (function () {
     el.hidden = !show;
   }
 
+  function formatParcelLine(state) {
+    const pos = state.position;
+    const coordSuffix = pos && pos.x !== undefined
+      ? ' (' + Math.round(pos.x) + ', ' + Math.round(pos.y) + ', ' + Math.round(pos.z) + ')'
+      : '';
+    if (!state.connected || state.sessionLost) return '';
+    const parcel = state.parcel;
+    if (!parcel) {
+      return coordSuffix ? 'Land' + coordSuffix : '';
+    }
+    const rawName = String(parcel.name || parcel.parcelName || '').trim();
+    const placeholder = !rawName || rawName === 'Current parcel' || rawName === 'Parcel';
+    if (parcel.stub && placeholder) {
+      return coordSuffix ? 'Land' + coordSuffix : '';
+    }
+    const name = placeholder ? 'Land' : rawName;
+    return name + coordSuffix;
+  }
+
+  function updateActiveGroupLines() {
+    const titleEl = document.getElementById('agent-group-title');
+    const nameEl = document.getElementById('agent-group-name');
+    if (!titleEl) return;
+    const s = FSState.get();
+    if (!s.connected || s.sessionLost || typeof FSProfiles === 'undefined' ||
+        typeof FSProfiles.getActiveGroupInfo !== 'function') {
+      titleEl.textContent = 'No active group title';
+      titleEl.classList.add('top-bar__group-title--empty');
+      if (nameEl) nameEl.hidden = true;
+      return;
+    }
+    const active = FSProfiles.getActiveGroupInfo();
+    if (!active || !active.id || FSProfiles.isZero(active.id)) {
+      titleEl.textContent = 'No active group title';
+      titleEl.classList.add('top-bar__group-title--empty');
+      if (nameEl) {
+        nameEl.hidden = true;
+        nameEl.textContent = '';
+      }
+      return;
+    }
+    titleEl.classList.remove('top-bar__group-title--empty');
+    const title = String(active.title || '').trim();
+    titleEl.textContent = title || 'Member';
+    if (nameEl) {
+      nameEl.hidden = true;
+      nameEl.textContent = '';
+    }
+  }
+
   function updateTopBar() {
     const s = FSState.get();
     const dot = document.getElementById('status-dot');
     const name = document.getElementById('agent-name');
     const region = document.getElementById('region-name');
+    const parcelLine = document.getElementById('parcel-line');
     const fps = document.getElementById('fps-badge');
     const stats = document.getElementById('top-bar-stats');
     const balance = document.getElementById('balance-badge');
@@ -243,6 +294,11 @@ const FSNavigation = (function () {
     if (region) {
       region.textContent = s.sessionLost ? 'Disconnected' : (s.region ? s.region.name : 'Offline');
     }
+    if (parcelLine) {
+      const line = formatParcelLine(s);
+      parcelLine.textContent = line || '\u2014';
+      parcelLine.title = line || 'Parcel';
+    }
     if (stats) {
       stats.hidden = !(s.connected && !s.sessionLost);
     }
@@ -251,6 +307,7 @@ const FSNavigation = (function () {
       balance.title = 'Linden dollar balance';
     }
     if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '-- FPS';
+    updateActiveGroupLines();
     updateSltClock();
   }
 
@@ -308,6 +365,12 @@ const FSNavigation = (function () {
 
     if (typeof FSTransport !== 'undefined') {
       FSTransport.on('teleport-started', resetRadarTracking);
+    }
+
+    if (typeof FSProfiles !== 'undefined' && typeof FSProfiles.onChange === 'function') {
+      FSProfiles.onChange(function (evt) {
+        if (evt && evt.kind === 'active-group') updateActiveGroupLines();
+      });
     }
   }
 

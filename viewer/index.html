@@ -233,11 +233,20 @@
     <section id="screen-main" class="screen" hidden aria-label="Viewer">
       <header class="top-bar">
         <div class="top-bar__left">
-          <span id="status-dot" class="status-dot status-dot--offline" title="Connection status"></span>
-          <div class="top-bar__meta">
-            <button type="button" id="agent-name" class="top-bar__name" disabled>Agent</button>
-            <span id="region-name" class="top-bar__region">Offline</span>
+          <div class="top-bar__identity">
+            <div class="top-bar__name-row">
+              <span id="status-dot" class="status-dot status-dot--offline" title="Connection status"></span>
+              <button type="button" id="agent-name" class="top-bar__name" disabled>Agent</button>
+            </div>
+            <div id="agent-group-lines" class="top-bar__group-lines">
+              <span id="agent-group-title" class="top-bar__group-title">No active group title</span>
+              <span id="agent-group-name" class="top-bar__group-name" hidden></span>
+            </div>
           </div>
+        </div>
+        <div class="top-bar__center">
+          <span id="parcel-line" class="top-bar__parcel">—</span>
+          <span id="region-name" class="top-bar__region">Offline</span>
         </div>
         <div class="top-bar__right">
           <div id="top-bar-stats" class="top-bar__stats" hidden>
