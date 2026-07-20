@@ -50,33 +50,30 @@ const FSSLTransport = (function () {
   }
 
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
-  const recentImIds = new Map();
   const recentImFallback = new Map();
-  const IM_DEDUP_TTL_MS = 120000;
   const IM_DEDUP_FALLBACK_MS = 4000;
   const IM_DEDUP_MAX = 600;
   const recentPaymentKeys = new Map();
   const PAYMENT_DEDUP_TTL_MS = 15000;
   const PAYMENT_DEDUP_MAX = 200;
+  const GROUP_ACTION_TIMEOUT_MS = 15000;
+  const pendingGroupJoin = new Map();
+  const pendingGroupLeave = new Map();
 
   function pruneImDedup(now) {
-    recentImIds.forEach(function (ts, key) {
-      if (now - ts > IM_DEDUP_TTL_MS) recentImIds.delete(key);
-    });
     recentImFallback.forEach(function (ts, key) {
       if (now - ts > IM_DEDUP_FALLBACK_MS) recentImFallback.delete(key);
     });
-    if (recentImIds.size > IM_DEDUP_MAX) {
-      const drop = recentImIds.size - IM_DEDUP_MAX;
+    if (recentImFallback.size > IM_DEDUP_MAX) {
+      const drop = recentImFallback.size - IM_DEDUP_MAX;
       let i = 0;
-      recentImIds.forEach(function (_ts, key) {
-        if (i++ < drop) recentImIds.delete(key);
+      recentImFallback.forEach(function (_ts, key) {
+        if (i++ < drop) recentImFallback.delete(key);
       });
     }
   }
 
   function clearImDedup() {
-    recentImIds.clear();
     recentImFallback.clear();
   }
 
@@ -120,17 +117,15 @@ const FSSLTransport = (function () {
   function isDuplicateIm(data, isSessionIm) {
     const now = Date.now();
     pruneImDedup(now);
-    const imId = normAgentId(data.imId);
-    if (!isSessionIm && imId && imId !== ZERO_UUID) {
-      if (recentImIds.has(imId)) return true;
-      recentImIds.set(imId, now);
-      return false;
-    }
     const fromId = normAgentId(data.fromAgentId);
     const text = String(data.text || '');
     if (!fromId || !text) return false;
-    const key = (isSessionIm ? imId : '') + '\0' + fromId + '\0' +
-      String(data.dialog || 0) + '\0' + text;
+    const imId = normAgentId(data.imId);
+    const ts = data.timestamp !== undefined && data.timestamp !== null
+      ? String(data.timestamp) : '';
+    // MessageBlock.ID is the conversation session id for P2P IM (reused per contact).
+    const key = (isSessionIm && imId && imId !== ZERO_UUID ? imId + '\0' : '') +
+      fromId + '\0' + String(data.dialog || 0) + '\0' + text + '\0' + ts;
     const last = recentImFallback.get(key);
     if (last && now - last < IM_DEDUP_FALLBACK_MS) return true;
     recentImFallback.set(key, now);
@@ -1325,6 +1320,80 @@ const FSSLTransport = (function () {
       if (result && result.sent) removeBuddy(destId);
       return result;
     });
+  }
+
+  function settleGroupAction(pendingMap, groupId, result) {
+    const id = normAgentId(groupId);
+    const pending = pendingMap.get(id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pendingMap.delete(id);
+    pending.resolve(result);
+  }
+
+  function waitForGroupAction(pendingMap, groupId) {
+    const id = normAgentId(groupId);
+    return new Promise(function (resolve) {
+      const timer = setTimeout(function () {
+        pendingMap.delete(id);
+        resolve({ sent: true, success: false, timeout: true });
+      }, GROUP_ACTION_TIMEOUT_MS);
+      pendingMap.set(id, { resolve: resolve, timer: timer });
+    });
+  }
+
+  function joinGroup(groupId) {
+    if (simActionsBlocked() || !circuit || !circuit.joinGroup || !groupId) {
+      return Promise.resolve({ sent: false });
+    }
+    const id = normAgentId(groupId);
+    if (typeof FSProfiles.isAgentInGroup === 'function' && FSProfiles.isAgentInGroup(id)) {
+      return Promise.resolve({ sent: false, alreadyMember: true });
+    }
+    const wait = waitForGroupAction(pendingGroupJoin, id);
+    return circuit.joinGroup(id).then(function (result) {
+      if (!result || !result.sent) {
+        settleGroupAction(pendingGroupJoin, id, { sent: false });
+      }
+      return wait;
+    });
+  }
+
+  function leaveGroup(groupId) {
+    if (simActionsBlocked() || !circuit || !circuit.leaveGroup || !groupId) {
+      return Promise.resolve({ sent: false });
+    }
+    const id = normAgentId(groupId);
+    if (typeof FSProfiles.isAgentInGroup === 'function' && !FSProfiles.isAgentInGroup(id)) {
+      return Promise.resolve({ sent: false, notMember: true });
+    }
+    const wait = waitForGroupAction(pendingGroupLeave, id);
+    return circuit.leaveGroup(id).then(function (result) {
+      if (!result || !result.sent) {
+        settleGroupAction(pendingGroupLeave, id, { sent: false });
+      }
+      return wait;
+    });
+  }
+
+  function handleJoinGroupReply(data) {
+    if (!data || !data.groupId) return;
+    const id = normAgentId(data.groupId);
+    if (data.success) {
+      FSProfiles.addAgentGroup(id, {
+        name: typeof FSProfiles.getGroupName === 'function' ? FSProfiles.getGroupName(id) : ''
+      });
+    }
+    settleGroupAction(pendingGroupJoin, id, { sent: true, success: !!data.success });
+  }
+
+  function handleLeaveGroupReply(data) {
+    if (!data || !data.groupId) return;
+    const id = normAgentId(data.groupId);
+    if (data.success) {
+      FSProfiles.removeAgentGroup(id);
+    }
+    settleGroupAction(pendingGroupLeave, id, { sent: true, success: !!data.success });
   }
 
   function saveAvatarNotes(targetId, notes) {
@@ -4328,8 +4397,8 @@ const FSSLTransport = (function () {
         };
       } else {
         sessionId = FSUtils.xorSessionId(agentId, fromId);
-        messageId = evt.data.imId || FSUtils.uuid();
-        messageImId = messageId;
+        messageId = FSUtils.uuid();
+        messageImId = evt.data.imId || '';
       }
       const imPayload = {
         sessionId: sessionId,
@@ -4543,6 +4612,14 @@ const FSSLTransport = (function () {
     if (evt.type === 'group-profile-reply' && evt.data) {
       FSProfiles.handleGroupProfileReply(evt.data);
       refreshNamedEntities();
+      return;
+    }
+    if (evt.type === 'join-group-reply' && evt.data) {
+      handleJoinGroupReply(evt.data);
+      return;
+    }
+    if (evt.type === 'leave-group-reply' && evt.data) {
+      handleLeaveGroupReply(evt.data);
       return;
     }
     if (evt.type === 'agent-group-data-update' && evt.data) {
@@ -4852,6 +4929,16 @@ const FSSLTransport = (function () {
     if (typeof FSProfiles !== 'undefined') FSProfiles.clear();
     clearImDedup();
     clearPaymentDedup();
+    pendingGroupJoin.forEach(function (pending) {
+      clearTimeout(pending.timer);
+      pending.resolve({ sent: false, aborted: true });
+    });
+    pendingGroupJoin.clear();
+    pendingGroupLeave.forEach(function (pending) {
+      clearTimeout(pending.timer);
+      pending.resolve({ sent: false, aborted: true });
+    });
+    pendingGroupLeave.clear();
     pendingNameIds.clear();
     if (nameResolveTimer) {
       clearTimeout(nameResolveTimer);
@@ -4902,7 +4989,7 @@ const FSSLTransport = (function () {
       sessionId: sessionId,
       participant: session.participant,
       message: {
-        id: isSessionChat ? FSUtils.uuid() : imId,
+        id: FSUtils.uuid(),
         imId: imId,
         fromId: loginData.agent.id,
         fromName: loginData.agent.displayName,
@@ -5325,6 +5412,8 @@ const FSSLTransport = (function () {
     isAgentOnline: isAgentOnline,
     offerFriendship: offerFriendship,
     removeFriendship: removeFriendship,
+    joinGroup: joinGroup,
+    leaveGroup: leaveGroup,
     saveAvatarNotes: saveAvatarNotes,
     getCachedName: getCachedName,
     getCachedNameInfo: getCachedNameInfo,

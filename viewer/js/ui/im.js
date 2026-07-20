@@ -100,17 +100,31 @@ const FSIm = (function () {
   function closeSession(sessionId) {
     if (!sessionId) return;
     const session = FSState.get().imSessions[sessionId];
+    if (!session) return;
     if (isSessionChat(session) && typeof FSTransport.leaveImSession === 'function') {
       FSTransport.leaveImSession(sessionId);
+      FSState.closeImSession(sessionId);
+    } else {
+      FSState.dismissImSession(sessionId);
     }
     const wasActive = FSState.get().activeImSession === sessionId;
-    FSState.closeImSession(sessionId);
     if (wasActive) {
       syncImLayout();
       renderSessions();
     } else {
       renderSessions();
     }
+  }
+
+  function refreshIncomingImUi(sessionId) {
+    if (!FSNavigation.isTabActive('im')) return;
+    const session = FSState.get().imSessions[sessionId];
+    if (!session || session.muted) return;
+    if (FSState.get().activeImSession === sessionId) {
+      renderThread(sessionId);
+      return;
+    }
+    renderSessions();
   }
 
   function refreshSessionPresence(session) {
@@ -127,7 +141,9 @@ const FSIm = (function () {
     if (!container) return;
     container.innerHTML = '';
 
-    const sessions = Object.values(FSState.get().imSessions);
+    const sessions = Object.values(FSState.get().imSessions).filter(function (session) {
+      return !session.dismissed;
+    });
     sessions.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
 
     sessions.forEach(function (session) {
@@ -688,6 +704,9 @@ const FSIm = (function () {
     document.getElementById('im-friend').addEventListener('click', function () {
       const participant = getActiveParticipant();
       if (!participant || !participant.id) return;
+      const names = FSUtils.agentNameLines(participant);
+      const label = names.title || participant.name || 'this resident';
+      if (!window.confirm('Send a friendship offer to ' + label + '?')) return;
       FSTransport.offerFriendship(participant.id).then(function (result) {
         if (result && result.alreadyFriend) {
           FSUtils.showToast('Already friends.', 'warning');
@@ -730,20 +749,25 @@ const FSIm = (function () {
     }
 
     FSState.on('im-session-new', function () {
-      if (FSNavigation.isTabActive('im')) renderSessions();
+      renderSessions();
+    });
+    FSState.on('im-session-reopened', function (data) {
+      if (data && data.sessionId) refreshIncomingImUi(data.sessionId);
+      else if (FSNavigation.isTabActive('im')) renderSessions();
     });
     FSState.on('im-sessions-updated', function () {
-      if (!FSNavigation.isTabActive('im')) return;
       renderSessions();
       const active = FSState.get().activeImSession;
-      if (active) renderThread(active);
+      if (active && FSNavigation.isTabActive('im')) renderThread(active);
     });
     FSState.on('im', function (data) {
+      if (!data || !data.message) return;
       if (!FSNavigation.isTabActive('im')) return;
-      renderSessions();
       if (FSState.get().activeImSession === data.sessionId) {
         renderThread(data.sessionId);
+        return;
       }
+      if (!data.message.outgoing) refreshIncomingImUi(data.sessionId);
     });
     FSState.on('im-roster-updated', function (data) {
       if (!FSNavigation.isTabActive('im')) return;
@@ -789,10 +813,13 @@ const FSIm = (function () {
     });
 
     FSState.on('im-session-closed', function () {
-      if (FSNavigation.isTabActive('im')) {
-        syncImLayout();
-        renderSessions();
-      }
+      syncImLayout();
+      renderSessions();
+    });
+
+    FSState.on('im-session-dismissed', function () {
+      syncImLayout();
+      renderSessions();
     });
 
     FSState.on('reset', function () {

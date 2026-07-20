@@ -92,7 +92,12 @@ const FSApp = (function () {
 
     FSTransport.on('im-typing', function (data) {
       if (!data || !data.sessionId) return;
-      if (!FSState.get().imSessions[data.sessionId]) return;
+      const session = FSState.get().imSessions[data.sessionId];
+      if (!session) return;
+      if (session.dismissed) {
+        session.dismissed = false;
+        FSState.emit('im-sessions-updated');
+      }
       FSState.setSessionTyping(data.sessionId, data.typing, data.fromName);
     });
 

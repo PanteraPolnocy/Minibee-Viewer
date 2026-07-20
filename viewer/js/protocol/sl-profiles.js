@@ -419,6 +419,25 @@ const FSProfiles = (function () {
     return agentGroups.has(normId(groupId));
   }
 
+  function addAgentGroup(groupId, info) {
+    const id = normId(groupId);
+    if (!id || isZero(id)) return;
+    const existing = agentGroups.get(id);
+    agentGroups.set(id, {
+      id: id,
+      name: String((info && info.name) || (existing && existing.name) || groupNames.get(id) || '').trim(),
+      insigniaId: normId((info && info.insigniaId) || (existing && existing.insigniaId))
+    });
+    emitChange('group', id);
+  }
+
+  function removeAgentGroup(groupId) {
+    const id = normId(groupId);
+    if (!id || !agentGroups.has(id)) return;
+    agentGroups.delete(id);
+    emitChange('group', id);
+  }
+
   function scheduleAgentProfileCapFetch(agentId) {
     const id = normId(agentId);
     const task = capFetchChain.then(function () {
@@ -1077,6 +1096,8 @@ const FSProfiles = (function () {
     getGroupName: getGroupName,
     getGroupInsigniaId: getGroupInsigniaId,
     isAgentInGroup: isAgentInGroup,
+    addAgentGroup: addAgentGroup,
+    removeAgentGroup: removeAgentGroup,
     needsCapProfileFetch: needsCapProfileFetch,
     hasAgentProfileCap: hasAgentProfileCap,
     isCapFetchActive: isCapFetchActive,

@@ -146,6 +146,10 @@ const FSSLBinary = (function () {
     AvatarPicksReply: 4294901938,
     GroupProfileRequest: 4294902111,
     GroupProfileReply: 4294902112,
+    JoinGroupRequest: 4294902103,
+    JoinGroupReply: 4294902104,
+    LeaveGroupRequest: 4294902107,
+    LeaveGroupReply: 4294902108,
     ClassifiedInfoRequest: 4294901803,
     ClassifiedInfoReply: 4294901804,
     PickInfoReply: 4294901944

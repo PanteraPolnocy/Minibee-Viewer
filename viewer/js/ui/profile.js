@@ -828,8 +828,9 @@ const FSProfile = (function () {
         FSTeleportUI.requestFrom(agentId, profile.displayName || profile.userName || profile.name, profile);
       }, tpOnline ? undefined : tpDisabled);
       addAction(isFriend ? 'Remove friend' : 'Add friend', function () {
+        const name = profileTitleText(profile) || 'this resident';
         if (isFriend) {
-          if (!window.confirm('Remove this friend?')) return;
+          if (!window.confirm('Remove ' + name + ' from your friends list?')) return;
           FSTransport.removeFriendship(agentId).then(function (result) {
             if (result && result.sent) {
               FSUtils.showToast('Friend removed.', 'success');
@@ -838,6 +839,7 @@ const FSProfile = (function () {
           });
           return;
         }
+        if (!window.confirm('Send a friendship offer to ' + name + '?')) return;
         FSTransport.offerFriendship(agentId).then(function (result) {
           if (result && result.sent) FSUtils.showToast('Friendship offer sent.', 'success');
         });
@@ -967,20 +969,56 @@ const FSProfile = (function () {
   function renderGroupActions(profile) {
     clearActions();
     const groupId = profile.groupId;
+    const groupName = profile.name || 'this group';
     if (!groupId || groupId === ZERO_UUID) return;
     if (profile.isMember) {
       addAction('Open group chat', function () {
         closeDialog();
         FSIm.openGroupChat(groupId, profile.name || '');
       }, { primary: true });
+      addAction('Leave group', function () {
+        if (!window.confirm('Leave ' + groupName + '?')) return;
+        FSTransport.leaveGroup(groupId).then(function (result) {
+          if (result && result.success) {
+            FSUtils.showToast('Left ' + groupName + '.', 'success');
+            const next = enrichGroupProfile(Object.assign({}, profile, { isMember: false }));
+            renderGroup(next);
+            return;
+          }
+          if (result && result.notMember) {
+            FSUtils.showToast('You are not a member of this group.', 'warning');
+            const next = enrichGroupProfile(Object.assign({}, profile, { isMember: false }));
+            renderGroup(next);
+            return;
+          }
+          FSUtils.showToast('Could not leave group.', 'warning');
+        });
+      }, { danger: true });
       return;
     }
     if (profile.openEnrollment) {
       const fee = Number(profile.membershipFee) || 0;
       const label = fee > 0 ? 'Join (L$ ' + fee.toLocaleString('en-US') + ')' : 'Join';
-      addAction(label, function () {}, {
-        disabled: true,
-        title: 'Joining groups is not implemented yet'
+      addAction(label, function () {
+        const feeMsg = fee > 0
+          ? 'Join ' + groupName + ' for L$ ' + fee.toLocaleString('en-US') + '?'
+          : 'Join ' + groupName + '?';
+        if (!window.confirm(feeMsg)) return;
+        FSTransport.joinGroup(groupId).then(function (result) {
+          if (result && result.success) {
+            FSUtils.showToast('Joined ' + groupName + '.', 'success');
+            const next = enrichGroupProfile(Object.assign({}, profile, { isMember: true }));
+            renderGroup(next);
+            return;
+          }
+          if (result && result.alreadyMember) {
+            FSUtils.showToast('You are already a member.', 'warning');
+            const next = enrichGroupProfile(Object.assign({}, profile, { isMember: true }));
+            renderGroup(next);
+            return;
+          }
+          FSUtils.showToast('Could not join group.', 'warning');
+        });
       });
     }
   }

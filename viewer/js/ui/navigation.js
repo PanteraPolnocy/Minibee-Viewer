@@ -233,7 +233,13 @@ const FSNavigation = (function () {
         dot.title = 'Offline';
       }
     }
-    if (name) name.textContent = s.agent ? s.agent.displayName : 'Agent';
+    if (name) {
+      name.textContent = s.agent ? s.agent.displayName : 'Agent';
+      const canOpenProfile = !!(s.connected && !s.sessionLost && s.agent && s.agent.id);
+      name.classList.toggle('top-bar__name--interactive', canOpenProfile);
+      name.title = canOpenProfile ? 'View your profile' : '';
+      if (name.tagName === 'BUTTON') name.disabled = !canOpenProfile;
+    }
     if (region) {
       region.textContent = s.sessionLost ? 'Disconnected' : (s.region ? s.region.name : 'Offline');
     }
@@ -263,6 +269,17 @@ const FSNavigation = (function () {
     if (themeBtn && typeof FSSettings !== 'undefined') {
       themeBtn.addEventListener('click', function () {
         FSSettings.toggleTheme();
+      });
+    }
+
+    const agentName = document.getElementById('agent-name');
+    if (agentName) {
+      agentName.addEventListener('click', function () {
+        const s = FSState.get();
+        if (!s.connected || s.sessionLost || !s.agent || !s.agent.id) return;
+        if (typeof FSProfile !== 'undefined' && typeof FSProfile.openAvatar === 'function') {
+          FSProfile.openAvatar(s.agent.id, { agent: s.agent });
+        }
       });
     }
 

@@ -155,6 +155,45 @@ const FSState = (function () {
     return true;
   }
 
+  function dismissImSession(sessionId) {
+    const session = state.imSessions[sessionId];
+    if (!session) return false;
+    if (session.type === 'group' || session.type === 'conference') {
+      return closeImSession(sessionId);
+    }
+    if (session.dismissed) return false;
+    const unread = session.unread || 0;
+    session.dismissed = true;
+    session.unread = 0;
+    if (session.typing) {
+      session.typing = false;
+      session.typingName = '';
+    }
+    const partial = {};
+    if (state.activeImSession === sessionId) {
+      partial.activeImSession = null;
+      state.activeImSession = null;
+    }
+    if (unread > 0) {
+      partial.unreadIm = Math.max(0, state.unreadIm - unread);
+      state.unreadIm = partial.unreadIm;
+    }
+    emit('im-session-dismissed', sessionId);
+    emit('im-sessions-updated');
+    if (Object.keys(partial).length) {
+      emit('change', partial);
+    }
+    return true;
+  }
+
+  function shouldCountImUnread(sessionId, msg) {
+    if (!isImUnread(msg)) return false;
+    const session = state.imSessions[sessionId];
+    if (!session || session.muted) return false;
+    if (state.activeImSession === sessionId) return false;
+    return true;
+  }
+
   function patchChatMessage(id, partial) {
     const msg = state.chatMessages.find(function (m) { return m.id === id; });
     if (!msg) return false;
@@ -304,15 +343,17 @@ const FSState = (function () {
   }
 
   function addImMessage(sessionId, msg, participant, sessionInfo) {
-    if (!state.imSessions[sessionId]) {
+    let resolvedId = sessionId;
+    if (!state.imSessions[resolvedId]) {
       if (sessionInfo && sessionInfo.type && sessionInfo.type !== 'p2p') {
-        ensureKeyedSession(sessionId, sessionInfo);
+        ensureKeyedSession(resolvedId, sessionInfo);
       } else if (participant) {
-        ensureImSession(participant);
+        const ensured = ensureImSession(participant);
+        if (ensured) resolvedId = ensured;
       }
     }
-    if (!state.imSessions[sessionId]) return;
-    const session = state.imSessions[sessionId];
+    if (!state.imSessions[resolvedId]) return;
+    const session = state.imSessions[resolvedId];
     if (sessionInfo && sessionInfo.type === 'group' && session.type !== 'group') {
       session.type = 'group';
     }
@@ -331,15 +372,20 @@ const FSState = (function () {
       session.typing = false;
       session.typingName = '';
     }
+    if (session.dismissed && msg && !msg.outgoing) {
+      session.dismissed = false;
+      emit('im-session-reopened', { sessionId: resolvedId });
+      emit('im-sessions-updated');
+    }
     session.messages.push(msg);
     session.lastMessage = msg.text;
     session.updatedAt = msg.timestamp;
-    if (isImUnread(msg) && state.activeTab !== 'im' &&
-        state.activeImSession !== sessionId && !session.muted) {
+    if (shouldCountImUnread(resolvedId, msg)) {
       session.unread = (session.unread || 0) + 1;
       state.unreadIm += 1;
+      emit('change', { unreadIm: state.unreadIm });
     }
-    emit('im', { sessionId: sessionId, message: msg });
+    emit('im', { sessionId: resolvedId, message: msg });
   }
 
   function looksLikeUuid(value) {
@@ -393,16 +439,17 @@ const FSState = (function () {
   }
 
   function ensureImSession(participant) {
-    const agentId = state.agent && state.agent.id;
+    const agentId = normAgentId(state.agent && state.agent.id);
     if (!agentId || !participant || !participant.id) return null;
 
-    const sessionId = FSUtils.xorSessionId(agentId, participant.id);
+    const sessionId = FSUtils.xorSessionId(agentId, normAgentId(participant.id));
     if (!state.imSessions[sessionId]) {
       state.imSessions[sessionId] = {
         id: sessionId,
         participant: resolveParticipantPresence(participant),
         messages: [],
         unread: 0,
+        dismissed: false,
         lastMessage: '',
         updatedAt: Date.now()
       };
@@ -417,6 +464,10 @@ const FSState = (function () {
       }
       const merged = Object.assign({}, prev, participant, { name: name });
       state.imSessions[sessionId].participant = resolveParticipantPresence(merged);
+      if (state.imSessions[sessionId].dismissed) {
+        state.imSessions[sessionId].dismissed = false;
+        emit('im-sessions-updated');
+      }
     }
     return sessionId;
   }
@@ -437,6 +488,7 @@ const FSState = (function () {
     patchMessage: patchMessage,
     addImMessage: addImMessage,
     closeImSession: closeImSession,
+    dismissImSession: dismissImSession,
     ensureImSession: ensureImSession,
     ensureKeyedSession: ensureKeyedSession,
     updateSessionRoster: updateSessionRoster,

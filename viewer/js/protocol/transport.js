@@ -99,6 +99,20 @@ const FSTransport = (function () {
     return adapter.removeFriendship(destId);
   }
 
+  function joinGroup(groupId) {
+    if (!adapter || !adapter.joinGroup) {
+      return Promise.resolve({ sent: false });
+    }
+    return adapter.joinGroup(groupId);
+  }
+
+  function leaveGroup(groupId) {
+    if (!adapter || !adapter.leaveGroup) {
+      return Promise.resolve({ sent: false });
+    }
+    return adapter.leaveGroup(groupId);
+  }
+
   function saveAvatarNotes(targetId, notes) {
     if (!adapter || !adapter.saveAvatarNotes) {
       return Promise.resolve({ sent: false });
@@ -258,6 +272,8 @@ const FSTransport = (function () {
     isAgentOnline: isAgentOnline,
     offerFriendship: offerFriendship,
     removeFriendship: removeFriendship,
+    joinGroup: joinGroup,
+    leaveGroup: leaveGroup,
     saveAvatarNotes: saveAvatarNotes,
     payResident: payResident,
     searchDirectory: searchDirectory,

@@ -163,6 +163,10 @@ const FSSLCircuit = (function () {
   MSG_META[M.GenericMessage] = { name: 'GenericMessage', freq: MF.FrequencyLow, zero: true };
   MSG_META[M.AvatarPropertiesRequest] = { name: 'AvatarPropertiesRequest', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.GroupProfileRequest] = { name: 'GroupProfileRequest', freq: MF.FrequencyLow, zero: false };
+  MSG_META[M.JoinGroupRequest] = { name: 'JoinGroupRequest', freq: MF.FrequencyLow, zero: true };
+  MSG_META[M.LeaveGroupRequest] = { name: 'LeaveGroupRequest', freq: MF.FrequencyLow, zero: false };
+  MSG_META[M.JoinGroupReply] = { name: 'JoinGroupReply', freq: MF.FrequencyLow, zero: false };
+  MSG_META[M.LeaveGroupReply] = { name: 'LeaveGroupReply', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.ClassifiedInfoRequest] = { name: 'ClassifiedInfoRequest', freq: MF.FrequencyLow, zero: true };
   MSG_META[M.MoneyBalanceReply] = { name: 'MoneyBalanceReply', freq: MF.FrequencyLow, zero: true };
   MSG_META[M.AgentGroupDataUpdate] = { name: 'AgentGroupDataUpdate', freq: MF.FrequencyLow, zero: true };
@@ -1005,6 +1009,12 @@ const FSSLCircuit = (function () {
         pos = new B.UUID(data.avatarId).write(buf, pos);
         break;
       case M.GroupProfileRequest:
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.groupId).write(buf, pos);
+        break;
+      case M.JoinGroupRequest:
+      case M.LeaveGroupRequest:
         pos = new B.UUID(agent).write(buf, pos);
         pos = new B.UUID(session).write(buf, pos);
         pos = new B.UUID(data.groupId).write(buf, pos);
@@ -1992,6 +2002,21 @@ const FSSLCircuit = (function () {
     }
   }
 
+  function parseGroupMembershipReply(buf, pos) {
+    try {
+      if (pos + 16 > buf.length) return null;
+      pos += 16; // AgentData.AgentID
+      if (pos + 16 > buf.length) return null;
+      const groupId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      if (pos >= buf.length) return { groupId: groupId, success: false };
+      const success = buf[pos++] !== 0;
+      return { groupId: groupId, success: success };
+    } catch (_e) {
+      return null;
+    }
+  }
+
   function parseAvatarGroupsReply(buf, pos) {
     try {
       if (pos + 32 > buf.length) return null;
@@ -2438,7 +2463,8 @@ const FSSLCircuit = (function () {
     // MessageBlock.ID - the IM/session UUID (group or conference id for session dialogs)
     const imId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
     pos += 16;
-    pos += 4; // Timestamp
+    const timestamp = readU32le(buf, pos);
+    pos = timestamp.pos;
     const fromName = readVar1(buf, pos);
     pos = fromName.pos;
     const message = readVar2(buf, pos);
@@ -2453,6 +2479,7 @@ const FSSLCircuit = (function () {
       dialog: dialog,
       offline: offline,
       imId: imId,
+      timestamp: timestamp.value,
       binaryBucket: bucket.text || ''
     };
   }
@@ -2689,6 +2716,14 @@ const FSSLCircuit = (function () {
         }
         case M.GroupProfileReply: {
           out.groupProfileReply = parseGroupProfileReply(buf, pos);
+          break;
+        }
+        case M.JoinGroupReply: {
+          out.joinGroupReply = parseGroupMembershipReply(buf, pos);
+          break;
+        }
+        case M.LeaveGroupReply: {
+          out.leaveGroupReply = parseGroupMembershipReply(buf, pos);
           break;
         }
         case M.AgentGroupDataUpdate: {
@@ -3647,6 +3682,14 @@ const FSSLCircuit = (function () {
       this.emit({ type: 'group-profile-reply', data: msg.groupProfileReply });
       return;
     }
+    if (msg.id === M.JoinGroupReply && msg.joinGroupReply) {
+      this.emit({ type: 'join-group-reply', data: msg.joinGroupReply });
+      return;
+    }
+    if (msg.id === M.LeaveGroupReply && msg.leaveGroupReply) {
+      this.emit({ type: 'leave-group-reply', data: msg.leaveGroupReply });
+      return;
+    }
     if (msg.id === M.AgentGroupDataUpdate && msg.agentGroupDataUpdate) {
       this.emit({ type: 'agent-group-data-update', data: msg.agentGroupDataUpdate });
       return;
@@ -4249,6 +4292,20 @@ const FSSLCircuit = (function () {
   Circuit.prototype.terminateFriendship = function (otherId) {
     if (!this.handshakeDone || !otherId) return Promise.resolve({ sent: false });
     return this.send(M.TerminateFriendship, { otherId: otherId }, true).then(function (seq) {
+      return { sent: seq !== undefined && seq !== null };
+    });
+  };
+
+  Circuit.prototype.joinGroup = function (groupId) {
+    if (!this.handshakeDone || !groupId) return Promise.resolve({ sent: false });
+    return this.send(M.JoinGroupRequest, { groupId: groupId }, true).then(function (seq) {
+      return { sent: seq !== undefined && seq !== null };
+    });
+  };
+
+  Circuit.prototype.leaveGroup = function (groupId) {
+    if (!this.handshakeDone || !groupId) return Promise.resolve({ sent: false });
+    return this.send(M.LeaveGroupRequest, { groupId: groupId }, true).then(function (seq) {
       return { sent: seq !== undefined && seq !== null };
     });
   };
