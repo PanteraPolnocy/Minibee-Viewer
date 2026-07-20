@@ -251,7 +251,7 @@ const FSSearch = (function () {
       '</div>';
     li.querySelector('[data-action="profile"]').addEventListener('click', function (e) {
       e.stopPropagation();
-      if (row.id) FSProfile.openGroup(row.id);
+      if (row.id) FSProfile.openGroup(row.id, { group: row });
     });
     const groupThumb = li.querySelector('.entity-item__avatar[data-agent-id]');
     if (groupThumb) FSAvatarThumb.refresh(groupThumb);

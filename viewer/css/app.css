@@ -3279,6 +3279,15 @@ html.require-http #app {
   overflow: hidden;
 }
 
+.profile-dialog--group {
+  max-width: 56rem;
+  max-height: 92vh;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .profile-dialog::backdrop { background: var(--overlay); }
 
 .profile-dialog__shell {
@@ -3334,7 +3343,8 @@ html.require-http #app {
   -webkit-overflow-scrolling: touch;
 }
 
-.profile-dialog--avatar .profile-scroll {
+.profile-dialog--avatar .profile-scroll,
+.profile-dialog--group .profile-scroll {
   max-height: min(52vh, 520px);
 }
 
@@ -3382,11 +3392,19 @@ html.require-http #app {
 
 .profile-tab-panel {
   display: none;
-  padding: 12px 16px 16px;
 }
 
 .profile-tab-panel--active {
   display: block;
+}
+
+.profile-main-panel,
+.profile-tab-panel {
+  padding: 12px 16px 16px;
+}
+
+.profile-dialog__actions[hidden] {
+  display: none;
 }
 
 .profile-pane {
@@ -3638,6 +3656,40 @@ html.require-http #app {
   white-space: pre-wrap;
 }
 
+.profile-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.profile-detail__action {
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  min-height: 0;
+  line-height: 1.2;
+}
+
+.profile-notes-input {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 10px 12px;
+  font: inherit;
+  line-height: 1.45;
+  box-sizing: border-box;
+}
+
+.profile-notes-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 .profile-pane--more {
   display: block;
 }
@@ -3675,16 +3727,17 @@ html.require-http #app {
   max-height: min(40vh, 360px);
 }
 
-.profile-group-layout {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 12px;
-  margin-bottom: 12px;
+.profile-subtitle__emphasis {
+  font-weight: 700;
+  color: var(--text);
 }
 
-.profile-group-avatar__thumb {
-  width: 96px;
-  height: 96px;
+.profile-pane--group .profile-group-insignia-btn {
+  cursor: zoom-in;
+}
+
+.profile-pane--group .profile-resident__side .profile-field {
+  margin: 0;
 }
 
 .profile-field {

@@ -520,6 +520,9 @@ const FSProfiles = (function () {
       membershipFee: data.membershipFee,
       money: data.money,
       memberTitle: data.memberTitle || '',
+      powersMask: data.powersMask,
+      showInList: data.showInList,
+      allowPublish: data.allowPublish,
       rolesCount: data.rolesCount,
       source: 'udp'
     };
@@ -580,30 +583,160 @@ const FSProfiles = (function () {
     return mergeAvatarProfile(data.avatarId, { classifieds: classifieds, source: 'udp-classifieds' });
   }
 
+  function formatDetailLocationText(detail) {
+    if (!detail) return '';
+    const parts = [];
+    const parcel = String(detail.originalName || detail.parcelName || '').trim();
+    const region = String(detail.regionName || detail.simName || '').trim();
+    if (parcel) parts.push(parcel);
+    if (region && region.toLowerCase() !== parcel.toLowerCase()) parts.push(region);
+    let text = parts.join(', ');
+    if (detail.x !== undefined && detail.y !== undefined && detail.z !== undefined) {
+      text += (text ? ' ' : '') + '(' + detail.x + ', ' + detail.y + ', ' + detail.z + ')';
+    }
+    return text;
+  }
+
+  function detailRegionName(detail) {
+    return String((detail && (detail.regionName || detail.simName)) || '').trim();
+  }
+
+  function hasValidDetailRegion(detail) {
+    const parcel = String(detail.originalName || detail.parcelName || '').trim();
+    const region = detailRegionName(detail);
+    return !!(region && (!parcel || region.toLowerCase() !== parcel.toLowerCase()));
+  }
+
+  function detailLocationNeedsResolve(detail) {
+    if (!detail || !detail.posGlobal) return false;
+    return !hasValidDetailRegion(detail);
+  }
+
+  function applyParcelPlaceInfo(detail, info) {
+    if (!detail || !info) return detail;
+    const name = String(info.name || '').trim();
+    const sim = String(info.simName || '').trim();
+    if (name) {
+      detail.originalName = name;
+      detail.parcelName = name;
+    }
+    if (sim) {
+      detail.simName = sim;
+      detail.regionName = sim;
+    }
+    detail.location = formatDetailLocationText(detail);
+    return detail;
+  }
+
+  function fetchParcelPlaceInfo(detail) {
+    const parcelId = normId(detail && detail.parcelId);
+    if (isZero(parcelId) || hasValidDetailRegion(detail)) {
+      return Promise.resolve(detail);
+    }
+    if (!hooks || typeof hooks.fetchParcelInfo !== 'function') {
+      return Promise.resolve(detail);
+    }
+    return hooks.fetchParcelInfo(parcelId).then(function (info) {
+      return applyParcelPlaceInfo(detail, info);
+    }).catch(function () {
+      return detail;
+    });
+  }
+
+  function resolveDetailGridLocation(detail, grid, localX, localY, localZ) {
+    if (hasValidDetailRegion(detail)) {
+      detail.location = formatDetailLocationText(detail);
+      return Promise.resolve(detail);
+    }
+    detail.regionName = '';
+    detail.location = formatDetailLocationText(detail);
+    if (!hooks || typeof hooks.resolveLocation !== 'function') {
+      return Promise.resolve(detail);
+    }
+    return hooks.resolveLocation({
+      globalX: grid.globalX,
+      globalY: grid.globalY,
+      gridX: grid.gridX,
+      gridY: grid.gridY,
+      x: localX,
+      y: localY,
+      z: localZ,
+      isGlobalCoord: true
+    }).then(function (loc) {
+      if (loc && loc.regionName) {
+        detail.regionName = loc.regionName;
+        detail.simName = loc.regionName;
+        if (loc.x !== undefined) detail.x = loc.x;
+        if (loc.y !== undefined) detail.y = loc.y;
+        if (loc.z !== undefined) detail.z = loc.z;
+      }
+      detail.location = formatDetailLocationText(detail);
+      return detail;
+    }).catch(function () {
+      detail.location = formatDetailLocationText(detail);
+      return detail;
+    });
+  }
+
+  function enrichDetailLocation(detail) {
+    if (!detail || !detail.posGlobal) return Promise.resolve(detail);
+    const pos = detail.posGlobal;
+    const rw = 256;
+    const localX = Math.round(((pos.x % rw) + rw) % rw);
+    const localY = Math.round(((pos.y % rw) + rw) % rw);
+    const localZ = Math.round(pos.z);
+    const grid = typeof FSSlurl !== 'undefined' && FSSlurl.globalToGrid
+      ? FSSlurl.globalToGrid(pos.x, pos.y)
+      : {
+        gridX: Math.floor(Number(pos.x) / rw),
+        gridY: Math.floor(Number(pos.y) / rw),
+        globalX: Math.floor(Number(pos.x) / rw) * rw,
+        globalY: Math.floor(Number(pos.y) / rw) * rw
+      };
+    detail.x = localX;
+    detail.y = localY;
+    detail.z = localZ;
+    detail.gridX = grid.gridX;
+    detail.gridY = grid.gridY;
+    detail.globalX = grid.globalX;
+    detail.globalY = grid.globalY;
+    if (detailRegionName(detail) && !detail.regionName) {
+      detail.regionName = detailRegionName(detail);
+    }
+    detail.location = formatDetailLocationText(detail);
+    return fetchParcelPlaceInfo(detail).then(function (enriched) {
+      return resolveDetailGridLocation(enriched, grid, localX, localY, localZ);
+    });
+  }
+
+  function finishDetailStore(map, pendingMap, idKey, changeKind, data) {
+    const id = normId(data[idKey]);
+    if (isZero(id)) return Promise.resolve(null);
+    const detail = Object.assign({}, data, {});
+    detail[idKey] = id;
+    map.set(id, detail);
+    const pending = pendingMap.get(id);
+    return enrichDetailLocation(detail).then(function (enriched) {
+      map.set(id, enriched);
+      if (pending) {
+        pendingMap.delete(id);
+        pending.resolve(enriched);
+      }
+      emitChange(changeKind, id);
+      return enriched;
+    });
+  }
+
   function storePickDetail(data) {
     if (!data || isZero(data.pickId)) return null;
-    const detail = Object.assign({}, data, { pickId: normId(data.pickId) });
-    pickDetails.set(detail.pickId, detail);
-    const pending = pendingPick.get(detail.pickId);
-    if (pending) {
-      pendingPick.delete(detail.pickId);
-      pending.resolve(detail);
-    }
-    emitChange('pick-detail', detail.pickId);
-    return detail;
+    finishDetailStore(pickDetails, pendingPick, 'pickId', 'pick-detail', data);
+    return pickDetails.get(normId(data.pickId)) || null;
   }
 
   function storeClassifiedDetail(data) {
     if (!data || isZero(data.classifiedId)) return null;
-    const detail = Object.assign({}, data, { classifiedId: normId(data.classifiedId) });
-    classifiedDetails.set(detail.classifiedId, detail);
-    const pending = pendingClassified.get(detail.classifiedId);
-    if (pending) {
-      pendingClassified.delete(detail.classifiedId);
-      pending.resolve(detail);
-    }
-    emitChange('classified-detail', detail.classifiedId);
-    return detail;
+    finishDetailStore(classifiedDetails, pendingClassified, 'classifiedId', 'classified-detail', data);
+    return classifiedDetails.get(normId(data.classifiedId)) || null;
   }
 
   function handlePickInfoReply(data) {
@@ -627,7 +760,13 @@ const FSProfiles = (function () {
     const id = normId(pickId);
     if (isZero(id)) return Promise.reject(new Error('Invalid pick id'));
     const cached = getPickDetail(id);
-    if (cached) return Promise.resolve(cached);
+    if (cached && !detailLocationNeedsResolve(cached)) return Promise.resolve(cached);
+    if (cached) {
+      return enrichDetailLocation(Object.assign({}, cached)).then(function (enriched) {
+        pickDetails.set(id, enriched);
+        return enriched;
+      });
+    }
     if (pendingPick.has(id)) return pendingPick.get(id).promise;
 
     let resolveFn;
@@ -662,7 +801,13 @@ const FSProfiles = (function () {
     const id = normId(classifiedId);
     if (isZero(id)) return Promise.reject(new Error('Invalid classified id'));
     const cached = getClassifiedDetail(id);
-    if (cached) return Promise.resolve(cached);
+    if (cached && !detailLocationNeedsResolve(cached)) return Promise.resolve(cached);
+    if (cached) {
+      return enrichDetailLocation(Object.assign({}, cached)).then(function (enriched) {
+        classifiedDetails.set(id, enriched);
+        return enriched;
+      });
+    }
     if (pendingClassified.has(id)) return pendingClassified.get(id).promise;
 
     let resolveFn;

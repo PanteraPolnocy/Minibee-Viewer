@@ -1314,6 +1314,26 @@ const FSSLTransport = (function () {
     return circuit.offerCallingCard(destId, FSUtils.uuid());
   }
 
+  function removeFriendship(destId) {
+    if (!circuit || !circuit.terminateFriendship || !destId) {
+      return Promise.resolve({ sent: false });
+    }
+    if (!isBuddy(destId)) {
+      return Promise.resolve({ sent: false, notFriend: true });
+    }
+    return circuit.terminateFriendship(destId).then(function (result) {
+      if (result && result.sent) removeBuddy(destId);
+      return result;
+    });
+  }
+
+  function saveAvatarNotes(targetId, notes) {
+    if (!circuit || !circuit.updateAvatarNotes || !targetId) {
+      return Promise.resolve({ sent: false });
+    }
+    return circuit.updateAvatarNotes(targetId, notes || '');
+  }
+
   function payResident(destId, amount, description) {
     // User-initiated only.
     if (!circuit || !circuit.payResident || !destId) {
@@ -3235,13 +3255,14 @@ const FSSLTransport = (function () {
           const row = regions.find(function (r) {
             return r && r.gridX === gridX && r.gridY === gridY;
           });
-          if (!row || row.empty || !row.name) return '';
-          return String(row.name).trim();
+          if (row && !row.empty && row.name) {
+            return String(row.name).trim();
+          }
         }
       } catch (_e) { /* fall through to UDP when allowed */ }
       if (opts.httpOnly) return '';
     }
-    if (!circuit) return null;
+    if (!circuit) return '';
     const blocksPromise = waitForMapBlocks(function (block) {
       return block.gridX === gridX && block.gridY === gridY;
     }, 8000);
@@ -3326,6 +3347,16 @@ const FSSLTransport = (function () {
     for (let i = 0; i < results.length; i++) {
       const lookup = results[i];
       if (!lookup || lookup.gridX === undefined || lookup.gridY === undefined) continue;
+      const lookupName = String(lookup.name || '').trim();
+      if (lookupName && regionNameMatches(lookupName, regionName)) {
+        return locationFromRegionLookup(regionName, {
+          gridX: lookup.gridX,
+          gridY: lookup.gridY,
+          globalX: lookup.globalX,
+          globalY: lookup.globalY,
+          name: lookupName
+        }, local);
+      }
       try {
         const canonical = await assertRegionNameAtGrid(lookup.gridX, lookup.gridY, regionName);
         return locationFromRegionLookup(regionName, {
@@ -3370,25 +3401,50 @@ const FSSLTransport = (function () {
 
   async function resolveByGrid(gridX, gridY, local, fallbackName) {
     const grid = FSSlurl.globalToGrid(gridX * FSSlurl.REGION_WIDTH, gridY * FSSlurl.REGION_WIDTH);
-    const blocksPromise = waitForMapBlocks(function (block) {
-      return block.gridX === grid.gridX && block.gridY === grid.gridY;
-    });
-    await circuit.requestMapBlock(
-      grid.gridX, grid.gridY, grid.gridX, grid.gridY, MAP_SIM_RETURN_NULL_SIMS
+    if (!circuit) {
+      return locationFromGrid(grid.gridX, grid.gridY, local, fallbackName);
+    }
+    try {
+      const blocksPromise = waitForMapBlocks(function (block) {
+        return block.gridX === grid.gridX && block.gridY === grid.gridY;
+      });
+      await circuit.requestMapBlock(
+        grid.gridX, grid.gridY, grid.gridX, grid.gridY, MAP_SIM_RETURN_NULL_SIMS
+      );
+      const blocks = await blocksPromise;
+      const block = (blocks || []).find(function (b) {
+        return b.gridX === grid.gridX && b.gridY === grid.gridY;
+      });
+      return {
+        regionName: (block && block.name) || fallbackName || ('Region ' + grid.gridX + ',' + grid.gridY),
+        globalX: grid.globalX,
+        globalY: grid.globalY,
+        gridX: grid.gridX,
+        gridY: grid.gridY,
+        x: local.x !== undefined ? local.x : 128,
+        y: local.y !== undefined ? local.y : 128,
+        z: local.z !== undefined ? local.z : 25
+      };
+    } catch (_e) {
+      return locationFromGrid(grid.gridX, grid.gridY, local, fallbackName);
+    }
+  }
+
+  function locationFromParsedGrid(parsed, local) {
+    const grid = FSSlurl.globalToGrid(
+      parsed.gridX * FSSlurl.REGION_WIDTH,
+      parsed.gridY * FSSlurl.REGION_WIDTH
     );
-    const blocks = await blocksPromise;
-    const block = (blocks || []).find(function (b) {
-      return b.gridX === grid.gridX && b.gridY === grid.gridY;
-    });
     return {
-      regionName: (block && block.name) || fallbackName || ('Region ' + grid.gridX + ',' + grid.gridY),
-      globalX: grid.globalX,
-      globalY: grid.globalY,
-      gridX: grid.gridX,
-      gridY: grid.gridY,
-      x: local.x !== undefined ? local.x : 128,
-      y: local.y !== undefined ? local.y : 128,
-      z: local.z !== undefined ? local.z : 25
+      regionName: String(parsed.regionName || '').trim() ||
+        ('Region ' + parsed.gridX + ',' + parsed.gridY),
+      globalX: parsed.globalX !== undefined ? parsed.globalX : grid.globalX,
+      globalY: parsed.globalY !== undefined ? parsed.globalY : grid.globalY,
+      gridX: parsed.gridX,
+      gridY: parsed.gridY,
+      x: local.x,
+      y: local.y,
+      z: local.z
     };
   }
 
@@ -3404,25 +3460,16 @@ const FSSLTransport = (function () {
       y: parsed.y !== undefined ? parsed.y : 128,
       z: parsed.z !== undefined ? parsed.z : 25
     };
+    if (parsed.gridX !== undefined && parsed.gridY !== undefined &&
+        String(parsed.regionName || '').trim()) {
+      return locationFromParsedGrid(parsed, local);
+    }
     if (parsed.isGlobalCoord || parsed.globalX !== undefined) {
       if (!circuit) throw new Error('Not connected');
       return resolveByGrid(parsed.gridX, parsed.gridY, local, parsed.regionName);
     }
     if (parsed.gridX !== undefined && parsed.gridY !== undefined) {
-      const grid = FSSlurl.globalToGrid(
-        parsed.gridX * FSSlurl.REGION_WIDTH,
-        parsed.gridY * FSSlurl.REGION_WIDTH
-      );
-      return {
-        regionName: parsed.regionName || ('Region ' + parsed.gridX + ',' + parsed.gridY),
-        globalX: grid.globalX,
-        globalY: grid.globalY,
-        gridX: parsed.gridX,
-        gridY: parsed.gridY,
-        x: local.x,
-        y: local.y,
-        z: local.z
-      };
+      return locationFromParsedGrid(parsed, local);
     }
     if (!parsed.regionName) {
       throw new Error('Region name required');
@@ -4571,6 +4618,8 @@ const FSSLTransport = (function () {
         if (!circuit || !circuit.requestClassifiedInfo) return Promise.resolve();
         return circuit.requestClassifiedInfo(classifiedId);
       },
+      resolveLocation: resolveLocation,
+      fetchParcelInfo: fetchParcelInfo,
       isBuddy: isBuddy
     });
   }
@@ -5275,6 +5324,8 @@ const FSSLTransport = (function () {
     isBuddy: isBuddy,
     isAgentOnline: isAgentOnline,
     offerFriendship: offerFriendship,
+    removeFriendship: removeFriendship,
+    saveAvatarNotes: saveAvatarNotes,
     getCachedName: getCachedName,
     getCachedNameInfo: getCachedNameInfo,
     queueNameResolve: queueNameResolve,

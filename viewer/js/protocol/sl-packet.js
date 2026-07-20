@@ -72,11 +72,16 @@ const FSSLCircuit = (function () {
   }
 
   function formatProfileLocation(simName, pos) {
-    if (!simName && !pos) return '';
-    const x = pos ? Math.round(pos.x % 256) : 0;
-    const y = pos ? Math.round(pos.y % 256) : 0;
-    const z = pos ? Math.round(pos.z) : 0;
-    return (simName || 'Unknown') + ' (' + x + ', ' + y + ', ' + z + ')';
+    if (!pos) return String(simName || '').trim();
+    const rw = 256;
+    const x = Math.round(((pos.x % rw) + rw) % rw);
+    const y = Math.round(((pos.y % rw) + rw) % rw);
+    const z = Math.round(pos.z);
+    const name = String(simName || '').trim();
+    if (name) return name + ' (' + x + ', ' + y + ', ' + z + ')';
+    const gridX = Math.floor(Number(pos.x) / rw);
+    const gridY = Math.floor(Number(pos.y) / rw);
+    return 'Region ' + gridX + ',' + gridY + ' (' + x + ', ' + y + ', ' + z + ')';
   }
 
   function readU64le(buf, pos) {
@@ -169,6 +174,8 @@ const FSSLCircuit = (function () {
   MSG_META[M.AcceptCallingCard] = { name: 'AcceptCallingCard', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.DeclineCallingCard] = { name: 'DeclineCallingCard', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.OfferCallingCard] = { name: 'OfferCallingCard', freq: MF.FrequencyLow, zero: false };
+  MSG_META[M.AvatarNotesUpdate] = { name: 'AvatarNotesUpdate', freq: MF.FrequencyLow, zero: true };
+  MSG_META[M.TerminateFriendship] = { name: 'TerminateFriendship', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.AvatarPickerRequest] = { name: 'AvatarPickerRequest', freq: MF.FrequencyLow, zero: false };
   MSG_META[M.DirFindQuery] = { name: 'DirFindQuery', freq: MF.FrequencyLow, zero: true };
   MSG_META[M.DirPlacesQuery] = { name: 'DirPlacesQuery', freq: MF.FrequencyLow, zero: true };
@@ -292,6 +299,7 @@ const FSSLCircuit = (function () {
     L(172, 'AvatarInterestsReply', true);
     L(173, 'AvatarGroupsReply', true);
     L(176, 'AvatarNotesReply', false);
+    L(177, 'AvatarNotesUpdate', false);
     L(178, 'AvatarPicksReply', false);
     L(180, 'EventInfoReply', false);
     L(184, 'PickInfoReply', false);
@@ -1005,6 +1013,17 @@ const FSSLCircuit = (function () {
         pos = new B.UUID(agent).write(buf, pos);
         pos = new B.UUID(session).write(buf, pos);
         pos = new B.UUID(data.classifiedId).write(buf, pos);
+        break;
+      case M.AvatarNotesUpdate:
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.targetId).write(buf, pos);
+        pos = writeVar2(buf, pos, data.notes || '');
+        break;
+      case M.TerminateFriendship:
+        pos = new B.UUID(agent).write(buf, pos);
+        pos = new B.UUID(session).write(buf, pos);
+        pos = new B.UUID(data.otherId).write(buf, pos);
         break;
       case M.GenericMessage: {
         pos = new B.UUID(agent).write(buf, pos);
@@ -4215,6 +4234,23 @@ const FSSLCircuit = (function () {
   Circuit.prototype.requestClassifiedInfo = function (classifiedId) {
     if (!this.handshakeDone || !classifiedId) return Promise.resolve();
     return this.send(M.ClassifiedInfoRequest, { classifiedId: classifiedId }, true);
+  };
+
+  Circuit.prototype.updateAvatarNotes = function (targetId, notes) {
+    if (!this.handshakeDone || !targetId) return Promise.resolve({ sent: false });
+    return this.send(M.AvatarNotesUpdate, {
+      targetId: targetId,
+      notes: notes || ''
+    }, true).then(function (seq) {
+      return { sent: seq !== undefined && seq !== null };
+    });
+  };
+
+  Circuit.prototype.terminateFriendship = function (otherId) {
+    if (!this.handshakeDone || !otherId) return Promise.resolve({ sent: false });
+    return this.send(M.TerminateFriendship, { otherId: otherId }, true).then(function (seq) {
+      return { sent: seq !== undefined && seq !== null };
+    });
   };
 
   return { Circuit: Circuit, decodePacket: decodePacket, encodePacket: encodePacket, Message: M };

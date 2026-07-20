@@ -61,12 +61,15 @@ const FSProfile = (function () {
 
   function clearActions() {
     const actions = el('profile-actions');
-    if (actions) actions.innerHTML = '';
+    if (!actions) return;
+    actions.innerHTML = '';
+    actions.hidden = true;
   }
 
   function addAction(label, handler, options) {
     const actions = el('profile-actions');
     if (!actions) return;
+    actions.hidden = false;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn--secondary profile-dialog__action';
@@ -136,6 +139,30 @@ const FSProfile = (function () {
     const level = formatCustomerTypeLabel(profile.customerType);
     if (level) parts.push('Account level: ' + level);
     return parts.join(' \u00b7 ');
+  }
+
+  function formatGroupJoinFee(profile) {
+    const fee = Number(profile && profile.membershipFee) || 0;
+    if (fee > 0) return 'L$ ' + fee.toLocaleString('en-US');
+    return 'Free';
+  }
+
+  function groupSubtitleHtml(profile) {
+    const parts = [];
+    if (profile.memberCount !== undefined && profile.memberCount !== null) {
+      parts.push('<strong class="profile-subtitle__emphasis">' +
+        FSUtils.escapeHtml(String(profile.memberCount.toLocaleString('en-US'))) + ' members</strong>');
+    }
+    parts.push(FSUtils.escapeHtml(profile.openEnrollment ? 'Open enrollment' : 'Closed enrollment'));
+    parts.push(FSUtils.escapeHtml(profile.maturePublish ? 'Mature' : 'General'));
+    return parts.join(' \u00b7 ');
+  }
+
+  function updateGroupHeader(profile) {
+    const titleEl = el('profile-title');
+    const subtitleEl = el('profile-subtitle');
+    if (titleEl) titleEl.textContent = profile.name || 'Group';
+    if (subtitleEl) subtitleEl.innerHTML = groupSubtitleHtml(profile);
   }
 
   function formatAccountInfo(profile) {
@@ -315,6 +342,46 @@ const FSProfile = (function () {
       '<p class="profile-section__empty">Select an item</p></div></div>';
   }
 
+  function isSelfProfile(profile) {
+    const selfId = String((FSState.get().agent || {}).id || '').toLowerCase();
+    return !!(profile && profile.avatarId && profile.avatarId === selfId);
+  }
+
+  function profileDetailLocation(detail) {
+    if (!detail) return null;
+    const regionName = String(detail.regionName || detail.simName || '').trim();
+    const parcel = String(detail.originalName || detail.parcelName || '').trim();
+    if (!regionName || (parcel && regionName.toLowerCase() === parcel.toLowerCase())) return null;
+    if (detail.x !== undefined && detail.y !== undefined && detail.z !== undefined) {
+      return {
+        regionName: regionName,
+        gridX: detail.gridX,
+        gridY: detail.gridY,
+        globalX: detail.globalX,
+        globalY: detail.globalY,
+        x: detail.x,
+        y: detail.y,
+        z: detail.z
+      };
+    }
+    if (!detail.posGlobal) return null;
+    const pos = detail.posGlobal;
+    const rw = 256;
+    const grid = typeof FSSlurl !== 'undefined' && FSSlurl.globalToGrid
+      ? FSSlurl.globalToGrid(pos.x, pos.y)
+      : null;
+    return {
+      regionName: regionName,
+      gridX: grid ? grid.gridX : detail.gridX,
+      gridY: grid ? grid.gridY : detail.gridY,
+      globalX: grid ? grid.globalX : detail.globalX,
+      globalY: grid ? grid.globalY : detail.globalY,
+      x: Math.round(((pos.x % rw) + rw) % rw),
+      y: Math.round(((pos.y % rw) + rw) % rw),
+      z: Math.round(pos.z)
+    };
+  }
+
   function renderItemDetail(detail, kind) {
     const name = detail.name || 'Item';
     const descHtml = sanitizeProfileHtml(detail.description || '');
@@ -336,7 +403,35 @@ const FSProfile = (function () {
       html += '<div class="profile-field"><span class="profile-field__label">Listing price</span><span>L$ ' +
         Number(detail.priceForListing).toLocaleString('en-US') + '</span></div>';
     }
+    if (profileDetailLocation(detail)) {
+      html += '<div class="profile-detail__actions">' +
+        '<button type="button" class="btn btn--secondary profile-detail__action" data-detail-action="map">Show on map</button>' +
+        '<button type="button" class="btn btn--primary profile-detail__action" data-detail-action="teleport">Teleport</button>' +
+        '</div>';
+    }
     return html;
+  }
+
+  function bindDetailActions(detailEl, detail) {
+    if (!detailEl || !detail) return;
+    const loc = profileDetailLocation(detail);
+    if (!loc) return;
+    detailEl.querySelectorAll('[data-detail-action]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const action = btn.getAttribute('data-detail-action');
+        if (action === 'map') {
+          if (typeof FSMap !== 'undefined' && FSMap.showLocation) {
+            FSMap.showLocation(loc);
+          }
+          return;
+        }
+        if (action === 'teleport' && typeof FSTransport.teleportTo === 'function') {
+          FSTransport.teleportTo(loc).catch(function (err) {
+            FSUtils.showToast(err.message || 'Teleport failed', 'error');
+          });
+        }
+      });
+    });
   }
 
   function bindDetailSnapshot(detailEl) {
@@ -348,6 +443,13 @@ const FSProfile = (function () {
     });
   }
 
+  function paintItemDetail(detailEl, detail, kind) {
+    if (!detailEl || !detail) return;
+    detailEl.innerHTML = renderItemDetail(detail, kind);
+    bindDetailSnapshot(detailEl);
+    bindDetailActions(detailEl, detail);
+  }
+
   function findDetailPane(tabId) {
     const content = el('profile-content');
     if (!content) return null;
@@ -356,9 +458,11 @@ const FSProfile = (function () {
   }
 
   function avatarTabsFor(profile) {
+    const self = isSelfProfile(profile);
     return AVATAR_TABS.filter(function (tab) {
       if (tab.id === 'web') return !!profile.profileUrl;
       if (tab.id === 'more') return !!(profile.flAbout || (profile.flImageId && profile.flImageId !== ZERO_UUID));
+      if (tab.id === 'notes') return !self;
       return true;
     });
   }
@@ -424,13 +528,14 @@ const FSProfile = (function () {
   }
 
   function renderNotesTab(profile) {
-    const notes = String(profile.notes || '').trim();
+    const notes = String(profile.notes || '');
     return '<div class="profile-pane profile-pane--notes">' +
       '<p class="profile-notes-hint">Your private notes about this person. Only you can see them.</p>' +
-      (notes
-        ? '<div class="profile-scroll profile-notes" tabindex="0">' + FSUtils.escapeHtml(notes) + '</div>'
-        : '<p class="profile-section__empty">No notes saved for this resident.</p>') +
-      '</div>';
+      '<textarea id="profile-notes-input" class="profile-notes-input" rows="10" maxlength="65535" ' +
+        'placeholder="Add private notes...">' + FSUtils.escapeHtml(notes) + '</textarea>' +
+      '<div class="profile-notes-actions">' +
+      '<button type="button" class="btn btn--primary" id="profile-notes-save">Save notes</button>' +
+      '</div></div>';
   }
 
   function renderAvatarTabs(profile) {
@@ -477,11 +582,10 @@ const FSProfile = (function () {
         ? FSProfiles.getPickDetail(row.id)
         : FSProfiles.getClassifiedDetail(row.id);
       if (cached) {
-        detail.innerHTML = renderItemDetail(cached, kind);
-        bindDetailSnapshot(detail);
-        return;
+        paintItemDetail(detail, cached, kind);
+      } else {
+        detail.innerHTML = '<p class="profile-section__empty">Loading...</p>';
       }
-      detail.innerHTML = '<p class="profile-section__empty">Loading...</p>';
       const task = kind === 'pick'
         ? FSProfiles.fetchPickInfo(profile.avatarId, row.id)
         : FSProfiles.fetchClassifiedInfo(row.id);
@@ -489,10 +593,9 @@ const FSProfile = (function () {
         if (!current || current.type !== 'avatar') return;
         const selectedId = kind === 'pick' ? current.selectedPickId : current.selectedClassifiedId;
         if (selectedId !== row.id) return;
-        detail.innerHTML = renderItemDetail(loaded, kind);
-        bindDetailSnapshot(detail);
+        paintItemDetail(detail, loaded, kind);
       }).catch(function () {
-        if (!detail) return;
+        if (!detail || cached) return;
         detail.innerHTML = '<h4 class="profile-split__title">' + FSUtils.escapeHtml(row.name || 'Item') + '</h4>' +
           '<p class="profile-section__empty">Could not load details.</p>';
       });
@@ -565,6 +668,28 @@ const FSProfile = (function () {
     });
     bindGroupLinks(root);
 
+    const notesInput = root.querySelector('#profile-notes-input');
+    const notesSave = root.querySelector('#profile-notes-save');
+    if (notesInput && notesSave && profile.avatarId && !isSelfProfile(profile)) {
+      notesSave.addEventListener('click', function () {
+        const text = notesInput.value || '';
+        if (typeof FSTransport.saveAvatarNotes !== 'function') return;
+        notesSave.disabled = true;
+        FSTransport.saveAvatarNotes(profile.avatarId, text).then(function (result) {
+          notesSave.disabled = false;
+          if (result && result.sent) {
+            FSProfiles.mergeAvatarProfile(profile.avatarId, { notes: text, source: 'notes-local' });
+            FSUtils.showToast('Notes saved.', 'success');
+          } else {
+            FSUtils.showToast('Could not save notes.', 'error');
+          }
+        }).catch(function (err) {
+          notesSave.disabled = false;
+          FSUtils.showToast(err.message || 'Could not save notes.', 'error');
+        });
+      });
+    }
+
     root.querySelectorAll('.profile-tab').forEach(function (tabBtn) {
       tabBtn.addEventListener('click', function () {
         const tabId = tabBtn.getAttribute('data-profile-tab');
@@ -588,8 +713,7 @@ const FSProfile = (function () {
     clearActions();
     const agentId = profile.avatarId;
     if (!agentId || agentId === ZERO_UUID) return;
-    const selfId = String((FSState.get().agent || {}).id || '').toLowerCase();
-    const isSelf = agentId === selfId;
+    const isSelf = isSelfProfile(profile);
     const isFriend = typeof FSTransport.isBuddy === 'function' && FSTransport.isBuddy(agentId);
     const tpOnline = typeof FSTransport.isAgentOnline === 'function'
       ? FSTransport.isAgentOnline(agentId, profile)
@@ -621,8 +745,17 @@ const FSProfile = (function () {
       addAction('Request teleport', function () {
         FSTeleportUI.requestFrom(agentId, profile.displayName || profile.userName || profile.name, profile);
       }, tpOnline ? undefined : tpDisabled);
-      addAction(isFriend ? 'Friends' : 'Add friend', function () {
-        if (isFriend) return;
+      addAction(isFriend ? 'Remove friend' : 'Add friend', function () {
+        if (isFriend) {
+          if (!window.confirm('Remove this friend?')) return;
+          FSTransport.removeFriendship(agentId).then(function (result) {
+            if (result && result.sent) {
+              FSUtils.showToast('Friend removed.', 'success');
+              renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
+            }
+          });
+          return;
+        }
         FSTransport.offerFriendship(agentId).then(function (result) {
           if (result && result.sent) FSUtils.showToast('Friendship offer sent.', 'success');
         });
@@ -632,21 +765,141 @@ const FSProfile = (function () {
 
   function isGroupMember(profile) {
     if (!profile || !profile.groupId) return false;
-    if (typeof FSProfiles.isAgentInGroup === 'function' && FSProfiles.isAgentInGroup(profile.groupId)) {
-      return true;
+    return typeof FSProfiles.isAgentInGroup === 'function' && FSProfiles.isAgentInGroup(profile.groupId);
+  }
+
+  function enrichGroupProfile(profile) {
+    if (!profile) return profile;
+    const next = Object.assign({}, profile);
+    next.isMember = isGroupMember(next);
+    if (!next.isMember) next.memberTitle = '';
+    if (current && current.nameHint) {
+      const hintName = String(current.nameHint.name || '').trim();
+      if (hintName && !next.name) next.name = hintName;
     }
-    return !!String(profile.memberTitle || '').trim();
+    if (next.founderId && next.founderId !== ZERO_UUID) {
+      if (typeof FSTransport.getCachedNameInfo === 'function') {
+        const info = FSTransport.getCachedNameInfo(next.founderId);
+        if (info) next.founderName = info.displayName || info.label || '';
+      }
+      if (!next.founderName && typeof FSTransport.getCachedName === 'function') {
+        next.founderName = FSTransport.getCachedName(next.founderId) || '';
+      }
+    }
+    return next;
+  }
+
+  function queueGroupNames(profile) {
+    if (!profile || typeof FSTransport.queueNameResolve !== 'function') return;
+    if (profile.founderId && profile.founderId !== ZERO_UUID) {
+      FSTransport.queueNameResolve([profile.founderId]);
+    }
+  }
+
+  function renderGroupKeyMeta(profile) {
+    return '<div class="profile-desc-meta profile-desc-meta--key">' +
+      '<div class="profile-meta-item">' +
+      '<span class="profile-meta-item__label">Key</span>' +
+      '<span class="profile-meta-item__value"><code class="profile-uuid">' +
+      FSUtils.escapeHtml(profile.groupId) + '</code></span></div></div>';
+  }
+
+  function renderGroupFounderField(profile) {
+    if (!profile.founderId || profile.founderId === ZERO_UUID) return '';
+    const label = profile.founderName || 'View profile';
+    return '<div class="profile-field"><span class="profile-field__label">Founder</span>' +
+      '<span><button type="button" class="profile-link" data-avatar-id="' +
+      FSUtils.escapeHtml(profile.founderId) + '">' + FSUtils.escapeHtml(label) + '</button></span></div>';
+  }
+
+  function renderGroupMemberField(profile) {
+    if (!profile.isMember) return '';
+    const title = String(profile.memberTitle || '').trim();
+    return '<div class="profile-field"><span class="profile-field__label">Your title</span><span>' +
+      FSUtils.escapeHtml(title || 'Member') + '</span></div>';
+  }
+
+  function renderGroupSideMeta(profile) {
+    let html = '<div class="profile-field"><span class="profile-field__label">Join fee</span><span>' +
+      FSUtils.escapeHtml(formatGroupJoinFee(profile)) + '</span></div>';
+    if (profile.money !== undefined && profile.money !== null) {
+      html += '<div class="profile-field"><span class="profile-field__label">Treasury</span><span>L$ ' +
+        Number(profile.money).toLocaleString('en-US') + '</span></div>';
+    }
+    if (profile.rolesCount !== undefined && profile.rolesCount !== null) {
+      html += '<div class="profile-field"><span class="profile-field__label">Roles</span><span>' +
+        FSUtils.escapeHtml(String(profile.rolesCount)) + '</span></div>';
+    }
+    if (profile.showInList !== undefined) {
+      html += '<div class="profile-field"><span class="profile-field__label">Search</span><span>' +
+        FSUtils.escapeHtml(profile.showInList ? 'Visible in search' : 'Hidden from search') + '</span></div>';
+    }
+    return html;
+  }
+
+  function renderGroupTab(profile) {
+    const charterHtml = sanitizeProfileHtml(profile.charter || '');
+    return '<div class="profile-pane profile-pane--group">' +
+      '<div class="profile-resident__columns">' +
+      '<div class="profile-resident__side profile-group__side">' +
+      '<button type="button" class="profile-avatar-btn profile-group-insignia-btn" id="profile-group-insignia-btn" ' +
+        'title="View larger image" aria-label="View larger group insignia">' +
+      '<span id="profile-group-insignia-slot" class="profile-avatar-btn__slot"></span></button>' +
+      '<div class="profile-field"><span class="profile-field__label">Enrollment</span><span>' +
+        FSUtils.escapeHtml(profile.openEnrollment ? 'Open enrollment' : 'Closed enrollment') + '</span></div>' +
+      '<div class="profile-field"><span class="profile-field__label">Content</span><span>' +
+        FSUtils.escapeHtml(profile.maturePublish ? 'Mature' : 'General') + '</span></div>' +
+      renderGroupSideMeta(profile) +
+      renderGroupFounderField(profile) +
+      renderGroupMemberField(profile) +
+      '</div>' +
+      '<div class="profile-resident__about profile-group__about">' +
+      renderGroupKeyMeta(profile) +
+      renderAboutBlock(charterHtml, 'No charter text.') +
+      '</div></div></div>';
+  }
+
+  function bindGroupContent(profile, root) {
+    if (!root) return;
+    const title = profile.name || 'Group';
+    FSAvatarThumb.mountIn(root.querySelector('#profile-group-insignia-slot'), profile.groupId, {
+      kind: 'group',
+      label: title,
+      className: 'profile-avatar-btn__thumb avatar-thumb--profile',
+      resolveImage: true
+    });
+    const insigniaBtn = root.querySelector('#profile-group-insignia-btn');
+    if (insigniaBtn) {
+      insigniaBtn.addEventListener('click', function () {
+        const imageId = profile.insigniaId || FSProfiles.getGroupInsigniaId(profile.groupId);
+        if (imageId && !FSProfiles.isZero(imageId)) openImagePreview(imageId, title + ' insignia');
+      });
+    }
+    root.querySelectorAll('[data-avatar-id]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        openAvatar(btn.getAttribute('data-avatar-id'));
+      });
+    });
   }
 
   function renderGroupActions(profile) {
     clearActions();
     const groupId = profile.groupId;
     if (!groupId || groupId === ZERO_UUID) return;
-    if (isGroupMember(profile)) {
+    if (profile.isMember) {
       addAction('Open group chat', function () {
         closeDialog();
         FSIm.openGroupChat(groupId, profile.name || '');
       }, { primary: true });
+      return;
+    }
+    if (profile.openEnrollment) {
+      const fee = Number(profile.membershipFee) || 0;
+      const label = fee > 0 ? 'Join (L$ ' + fee.toLocaleString('en-US') + ')' : 'Join';
+      addAction(label, function () {}, {
+        disabled: true,
+        title: 'Joining groups is not implemented yet'
+      });
     }
   }
 
@@ -660,7 +913,10 @@ const FSProfile = (function () {
   }
 
   function renderAvatar(profile) {
-    if (dialog) dialog.classList.add('profile-dialog--avatar');
+    if (dialog) {
+      dialog.classList.add('profile-dialog--avatar');
+      dialog.classList.remove('profile-dialog--group');
+    }
     updateProfileHeader(profile);
 
     const content = el('profile-content');
@@ -672,55 +928,19 @@ const FSProfile = (function () {
   }
 
   function renderGroup(profile) {
-    if (dialog) dialog.classList.remove('profile-dialog--avatar');
-    const titleEl = el('profile-title');
-    const subtitleEl = el('profile-subtitle');
-    if (titleEl) titleEl.textContent = profile.name || 'Group';
-    const meta = [];
-    if (profile.memberCount !== undefined && profile.memberCount !== null) {
-      meta.push(profile.memberCount + ' members');
+    if (dialog) {
+      dialog.classList.remove('profile-dialog--avatar');
+      dialog.classList.add('profile-dialog--group');
     }
-    meta.push(profile.openEnrollment ? 'Open enrollment' : 'Closed enrollment');
-    meta.push(profile.maturePublish ? 'Mature' : 'General');
-    if (subtitleEl) subtitleEl.textContent = meta.join(' \u00b7 ');
+    const enriched = enrichGroupProfile(profile);
+    updateGroupHeader(enriched);
+    queueGroupNames(enriched);
 
-    const charterHtml = sanitizeProfileHtml(profile.charter || '');
     const content = el('profile-content');
     if (!content) return;
-    content.innerHTML =
-      '<div class="profile-group-layout">' +
-      '<div id="profile-group-avatar" class="profile-group-avatar"></div>' +
-      '<div class="profile-group-meta">' +
-      (profile.founderId && profile.founderId !== ZERO_UUID
-        ? '<div class="profile-field"><span class="profile-field__label">Founder</span>' +
-          '<button type="button" class="profile-link" data-avatar-id="' +
-          FSUtils.escapeHtml(profile.founderId) + '">View profile</button></div>'
-        : '') +
-      (profile.membershipFee > 0
-        ? '<div class="profile-field"><span class="profile-field__label">Join fee</span><span>L$ ' +
-          profile.membershipFee.toLocaleString('en-US') + '</span></div>'
-        : '') +
-      '<div class="profile-field profile-field--uuid"><span class="profile-field__label">Key</span>' +
-      '<code class="profile-uuid">' + FSUtils.escapeHtml(profile.groupId) + '</code></div>' +
-      '</div></div>' +
-      (charterHtml
-        ? '<section class="profile-section"><h3 class="profile-section__title">Charter</h3>' +
-          renderAboutBlock(charterHtml, 'No charter text.') + '</section>'
-        : '<p class="profile-section__empty">No charter text.</p>');
-
-    FSAvatarThumb.mountIn(content.querySelector('#profile-group-avatar'), profile.groupId, {
-      kind: 'group',
-      label: profile.name || 'Group',
-      className: 'profile-group-avatar__thumb',
-      resolveImage: true
-    });
-
-    content.querySelectorAll('[data-avatar-id]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        openAvatar(btn.getAttribute('data-avatar-id'));
-      });
-    });
-    renderGroupActions(profile);
+    content.innerHTML = '<div class="profile-main-panel">' + renderGroupTab(enriched) + '</div>';
+    bindGroupContent(enriched, content);
+    renderGroupActions(enriched);
     setLoading(false);
   }
 
@@ -842,10 +1062,14 @@ const FSProfile = (function () {
     const id = FSProfiles.normId(groupId);
     if (FSProfiles.isZero(id)) return;
     if (!dialog) return;
-    current = { type: 'group', id: id };
+    const nameHint = (options && options.group) || null;
+    current = { type: 'group', id: id, nameHint: nameHint };
     setLoading(true);
     clearActions();
     if (typeof dialog.showModal === 'function') dialog.showModal();
+    if (nameHint && nameHint.name) {
+      updateGroupHeader(enrichGroupProfile({ groupId: id, name: nameHint.name }));
+    }
 
     const cached = FSProfiles.getGroupProfile(id);
     if (cached && !(options && options.force)) {
@@ -930,8 +1154,7 @@ const FSProfile = (function () {
         const detailEl = findDetailPane('places');
         const detail = FSProfiles.getPickDetail(evt.id);
         if (detailEl && detail) {
-          detailEl.innerHTML = renderItemDetail(detail, 'pick');
-          bindDetailSnapshot(detailEl);
+          paintItemDetail(detailEl, detail, 'pick');
         }
         return;
       }
@@ -939,16 +1162,22 @@ const FSProfile = (function () {
         const detailEl = findDetailPane('classifieds');
         const detail = FSProfiles.getClassifiedDetail(evt.id);
         if (detailEl && detail) {
-          detailEl.innerHTML = renderItemDetail(detail, 'classified');
-          bindDetailSnapshot(detailEl);
+          paintItemDetail(detailEl, detail, 'classified');
         }
       }
     });
     if (typeof FSTransport.on === 'function') {
       FSTransport.on('names-updated', function () {
-        if (!current || current.type !== 'avatar' || !dialog || !dialog.open) return;
-        const profile = FSProfiles.getAvatarProfile(current.id);
-        if (profile) updateProfileHeader(enrichAvatarProfile(Object.assign({}, profile)));
+        if (!current || !dialog || !dialog.open) return;
+        if (current.type === 'avatar') {
+          const profile = FSProfiles.getAvatarProfile(current.id);
+          if (profile) updateProfileHeader(enrichAvatarProfile(Object.assign({}, profile)));
+          return;
+        }
+        if (current.type === 'group') {
+          const profile = FSProfiles.getGroupProfile(current.id);
+          if (profile) renderGroup(Object.assign({}, profile));
+        }
       });
       FSTransport.on('buddies-updated', function () {
         if (!current || current.type !== 'avatar' || !dialog || !dialog.open) return;

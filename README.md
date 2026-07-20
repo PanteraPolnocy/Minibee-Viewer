@@ -104,7 +104,10 @@ viewer/
   js/ui/navigation.js            Tab switching, top bar, badges, SLT clock
   js/ui/session-lost.js          Disconnect overlay and offline browse mode
   js/ui/panel-busy.js            Per-panel loading overlays
+  js/ui/profile.js               Avatar and group profile floater
+  js/ui/avatar-thumb.js          Shared profile image thumbnails in lists
   js/protocol/sl-transport.js    Live SL session (login, circuit, caps, teleport)
+  js/protocol/sl-profiles.js     Avatar/group profile fetch, cache, and cap merge
   js/protocol/sl-packet.js       UDP message codec and circuit
   js/protocol/sl-login.js        XML-RPC login + MFA/TOS challenge loop
   js/protocol/sl-caps.js         Seed capabilities, display names, remote parcel
@@ -175,9 +178,12 @@ Tabs fetch and render their data only when you open them. This keeps login light
 | Close / leave conversation | Yes |
 | Buddies + display names | Yes (`GetDisplayNames` cap) |
 | Buddy teleport offer / request | Yes (context menu) |
-| Search - people | Yes (UDP directory + avatar cap; start IM from results) |
+| Avatar profiles | Yes (`AgentProfile` cap + UDP; full about text, picks, classifieds, groups, notes) |
+| Group profiles | Partial (charter, insignia, membership; open group chat when member) |
+| Avatar thumbnails in lists | Partial (buddies resolve profile images; others show initials) |
+| Search - people | Yes (UDP directory + avatar cap; profile + IM from results) |
 | Search - places | Yes (UDP directory; show on map, expandable details) |
-| Search - groups | Yes (UDP directory; view-only for now) |
+| Search - groups | Yes (UDP directory; open group profile) |
 | Radar (coarse positions) | Yes (`CoarseLocationUpdate`; filter, range, optional alerts) |
 | World map + tiles | Yes (map server JPEG tiles via bridge) |
 | Region lookup / SLURL | Yes (map location field, linkified chat/IM) |
@@ -220,15 +226,30 @@ The **IM** tab handles 1:1, group, and conference conversations in one list:
 - **Moderation** - session moderators can mute or unmute a participant's text (`ChatSessionRequest` "mute update").
 - **Mute** - silence a noisy session locally so it stops raising the unread badge; **Leave** exits a group or conference server-side.
 
+## Profiles
+
+Open a resident or group profile from **Search**, **Buddies**, **Radar**, **IM**, **Chat** (speaker name), or **Land** (owner / group links).
+
+**Avatar profiles** load through the `AgentProfile` HTTP cap when available (full about text, up to ~64 KB) with UDP `AvatarPropertiesReply` as a fallback for smaller fields. The floater includes:
+
+- Display name and username in the header; account level (membership tier) in the subtitle
+- Resident tab: profile photo, born date, partner, payment info, about text (scrollable), groups list
+- Places, Classifieds, Web, More (First Life), and Notes tabs when data is present
+- Actions: IM, Pay, Offer teleport, Request teleport, Add friend
+
+**Group profiles** show name, charter, insignia, enrollment flags, and member count. Members can open group chat from the profile. Join / leave / activate group actions are not implemented yet.
+
+Profile images in list rows are resolved for **buddies** only (to limit sim traffic); other surfaces show initials until you open the full profile.
+
 ## Search
 
 The **Search** tab queries the simulator directory over UDP (minimum three characters):
 
 | Category | Results | Actions |
 |----------|---------|---------|
-| **People** | Residents by username | Start IM (profile button reserved) |
+| **People** | Residents by username | Open profile; start IM |
 | **Places** | Regions, parcels, destinations | Show on map; expand for description and traffic |
-| **Groups** | Group names and member counts | View-only (profile reserved) |
+| **Groups** | Group names and member counts | Open group profile |
 
 Avatar hits are enriched with `GetDisplayNames` when the cap is available. Radar entries are also searched locally for quick matches.
 
@@ -284,9 +305,11 @@ If the simulator drops the session (`LogoutReply`, kick, circuit loss, or bridge
 - No world rendering, inventory, attachments, or built-in movement beyond teleport
 - Buddy names may show as UUID briefly until `GetDisplayNames` returns
 - Group-IM titles may show a placeholder until group-name resolution lands (messages still work)
+- Avatar profile about text requires the `AgentProfile` cap; without it, about is limited to the UDP packet size (~512 bytes)
+- List thumbnails resolve profile images for buddies only; radar, search, chat, and IM use initials unless the image is already cached
 - Radar uses 1 m coarse positions from the sim
 - Land prim usage depends on UDP `ParcelProperties`; capacity may be estimated from area when the sim does not send counts
-- Search group/people profile buttons are placeholders
+- Group profiles are read-only (no proper join / leave / activate from the floater, yet)
 - Bridge must run on localhost (`127.0.0.1:8794`); close other SL viewers if UDP bind or circuit behaviour is odd
 - Windows Firewall must allow `php.exe` UDP if receive stays at zero packets
 - Destination Guide requires the bridge (Linden API is fetched server-side to avoid browser CORS)

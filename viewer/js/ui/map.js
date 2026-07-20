@@ -788,8 +788,21 @@ const FSMap = (function () {
       return;
     }
     FSNavigation.switchTab('map');
+    const hasGrid = parsed.gridX !== undefined && parsed.gridY !== undefined;
+    const regionName = String(parsed.regionName || '').trim();
+    if (hasGrid && regionName) {
+      centerOn(parsed.gridX, parsed.gridY);
+      setSelection(parsed);
+      const field = el('map-location-input');
+      if (field) field.value = FSSlurl.buildMapsUrl(regionName, parsed);
+      if (FSState.gridOnline() && typeof FSTransport.requestMapArea === 'function') {
+        FSTransport.requestMapArea(parsed.gridX, parsed.gridY, parsed.gridX, parsed.gridY)
+          .catch(function () { /* optional tile refresh */ });
+      }
+      return;
+    }
     if (!FSState.gridOnline()) {
-      if (parsed.gridX !== undefined && parsed.gridY !== undefined) {
+      if (hasGrid) {
         centerOn(parsed.gridX, parsed.gridY);
         setSelection(parsed);
       }
