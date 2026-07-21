@@ -9,6 +9,7 @@ const FSProfile = (function () {
   const AVATAR_TABS = [
     { id: 'resident', label: 'Resident' },
     { id: 'web', label: 'Web' },
+    { id: 'interests', label: 'Interests' },
     { id: 'places', label: 'Picks' },
     { id: 'classifieds', label: 'Classifieds' },
     { id: 'more', label: 'More' },
@@ -524,10 +525,17 @@ const FSProfile = (function () {
     return panel || null;
   }
 
+  function profileWebUrl(profile) {
+    if (typeof FSProfiles.resolveWebProfileUrl === 'function') {
+      return FSProfiles.resolveWebProfileUrl(profile);
+    }
+    return String(profile && profile.profileUrl || '').trim();
+  }
+
   function avatarTabsFor(profile) {
     const self = isSelfProfile(profile);
     return AVATAR_TABS.filter(function (tab) {
-      if (tab.id === 'web') return !!profile.profileUrl;
+      if (tab.id === 'web') return !!profileWebUrl(profile);
       if (tab.id === 'more') return !!(profile.flAbout || (profile.flImageId && profile.flImageId !== ZERO_UUID));
       if (tab.id === 'notes') return !self;
       return true;
@@ -566,8 +574,61 @@ const FSProfile = (function () {
       '</section></div>';
   }
 
+  function renderInterestTags(labels) {
+    if (!labels || !labels.length) {
+      return '<p class="profile-section__empty">None selected.</p>';
+    }
+    return '<ul class="profile-interests__tags">' + labels.map(function (label) {
+      return '<li class="profile-interests__tag">' + FSUtils.escapeHtml(label) + '</li>';
+    }).join('') + '</ul>';
+  }
+
+  function renderInterestText(label, text) {
+    const value = String(text || '').trim();
+    if (!value) return '';
+    return '<div class="profile-field profile-field--interests">' +
+      '<span class="profile-field__label">' + FSUtils.escapeHtml(label) + '</span>' +
+      '<p class="profile-interests__text">' + FSUtils.escapeHtml(value) + '</p></div>';
+  }
+
+  function renderInterestsTab(profile) {
+    if (!profile.interestsLoaded && !profile.interests) {
+      if (typeof FSState !== 'undefined' && !FSState.gridOnline()) {
+        return '<div class="profile-pane profile-pane--interests">' +
+          '<p class="profile-section__empty">Interests are not available offline.</p></div>';
+      }
+      return '<div class="profile-pane profile-pane--interests">' +
+        '<p class="profile-section__empty">Loading...</p></div>';
+    }
+    const row = typeof FSProfiles.formatAvatarInterests === 'function'
+      ? FSProfiles.formatAvatarInterests(profile.interests)
+      : { hasContent: false, wantTo: [], skills: [], wantToText: '', skillsText: '', languagesText: '' };
+    if (!row.hasContent) {
+      return '<div class="profile-pane profile-pane--interests">' +
+        '<p class="profile-section__empty">No interests listed.</p></div>';
+    }
+    return '<div class="profile-pane profile-pane--interests">' +
+      '<section class="profile-section profile-section--interests">' +
+      '<h3 class="profile-section__title">I want to</h3>' +
+      renderInterestTags(row.wantTo) +
+      renderInterestText('More', row.wantToText) +
+      '</section>' +
+      '<section class="profile-section profile-section--interests">' +
+      '<h3 class="profile-section__title">Skills</h3>' +
+      renderInterestTags(row.skills) +
+      renderInterestText('More', row.skillsText) +
+      '</section>' +
+      (row.languagesText
+        ? '<section class="profile-section profile-section--interests">' +
+          '<h3 class="profile-section__title">Languages</h3>' +
+          '<p class="profile-interests__text">' + FSUtils.escapeHtml(row.languagesText) + '</p>' +
+          '</section>'
+        : '') +
+      '</div>';
+  }
+
   function renderWebTab(profile) {
-    const url = String(profile.profileUrl || '').trim();
+    const url = profileWebUrl(profile);
     if (!url) {
       return '<div class="profile-pane"><p class="profile-section__empty">No web profile URL.</p></div>';
     }
@@ -629,6 +690,7 @@ const FSProfile = (function () {
     const panes = {
       resident: renderResidentTab(profile),
       web: renderWebTab(profile),
+      interests: renderInterestsTab(profile),
       places: renderPlacesTab(profile),
       classifieds: renderClassifiedsTab(profile),
       more: renderMoreTab(profile),

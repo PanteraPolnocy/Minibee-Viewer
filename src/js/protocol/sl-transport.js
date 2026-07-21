@@ -4850,6 +4850,10 @@ const FSSLTransport = (function () {
       FSProfiles.handleAvatarPropertiesReply(evt.data);
       return;
     }
+    if (evt.type === 'avatar-interests-reply' && evt.data) {
+      FSProfiles.handleAvatarInterestsReply(evt.data);
+      return;
+    }
     if (evt.type === 'group-profile-reply' && evt.data) {
       FSProfiles.handleGroupProfileReply(evt.data);
       refreshNamedEntities();

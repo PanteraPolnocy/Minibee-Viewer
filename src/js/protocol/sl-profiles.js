@@ -16,6 +16,13 @@ const FSProfiles = (function () {
   const THUMB_BATCH_SIZE = 16;
   const THUMB_FLUSH_MS = 0;
 
+  const WANT_TO_LABELS = [
+    'Build', 'Explore', 'Meet', 'Group', 'Buy', 'Sell', 'Be Hired', 'Hire'
+  ];
+  const SKILLS_LABELS = [
+    'Textures', 'Architecture', 'Event Planning', 'Modeling', 'Scripting', 'Custom Characters'
+  ];
+
   const avatarProfiles = new Map();
   const groupProfiles = new Map();
   const groupNames = new Map();
@@ -197,6 +204,65 @@ const FSProfiles = (function () {
     return row && row.insigniaId ? row.insigniaId : '';
   }
 
+  function resolveWebProfileUrl(profile) {
+    if (!profile) return '';
+    const direct = String(profile.profileUrl || '').trim();
+    if (direct) return direct;
+    const user = String(profile.userName || profile.legacyName || '').trim();
+    if (!user || /\s/.test(user)) return '';
+    return 'https://my.secondlife.com/' + encodeURIComponent(user.toLowerCase());
+  }
+
+  function maskToLabels(mask, labels) {
+    const value = mask >>> 0;
+    const out = [];
+    for (let i = 0; i < labels.length; i++) {
+      if (value & (1 << i)) out.push(labels[i]);
+    }
+    return out;
+  }
+
+  function normalizeInterests(interests) {
+    if (!interests || typeof interests !== 'object') return null;
+    return {
+      wantToMask: interests.wantToMask >>> 0 || 0,
+      wantToText: String(interests.wantToText || '').trim(),
+      skillsMask: interests.skillsMask >>> 0 || 0,
+      skillsText: String(interests.skillsText || '').trim(),
+      languagesText: String(interests.languagesText || '').trim()
+    };
+  }
+
+  function formatAvatarInterests(interests) {
+    const row = normalizeInterests(interests);
+    if (!row) {
+      return {
+        hasContent: false,
+        wantTo: [],
+        skills: [],
+        wantToText: '',
+        skillsText: '',
+        languagesText: ''
+      };
+    }
+    const wantTo = maskToLabels(row.wantToMask, WANT_TO_LABELS);
+    const skills = maskToLabels(row.skillsMask, SKILLS_LABELS);
+    const hasContent = !!(wantTo.length || skills.length || row.wantToText ||
+      row.skillsText || row.languagesText);
+    return {
+      hasContent: hasContent,
+      wantTo: wantTo,
+      skills: skills,
+      wantToText: row.wantToText,
+      skillsText: row.skillsText,
+      languagesText: row.languagesText
+    };
+  }
+
+  function avatarInterestsHasContent(profile) {
+    return formatAvatarInterests(profile && profile.interests).hasContent;
+  }
+
   function preferLongerText(prevText, nextText) {
     const prev = String(prevText || '');
     const next = String(nextText || '');
@@ -242,6 +308,9 @@ const FSProfiles = (function () {
         delete nextPatch.flAbout;
       }
     }
+    if (nextPatch.profileUrl !== undefined && !String(nextPatch.profileUrl || '').trim()) {
+      delete nextPatch.profileUrl;
+    }
     if (prev.source === 'cap' && nextPatch.source && nextPatch.source !== 'cap') {
       if (prev.about) delete nextPatch.about;
       if (prev.flAbout) delete nextPatch.flAbout;
@@ -279,6 +348,8 @@ const FSProfiles = (function () {
     });
     next.about = preferLongerText(prev.about, next.about);
     next.flAbout = preferLongerText(prev.flAbout, next.flAbout);
+    const resolvedUrl = resolveWebProfileUrl(next);
+    if (resolvedUrl) next.profileUrl = resolvedUrl;
     if (prev.source === 'cap' && next.source !== 'cap') next.source = prev.source;
     if (next.source === 'cap') capFetchActive.delete(id);
     if (patch.imageId) cacheImageId(id, patch.imageId);
@@ -415,7 +486,7 @@ const FSProfiles = (function () {
       flAbout: capFlAboutText(data),
       bornOn: data.member_since || data.born_on || '',
       hideAge: !!data.hide_age,
-      profileUrl: String(data.profile_url || '').trim(),
+      profileUrl: String(data.profile_url || data.profileUrl || '').trim(),
       notes: String(data.notes || '').trim(),
       customerType: String(data.customer_type || '').trim(),
       charterMember: data.charter_member,
@@ -1060,6 +1131,21 @@ const FSProfiles = (function () {
     return mergeAvatarProfile(data.targetId, { notes: data.notes || '', source: 'udp-notes' });
   }
 
+  function handleAvatarInterestsReply(data) {
+    if (!data || isZero(data.avatarId)) return null;
+    return mergeAvatarProfile(data.avatarId, {
+      interests: {
+        wantToMask: data.wantToMask || 0,
+        wantToText: data.wantToText || '',
+        skillsMask: data.skillsMask || 0,
+        skillsText: data.skillsText || '',
+        languagesText: data.languagesText || ''
+      },
+      interestsLoaded: true,
+      source: 'udp-interests'
+    });
+  }
+
   function handleAvatarClassifiedReply(data) {
     if (!data || isZero(data.avatarId) || !Array.isArray(data.classifieds)) return null;
     const classifieds = data.classifieds.map(function (c) {
@@ -1400,6 +1486,16 @@ const FSProfiles = (function () {
       flags.notes = true;
       hooks.sendAvatarGenericRequest('avatarnotesrequest', avatarId);
     }
+    if (!flags.interests && hooks.requestAvatarProperties) {
+      flags.interests = true;
+      hooks.requestAvatarProperties(avatarId);
+      setTimeout(function () {
+        const row = getAvatarProfile(id);
+        if (row && !row.interestsLoaded) {
+          mergeAvatarProfile(id, { interestsLoaded: true, source: 'udp-interests' });
+        }
+      }, 8000);
+    }
     extrasRequested.set(id, flags);
   }
 
@@ -1599,6 +1695,7 @@ const FSProfiles = (function () {
     mergeAvatarProfile: mergeAvatarProfile,
     mergeGroupProfile: mergeGroupProfile,
     handleAvatarPropertiesReply: handleAvatarPropertiesReply,
+    handleAvatarInterestsReply: handleAvatarInterestsReply,
     handleGroupProfileReply: handleGroupProfileReply,
     handleAgentGroupDataUpdate: handleAgentGroupDataUpdate,
     handleHttpAgentGroupDataUpdate: handleHttpAgentGroupDataUpdate,
@@ -1613,6 +1710,9 @@ const FSProfiles = (function () {
     fetchPickInfo: fetchPickInfo,
     fetchClassifiedInfo: fetchClassifiedInfo,
     formatBornLabel: formatBornLabel,
+    formatAvatarInterests: formatAvatarInterests,
+    avatarInterestsHasContent: avatarInterestsHasContent,
+    resolveWebProfileUrl: resolveWebProfileUrl,
     invalidateAvatar: invalidateAvatar,
     ensureAvatarExtras: requestLegacyAvatarExtras
   };

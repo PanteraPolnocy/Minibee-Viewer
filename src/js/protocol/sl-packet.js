@@ -1888,6 +1888,42 @@ const FSSLCircuit = (function () {
     }
   }
 
+  function parseAvatarInterestsReply(buf, pos) {
+    try {
+      if (pos + 32 > buf.length) return null;
+      const agentId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      const avatarId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+      pos += 16;
+      let wantToMask = 0;
+      if (pos + 4 <= buf.length) {
+        wantToMask = new DataView(buf.buffer, buf.byteOffset + pos, 4).getUint32(0, true);
+        pos += 4;
+      }
+      const wantToText = readVar1(buf, pos);
+      pos = wantToText.pos;
+      let skillsMask = 0;
+      if (pos + 4 <= buf.length) {
+        skillsMask = new DataView(buf.buffer, buf.byteOffset + pos, 4).getUint32(0, true);
+        pos += 4;
+      }
+      const skillsText = readVar1(buf, pos);
+      pos = skillsText.pos;
+      const languagesText = readVar1(buf, pos);
+      return {
+        agentId: agentId,
+        avatarId: avatarId,
+        wantToMask: wantToMask,
+        wantToText: wantToText.text || '',
+        skillsMask: skillsMask,
+        skillsText: skillsText.text || '',
+        languagesText: languagesText.text || ''
+      };
+    } catch (_e) {
+      return null;
+    }
+  }
+
   function parseAvatarPropertiesReply(buf, pos) {
     try {
       if (pos + 32 > buf.length) return null;
@@ -2870,6 +2906,10 @@ const FSSLCircuit = (function () {
         }
         case M.AvatarPropertiesReply: {
           out.avatarPropertiesReply = parseAvatarPropertiesReply(buf, pos);
+          break;
+        }
+        case M.AvatarInterestsReply: {
+          out.avatarInterestsReply = parseAvatarInterestsReply(buf, pos);
           break;
         }
         case M.GroupProfileReply: {
@@ -3872,6 +3912,10 @@ const FSSLCircuit = (function () {
     }
     if (msg.id === M.AvatarPropertiesReply && msg.avatarPropertiesReply) {
       this.emit({ type: 'avatar-properties-reply', data: msg.avatarPropertiesReply });
+      return;
+    }
+    if (msg.id === M.AvatarInterestsReply && msg.avatarInterestsReply) {
+      this.emit({ type: 'avatar-interests-reply', data: msg.avatarInterestsReply });
       return;
     }
     if (msg.id === M.GroupProfileReply && msg.groupProfileReply) {
