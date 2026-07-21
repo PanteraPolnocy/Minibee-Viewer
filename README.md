@@ -382,6 +382,7 @@ Simplified view of what's still open.
 - **Own profile groups** — show every membership including hidden ones; bold the active group.
 - Avatar thumbnails beyond the buddies list (radar, search, chat).
 - Open group chat from search results.
+- Selecting an active group role.
 - Missing About Land tabs: **Covenant**, **Experiences**, **Environment**.
 - **Objects** tab (prim counts, owner list, return).
 - **Access** lists, landing-point controls, terraforming / object-entry options.
@@ -394,6 +395,8 @@ Simplified view of what's still open.
 - Buy / pay / inspect from object context (no 3D pick ray until there's a world view).
 - Voice - D'oh.
 - Incrementally move UDP message **interpretation** from JS into the Rust core (radar, chat, IM, parcel, teleport, …) so the WebView subscribes to semantic events instead of decoding packets.
+- UDP traffic status indicator.
+- Maybe: LSL/LUA script editor with validation from server / scripts list from inventory.
 
 ## Reference
 
