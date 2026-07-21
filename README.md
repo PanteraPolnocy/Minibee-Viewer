@@ -8,7 +8,7 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 
 Just want to run it? Grab a prebuilt Windows installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** page. Want to build it yourself? Jump to [Build & distribute](#build--distribute).
 
-Images to look at sit in the **[Screenshots](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** directory.
+Images to look at sit in the **[Screenshots](https://github.com/PanteraPolnocy/Minibee-Viewer/tree/main/src/screenshots)** directory.
 
 ## Read this first (the "use at your own risk" bit)
 
