@@ -1,14 +1,14 @@
 # Minibee Viewer
 
+![Minibee logo](/src-tauri/icons/128x128.png)
+
 A tiny Second Life client: a JavaScript / HTML / CSS interface running in a WebView, with a native **Rust** core (Tauri) doing the heavy lifting underneath. It does chat, IM (1:1, group, and conference), events, search, radar, map, land, the Destination Guide, and teleport.
 
 What it does **not** do is render the 3D world. Minibee is the friend who comes to the party to talk to people and check the map, not to admire the furniture.
 
 ## Download
 
-Just want to run it? Grab a prebuilt installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** page. Want to build it yourself? Jump to [Build & distribute](#build--distribute).
-
-Images to look at sit in the **[Screenshots](https://github.com/PanteraPolnocy/Minibee-Viewer/tree/main/src/screenshots)** directory.
+Just want to run it? Grab a prebuilt installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** page. Want to build it yourself? Jump to [Build & distribute](#build--distribute). Images to look at sit in the [Screenshots](/src/screenshots) directory.
 
 ## Read this first (the "use at your own risk" bit)
 
@@ -84,8 +84,8 @@ You'll find these under `src-tauri/target/release/`:
 | Artifact | Path | Notes |
 |----------|------|-------|
 | Standalone exe | `minibee-viewer.exe` | Windowed (~14 MB), frontend embedded; needs WebView2 already installed |
-| NSIS setup | `bundle/nsis/Minibee-Viewer_0.6.1_x64-setup.exe` | **Recommended** — bootstraps WebView2, adds a Start-menu shortcut + uninstaller; shows the LGPL license during setup |
-| MSI | `bundle/msi/Minibee-Viewer_0.6.1_x64_en-US.msi` | For group-policy / enterprise deploys |
+| NSIS setup | `bundle/nsis/Minibee-Viewer_x.x.x_x64-setup.exe` | **Recommended** — bootstraps WebView2, adds a Start-menu shortcut + uninstaller; shows the LGPL license during setup |
+| MSI | `bundle/msi/Minibee-Viewer_x.x.x_x64_en-US.msi` | For group-policy / enterprise deploys |
 
 Installed copies also include `LICENSE` and `README.md` next to the app executable (configured in `tauri.conf.json` `bundle.resources`). The NSIS installer reads `bundle.licenseFile` for the license agreement page.
 

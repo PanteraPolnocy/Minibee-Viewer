@@ -380,7 +380,7 @@ mod tests {
             "username": "resident",
             "passwd": "password",
             "channel": "Minibee",
-            "version": "0.6.1",
+            "version": "1.2.3",
             "agree_to_tos": true,
             "options": ["inventory-root", "buddy-list"]
         });

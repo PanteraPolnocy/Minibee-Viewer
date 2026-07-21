@@ -49,12 +49,12 @@ mod tests {
 
     #[test]
     fn version_payload_without_build() {
-        let (payload, ua) = version_payload("Minibee-Viewer", 0, 6, 1, 0);
-        assert_eq!(payload["version"], "0.6.1");
+        let (payload, ua) = version_payload("Minibee-Viewer", 1, 2, 3, 0);
+        assert_eq!(payload["version"], "1.2.3");
         assert_eq!(payload["channel"], "Minibee-Viewer");
         assert_eq!(payload["major"], 0);
         assert_eq!(payload["build"], 0);
-        assert_eq!(ua, "SecondLife/0.6.1 (Minibee-Viewer; Minibee Viewer)");
+        assert_eq!(ua, "SecondLife/1.2.3 (Minibee-Viewer; Minibee Viewer)");
     }
 
     #[test]
