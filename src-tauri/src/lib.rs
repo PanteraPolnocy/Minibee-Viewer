@@ -21,6 +21,14 @@ pub fn run() {
             let v = app.package_info().version.clone();
             let build: u64 = v.build.as_str().parse().unwrap_or(0);
             let (version, ua) = version_payload(&channel, v.major, v.minor, v.patch, build);
+            let ver_str = version
+                .get("version")
+                .and_then(|value| value.as_str())
+                .unwrap_or("0.0.0");
+            let window_title = format!("Minibee Viewer {ver_str}");
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title(&window_title);
+            }
             app.manage(AppState::new(version, ua));
             Ok(())
         })

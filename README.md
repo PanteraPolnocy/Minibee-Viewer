@@ -6,7 +6,7 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 
 ## Download
 
-Just want to run it? Grab a prebuilt Windows installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** page. Want to build it yourself? Jump to [Build & distribute](#build--distribute).
+Just want to run it? Grab a prebuilt installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** page. Want to build it yourself? Jump to [Build & distribute](#build--distribute).
 
 Images to look at sit in the **[Screenshots](https://github.com/PanteraPolnocy/Minibee-Viewer/tree/main/src/screenshots)** directory.
 
@@ -63,7 +63,7 @@ Pick a grid (Agni, Aditi, or a local OpenSim), enter your credentials, and log i
 
 ## Build & distribute
 
-The version number is defined **once**, in `src-tauri/tauri.conf.json` (`productName` = `Minibee-Viewer`, `version` = `0.6.0`); `src-tauri/Cargo.toml` just mirrors it. Rust edition 2024. In `dev` the frontend is served live from `src/`; for a release build it's embedded straight into the binary.
+The version number is defined **once**, in `src-tauri/tauri.conf.json`; `src-tauri/Cargo.toml` just mirrors it. Rust edition 2024. In `dev` the frontend is served live from `src/`; for a release build it's embedded straight into the binary.
 
 Standalone optimized binary:
 
@@ -84,8 +84,10 @@ You'll find these under `src-tauri/target/release/`:
 | Artifact | Path | Notes |
 |----------|------|-------|
 | Standalone exe | `minibee-viewer.exe` | Windowed (~14 MB), frontend embedded; needs WebView2 already installed |
-| NSIS setup | `bundle/nsis/Minibee-Viewer_0.6.0_x64-setup.exe` | **Recommended** — bootstraps WebView2, adds a Start-menu shortcut + uninstaller |
-| MSI | `bundle/msi/Minibee-Viewer_0.6.0_x64_en-US.msi` | For group-policy / enterprise deploys |
+| NSIS setup | `bundle/nsis/Minibee-Viewer_0.6.1_x64-setup.exe` | **Recommended** — bootstraps WebView2, adds a Start-menu shortcut + uninstaller; shows the LGPL license during setup |
+| MSI | `bundle/msi/Minibee-Viewer_0.6.1_x64_en-US.msi` | For group-policy / enterprise deploys |
+
+Installed copies also include `LICENSE` and `README.md` next to the app executable (configured in `tauri.conf.json` `bundle.resources`). The NSIS installer reads `bundle.licenseFile` for the license agreement page.
 
 - **WebView2**: preinstalled on Windows 11 and current Windows 10. The bare exe needs it present; the NSIS installer fetches it if it's missing.
 - **Unsigned**: the builds aren't code-signed, so Windows SmartScreen will do its "unknown publisher" song and dance (*More info → Run anyway*). A signing certificate (configured in `tauri.conf.json`) makes it stop.
@@ -367,6 +369,31 @@ If the sim drops you (`LogoutReply`, a kick, circuit loss, or a bridge 404), you
 - Radar positions are the sim's coarse ~1 m grid
 - Land prim usage depends on UDP `ParcelProperties`; capacity may be estimated from area when the sim doesn't send counts
 - If UDP acts up or receive sits at zero packets: close other SL viewers, and make sure Windows Firewall lets Minibee's UDP through
+
+## Roadmap
+
+Simplified view of what's still open.
+
+- **Minibee tab** — left-nav preferences hub: auto-reconnect, theme, radar/buddies/music/debug toggles in one place (today they're scattered).
+- **Auto-reconnect** after unexpected disconnect, with backoff and a manual override.
+- **MFA reliability** — investigate frequent "invalid" challenges (token, `mfa_hash`, clock skew).
+- **Group text moderation** — re-test in-world (`mute update` regression; client path matches Firestorm but reports persist).
+- IM list performance (incremental updates, smarter autoscroll, dedup by message id).
+- **Own profile groups** — show every membership including hidden ones; bold the active group.
+- Avatar thumbnails beyond the buddies list (radar, search, chat).
+- Open group chat from search results.
+- Missing About Land tabs: **Covenant**, **Experiences**, **Environment**.
+- **Objects** tab (prim counts, owner list, return).
+- **Access** lists, landing-point controls, terraforming / object-entry options.
+- Buy, abandon, and buy-pass flows where applicable.
+- **Landmarks** — read-only inventory list with teleport.
+- Teleport handoff verification on Agni (`EstablishAgentCommunication` / `TeleportFinish` via EventQueue).
+- `CrossedRegion` without an active outbound teleport (for when movement exists).
+- Nearby **object list** (name, distance, owner, scripted flag).
+- **Touch** and **sit** on selected objects.
+- Buy / pay / inspect from object context (no 3D pick ray until there's a world view).
+- Voice - D'oh.
+- Incrementally move UDP message **interpretation** from JS into the Rust core (radar, chat, IM, parcel, teleport, …) so the WebView subscribes to semantic events instead of decoding packets.
 
 ## Reference
 

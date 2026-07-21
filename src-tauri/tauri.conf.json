@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Minibee-Viewer",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "identifier": "com.pantera.minibee-viewer",
   "build": {
     "frontendDist": "../src"
@@ -10,7 +10,8 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Minibee-Viewer",
+        "label": "main",
+        "title": "Minibee Viewer",
         "width": 1200,
         "height": 800
       }
@@ -22,6 +23,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "licenseFile": "../LICENSE",
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../README.md": "README.md"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",
