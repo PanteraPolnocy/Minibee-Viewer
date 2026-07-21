@@ -1,5 +1,6 @@
 /**
- * Live SL transport via PHP bridge + UDP circuit.
+ * Live SL transport over the native (Rust) core: login, HTTP caps, and the
+ * UDP circuit, all driven via Tauri IPC.
  */
 const FSSLTransport = (function () {
   'use strict';
@@ -3498,26 +3499,17 @@ const FSSLTransport = (function () {
 
   async function fetchRegionNameAtGrid(gridX, gridY, options) {
     const opts = options || {};
-    const bridgeUrl = String(getBridgeUrl() || '').replace(/\/$/, '');
-    if (bridgeUrl) {
-      try {
-        const resp = await FSBridge.httpFetch(
-          bridgeUrl,
-          '/map/regions?tiles=' + encodeURIComponent(gridX + ',' + gridY)
-        );
-        if (resp.ok) {
-          const data = await resp.json();
-          const regions = data && data.regions ? data.regions : [];
-          const row = regions.find(function (r) {
-            return r && r.gridX === gridX && r.gridY === gridY;
-          });
-          if (row && !row.empty && row.name) {
-            return String(row.name).trim();
-          }
-        }
-      } catch (_e) { /* fall through to UDP when allowed */ }
-      if (opts.httpOnly) return '';
-    }
+    try {
+      const data = await FSBridge.mapRegions(gridX + ',' + gridY);
+      const regions = data && data.regions ? data.regions : [];
+      const row = regions.find(function (r) {
+        return r && r.gridX === gridX && r.gridY === gridY;
+      });
+      if (row && !row.empty && row.name) {
+        return String(row.name).trim();
+      }
+    } catch (_e) { /* fall through to UDP when allowed */ }
+    if (opts.httpOnly) return '';
     if (!circuit) return '';
     const blocksPromise = waitForMapBlocks(function (block) {
       return block.gridX === gridX && block.gridY === gridY;
@@ -3578,15 +3570,8 @@ const FSSLTransport = (function () {
   }
 
   async function resolveRegionNameHttp(regionName) {
-    const bridgeUrl = String(getBridgeUrl() || '').replace(/\/$/, '');
-    if (!bridgeUrl) return null;
     try {
-      const resp = await FSBridge.httpFetch(
-        bridgeUrl,
-        '/map/region-by-name?name=' + encodeURIComponent(regionName)
-      );
-      if (!resp.ok) return null;
-      const data = await resp.json();
+      const data = await FSBridge.regionByName(regionName);
       if (!data || data.gridX === undefined || data.gridY === undefined) return null;
       return data;
     } catch (_e) {
@@ -4970,7 +4955,7 @@ const FSSLTransport = (function () {
     const ok = await bridge.isAvailable();
     if (!ok) {
       throw new Error(
-        'Bridge not running. Start it with: start-minibee.bat (requires PHP curl + sockets)'
+        'Minibee backend unavailable. Run the Minibee app (npm run tauri dev), not a plain browser.'
       );
     }
 

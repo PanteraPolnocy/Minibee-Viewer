@@ -634,6 +634,13 @@ html.require-http #app {
   border: 1px solid var(--border);
 }
 
+.btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn--danger:hover { filter: brightness(1.08); }
+
 .btn--block { width: 100%; }
 
 .icon-btn {
@@ -3998,3 +4005,90 @@ html.require-http #app {
 .msg__meta { display: flex; align-items: center; gap: 8px; }
 .msg__name--link { cursor: pointer; }
 .msg__name--link:hover { text-decoration: underline; }
+
+/* ============================================================
+   Scrollbars — theme-aware (follow the active --border/--text-muted)
+   ============================================================ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--border) 90%, transparent) transparent;
+}
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ============================================================
+   Confirm dialog (FSUtils.confirm) — padded, themed, dark/light aware
+   ============================================================ */
+.confirm-dialog { max-width: min(400px, calc(100vw - 32px)); }
+.confirm-dialog::backdrop { background: var(--overlay); }
+.confirm-dialog .login-challenge__body {
+  padding: 22px 24px;
+  max-height: none;
+  overflow: visible;
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text);
+}
+.confirm-dialog .login-challenge__title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+.confirm-dialog .login-challenge__text {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.confirm-dialog .login-challenge__actions { margin-top: 6px; }
+
+/* ============================================================
+   Teleport progress lock — padded, themed progress bar
+   ============================================================ */
+.tp-progress-dialog { max-width: min(340px, calc(100vw - 32px)); }
+.tp-progress-dialog::backdrop { background: var(--overlay); }
+.tp-progress-dialog .login-challenge__body {
+  padding: 26px 28px;
+  max-height: none;
+  overflow: visible;
+  white-space: normal;
+  text-align: center;
+}
+.tp-progress-dialog .login-challenge__title {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+.tp-progress-dialog .login-challenge__text {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.tp-progress__track {
+  margin-top: 18px;
+  height: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.tp-progress__bar {
+  height: 100%;
+  width: 8%;
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent));
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}

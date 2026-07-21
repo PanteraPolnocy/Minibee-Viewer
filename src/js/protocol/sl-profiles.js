@@ -1229,14 +1229,20 @@ const FSProfiles = (function () {
     detail[idKey] = id;
     map.set(id, detail);
     const pending = pendingMap.get(id);
+    // Resolve immediately with the base detail so the pane paints without
+    // waiting on location enrichment (parcel/region lookups can be slow or
+    // never reply). Enrich in the background and emit an update to repaint.
+    if (pending) {
+      pendingMap.delete(id);
+      pending.resolve(detail);
+    }
+    emitChange(changeKind, id);
     return enrichDetailLocation(detail).then(function (enriched) {
       map.set(id, enriched);
-      if (pending) {
-        pendingMap.delete(id);
-        pending.resolve(enriched);
-      }
       emitChange(changeKind, id);
       return enriched;
+    }).catch(function () {
+      return detail;
     });
   }
 

@@ -339,14 +339,10 @@ const FSSearchApi = (function () {
     return result.results || [];
   }
 
-  async function searchRegionByName(bridgeUrl, query) {
+  async function searchRegionByName(_bridgeUrl, query) {
     const text = String(query || '').trim();
-    if (!text || !bridgeUrl) return null;
-    const url = String(bridgeUrl).replace(/\/$/, '') +
-      '/map/region-by-name?name=' + encodeURIComponent(text);
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const data = await resp.json();
+    if (!text) return null;
+    const data = await FSBridge.regionByName(text);
     if (!data || !data.name) return null;
     return {
       kind: 'region',
@@ -358,19 +354,16 @@ const FSSearchApi = (function () {
     };
   }
 
-  async function searchDestinations(bridgeUrl, query) {
+  async function searchDestinations(_bridgeUrl, query) {
     const text = String(query || '').trim().toLowerCase();
-    if (!text || text.length < MIN_QUERY_LEN || !bridgeUrl) return [];
+    if (!text || text.length < MIN_QUERY_LEN) return [];
     const feeds = ['mobile', 'popular', 'new'];
-    const base = String(bridgeUrl).replace(/\/$/, '');
     const matches = [];
     const seen = new Set();
     for (let f = 0; f < feeds.length; f++) {
       try {
-        const resp = await fetch(base + '/destinations?feed=' + encodeURIComponent(feeds[f]));
-        if (!resp.ok) continue;
-        const data = await resp.json();
-        const items = (data && data.destinations) || [];
+        const data = await FSBridge.destinations(feeds[f]);
+        const items = (data && data.items) || [];
         items.forEach(function (item) {
           const name = String(item.name || '').trim();
           const desc = String(item.description || '').trim();

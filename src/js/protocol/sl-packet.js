@@ -3081,6 +3081,7 @@ const FSSLCircuit = (function () {
 
   Circuit.prototype.start = function () {
     this.active = true;
+    this._ensureRecvSub();
     if (!this.pingTimer) {
       this.pingTimer = setInterval(this._ping.bind(this), PING_INTERVAL_MS);
     }
@@ -3117,10 +3118,10 @@ const FSSLCircuit = (function () {
     return this._isPollIdle() ? POLL_BACKOFF_IDLE_MS : POLL_BACKOFF_ACTIVE_MS;
   };
 
+  // Receipt is push-based (native `minibee-viewer://packet-raw` events); just ensure we are
+  // subscribed. No polling loop.
   Circuit.prototype._ensurePoll = function () {
-    if (!this.active || this._pollStarted) return;
-    this._pollStarted = true;
-    this._poll();
+    this._ensureRecvSub();
   };
 
   Circuit.prototype.stop = function () {
@@ -3143,6 +3144,9 @@ const FSSLCircuit = (function () {
       clearInterval(this.watchdogTimer);
       this.watchdogTimer = null;
     }
+    if (this._unlistenPacket) { try { this._unlistenPacket(); } catch (_e) {} this._unlistenPacket = null; }
+    if (this._unlistenHttp) { try { this._unlistenHttp(); } catch (_e) {} this._unlistenHttp = null; }
+    this._recvSub = false;
   };
 
   Circuit.prototype.logout = function () {
@@ -3189,39 +3193,24 @@ const FSSLCircuit = (function () {
     return btoa(binary);
   };
 
+  // Send any queued outbound packets, then wait for inbound datagrams to arrive
+  // as events (which update handshake state). Replaces the old request/response
+  // exchange now that the native core pushes received packets.
   Circuit.prototype._exchangeRound = function (timeoutSec) {
     const self = this;
-    if (!self._handshakeMode) {
-      return Promise.resolve({ packets: [] });
-    }
-
-    function round(b64s) {
-      return self.bridge.exchange(self.sessionId, b64s, timeoutSec).then(function (resp) {
-        self._exSent += resp.sent || 0;
-        self._exRecv += resp.recv || (resp.packets ? resp.packets.length : 0);
-        if (resp.target) self._simTarget = resp.target;
-        if (typeof resp.bytesSent === 'number' && resp.bytesSent > 0) {
-          self._totalBytesSent += resp.bytesSent;
-          self._lastBytesSent = resp.bytesSent;
-        }
-        if (typeof resp.localPort === 'number') self._lastLocalPort = resp.localPort;
-        if (typeof resp.sendError === 'number') self._lastSendError = resp.sendError;
-        if (typeof resp.recvError === 'number') self._lastRecvError = resp.recvError;
-        return self._processRecvPayload(resp).then(function () {
-          if (self._outbox.length > 0) {
-            const more = self._outbox.splice(0).map(function (p) { return self._packetB64(p); });
-            return round(more);
-          }
-          return resp;
-        });
+    const out = self._outbox.splice(0);
+    self._exSent += out.length;
+    const sends = out.map(function (p) {
+      self._totalBytesSent += (p && p.length) ? p.length : 0;
+      return self._rawSend(p);
+    });
+    return Promise.all(sends).then(function () {
+      const waitMs = Math.max(0, Math.min(8000, (timeoutSec || 0) * 1000));
+      if (waitMs === 0) return { packets: [] };
+      return new Promise(function (resolve) {
+        setTimeout(function () { resolve({ packets: [] }); }, waitMs);
       });
-    }
-
-    const initial = self._outbox.splice(0).map(function (p) { return self._packetB64(p); });
-    if (initial.length === 0 && timeoutSec <= 0) {
-      return Promise.resolve({ packets: [] });
-    }
-    return round(initial);
+    });
   };
 
   Circuit.prototype._handshakeWait = function (predicate, timeoutMs, label) {
@@ -3241,7 +3230,7 @@ const FSSLCircuit = (function () {
             ', recv ' + self._exRecv +
             (self._lastSendError ? (', sendErr ' + self._lastSendError) : '') +
             (self._lastRecvError ? (', recvErr ' + self._lastRecvError) : '') +
-            '. Close other SL viewers; allow php.exe UDP in Windows Firewall.'
+            '. Close other SL viewers; allow Minibee UDP in Windows Firewall.'
           ));
           return;
         }
@@ -3399,7 +3388,33 @@ const FSSLCircuit = (function () {
   };
 
   Circuit.prototype._rawSend = function (packet, target) {
-    return this.bridge.send(this.sessionId, packet, target || null);
+    const b64 = this._packetB64(packet);
+    const t = target || {};
+    return this.bridge.slSendRaw(this.sessionId, b64, t.simIp || null, t.simPort || null);
+  };
+
+  // Received datagrams are pushed from the native core as `minibee-viewer://packet-raw`
+  // events (the frontend codec still decodes them); inbound trusted messages
+  // arrive as `minibee-viewer://http-message`. Subscribe once per circuit.
+  Circuit.prototype._ensureRecvSub = function () {
+    if (this._recvSub || typeof FSBridge === 'undefined' || !FSBridge.listen) return;
+    this._recvSub = true;
+    const self = this;
+    FSBridge.listen('minibee-viewer://packet-raw', function (p) {
+      if (!self.active || !p || p.sessionId !== self.sessionId) return;
+      self._onRawPacket(p.packet);
+    }).then(function (un) { self._unlistenPacket = un; });
+    FSBridge.listen('minibee-viewer://http-message', function (p) {
+      if (!self.active || !p || p.sessionId !== self.sessionId) return;
+      self._processHttpMessages([{ name: p.name, body: p.body, contentType: p.contentType }]);
+    }).then(function (un) { self._unlistenHttp = un; });
+  };
+
+  Circuit.prototype._onRawPacket = function (b64) {
+    this._lastRecvAt = Date.now();
+    this.emit({ type: 'udp-recv', count: 1 });
+    this._handleIncoming(b64);
+    this._flushAcks();
   };
 
   Circuit.prototype.sendUseCircuitCodeTo = function (simIp, simPort) {
@@ -3428,17 +3443,9 @@ const FSSLCircuit = (function () {
     return this._rawSend(packet);
   };
 
-  Circuit.prototype.kickPoll = function () {
-    if (!this.active || !this._pollStarted) return;
-    this._pollKickQueued = true;
-    if (this.pollAbort) {
-      this.pollAbort.aborted = true;
-    }
-    if (!this._pollBusy) {
-      this._pollBackoffMs = 0;
-      this._poll();
-    }
-  };
+  // No-op: datagrams are delivered immediately as events, so there is nothing
+  // to "kick". Kept for call-site compatibility.
+  Circuit.prototype.kickPoll = function () {};
 
   Circuit.prototype._processPackets = function (packets) {
     const self = this;
@@ -3935,86 +3942,8 @@ const FSSLCircuit = (function () {
     }, 15000);
   };
 
-  Circuit.prototype._poll = function () {
-    if (!this.active || this._pollBusy) return;
-    const self = this;
-    const token = { aborted: false };
-    this.pollAbort = token;
-    const timeout = this._pollTimeoutSec();
-    const delay = this._pollBackoffMs;
-    this._pollBackoffMs = 0;
-    this._pollBusy = true;
-
-    function scheduleNext(immediate) {
-      self._pollBusy = false;
-      if (!self.active) return;
-      if (self._pollKickQueued) {
-        self._pollKickQueued = false;
-        self._pollBackoffMs = 0;
-        self._poll();
-        return;
-      }
-      if (immediate) {
-        self._pollBackoffMs = 0;
-        self._poll();
-        return;
-      }
-      setTimeout(function () { self._poll(); }, self._pollScheduleDelayMs());
-    }
-
-    function runPoll() {
-      if (!self.active) {
-        self._pollBusy = false;
-        return;
-      }
-      self.bridge.poll(self.sessionId, timeout).then(function (resp) {
-        if (!self.active) {
-          self._pollBusy = false;
-          return;
-        }
-        const packets = resp.packets || [];
-        return self._processRecvPayload(resp).then(function () {
-          if (!self.active) {
-            self._pollBusy = false;
-            return;
-          }
-          const hadPackets = packets.length > 0 ||
-            (resp.httpMessages && resp.httpMessages.length > 0);
-          const kicked = token.aborted;
-          if (hadPackets || kicked) {
-            scheduleNext(true);
-          } else {
-            scheduleNext(false);
-          }
-        });
-      }).catch(function (err) {
-        if (!self.active) {
-          self._pollBusy = false;
-          return;
-        }
-        const msg = err && err.message ? String(err.message) : '';
-        if (/Unknown session|\b404\b/i.test(msg)) {
-          self.emit({
-            type: 'session-lost',
-            reason: 'The simulator closed your connection.',
-            source: 'bridge'
-          });
-          self.stop();
-          self._pollBusy = false;
-          return;
-        }
-        self._pollBackoffMs = 1000;
-        self._pollBusy = false;
-        setTimeout(function () { self._poll(); }, self._pollBackoffMs);
-      });
-    }
-
-    if (delay > 0) {
-      setTimeout(runPoll, delay);
-    } else {
-      runPoll();
-    }
-  };
+  // No-op: superseded by push-based `minibee-viewer://packet-raw` event delivery.
+  Circuit.prototype._poll = function () {};
 
   Circuit.prototype._ping = function () {
     if (!this.active || !this.handshakeDone) return;
@@ -4060,6 +3989,7 @@ const FSSLCircuit = (function () {
     }
 
     const self = this;
+    this._ensureRecvSub();
 
     const initialPackets = (boot && boot.packets) ? boot.packets.slice() : [];
     return self._processPackets(initialPackets).then(function () {
@@ -4068,7 +3998,7 @@ const FSSLCircuit = (function () {
       }
       return self._exchangeUntil(function () {
         return self.useCircuitAcked ? true : null;
-      }, 25, 'UseCircuitCodeAck');
+      }, 25000, 'UseCircuitCodeAck');
     }).then(function () {
       self._completeAgentMovementSent = true;
       self._lastCompleteAgentMovementSend = Date.now();
@@ -4078,7 +4008,7 @@ const FSSLCircuit = (function () {
     }).then(function () {
       return self._exchangeUntil(function () {
         return self.movementComplete ? true : null;
-      }, 25, 'AgentMovementComplete');
+      }, 25000, 'AgentMovementComplete');
     }).then(function () {
       return self.send(M.AgentDataUpdateRequest, {}, true);
     }).then(function () {

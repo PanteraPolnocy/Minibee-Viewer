@@ -134,12 +134,14 @@ const FSCaps = (function () {
   }
 
   function parseCapBody(resp) {
-    return FSLLSD.parse(resp.body || '', resp.contentType || '');
+    // Prefer the LLSD parsed in the native core; fall back to JS.
+    if (resp && resp.parsed !== undefined && resp.parsed !== null) return resp.parsed;
+    return FSLLSD.parse((resp && resp.body) || '', (resp && resp.contentType) || '');
   }
 
   async function proxyRequest(bridge, url, options) {
     const opts = options || {};
-    const proxyOpts = {};
+    const proxyOpts = { parseLlsd: true };
     if (opts.pinSimIp === false) proxyOpts.pinSimIp = false;
     if (opts.preCircuit) proxyOpts.preCircuit = true;
     if (opts.agentSessionId) proxyOpts.agentSessionId = opts.agentSessionId;

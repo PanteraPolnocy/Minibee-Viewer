@@ -49,7 +49,7 @@ const FSSessionLost = (function () {
     syncChrome();
 
     const teleportDlg = document.getElementById('teleport-prompt');
-    if (teleportDlg && teleportDlg.open) teleportDlg.close();
+    if (teleportDlg && teleportDlg.open) FSUtils.dismissDialog(teleportDlg);
 
     FSUtils.showToast('Session ended', 'warning', 4500);
   }

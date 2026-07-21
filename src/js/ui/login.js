@@ -6,6 +6,8 @@ const FSLogin = (function () {
 
   const STORAGE_KEY = 'minibee-credentials';
   const STORAGE_KEY_LEGACY = 'fs-mobile-credentials';
+  // MFA tokens are stored one key per account under these prefixes.
+  const MFA_KEY_PATTERNS = [/^minibee-mfa-/i, /^fs-mobile-mfa-/i];
   const GRID_OPTIONS = ['agni', 'aditi', 'local'];
 
   function defaultGrid() {
@@ -66,6 +68,53 @@ const FSLogin = (function () {
     }
   }
 
+  function mfaKeys() {
+    const keys = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && MFA_KEY_PATTERNS.some(function (re) { return re.test(key); })) {
+          keys.push(key);
+        }
+      }
+    } catch (_e) { /* ignore */ }
+    return keys;
+  }
+
+  function hasSavedLogin() {
+    if (FSUtils.storageGet(STORAGE_KEY, null)) return true;
+    if (FSUtils.storageGet(STORAGE_KEY_LEGACY, null)) return true;
+    return mfaKeys().length > 0;
+  }
+
+  // Clear the saved username/grid and every remembered MFA token.
+  async function forgetCredentials() {
+    const ok = await FSUtils.confirm({
+      title: 'Forget saved login?',
+      message: 'This clears the saved username, grid, and any remembered MFA tokens on this device. Your password is never stored.',
+      confirmLabel: 'Forget',
+      danger: true
+    });
+    if (!ok) return;
+    [STORAGE_KEY, STORAGE_KEY_LEGACY].concat(mfaKeys()).forEach(function (key) {
+      try { localStorage.removeItem(key); } catch (_e) { /* ignore */ }
+    });
+    const user = document.getElementById('login-username');
+    const pass = document.getElementById('login-password');
+    const remember = document.getElementById('login-remember');
+    if (user) user.value = '';
+    if (pass) pass.value = '';
+    if (remember) remember.checked = true;
+    defaultGrid();
+    updateForgetVisibility();
+    FSUtils.showToast('Saved login and MFA tokens cleared.', 'success');
+  }
+
+  function updateForgetVisibility() {
+    const btn = document.getElementById('login-forget');
+    if (btn) btn.hidden = !hasSavedLogin();
+  }
+
   function showChallenge(challenge) {
     return new Promise(function (resolve) {
       const dialog = document.getElementById('login-challenge');
@@ -82,7 +131,7 @@ const FSLogin = (function () {
         form.removeEventListener('submit', onSubmit);
         decline.removeEventListener('click', onDecline);
         dialog.removeEventListener('cancel', onCancel);
-        if (dialog.open) dialog.close();
+        FSUtils.dismissDialog(dialog);
         resolve(result);
       }
 
@@ -151,123 +200,6 @@ const FSLogin = (function () {
     });
   }
 
-  let caBundleReady = false;
-
-  function isCaBundleReady(health) {
-    return !!(health && health.caBundle && health.caBundle.ok);
-  }
-
-  function setCaBundleError(msg) {
-    const el = document.getElementById('ca-bundle-error');
-    if (!el) return;
-    if (msg) {
-      el.textContent = msg;
-      el.hidden = false;
-    } else {
-      el.hidden = true;
-      el.textContent = '';
-    }
-  }
-
-  function showCaBundleModal(message) {
-    return new Promise(function (resolve) {
-      const dialog = document.getElementById('ca-bundle-prompt');
-      const msgEl = document.getElementById('ca-bundle-message');
-      const retryBtn = document.getElementById('ca-bundle-retry');
-      const dismissBtn = document.getElementById('ca-bundle-dismiss');
-      if (!dialog || !retryBtn || !dismissBtn) {
-        resolve(false);
-        return;
-      }
-
-      if (msgEl && message) msgEl.textContent = message;
-      setCaBundleError('');
-
-      function cleanup() {
-        retryBtn.removeEventListener('click', onRetry);
-        dismissBtn.removeEventListener('click', onDismiss);
-        dialog.removeEventListener('cancel', onCancel);
-      }
-
-      function closeDialog() {
-        if (dialog.open) dialog.close();
-      }
-
-      function onDismiss() {
-        cleanup();
-        closeDialog();
-        resolve(false);
-      }
-
-      function onCancel(e) {
-        e.preventDefault();
-        onDismiss();
-      }
-
-      async function onRetry() {
-        setCaBundleError('');
-        retryBtn.disabled = true;
-        retryBtn.textContent = 'Downloading...';
-        try {
-          const ok = await fetchCaBundle();
-          if (ok) {
-            cleanup();
-            closeDialog();
-            resolve(true);
-            return;
-          }
-          setCaBundleError('Download failed. Check your internet connection and try again, or follow the manual steps.');
-        } catch (err) {
-          setCaBundleError(err.message || 'Download failed.');
-        } finally {
-          retryBtn.disabled = false;
-          retryBtn.textContent = 'Download now';
-        }
-      }
-
-      retryBtn.addEventListener('click', onRetry);
-      dismissBtn.addEventListener('click', onDismiss);
-      dialog.addEventListener('cancel', onCancel);
-      dialog.showModal();
-    });
-  }
-
-  async function fetchCaBundle() {
-    const b = new FSBridge.Bridge();
-    const result = await b.fetchCaBundle();
-    if (result && result.ok) {
-      caBundleReady = true;
-      return true;
-    }
-    const health = await b.health();
-    if (isCaBundleReady(health)) {
-      caBundleReady = true;
-      return true;
-    }
-    return false;
-  }
-
-  async function ensureCaBundle() {
-    const b = new FSBridge.Bridge();
-    let health;
-    try {
-      health = await b.health();
-    } catch (_e) {
-      return false;
-    }
-    if (isCaBundleReady(health)) {
-      caBundleReady = true;
-      return true;
-    }
-    try {
-      if (await fetchCaBundle()) return true;
-    } catch (_e) { /* fall through to modal */ }
-    const ok = await showCaBundleModal(
-      'Minibee could not find or download a CA certificate bundle. Login and the Destination Guide need it for HTTPS.'
-    );
-    return ok;
-  }
-
   async function handleSubmit(e) {
     e.preventDefault();
     showError('');
@@ -291,11 +223,6 @@ const FSLogin = (function () {
     btn.textContent = 'Connecting...';
 
     try {
-      const caOk = await ensureCaBundle();
-      if (!caOk) {
-        showError('HTTPS certificates are required before login.');
-        return;
-      }
       FSState.patch({ connecting: true });
       saveCredentials({ username: username, grid: grid, remember: remember });
       await window.FSApp.login({
@@ -343,52 +270,25 @@ const FSLogin = (function () {
     checkBridge();
     const gridEl = document.getElementById('login-grid');
     if (gridEl) gridEl.addEventListener('change', checkBridge);
+    const forgetBtn = document.getElementById('login-forget');
+    if (forgetBtn) forgetBtn.addEventListener('click', forgetCredentials);
+    updateForgetVisibility();
   }
 
   async function checkBridge() {
     const el = document.getElementById('bridge-status');
     if (!el) return;
-    el.textContent = 'Checking bridge...';
+    el.textContent = 'Checking backend...';
     try {
       const b = new FSBridge.Bridge();
       const health = await b.health();
       if (!health || !health.ok) {
-        el.textContent = 'Bridge offline - run: start-minibee.bat';
-        caBundleReady = false;
+        el.textContent = 'Backend unavailable - run the Minibee app';
         return;
       }
-      const pollOk = health.poll ? !!health.poll.ok : false;
-      if (!pollOk) {
-        try {
-          const poll = await b.pollHealth();
-          if (!poll || !poll.ok) {
-            el.textContent = 'Poll bridge offline (8795) - restart start-minibee.bat';
-            caBundleReady = false;
-            return;
-          }
-        } catch (_pollErr) {
-          el.textContent = 'Poll bridge offline (8795) - restart start-minibee.bat';
-          caBundleReady = false;
-          return;
-        }
-      }
-      if (isCaBundleReady(health)) {
-        caBundleReady = true;
-        el.textContent = 'Bridge online (caps + poll)';
-        return;
-      }
-      el.textContent = 'Bridge online - fetching CA certificates...';
-      try {
-        if (await fetchCaBundle()) {
-          el.textContent = 'Bridge online (caps + poll)';
-          return;
-        }
-      } catch (_e) { /* show warning below */ }
-      caBundleReady = false;
-      el.textContent = 'Bridge online - HTTPS certificates missing (login will prompt)';
+      el.textContent = 'Backend ready';
     } catch (_e) {
-      caBundleReady = false;
-      el.textContent = 'Bridge offline - run: start-minibee.bat';
+      el.textContent = 'Backend unavailable - run the Minibee app';
     }
   }
 
@@ -396,7 +296,6 @@ const FSLogin = (function () {
     init: init,
     showScreen: showScreen,
     showError: showError,
-    checkBridge: checkBridge,
-    ensureCaBundle: ensureCaBundle
+    checkBridge: checkBridge
   };
 })();

@@ -9,7 +9,7 @@ const FSProfile = (function () {
   const AVATAR_TABS = [
     { id: 'resident', label: 'Resident' },
     { id: 'web', label: 'Web' },
-    { id: 'places', label: 'Places' },
+    { id: 'places', label: 'Picks' },
     { id: 'classifieds', label: 'Classifieds' },
     { id: 'more', label: 'More' },
     { id: 'notes', label: 'Notes' }
@@ -90,8 +90,8 @@ const FSProfile = (function () {
   }
 
   function closeDialog() {
-    if (dialog && dialog.open) dialog.close();
     current = null;
+    FSUtils.dismissDialog(dialog);
   }
 
   function teleportFromProfileDetail(loc) {
@@ -888,10 +888,16 @@ const FSProfile = (function () {
       addAction('Request teleport', function () {
         FSTeleportUI.requestFrom(agentId, profile.displayName || profile.userName || profile.name, profile);
       }, tpOnline ? undefined : tpDisabled);
-      addAction(isFriend ? 'Remove friend' : 'Add friend', function () {
+      addAction(isFriend ? 'Remove friend' : 'Add friend', async function () {
         const name = profileTitleText(profile) || 'this resident';
         if (isFriend) {
-          if (!window.confirm('Remove ' + name + ' from your friends list?')) return;
+          const ok = await FSUtils.confirm({
+            title: 'Remove friend?',
+            message: 'Remove ' + name + ' from your friends list?',
+            confirmLabel: 'Remove',
+            danger: true
+          });
+          if (!ok) return;
           FSTransport.removeFriendship(agentId).then(function (result) {
             if (result && result.sent) {
               FSUtils.showToast('Friend removed.', 'success');
@@ -900,7 +906,12 @@ const FSProfile = (function () {
           });
           return;
         }
-        if (!window.confirm('Send a friendship offer to ' + name + '?')) return;
+        const ok = await FSUtils.confirm({
+          title: 'Offer friendship?',
+          message: 'Send a friendship offer to ' + name + '?',
+          confirmLabel: 'Send offer'
+        });
+        if (!ok) return;
         FSTransport.offerFriendship(agentId).then(function (result) {
           if (result && result.sent) FSUtils.showToast('Friendship offer sent.', 'success');
         });
@@ -1205,8 +1216,14 @@ const FSProfile = (function () {
           });
         });
       }
-      addAction('Leave group', function () {
-        if (!window.confirm('Leave ' + groupName + '?')) return;
+      addAction('Leave group', async function () {
+        const ok = await FSUtils.confirm({
+          title: 'Leave group?',
+          message: 'Leave ' + groupName + '?',
+          confirmLabel: 'Leave',
+          danger: true
+        });
+        if (!ok) return;
         FSTransport.leaveGroup(groupId).then(function (result) {
           if (result && result.success) {
             FSUtils.showToast('Left ' + groupName + '.', 'success');
@@ -1228,11 +1245,16 @@ const FSProfile = (function () {
     if (profile.openEnrollment) {
       const fee = Number(profile.membershipFee) || 0;
       const label = fee > 0 ? 'Join (L$ ' + fee.toLocaleString('en-US') + ')' : 'Join';
-      addAction(label, function () {
+      addAction(label, async function () {
         const feeMsg = fee > 0
           ? 'Join ' + groupName + ' for L$ ' + fee.toLocaleString('en-US') + '?'
           : 'Join ' + groupName + '?';
-        if (!window.confirm(feeMsg)) return;
+        const ok = await FSUtils.confirm({
+          title: 'Join group?',
+          message: feeMsg,
+          confirmLabel: 'Join'
+        });
+        if (!ok) return;
         FSTransport.joinGroup(groupId).then(function (result) {
           if (result && result.success) {
             FSUtils.showToast('Joined ' + groupName + '.', 'success');
@@ -1614,10 +1636,10 @@ const FSProfile = (function () {
     const closeBtn = el('profile-close');
     const imageCloseBtn = el('profile-image-close');
     if (closeBtn && dialog) {
-      closeBtn.addEventListener('click', function () { dialog.close(); });
+      closeBtn.addEventListener('click', function () { closeDialog(); });
     }
     if (imageCloseBtn && imageDialog) {
-      imageCloseBtn.addEventListener('click', function () { imageDialog.close(); });
+      imageCloseBtn.addEventListener('click', function () { FSUtils.dismissDialog(imageDialog); });
     }
     if (dialog) {
       dialog.addEventListener('close', function () { current = null; });
@@ -1625,7 +1647,7 @@ const FSProfile = (function () {
     }
     if (imageDialog) {
       imageDialog.addEventListener('click', function (evt) {
-        if (evt.target === imageDialog) imageDialog.close();
+        if (evt.target === imageDialog) FSUtils.dismissDialog(imageDialog);
       });
     }
     FSProfiles.onChange(function (evt) {

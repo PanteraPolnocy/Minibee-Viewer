@@ -62,7 +62,7 @@ const FSTeleportUI = (function () {
   function closePrompt() {
     const dialog = dialogEl();
     if (!dialog) return;
-    if (dialog.open) dialog.close();
+    FSUtils.dismissDialog(dialog);
     dialog.removeAttribute('open');
   }
 

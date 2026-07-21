@@ -1,10 +1,10 @@
 /**
- * Minibee Viewer version (loaded from js/version.json).
+ * Minibee Viewer version. The single source of truth is tauri.conf.json
+ * (productName = channel, version = semver); the native core exposes it via the
+ * `bridge_version` command.
  */
 const MinibeeVersion = (function () {
   'use strict';
-
-  const VERSION_JSON = 'js/version.json';
 
   const state = {
     channel: '',
@@ -41,22 +41,10 @@ const MinibeeVersion = (function () {
     return state.loaded;
   }
 
-  function versionJsonUrl() {
-    try {
-      if (document.location && document.location.href) {
-        return new URL(VERSION_JSON, document.location.href).href;
-      }
-    } catch (_e) { /* ignore */ }
-    return VERSION_JSON;
-  }
-
   function load() {
     if (!loadPromise) {
-      loadPromise = fetch(versionJsonUrl(), { cache: 'no-cache' }).then(function (resp) {
-        if (!resp.ok) throw new Error('version.json request failed');
-        return resp.json();
-      }).then(function (data) {
-        if (!apply(data)) throw new Error('invalid version.json');
+      loadPromise = FSBridge.version().then(function (data) {
+        if (!apply(data)) throw new Error('invalid version payload');
         return state;
       });
     }

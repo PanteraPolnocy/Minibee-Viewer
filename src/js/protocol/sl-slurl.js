@@ -252,24 +252,11 @@ const FSSlurl = (function () {
         else resolve(result);
       }
       function verifyAtGrid(grid) {
-        const origin = (typeof window !== 'undefined' && window.location &&
-          /^https?:$/i.test(window.location.protocol))
-          ? String(window.location.origin).replace(/\/$/, '')
-          : '';
-        if (!origin) {
-          finish(new Error('Region not found: ' + name));
-          return;
-        }
-        fetch(origin + '/map/regions?tiles=' + encodeURIComponent(grid.gridX + ',' + grid.gridY), {
-          cache: 'no-cache'
-        }).then(function (resp) {
-          if (!resp.ok) {
+        FSBridge.mapRegions(grid.gridX + ',' + grid.gridY).then(function (data) {
+          if (!data) {
             finish(new Error('Region not found: ' + name));
-            return null;
+            return;
           }
-          return resp.json();
-        }).then(function (data) {
-          if (!data) return;
           const regions = data && data.regions ? data.regions : [];
           const row = regions.find(function (r) {
             return r && r.gridX === grid.gridX && r.gridY === grid.gridY;

@@ -218,9 +218,12 @@ const FSApp = (function () {
     const opts = options || {};
     const s = FSState.get();
     if (!opts.skipConfirm && (s.connected || s.connecting)) {
-      const ok = window.confirm(
-        'Log out of Minibee Viewer? You will be disconnected from Second Life.'
-      );
+      const ok = await FSUtils.confirm({
+        title: 'Log out?',
+        message: 'You will be disconnected from Second Life.',
+        confirmLabel: 'Log out',
+        danger: true
+      });
       if (!ok) return;
     }
     allowUnload = true;
@@ -247,6 +250,7 @@ const FSApp = (function () {
       FSLand.init();
       FSDestinations.init();
       FSTeleportUI.init();
+      FSTeleportProgress.init();
       FSAvatarThumb.init();
       FSProfile.init();
       FSErrorsUI.init();

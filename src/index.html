@@ -95,15 +95,13 @@
         <span class="login-logo__mark">MB</span>
       </div>
       <h1>Minibee Viewer</h1>
-      <p class="login-sub">Open this viewer over HTTP</p>
-      <p class="login-credit">Direct file access is not supported.</p>
+      <p class="login-sub">Run the Minibee application</p>
+      <p class="login-credit">This viewer runs inside the Minibee desktop app, not a plain browser.</p>
     </div>
     <div class="require-http-panel">
-      <p class="require-http-step">Run the launcher from this folder:</p>
-      <p class="require-http-cmd"><code>start-minibee.bat</code></p>
-      <p class="require-http-alt">Or: <code>php bridge/run.php</code> (one terminal, both processes)</p>
-      <p class="require-http-step">Your browser should open automatically at:</p>
-      <a class="btn btn--primary btn--block" href="http://127.0.0.1:8794/">http://127.0.0.1:8794/</a>
+      <p class="require-http-step">Launch Minibee from the project folder:</p>
+      <p class="require-http-cmd"><code>npm run tauri dev</code></p>
+      <p class="require-http-alt">Or run the built <code>Minibee-Viewer</code> executable.</p>
     </div>
       </div>
     </div>
@@ -222,6 +220,7 @@
         </label>
         <p id="login-error" class="login-error" role="alert" hidden></p>
         <button type="submit" class="btn btn--primary btn--block" id="login-submit">Log In</button>
+        <button type="button" class="btn btn--ghost btn--block" id="login-forget" hidden>Forget saved login &amp; MFA token</button>
       </form>
       <p class="login-footnote">Use your SL username (e.g. bobsmith12) or legacy First Last.<br>Display names do not work here.</p>
       <p id="bridge-status" class="login-footnote"></p>
@@ -745,24 +744,23 @@
     <!-- Toast -->
     <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
 
-    <dialog id="ca-bundle-prompt" class="login-challenge">
+    <!-- Teleport progress lock (FSTeleportProgress) -->
+    <dialog id="teleport-progress-dialog" class="login-challenge tp-progress-dialog">
+      <div class="login-challenge__body tp-progress">
+        <h2 class="login-challenge__title">Teleporting</h2>
+        <p id="teleport-progress-label" class="login-challenge__text">Requesting teleport…</p>
+        <div class="tp-progress__track"><div id="teleport-progress-bar" class="tp-progress__bar"></div></div>
+      </div>
+    </dialog>
+
+    <!-- Generic confirmation (FSUtils.confirm) -->
+    <dialog id="confirm-dialog" class="login-challenge confirm-dialog">
       <div class="login-challenge__body">
-        <h2 class="login-challenge__title">HTTPS certificates required</h2>
-        <p id="ca-bundle-message" class="login-challenge__text">
-          Minibee could not find or download a CA certificate bundle. Login and the Destination Guide need it for HTTPS.
-        </p>
-        <ol class="ca-bundle-steps">
-          <li>Start Minibee: <code>start-minibee.bat</code> (opens the viewer in your browser)<br>
-            Or run <code>php bridge/run.php</code>, or <code>php bridge/poll.php</code> and <code>php bridge/caps.php</code> in separate terminals.</li>
-          <li>Click <strong>Download now</strong> below (fetches Mozilla CAs from <a href="https://curl.se/docs/caextract.html" target="_blank" rel="noopener">curl.se</a> into <code>bridge/cacert.pem</code>)</li>
-          <li>Or manually: <code>php bridge/daemon.php --fetch-ca</code> (utility only)</li>
-          <li>Or set <code>FS_BRIDGE_CACERT</code> to your own CA bundle path</li>
-        </ol>
-        <p class="login-footnote">The downloaded PEM is Mozilla NSS data (MPL 2.0) and is stored locally only — it is not shipped with Minibee.</p>
-        <p id="ca-bundle-error" class="login-error" role="alert" hidden></p>
+        <h2 id="confirm-title" class="login-challenge__title">Please confirm</h2>
+        <p id="confirm-message" class="login-challenge__text"></p>
         <div class="login-challenge__actions">
-          <button type="button" class="btn btn--ghost" id="ca-bundle-dismiss">Close</button>
-          <button type="button" class="btn btn--primary" id="ca-bundle-retry">Download now</button>
+          <button type="button" class="btn btn--ghost" id="confirm-cancel">Cancel</button>
+          <button type="button" class="btn btn--primary" id="confirm-ok">Confirm</button>
         </div>
       </div>
     </dialog>
@@ -904,6 +902,7 @@
   <script src="js/ui/land.js"></script>
   <script src="js/ui/destinations.js"></script>
   <script src="js/ui/teleport.js"></script>
+  <script src="js/ui/teleport-progress.js"></script>
   <script src="js/ui/avatar-thumb.js"></script>
   <script src="js/ui/profile.js"></script>
   <script src="js/ui/errors.js"></script>

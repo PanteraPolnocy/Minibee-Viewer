@@ -162,8 +162,70 @@ const FSUtils = (function () {
     return { title: title, subtitle: subtitle };
   }
 
+  // Close a modal <dialog> reliably. WebView2 can leave a modal dialog painted
+  // until the next input event when closed programmatically; drop focus out of
+  // it and force a reflow so it disappears on the first click.
+  function dismissDialog(dialog) {
+    if (!dialog) return;
+    try { if (dialog.open) dialog.close(); } catch (_e) { /* ignore */ }
+    if (dialog.open) dialog.open = false;
+    if (document.activeElement && dialog.contains(document.activeElement)) {
+      try { document.activeElement.blur(); } catch (_e) { /* ignore */ }
+    }
+    const prevDisplay = dialog.style.display;
+    dialog.style.display = 'none';
+    void dialog.offsetHeight;
+    dialog.style.display = prevDisplay;
+  }
+
+  // Styled modal confirmation. Returns a Promise<boolean>. Falls back to the
+  // native confirm only if the dialog element is unavailable.
+  function confirmDialog(options) {
+    const o = options || {};
+    return new Promise(function (resolve) {
+      const dialog = document.getElementById('confirm-dialog');
+      if (!dialog || typeof dialog.showModal !== 'function') {
+        resolve(typeof window !== 'undefined' && window.confirm
+          ? window.confirm(o.message || 'Are you sure?') : true);
+        return;
+      }
+      const titleEl = document.getElementById('confirm-title');
+      const msgEl = document.getElementById('confirm-message');
+      const okBtn = document.getElementById('confirm-ok');
+      const cancelBtn = document.getElementById('confirm-cancel');
+      if (titleEl) titleEl.textContent = o.title || 'Please confirm';
+      if (msgEl) msgEl.textContent = o.message || 'Are you sure?';
+      if (okBtn) {
+        okBtn.textContent = o.confirmLabel || 'Confirm';
+        okBtn.classList.toggle('btn--danger', !!o.danger);
+      }
+      if (cancelBtn) cancelBtn.textContent = o.cancelLabel || 'Cancel';
+
+      let settled = false;
+      function done(result) {
+        if (settled) return;
+        settled = true;
+        if (okBtn) okBtn.removeEventListener('click', onOk);
+        if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+        dialog.removeEventListener('cancel', onDialogCancel);
+        dismissDialog(dialog);
+        resolve(result);
+      }
+      function onOk() { done(true); }
+      function onCancel() { done(false); }
+      function onDialogCancel(e) { e.preventDefault(); done(false); }
+      if (okBtn) okBtn.addEventListener('click', onOk);
+      if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+      dialog.addEventListener('cancel', onDialogCancel);
+      dialog.showModal();
+      if (okBtn) okBtn.focus();
+    });
+  }
+
   return {
     uuid: uuid,
+    dismissDialog: dismissDialog,
+    confirm: confirmDialog,
     formatTime: formatTime,
     formatSltTime: formatSltTime,
     formatLindenBalance: formatLindenBalance,

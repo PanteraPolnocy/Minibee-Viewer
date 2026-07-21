@@ -1,6 +1,6 @@
 # Minibee Viewer (JS Experiment)
 
-Pure JavaScript / HTML / CSS / PHP UI for Second Life - chat, IM (1:1, group, and conference), events, search, radar, map, land, destination guide, and teleport. No 3D rendering.
+A Second Life client with a JavaScript / HTML / CSS UI and a native Rust core (Tauri) - chat, IM (1:1, group, and conference), events, search, radar, map, land, destination guide, and teleport. No 3D rendering.
 
 ## Important notice
 
@@ -19,74 +19,104 @@ Minibee-Viewer/
   SECURITY.md            Vulnerability reporting
   CODE_OF_CONDUCT.md
   CONTRIBUTING.md
-  viewer/                Minibee viewer and PHP bridge
+  src/                   Frontend (served by the app)
     index.html           Shell, login screen, side navigation
     css/app.css          Styles (dark/light themes)
     js/                  Client application and SL protocol
-    bridge/              PHP bridge (poll + caps)
     screenshots/         UI screenshots
-    start-minibee.bat    Windows launcher
+  src-tauri/             Native core (Rust)
+    src/                 Transport, message codec, circuit, commands
+    resources/           message_template.msg (bundled)
+    tauri.conf.json      App config (single source of version)
 ```
-
-All commands below assume you are in the `viewer/` directory unless noted otherwise.
 
 ## Quick start
 
-Browsers cannot speak SL's UDP protocol or call `login.cgi` directly (CORS). Run the **PHP bridge** on the same machine as the browser:
+Minibee is a desktop application: the UI runs in a WebView and the native
+**Rust core** does everything a browser cannot — the SL UDP circuit, the
+XML-RPC login, and cross-origin capability/map requests. The frontend talks to
+the core over Tauri IPC (`window.__TAURI__.core.invoke`); there is no local HTTP
+server and no separate bridge process to start.
+
+Prerequisites (Windows):
+
+- [Rust](https://rustup.rs) with the MSVC toolchain (`stable-x86_64-pc-windows-msvc`)
+- Visual Studio Build Tools (**Desktop development with C++**)
+- WebView2 runtime (preinstalled on Windows 11)
+- Node.js (for the Tauri CLI)
+
+Run in development:
 
 ```bat
-cd viewer
-start-minibee.bat
+cd Minibee-Viewer
+npm install
+npm run tauri dev
 ```
 
-Or one command (single terminal):
+Release builds and installers are covered in **Build & distribute** below.
 
-```bat
-cd viewer
-php bridge/run.php
-```
-
-`start-minibee.bat` and `run.php` start **poll** in the background and **caps** in the foreground in the **same window**. Ctrl+C stops both. `start-minibee.bat` also opens **`http://127.0.0.1:8794/`** in your default browser when the bridge is ready.
-
-To debug poll alone: `php bridge/poll.php` in a separate terminal (from `viewer/`).
-
-Requires PHP with **curl** and **sockets** enabled. The batch file tries `php` on PATH first, then falls back to loading curl/sockets from the PHP install directory if extensions are not loaded by default.
-
-Optional override when `php` is not on PATH:
-
-```bat
-set FS_BRIDGE_PHP=C:\path\to\php.exe
-start-minibee.bat
-```
-
-**SSL / CA certificates:** Minibee does **not** ship a CA bundle (Mozilla's PEM is [MPL 2.0](https://curl.se/docs/caextract.html)). On startup the bridge tries to download it from [curl.se](https://curl.se/ca/cacert.pem) into `bridge/cacert.pem` (etag-aware, per curl's recommended method). The viewer also attempts this when you open the login screen or log in.
-
-Check status (from `viewer/`):
-
-```bat
-php bridge/daemon.php --check-ca
-php bridge/daemon.php --fetch-ca
-```
-
-If auto-download fails, the viewer shows a modal with manual steps. You can also set `FS_BRIDGE_CACERT`, `SSL_CERT_FILE`, or `CURL_CA_BUNDLE` to an existing system CA bundle.
+**Certificates:** TLS is validated against the operating system trust store, so
+there is no CA bundle to download or configure.
 
 ### Opening the viewer
 
-Run **`viewer/start-minibee.bat`** (Windows) or **`php bridge/run.php`** from `viewer/`. The batch launcher opens **`http://127.0.0.1:8794/`** automatically once the bridge is listening. You can also open that URL yourself at any time.
+Launch the app with `npm run tauri dev` (or the built `Minibee-Viewer`
+executable). Pick a grid (Agni, Aditi, or local OpenSim), enter credentials, and
+log in. After frontend changes, reload the window; after Rust changes, restart
+`npm run tauri dev`.
 
-Do **not** open `viewer/index.html` directly from the filesystem (`file://`). The viewer blocks that and shows instructions to use the bridge URL instead.
+## Build & distribute
 
-Pick a grid (Agni, Aditi, or local OpenSim), enter credentials, and log in.
+Version is defined once in `src-tauri/tauri.conf.json` (`productName` =
+`Minibee-Viewer`, `version` = `0.5.1`); `src-tauri/Cargo.toml` mirrors it. Rust
+edition 2024. The frontend is served live from `src/` in `dev` and **embedded
+into the binary** for release builds.
 
-After code or bridge changes: **hard-refresh** the page (`Ctrl+Shift+R`) and **restart both bridge processes** (poll + caps).
+Optimized standalone binary:
+
+```bat
+cd Minibee-Viewer/src-tauri
+cargo build --release
+```
+
+Installers (recommended for sharing):
+
+```bat
+cd Minibee-Viewer
+npm run tauri build
+```
+
+Artifacts, under `src-tauri/target/release/`:
+
+| Artifact | Path | Notes |
+|----------|------|-------|
+| Standalone exe | `minibee-viewer.exe` | Windowed (~14 MB), frontend embedded; needs WebView2 already installed |
+| NSIS setup | `bundle/nsis/Minibee-Viewer_0.5.1_x64-setup.exe` | **Recommended** — bootstraps WebView2, adds Start-menu shortcut + uninstaller |
+| MSI | `bundle/msi/Minibee-Viewer_0.5.1_x64_en-US.msi` | For group-policy / enterprise deploys |
+
+- **WebView2**: preinstalled on Windows 11 and updated Windows 10. The bare exe needs it present; the NSIS installer bootstraps it if missing.
+- **Unsigned**: all builds are unsigned, so Windows SmartScreen shows an "unknown publisher" prompt (*More info → Run anyway*). A code-signing certificate (configured in `tauri.conf.json`) removes it.
+- **Console**: `target/debug` exes show a console window (logs); the release exe and installers are windowed with no console (`main.rs` `windows_subsystem = "windows"` in release).
+
+### Icons
+
+The app icon is defined once in `tauri.conf.json` `bundle.icon` and applies to
+every target — the Windows exe, the macOS `.app`/DMG (`icon.icns`), and Linux
+`.deb`/`.rpm`/AppImage (PNGs). Assets live in `src-tauri/icons/`: `32x32.png`,
+`64x64.png`, `128x128.png`, `128x128@2x.png`, `icon.png`, `icon.icns`,
+`icon.ico` (plus `android/` and `ios/` sets for future mobile targets).
+
+- NSIS setup `.exe` icon: `bundle.windows.nsis.installerIcon` → `icons/icon.ico`.
+- MSI: the `.msi` file's own icon is fixed by Windows Installer and cannot be changed; its Add/Remove Programs entry uses the app icon.
+- NSIS header/sidebar and WiX banner/dialog graphics need `.bmp` files (none shipped), so they stay at Tauri defaults.
 
 ## Architecture
 
 ```
-viewer/
+src/
   index.html + css/app.css       Shell, login screen, side navigation
   js/app.js                      Bootstrap and event wiring
-  js/serve-guard.js              Block file://; require HTTP(S)
+  js/serve-guard.js              Block file://; require the app WebView
   js/settings.js                 Local preferences (localStorage, theme)
   js/state.js                    Shared UI/session state and unread counts
   js/errors.js                   Error log and diagnostics
@@ -115,33 +145,40 @@ viewer/
   js/protocol/sl-search.js       Directory search (UDP + caps)
   js/protocol/sl-slurl.js        SLURL / map coordinate helpers
   js/protocol/sl-teleport.js     Teleport flags, lure buckets, SLURL helpers
-  js/protocol/bridge.js          HTTP client (caps 8794 + poll 8795, priority lane)
-  js/version.json                Viewer version metadata (channel, semver, build)
-  js/version.js                  Loads version.json for login label and bridge user-agent
-  bridge/poll.php                UDP circuit relay (127.0.0.1:8795)
-  bridge/caps.php                Login proxy + UI + map (127.0.0.1:8794)
-  bridge/daemon.php              Shared core (library; use --check-ca / --fetch-ca only)
-  bridge/run.php                 One-terminal launcher (poll child + caps foreground)
-  start-minibee.bat              Windows launcher (poll + caps + browser)
+  js/protocol/bridge.js          IPC client (invoke + event subscription)
+  js/version.js                  Loads version from the native core (bridge_version)
 ```
 
-The bridge runs as **two processes** for isolation:
+The native core (`src-tauri/`) is one async backend (tokio). Because circuit
+receipt, cap requests, and login all run concurrently, a long capability call
+never blocks incoming chat/IM/radar packets. A single pooled HTTP client reuses
+TLS/keep-alive connections across cap calls, and EventQueue long-polls are
+**single-flight** per session so reconnects do not orphan sim-side polls.
 
-| Process | Port | Role |
-|---------|------|------|
-| **poll** | 8795 | UDP circuit: `/circuit/poll`, send, exchange - never blocked by caps |
-| **caps** | 8794 | Viewer UI, login, `/proxy`, map, destinations |
-
-The JS client sends circuit traffic to poll on a **priority lane** (immediate fetch) and everything else to caps. Each process uses concurrent HTTP internally (`stream_select`; caps uses `curl_multi` for proxy). EventQueue long-polls are **single-flight** per session so reconnects do not orphan sim-side polls.
+| Core module | Role |
+|-------------|------|
+| `codec/` | Message-template-driven encode/decode (every message, zerocoding) |
+| `bridge/circuit` | UDP socket per session; decodes datagrams and pushes them to the UI as events; inbound trusted-message HTTP listener |
+| `bridge/login` | XML-RPC `login_to_simulator` + seed-capability fetch |
+| `bridge/proxy` | Capability HTTP proxy (redirects, simhost IP pinning, EventQueue lane) |
+| `bridge/map` | Map tiles, region lookups, Destination Guide |
 
 ### Connection flow
 
-1. `POST /login` - XML-RPC `login_to_simulator` (optional seed cap grant in the same response)
-2. `POST /circuit/open` - local UDP socket toward `sim_ip:sim_port`
-3. Handshake - `UseCircuitCode`, `CompleteAgentMovement`, etc. via `/circuit/send` and `/circuit/exchange`
-4. `GET /circuit/poll` - receive chat, IM, radar, parcel packets
-5. HTTP caps - presence caps (`GetDisplayNames`, etc.) at login; land caps deferred until the Land tab is opened
-6. `EventQueueGet` - started when a teleport is in progress; delivers `TeleportFinish`, `CrossedRegion`, etc.
+1. `bridge_login` - XML-RPC `login_to_simulator` (seed cap grant fetched in the same call)
+2. `sl_open_circuit` - local UDP socket toward `sim_ip:sim_port`
+3. Handshake - `UseCircuitCode`, `CompleteAgentMovement`, etc. sent via `sl_send_raw`
+4. Incoming packets arrive as `minibee-viewer://packet-raw` events (chat, IM, radar, parcel); high-frequency object/effect/sound floods the UI never uses are filtered out in the core first
+5. HTTP caps via `bridge_proxy` - presence caps (`GetDisplayNames`, etc.) at login; land caps deferred until the Land tab is opened. LLSD responses are parsed in the core (`parseLlsd`) so the UI consumes structured data
+6. `EventQueueGet` (through `bridge_proxy`) - started when a teleport is in progress; delivers `TeleportFinish`, `CrossedRegion`, etc.
+
+### Where work runs (and roadmap)
+
+The core owns transport, the message-template codec, the LLSD codec, login, and
+caps. The WebView still *interprets* decoded UDP messages (turns them into UI
+state). That interpretation is being moved into the core one message family at a
+time - each step is independently verifiable and reversible; see
+`src/_todo/to-do.md` §3 (P2) for the ordered plan.
 
 Use the **Log** tab (protocol diagnostics) when debugging parcel or UDP issues (`pkts`, `udp` counters on parcel lines). The Log tab also has a **Settings** subtab for saved preferences (non-secret keys only).
 
@@ -161,6 +198,7 @@ Tabs fetch and render their data only when you open them. This keeps login light
 | Feature | Status |
 |---------|--------|
 | Login (Agni / Aditi / local) | Yes |
+| Remember / forget login | Yes (username + grid saved locally; **password never stored**; "Forget saved login & MFA token" button clears creds + all MFA tokens) |
 | MFA / TOS / critical prompts | Yes (login dialog) |
 | Dark / light theme | Yes (top bar toggle; saved locally) |
 | Nearby chat | Yes (UDP) |
@@ -190,7 +228,7 @@ Tabs fetch and render their data only when you open them. This keeps login light
 | Region lookup / SLURL | Yes (map location field, linkified chat/IM) |
 | Manual teleport | Yes (map selection, Destination Guide, `Teleport Here`) |
 | Teleport home | Yes (map sidebar button) |
-| Teleport progress | Yes (stage label + percentage on busy buttons) |
+| Teleport progress | Yes (full-screen lock with a centered progress bar while teleporting; also stage label + percentage on busy buttons) |
 | Sim-initiated teleport | Yes (force / god / home / death; not plain lure offers) |
 | Destination Guide | Yes (Linden feeds: suggested, popular, new, editor, events) |
 | Session disconnect detection | Yes (modal overlay; browse offline; gentle status/logout pulse) |
@@ -318,28 +356,30 @@ If the simulator drops the session (`LogoutReply`, kick, circuit loss, or bridge
 - **No RLV / RLVa** - Minibee does not implement Restrained Love viewer restrictions (`@getstatus`, folder locks, sit/touch blocks, etc.)
 - Buddy names may show as UUID briefly until `GetDisplayNames` returns
 - Avatar profile about text requires the `AgentProfile` cap; without it, about is limited to the UDP packet size (~512 bytes)
-- **Own avatar profile — groups list** Groups with **Show in profile** disabled should still appear on **your** profile (muted styling); the active group should be **bold**. Code exists (`getProfileGroupsForDisplay`, bridge HTTP `AgentGroupDataUpdate` listener, `agentGroups` merge) but **end-to-end delivery is not working** — you typically only see cap-visible groups. Needs a proper fix; restart the bridge after `daemon.php` changes.
+- **Own avatar profile — groups list** Groups with **Show in profile** disabled should still appear on **your** profile (muted styling); the active group should be **bold**. Code exists (`getProfileGroupsForDisplay`, the inbound `AgentGroupDataUpdate` HTTP listener in the native core, `agentGroups` merge) but **end-to-end delivery needs verification** — you typically only see cap-visible groups.
 - List thumbnails resolve profile images for buddies only; radar, search, chat, and IM use initials unless the image is already cached
 - Radar uses 1 m coarse positions from the sim
 - Land prim usage depends on UDP `ParcelProperties`; capacity may be estimated from area when the sim does not send counts
-- Bridge must run on localhost (`127.0.0.1:8794` / `8795`); close other SL viewers if UDP bind or circuit behaviour is odd. Restart poll + caps after bridge (`daemon.php`) updates.
-- Windows Firewall must allow `php.exe` UDP if receive stays at zero packets
-- Destination Guide requires the bridge (Linden API is fetched server-side to avoid browser CORS)
+- Close other SL viewers if UDP bind or circuit behaviour is odd
+- Windows Firewall must allow the Minibee app's UDP if receive stays at zero packets
+- Destination Guide is fetched by the native core (avoids WebView CORS)
 
-## Bridge files
+## Native core
 
-All paths relative to `viewer/`:
+All paths relative to `src-tauri/src/`:
 
 | File | Purpose |
 |------|---------|
-| `bridge/poll.php` | UDP circuit relay (port 8795) |
-| `bridge/caps.php` | Viewer UI, login, proxy, map (port 8794) |
-| `bridge/daemon.php` | Shared PHP core: UDP circuit, cap proxy, **HTTP `AgentGroupDataUpdate` on circuit listen port** (`httpMessages` to JS) |
-| `bridge/run.php` | One-terminal launcher (poll child + caps foreground) |
-| `start-minibee.bat` | Windows launcher - starts poll + caps and opens the viewer |
-
-No Composer, Node, or build step for the viewer itself.
+| `codec/template.rs` | Parses the bundled `message_template.msg` into a message registry |
+| `codec/mod.rs` | Generic encode/decode + zerocoding for every message |
+| `bridge/circuit.rs` | UDP socket per session; decodes datagrams to events; inbound `AgentGroupDataUpdate` HTTP listener |
+| `bridge/login.rs` | XML-RPC `login_to_simulator` + seed-capability fetch |
+| `bridge/proxy.rs` | Capability HTTP proxy (redirects, simhost IP pinning, EventQueue lane) |
+| `bridge/map.rs` | Map tiles, region lookups, Destination Guide |
+| `commands.rs` | Tauri command surface (`bridge_*`, `sl_*`) |
 
 ## Reference
 
-Message layouts follow Firestorm conventions. See `scripts/messages/message_template.msg` in the Firestorm repository.
+The native core bundles Second Life's `message_template.msg` (from
+`scripts/messages/message_template.msg` in the Firestorm repository) and drives
+its codec from it, so every message in the template is supported.

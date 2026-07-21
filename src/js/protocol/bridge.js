@@ -1,42 +1,47 @@
 /**
- * HTTP client for the Minibee bridge daemons.
+ * Native backend client — talks to the Rust core over Tauri IPC
+ * (`window.__TAURI__.core.invoke`) instead of HTTP.
  *
- * Caps bridge (8794): UI, login, proxy, map.
- * Poll bridge (8795): UDP circuit only - never shares a process with long proxy calls.
- *
- * Circuit poll/exchange/send use the poll URL on a priority lane (immediate fetch).
+ * Structured calls (login, proxy, map, destinations, circuit lifecycle) are
+ * `invoke`d directly. Circuit traffic is sent with `slSend` (the Rust core
+ * encodes from the message template) and received as `minibee-viewer://packet` /
+ * `minibee-viewer://http-message` events.
  */
 const FSBridge = (function () {
   'use strict';
 
-  const DEFAULT_CAPS_URL = 'http://127.0.0.1:8794';
-  const DEFAULT_POLL_URL = 'http://127.0.0.1:8795';
-
-  function derivePollUrl(capsUrl) {
-    try {
-      const u = new URL(capsUrl || DEFAULT_CAPS_URL);
-      const port = parseInt(u.port || '8794', 10);
-      u.port = String(port + 1);
-      return u.origin;
-    } catch (_e) {
-      return DEFAULT_POLL_URL;
-    }
+  function tauri() {
+    return (typeof window !== 'undefined' && window.__TAURI__) ? window.__TAURI__ : null;
   }
 
-  function Bridge(capsUrl, pollUrl) {
-    if (capsUrl && typeof capsUrl === 'object' && !pollUrl) {
-      const opts = capsUrl;
-      capsUrl = opts.capsUrl || opts.baseUrl || opts.bridgeUrl;
-      pollUrl = opts.pollUrl;
+  function isTauri() {
+    const t = tauri();
+    return !!(t && t.core && typeof t.core.invoke === 'function');
+  }
+
+  function invoke(cmd, args) {
+    const t = tauri();
+    if (!t || !t.core || typeof t.core.invoke !== 'function') {
+      return Promise.reject(new Error('Minibee backend unavailable — run the Minibee app (Tauri), not a browser.'));
     }
-    this.capsUrl = String(capsUrl || DEFAULT_CAPS_URL).replace(/\/$/, '');
-    this.pollUrl = String(pollUrl || derivePollUrl(this.capsUrl)).replace(/\/$/, '');
-    this.baseUrl = this.capsUrl;
+    return t.core.invoke(cmd, args || {});
+  }
+
+  /** Subscribe to a backend event. Returns a Promise of an unlisten function. */
+  function listen(event, handler) {
+    const t = tauri();
+    if (!t || !t.event || typeof t.event.listen !== 'function') {
+      return Promise.resolve(function () {});
+    }
+    return t.event.listen(event, function (e) { handler(e.payload); });
+  }
+
+  function Bridge() {
     this.circuitSessionId = '';
     this.udpListenPort = 0;
     this.simIp = '';
     this.agentSessionId = '';
-    this._bgQueue = Promise.resolve();
+    this.baseUrl = '';
   }
 
   Bridge.prototype.setCircuitContext = function (sessionId, localPort, simIp, agentSessionId) {
@@ -64,228 +69,120 @@ const FSBridge = (function () {
     return ctx;
   };
 
-  /** Background lane on caps bridge: proxy, login, map. */
-  Bridge.prototype._fetchCaps = function (path, options) {
-    const self = this;
-    const run = function () {
-      return self._fetchDirect(self.capsUrl, path, options);
-    };
-    const next = this._bgQueue.then(run, run);
-    this._bgQueue = next.then(function () {}, function () {});
-    return next;
+  Bridge.prototype.health = function () {
+    return invoke('bridge_health');
   };
 
-  /** Priority lane on poll bridge: circuit poll/exchange/send/open. */
-  Bridge.prototype._fetchPoll = function (path, options) {
-    return this._fetchDirect(this.pollUrl, path, options);
-  };
-
-  Bridge.prototype._fetchDirect = async function (baseUrl, path, options) {
-    const opts = Object.assign({}, options || {});
-    if (opts.body) {
-      opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
-    }
-    const timeoutMs = opts.timeoutMs || 45000;
-    const externalSignal = opts.signal;
-    delete opts.timeoutMs;
-    delete opts.signal;
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    let timer = null;
-    if (controller) {
-      opts.signal = controller.signal;
-      if (externalSignal) {
-        if (externalSignal.aborted) {
-          controller.abort();
-        } else {
-          externalSignal.addEventListener('abort', function () {
-            controller.abort();
-          }, { once: true });
-        }
-      }
-      timer = setTimeout(function () { controller.abort(); }, timeoutMs);
-    }
-    try {
-      const resp = await fetch(String(baseUrl).replace(/\/$/, '') + path, opts);
-      const data = await resp.json();
-      if (!resp.ok) {
-        throw new Error(data.error || ('Bridge error ' + resp.status));
-      }
-      return data;
-    } catch (err) {
-      if (err && err.name === 'AbortError') {
-        throw new Error('Bridge request timed out after ' + timeoutMs + 'ms');
-      }
-      throw err;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  };
-
-  Bridge.prototype.health = function (options) {
-    const opts = Object.assign({ method: 'GET', timeoutMs: 5000 }, options || {});
-    return this._fetchCaps('/health', opts);
-  };
-
-  Bridge.prototype.pollHealth = function (options) {
-    const opts = Object.assign({ method: 'GET', timeoutMs: 3000 }, options || {});
-    return this._fetchPoll('/health', opts);
-  };
-
-  Bridge.prototype.fetchCaBundle = function (options) {
-    const opts = Object.assign({ method: 'POST', body: '{}', timeoutMs: 120000 }, options || {});
-    return this._fetchCaps('/ca-bundle/fetch', opts);
+  // Single backend — the poll/caps split no longer exists.
+  Bridge.prototype.pollHealth = function () {
+    return invoke('bridge_health');
   };
 
   Bridge.prototype.login = function (payload) {
-    return this._fetchCaps('/login', { method: 'POST', body: JSON.stringify(payload) });
+    return invoke('bridge_login', { payload: payload });
   };
+
+  function proxyParams(self, url, body, contentType, options, method) {
+    const ctx = self._proxyContext(options || {});
+    const params = Object.assign({
+      method: method || 'POST',
+      url: url,
+      contentType: contentType || 'application/llsd+xml'
+    }, ctx);
+    if (method !== 'GET') params.body = body || '';
+    const opts = options || {};
+    if (opts.timeoutMs) params.timeoutSec = Math.ceil(opts.timeoutMs / 1000);
+    if (opts.parseLlsd) params.parseLlsd = true;
+    return params;
+  }
 
   Bridge.prototype.proxy = function (url, body, contentType, options) {
-    const opts = options || {};
-    const payload = Object.assign({
-      url: url,
-      body: body,
-      contentType: contentType || 'application/llsd+xml'
-    }, this._proxyContext(opts));
-    if (opts.timeoutMs) {
-      payload.timeoutSec = Math.ceil(opts.timeoutMs / 1000);
-    }
-    const proxyOpts = {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      timeoutMs: opts.timeoutMs || 45000
-    };
-    if (opts.signal) {
-      proxyOpts.signal = opts.signal;
-    }
-    return this._fetchCaps('/proxy', proxyOpts);
+    return invoke('bridge_proxy', { params: proxyParams(this, url, body, contentType, options, 'POST') });
   };
 
-  /** EventQueueGet and other latency-sensitive caps - bypass the background queue. */
+  // Same backend path; kept distinct so latency-sensitive callers read clearly.
   Bridge.prototype.proxyPriority = function (url, body, contentType, options) {
-    const opts = options || {};
-    const payload = Object.assign({
-      url: url,
-      body: body,
-      contentType: contentType || 'application/llsd+xml'
-    }, this._proxyContext(opts));
-    if (opts.timeoutMs) {
-      payload.timeoutSec = Math.ceil(opts.timeoutMs / 1000);
-    }
-    const proxyOpts = {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      timeoutMs: opts.timeoutMs || 45000
-    };
-    if (opts.signal) {
-      proxyOpts.signal = opts.signal;
-    }
-    return this._fetchDirect(this.capsUrl, '/proxy', proxyOpts);
+    return invoke('bridge_proxy', { params: proxyParams(this, url, body, contentType, options, 'POST') });
   };
 
   Bridge.prototype.proxyGet = function (url, options) {
-    const ctx = this._proxyContext(options);
-    let q = 'url=' + encodeURIComponent(url);
-    if (ctx.sessionId) q += '&sessionId=' + encodeURIComponent(ctx.sessionId);
-    if (ctx.udpListenPort) q += '&udpListenPort=' + encodeURIComponent(String(ctx.udpListenPort));
-    if (ctx.simIp) q += '&simIp=' + encodeURIComponent(ctx.simIp);
-    if (ctx.agentSessionId) q += '&agentSessionId=' + encodeURIComponent(ctx.agentSessionId);
-    if (ctx.pinSimIp === false) q += '&pinSimIp=0';
-    if (ctx.preCircuit) q += '&preCircuit=1';
-    return this._fetchCaps('/proxy?' + q, { method: 'GET' });
+    return invoke('bridge_proxy', { params: proxyParams(this, url, '', '', options, 'GET') });
   };
 
-  Bridge.prototype.openCircuit = function (simIp, simPort, handshake) {
-    const body = {
-      sim_ip: simIp,
-      sim_port: simPort
-    };
-    const hs = handshake || {};
-    if (hs.circuitCode) body.circuit_code = hs.circuitCode;
-    if (hs.sessionId) body.session_id = hs.sessionId;
-    if (hs.agentId) body.agent_id = hs.agentId;
-    return this._fetchPoll('/circuit/open', {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
+  Bridge.prototype.openCircuit = function (simIp, simPort) {
+    return invoke('sl_open_circuit', { simIp: simIp, simPort: Number(simPort) || 0 });
   };
 
   Bridge.prototype.closeCircuit = function (sessionId) {
-    return this._fetchPoll('/circuit/close', {
-      method: 'POST',
-      body: JSON.stringify({ sessionId: sessionId })
-    });
+    return invoke('sl_close_circuit', { sessionId: sessionId || '' });
   };
 
   Bridge.prototype.retargetCircuit = function (sessionId, simIp, simPort) {
-    return this._fetchPoll('/circuit/retarget', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: sessionId,
-        sim_ip: simIp,
-        sim_port: simPort
-      })
+    return invoke('sl_retarget', { sessionId: sessionId, simIp: simIp, simPort: Number(simPort) || 0 });
+  };
+
+  /** Encode (from the message template) and send a message on the circuit. */
+  Bridge.prototype.slSend = function (sessionId, name, blocks, reliable) {
+    return invoke('sl_send', {
+      sessionId: sessionId,
+      name: name,
+      blocks: blocks || {},
+      reliable: !!reliable
     });
   };
 
-  Bridge.prototype.send = function (sessionId, packet, target) {
-    let binary = '';
-    const bytes = packet instanceof Uint8Array ? packet : new Uint8Array(packet);
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    const b64 = btoa(binary);
-    const body = { sessionId: sessionId, packet: b64 };
-    if (target && target.simIp) body.sim_ip = target.simIp;
-    if (target && target.simPort) body.sim_port = target.simPort;
-    return this._fetchPoll('/circuit/send', {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
-  };
-
-  Bridge.prototype.poll = function (sessionId, timeout) {
-    const q = 'sessionId=' + encodeURIComponent(sessionId) + '&timeout=' + (timeout || 25);
-    return this._fetchPoll('/circuit/poll?' + q, { method: 'GET' });
-  };
-
-  Bridge.prototype.exchange = function (sessionId, packets, timeout) {
-    return this._fetchPoll('/circuit/exchange', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: sessionId,
-        packets: packets || [],
-        timeout: timeout || 5
-      })
-    });
+  /** Send an already-framed packet (base64). Optional per-send sim target. */
+  Bridge.prototype.slSendRaw = function (sessionId, packetB64, simIp, simPort) {
+    const args = { sessionId: sessionId, packet: packetB64 };
+    if (simIp) args.simIp = simIp;
+    if (simPort) args.simPort = Number(simPort) || 0;
+    return invoke('sl_send_raw', args);
   };
 
   Bridge.prototype.isAvailable = async function () {
     try {
-      const h = await this.health();
-      if (!h || !h.ok) return false;
-      if (h.poll && h.poll.ok === false) return false;
-      if (h.poll && h.poll.ok === true) return true;
-      const poll = await this.pollHealth();
-      return !!(poll && poll.ok);
+      const h = await invoke('bridge_health');
+      return !!(h && h.ok);
     } catch (_e) {
       return false;
     }
   };
 
-  function httpFetch(baseUrl, path, options) {
-    const base = String(baseUrl || DEFAULT_CAPS_URL).replace(/\/$/, '');
-    return fetch(base + path, options || {});
-  }
+  // --- Map / Destination Guide helpers (formerly raw HTTP GETs) -------------
 
-  function defaultPollUrl(capsUrl) {
-    return derivePollUrl(capsUrl);
+  function mapTile(level, gridX, gridY, server) {
+    return invoke('bridge_map_tile', { level: Number(level) || 1, x: Number(gridX) || 0, y: Number(gridY) || 0, server: server || undefined });
+  }
+  function mapRegions(tiles) {
+    return invoke('bridge_map_regions', { tiles: String(tiles || '') });
+  }
+  function mapRegion(gridX, gridY) {
+    return invoke('bridge_map_region', { x: Number(gridX) || 0, y: Number(gridY) || 0 });
+  }
+  function regionByName(name) {
+    return invoke('bridge_region_by_name', { name: String(name || '') });
+  }
+  function destinations(feed) {
+    return invoke('bridge_destinations', { feed: String(feed || 'mobile') });
+  }
+  function version() {
+    return invoke('bridge_version');
   }
 
   return {
     Bridge: Bridge,
-    DEFAULT_URL: DEFAULT_CAPS_URL,
-    DEFAULT_CAPS_URL: DEFAULT_CAPS_URL,
-    DEFAULT_POLL_URL: DEFAULT_POLL_URL,
-    defaultPollUrl: defaultPollUrl,
-    httpFetch: httpFetch
+    isTauri: isTauri,
+    invoke: invoke,
+    listen: listen,
+    mapTile: mapTile,
+    mapRegions: mapRegions,
+    mapRegion: mapRegion,
+    regionByName: regionByName,
+    destinations: destinations,
+    version: version,
+    // Back-compat identifiers (no longer URLs, kept so old references resolve).
+    DEFAULT_URL: '',
+    DEFAULT_CAPS_URL: '',
+    DEFAULT_POLL_URL: ''
   };
 })();

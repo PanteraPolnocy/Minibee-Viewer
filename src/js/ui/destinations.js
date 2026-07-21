@@ -32,13 +32,6 @@ const FSDestinations = (function () {
     return document.getElementById(id);
   }
 
-  function bridgeUrl() {
-    if (typeof FSTransport !== 'undefined' && FSTransport.getBridgeUrl) {
-      return String(FSTransport.getBridgeUrl() || '').replace(/\/$/, '');
-    }
-    return 'http://127.0.0.1:8794';
-  }
-
   function isFeedMarker(name) {
     const key = String(name || '').toLowerCase();
     if (!key) return true;
@@ -231,14 +224,10 @@ const FSDestinations = (function () {
     setContent('');
 
     try {
-      const resp = await FSBridge.httpFetch(
-        bridgeUrl(),
-        '/destinations?feed=' + encodeURIComponent(feed)
-      );
-      const data = await resp.json().catch(function () { return null; });
+      const data = await FSBridge.destinations(feed).catch(function () { return null; });
       if (token !== loadToken) return;
-      if (!resp.ok || !data || !data.ok || !Array.isArray(data.items)) {
-        const detail = data && (data.detail || data.error) ? String(data.detail || data.error) : resp.statusText;
+      if (!data || !data.ok || !Array.isArray(data.items)) {
+        const detail = data && (data.detail || data.error) ? String(data.detail || data.error) : '';
         throw new Error(detail || 'Failed to load destinations');
       }
       cache.set(feed, data.items);

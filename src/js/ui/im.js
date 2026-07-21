@@ -643,7 +643,7 @@ const FSIm = (function () {
     const conferenceCancel = document.getElementById('conference-cancel');
     if (conferenceCancel && conferenceDialog) {
       conferenceCancel.addEventListener('click', function () {
-        conferenceDialog.close();
+        FSUtils.dismissDialog(conferenceDialog);
       });
     }
     if (conferenceForm && conferenceDialog) {
@@ -658,7 +658,7 @@ const FSIm = (function () {
           FSUtils.showToast('Select at least one participant.', 'warning');
           return;
         }
-        conferenceDialog.close();
+        FSUtils.dismissDialog(conferenceDialog);
         if (conferenceMode.mode === 'invite' && conferenceMode.sessionId) {
           Promise.resolve(FSTransport.inviteToSession(conferenceMode.sessionId, ids))
             .then(function (count) {
@@ -705,12 +705,17 @@ const FSIm = (function () {
       if (!participant) return;
       openPayDialog(participant);
     });
-    document.getElementById('im-friend').addEventListener('click', function () {
+    document.getElementById('im-friend').addEventListener('click', async function () {
       const participant = getActiveParticipant();
       if (!participant || !participant.id) return;
       const names = FSUtils.agentNameLines(participant);
       const label = names.title || participant.name || 'this resident';
-      if (!window.confirm('Send a friendship offer to ' + label + '?')) return;
+      const ok = await FSUtils.confirm({
+        title: 'Offer friendship?',
+        message: 'Send a friendship offer to ' + label + '?',
+        confirmLabel: 'Send offer'
+      });
+      if (!ok) return;
       FSTransport.offerFriendship(participant.id).then(function (result) {
         if (result && result.alreadyFriend) {
           FSUtils.showToast('Already friends.', 'warning');
@@ -729,7 +734,7 @@ const FSIm = (function () {
     const payCancel = document.getElementById('pay-cancel');
     if (payCancel && payDialog) {
       payCancel.addEventListener('click', function () {
-        payDialog.close();
+        FSUtils.dismissDialog(payDialog);
       });
     }
     if (payForm && payDialog) {
@@ -742,7 +747,7 @@ const FSIm = (function () {
         FSTransport.payResident(targetId, amount, note).then(function (result) {
           if (result && result.sent) {
             FSUtils.showToast('Payment sent.', 'success');
-            payDialog.close();
+            FSUtils.dismissDialog(payDialog);
           } else {
             FSUtils.showToast('Payment failed.', 'warning');
           }

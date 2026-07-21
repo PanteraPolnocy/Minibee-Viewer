@@ -393,7 +393,7 @@ const FSEventQueue = (function () {
       if (lastAck !== null && lastAck !== undefined) {
         payload.ack = lastAck;
       }
-      const proxyOpts = { timeoutMs: teleportActive ? EQ_POLL_MS : EQ_POLL_MS_IDLE };
+      const proxyOpts = { timeoutMs: teleportActive ? EQ_POLL_MS : EQ_POLL_MS_IDLE, parseLlsd: true };
       if (pollAbort) {
         proxyOpts.signal = pollAbort.signal;
       }
@@ -432,7 +432,10 @@ const FSEventQueue = (function () {
         throw new Error('EventQueue poll HTTP ' + resp.status + (snippet ? (': ' + snippet) : ''));
       }
       lastPollRawBody = String(resp.body || '');
-      const data = FSLLSD.parse(lastPollRawBody, resp.contentType || '');
+      // Prefer the LLSD already parsed in the native core; fall back to JS.
+      const data = (resp.parsed !== undefined && resp.parsed !== null)
+        ? resp.parsed
+        : FSLLSD.parse(lastPollRawBody, resp.contentType || '');
       const ackId = data && (data.id !== undefined && data.id !== null ? data.id : data.ID);
       if (ackId !== undefined && ackId !== null) {
         lastAck = ackId;

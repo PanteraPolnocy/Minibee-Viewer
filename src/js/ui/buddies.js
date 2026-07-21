@@ -78,10 +78,16 @@ const FSBuddies = (function () {
       { label: 'Profile', fn: function () { FSProfile.openAvatar(buddy.id, { agent: buddy }); } },
       { label: 'Teleport offer', fn: function () { FSTeleportUI.offerTo(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
       { label: 'Teleport request', fn: function () { FSTeleportUI.requestFrom(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
-      { label: 'Remove friend', fn: function () {
+      { label: 'Remove friend', fn: async function () {
         const names = FSUtils.agentNameLines(buddy);
         const label = names.title || buddy.name || 'this friend';
-        if (!window.confirm('Remove ' + label + ' from your friends list?')) return;
+        const ok = await FSUtils.confirm({
+          title: 'Remove friend?',
+          message: 'Remove ' + label + ' from your friends list?',
+          confirmLabel: 'Remove',
+          danger: true
+        });
+        if (!ok) return;
         FSTransport.removeFriendship(buddy.id).then(function (result) {
           if (result && result.sent) {
             FSUtils.showToast('Friend removed.', 'success');

@@ -288,23 +288,12 @@ const FSMap = (function () {
 
   function scheduleRegionNameBatch() {
     if (httpNameBatchRunning || !httpNameBatchQueue.length) return;
-    const bridge = String(FSTransport.getBridgeUrl() || '').replace(/\/$/, '');
-    if (!bridge) {
-      httpNameBatchQueue.forEach(function (item) {
-        httpNamePending.delete(item.key);
-      });
-      httpNameBatchQueue = [];
-      return;
-    }
     httpNameBatchRunning = true;
     const batch = httpNameBatchQueue.splice(0, 25);
     const tiles = batch.map(function (item) {
       return item.gridX + ',' + item.gridY;
     }).join(';');
-    FSBridge.httpFetch(bridge, '/map/regions?tiles=' + encodeURIComponent(tiles)).then(function (resp) {
-      if (!resp.ok) return null;
-      return resp.json();
-    }).then(function (data) {
+    FSBridge.mapRegions(tiles).then(function (data) {
       const regions = data && data.regions ? data.regions : [];
       regions.forEach(function (row) {
         if (!row) return;
@@ -467,11 +456,7 @@ const FSMap = (function () {
       }
     }
 
-    const bridge = String(FSTransport.getBridgeUrl() || '').replace(/\/$/, '');
     const directUrl = FSSlurl.tileUrl(mapServerUrl, MAP_LEVEL, gridX, gridY, '');
-    const bridgeUrl = bridge
-      ? FSSlurl.tileUrl(mapServerUrl, MAP_LEVEL, gridX, gridY, bridge)
-      : directUrl;
 
     const entry = { state: 'pending', waiters: [], revokeBlob: false, blobUrl: '', loadToken: token };
     tileImageCache.set(key, entry);
@@ -491,21 +476,18 @@ const FSMap = (function () {
       waiters.forEach(function (fn) { fn(); });
     }
 
-    function loadViaFetch(url, allowBridgeFallback) {
-      fetch(url).then(function (resp) {
-        if (!resp.ok) throw new Error('tile ' + resp.status);
-        return resp.blob();
-      }).then(function (blob) {
-        if (!blob || !String(blob.type || '').startsWith('image/')) {
-          throw new Error('not an image');
-        }
+    // Fallback: fetch the tile bytes through the native core (bypasses any
+    // cross-origin restriction on the map server) and build a blob URL.
+    function loadViaBackend() {
+      FSBridge.mapTile(MAP_LEVEL, gridX, gridY, mapServerUrl).then(function (data) {
+        if (!data || !data.b64) throw new Error('no tile');
+        const bin = atob(data.b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: data.contentType || 'image/jpeg' });
         entry.revokeBlob = true;
         finish('ok', URL.createObjectURL(blob));
       }).catch(function () {
-        if (allowBridgeFallback && url === directUrl && bridgeUrl !== directUrl) {
-          loadViaFetch(bridgeUrl, false);
-          return;
-        }
         finish('missing');
       });
     }
@@ -519,11 +501,7 @@ const FSMap = (function () {
     probe.onerror = function () {
       probe.onload = null;
       probe.onerror = null;
-      if (bridgeUrl !== directUrl) {
-        loadViaFetch(bridgeUrl, false);
-      } else {
-        finish('missing');
-      }
+      loadViaBackend();
     };
     probe.src = directUrl;
   }
