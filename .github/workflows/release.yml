@@ -23,7 +23,7 @@ jobs:
         include:
           - platform: macos-latest      # produces a universal (arm64 + x86_64) .app/.dmg
             args: "--target universal-apple-darwin"
-          - platform: ubuntu-22.04      # .deb / .rpm / .AppImage
+          - platform: ubuntu-latest      # .deb / .rpm / .AppImage
             args: ""
           - platform: windows-latest    # NSIS .exe + MSI
             args: ""
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux build dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -68,3 +68,4 @@ jobs:
           # Upload to the release that triggered this run.
           releaseId: ${{ github.event.release.id }}
           args: ${{ matrix.args }}
+          releaseAssetNamePattern: '[platform]_[name]_[version]_[arch][_setup][ext]'
