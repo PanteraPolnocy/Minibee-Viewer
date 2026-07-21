@@ -42,10 +42,16 @@ const MinibeeVersion = (function () {
   }
 
   function load() {
+    if (state.loaded) return Promise.resolve(state);
     if (!loadPromise) {
       loadPromise = FSBridge.version().then(function (data) {
         if (!apply(data)) throw new Error('invalid version payload');
         return state;
+      }).catch(function (err) {
+        // Don't cache the failure, or one transient error blocks version load
+        // for the whole session (and can throw during login).
+        loadPromise = null;
+        throw err;
       });
     }
     return loadPromise;

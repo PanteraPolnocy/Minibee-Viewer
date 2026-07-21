@@ -12,7 +12,7 @@ const FSIm = (function () {
 
   const ME_TYPING_RESEND_MS = 4000;
   const ME_TYPING_IDLE_MS = 5000;
-  const OTHER_TYPING_TIMEOUT_MS = 12000;
+  const OTHER_TYPING_TIMEOUT_MS = 9000;
   let meTyping = { sessionId: null, active: false, lastSent: 0, timer: null };
   const incomingTypingTimers = {};
   let conferenceMode = { mode: 'create', sessionId: null };
@@ -147,7 +147,12 @@ const FSIm = (function () {
     sessions.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
 
     sessions.forEach(function (session) {
-      refreshSessionPresence(session);
+      // Resolve presence inline, WITHOUT emitting: refreshImSessionPresence fires
+      // 'im-sessions-updated' synchronously, which re-enters renderSessions
+      // mid-loop and duplicates rows.
+      if (typeof FSState.resolveParticipantPresence === 'function' && session.participant) {
+        session.participant = FSState.resolveParticipantPresence(session.participant);
+      }
       container.appendChild(renderSession(session));
     });
   }
@@ -161,12 +166,7 @@ const FSIm = (function () {
         '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
       '</div>' +
       '<p class="msg__body">' + FSSlurl.linkify(msg.text, FSUtils.escapeHtml) + '</p>';
-    el.querySelectorAll('.slurl-link').forEach(function (link) {
-      link.addEventListener('click', function (e) {
-        e.preventDefault();
-        FSMap.showLocation(link.dataset.slurl || link.textContent);
-      });
-    });
+    FSSlurl.bindLinks(el);
     return el;
   }
 
@@ -230,7 +230,10 @@ const FSIm = (function () {
       return;
     }
     const selfId = String((FSState.get().agent || {}).id || '').toLowerCase();
-    const canModerate = !!(session && session.canModerate);
+    // Firestorm exposes text moderation (MOD tags + mute toggles) for GROUP
+    // sessions only; ad-hoc conferences have no moderation UI (to-do §1).
+    const isGroup = !!(session && session.type === 'group');
+    const canModerate = !!(session && session.canModerate) && isGroup;
     const sessionId = session.id;
     participants.slice().sort(function (a, b) {
       if (!!a.isModerator !== !!b.isModerator) return a.isModerator ? -1 : 1;
@@ -252,7 +255,7 @@ const FSIm = (function () {
         '<span class="im-roster__dot' + (member.online ? ' im-roster__dot--online' : '') + '"></span>' +
         '<span class="im-roster__name' + (member.muted ? ' im-roster__name--muted' : '') + '">' +
           FSUtils.escapeHtml(label) + '</span>' +
-        (member.isModerator ? '<span class="im-roster__mod">MOD</span>' : '');
+        ((member.isModerator && isGroup) ? '<span class="im-roster__mod">MOD</span>' : '');
       if (!isSelf) {
         nameBtn.addEventListener('click', function () {
           startImWith({ id: member.id, name: label });

@@ -17,6 +17,7 @@ use crate::bridge::state::AppState;
 use crate::bridge::util::{normalize_seed_url, normalize_sim_ip, trim_quotes};
 use crate::bridge::{circuit, login, map, proxy};
 use crate::codec;
+use crate::urlmatch;
 
 type Cmd = Result<Value, String>;
 
@@ -65,6 +66,9 @@ pub async fn bridge_proxy(state: State<'_, Arc<AppState>>, params: Value) -> Cmd
         return Err("url required".into());
     }
     let url = normalize_seed_url(&raw_url);
+    if let Some(reason) = proxy::egress_block_reason(&url) {
+        return Err(format!("Proxy target refused: {reason}"));
+    }
     let is_post = method == "POST";
     let payload = if is_post { gs(&params, "body") } else { String::new() };
     let content_type = {
@@ -197,6 +201,14 @@ pub async fn bridge_region_by_name(state: State<'_, Arc<AppState>>, name: String
         return Err("region name required".into());
     }
     Ok(map::fetch_region_by_name(state.inner(), &name).await)
+}
+
+/// Split a line of chat/IM text into ordered text/link segments with trust
+/// classification (to-do §9). Canonical URL grammar lives in `urlmatch`; the
+/// frontend renders the returned segments (escaping text spans itself).
+#[tauri::command]
+pub async fn bridge_linkify(text: String) -> Cmd {
+    Ok(json!({ "segments": urlmatch::linkify(&text) }))
 }
 
 // --- Circuit commands -------------------------------------------------------

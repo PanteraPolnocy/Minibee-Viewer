@@ -53,7 +53,8 @@ const FSLLSD = (function () {
         const key = textContent(child);
         let sib = child.nextSibling;
         while (sib && sib.nodeType !== 1) sib = sib.nextSibling;
-        if (sib) out[key] = parseValue(sib);
+        // Wrap so scalars get typed the same way array elements do.
+        if (sib) out[key] = parseValue(wrapValue(sib));
       }
       child = child.nextSibling;
     }
@@ -64,13 +65,10 @@ const FSLLSD = (function () {
     const out = [];
     let child = arrayEl.firstChild;
     while (child) {
+      // Every element counts, including undef/uri/date — skipping any would
+      // shift the indices of everything after it.
       if (child.nodeType === 1) {
-        const tag = child.tagName.toLowerCase();
-        if (tag === 'map' || tag === 'string' || tag === 'integer' || tag === 'int' ||
-            tag === 'boolean' || tag === 'uuid' || tag === 'array' || tag === 'binary' ||
-            tag === 'real' || tag === 'double') {
-          out.push(parseValue(wrapValue(child)));
-        }
+        out.push(parseValue(wrapValue(child)));
       }
       child = child.nextSibling;
     }

@@ -55,6 +55,9 @@ const FSSLTransport = (function () {
   const IM_DEDUP_FALLBACK_MS = 4000;
   const IM_DEDUP_MAX = 600;
   const recentPaymentKeys = new Map();
+  // signature -> event id, so a repeated MoneyBalanceReply updates the existing
+  // card in place instead of dropping silently or pushing a duplicate (§4).
+  const recentPaymentEventIds = new Map();
   const PAYMENT_DEDUP_TTL_MS = 15000;
   const PAYMENT_DEDUP_MAX = 200;
   const GROUP_ACTION_TIMEOUT_MS = 15000;
@@ -90,13 +93,19 @@ const FSSLTransport = (function () {
 
   function prunePaymentDedup(now) {
     recentPaymentKeys.forEach(function (ts, key) {
-      if (now - ts > PAYMENT_DEDUP_TTL_MS) recentPaymentKeys.delete(key);
+      if (now - ts > PAYMENT_DEDUP_TTL_MS) {
+        recentPaymentKeys.delete(key);
+        recentPaymentEventIds.delete(key);
+      }
     });
     if (recentPaymentKeys.size > PAYMENT_DEDUP_MAX) {
       const drop = recentPaymentKeys.size - PAYMENT_DEDUP_MAX;
       let i = 0;
       recentPaymentKeys.forEach(function (_ts, key) {
-        if (i++ < drop) recentPaymentKeys.delete(key);
+        if (i++ < drop) {
+          recentPaymentKeys.delete(key);
+          recentPaymentEventIds.delete(key);
+        }
       });
     }
   }
@@ -236,7 +245,6 @@ const FSSLTransport = (function () {
   let chatSessionCapUrl = null;
   let agentProfileCapUrl = null;
   const chatSessions = new Map();
-  const conferenceTempMap = new Map();
   const pendingChatAccepts = new Set();
   let regionCaps = {};
   let eventQueueCapUrl = null;
@@ -989,6 +997,10 @@ const FSSLTransport = (function () {
     if (!data || !data.objectId) return;
     const name = data.objectName || 'Object';
     const message = String(data.message || '').trim();
+    const ownerId = normAgentId(data.ownerId);
+    const hasOwner = !!ownerId && ownerId !== ZERO_UUID;
+    // Enrich a resident owner's name so the card can link to their profile.
+    if (hasOwner && !data.isGroup) queueNameResolve([ownerId]);
     FSErrors.info('script', (data.isTextBox ? 'Script text box' : 'Script dialog') +
       ' from ' + name, false);
     postEventMessage({
@@ -1004,7 +1016,8 @@ const FSSLTransport = (function () {
       dialog: {
         objectId: data.objectId,
         objectName: name,
-        ownerName: data.ownerName || '',
+        ownerId: hasOwner ? ownerId : '',
+        ownerName: data.ownerName || (hasOwner && !data.isGroup ? pickDisplayName(ownerId, '') : ''),
         isGroup: !!data.isGroup,
         message: message,
         chatChannel: data.chatChannel || 0,
@@ -1130,9 +1143,29 @@ const FSSLTransport = (function () {
     if (!data) return;
     const note = String(data.description || '').trim();
     if (!note) return;
-    if (isDuplicatePayment(data)) return;
+    const key = paymentDedupKey(data);
+    // A transaction can produce more than one MoneyBalanceReply (sim retries /
+    // repeated poll batches). On a repeat, refresh the existing card's balance
+    // in place rather than pushing another identical card (§4).
+    if (key && isDuplicatePayment(data)) {
+      const priorId = recentPaymentEventIds.get(key);
+      if (priorId && typeof FSState !== 'undefined' && FSState.patchEventMessage) {
+        FSState.patchEventMessage(priorId, {
+          text: note,
+          payment: {
+            balance: data.balance,
+            description: note,
+            transactionType: data.transactionType || 0,
+            transactionId: data.transactionId || ''
+          }
+        });
+      }
+      return;
+    }
+    const id = FSUtils.uuid();
+    if (key) recentPaymentEventIds.set(key, id);
     postEventMessage({
-      id: FSUtils.uuid(),
+      id: id,
       kind: 'payment',
       fromId: '00000000-0000-0000-0000-000000000000',
       fromName: 'Economy',
@@ -1530,12 +1563,17 @@ const FSSLTransport = (function () {
       queueNameResolve([id]);
       const loc = locs[i];
       const pos = { x: loc.x, y: loc.y, z: loc.z };
-      const range = Math.round(FSUtils.distance3d(selfPos, pos));
+      // When the sim didn't report altitude, fall back to horizontal distance
+      // rather than the fake z=1020 that would read as ~1 km away.
+      const range = loc.unknownZ
+        ? Math.round(Math.hypot(pos.x - selfPos.x, pos.y - selfPos.y))
+        : Math.round(FSUtils.distance3d(selfPos, pos));
       entries.push(mergeNameFields({
         id: id,
         name: pickDisplayName(id, getCachedName(id)),
         pos: pos,
         range: range,
+        unknownZ: !!loc.unknownZ,
         age: '?',
         status: ''
       }, getCachedNameInfo(id)));
@@ -2563,7 +2601,6 @@ const FSSLTransport = (function () {
       bucketToText(body.session_name) || '';
     if (session && sessionKey(tempId) !== sessionKey(realId)) {
       // Ad-hoc conference: migrate the temp session id to the sim-assigned id.
-      conferenceTempMap.set(sessionKey(tempId), realId);
       chatSessions.delete(sessionKey(tempId));
       session.id = realId;
       chatSessions.set(sessionKey(realId), session);
@@ -3580,10 +3617,8 @@ const FSSLTransport = (function () {
   }
 
   async function resolveRegionByName(regionName, local) {
-    const results = await Promise.all([
-      FSSlurl.fetchRegionByNameCap(regionName, 12000).catch(function () { return null; }),
-      resolveRegionNameHttp(regionName)
-    ]);
+    // Region-name lookup goes through the native core only (no JSONP; §13 F).
+    const results = [await resolveRegionNameHttp(regionName)];
     let lastErr = null;
     for (let i = 0; i < results.length; i++) {
       const lookup = results[i];
@@ -4167,9 +4202,16 @@ const FSSLTransport = (function () {
       snapshotId: mergeParcelRichField(p.snapshotId, current.snapshotId, preferIncoming),
       dwell: p.dwell !== undefined ? p.dwell : current.dwell,
       landingPoint: p.landingPoint || current.landingPoint,
+      landingType: p.landingType !== undefined ? p.landingType : current.landingType,
       passPrice: p.passPrice !== undefined ? p.passPrice : current.passPrice,
       passHours: p.passHours !== undefined ? p.passHours : current.passHours,
       salePrice: p.salePrice !== undefined ? p.salePrice : current.salePrice,
+      // Retained so a parcel edit can round-trip them instead of zeroing.
+      mediaId: mergeParcelRichField(p.mediaId, current.mediaId, preferIncoming),
+      mediaAutoScale: p.mediaAutoScale !== undefined ? p.mediaAutoScale : current.mediaAutoScale,
+      category: p.category !== undefined ? p.category : current.category,
+      authBuyerId: mergeParcelRichField(p.authBuyerId, current.authBuyerId, preferIncoming),
+      userLookAt: p.userLookAt || current.userLookAt,
       stub: false,
       source: src
     };
@@ -4341,14 +4383,19 @@ const FSSLTransport = (function () {
       if (agentId && normAgentId(fromId) === agentId) {
         return;
       }
-      cacheName(fromId, evt.data.fromName);
+      // EChatSourceType: 0 = system, 1 = agent, 2 = object.
+      const source = evt.data.sourceType === 1 ? 'agent'
+        : evt.data.sourceType === 2 ? 'object' : 'system';
+      // Only cache the name/UUID as a resident when it actually is one.
+      if (source === 'agent') cacheName(fromId, evt.data.fromName);
       emit('chat', {
         id: FSUtils.uuid(),
         fromId: fromId,
-        fromName: getCachedName(fromId) || evt.data.fromName,
+        fromName: (source === 'agent' ? getCachedName(fromId) : '') || evt.data.fromName,
         text: evt.data.text,
         type: chatTypeName(evt.data.chatType),
-        source: evt.data.sourceType === 0 ? 'object' : 'agent',
+        source: source,
+        ownerId: source === 'object' ? (evt.data.ownerId || '') : '',
         channel: 0,
         timestamp: Date.now()
       });
@@ -5119,7 +5166,6 @@ const FSSLTransport = (function () {
     chatSessionCapUrl = null;
     agentProfileCapUrl = null;
     chatSessions.clear();
-    conferenceTempMap.clear();
     pendingChatAccepts.clear();
     eventQueueCapUrl = null;
     if (eventQueueRestartTimer) {
@@ -5351,6 +5397,12 @@ const FSSLTransport = (function () {
 
   async function moderateSessionText(sessionId, agentId, muteText) {
     if (simActionsBlocked() || !loginData) throw new Error('Not connected');
+    // Firestorm text moderation ("mute update") applies to GROUP sessions only;
+    // never send it for P2P or ad-hoc conferences (to-do §1).
+    const modSession = chatSessions.get(sessionKey(sessionId));
+    if (modSession && modSession.type && modSession.type !== 'group') {
+      throw new Error('Moderation applies to group sessions only');
+    }
     const cap = getChatSessionCap();
     if (!cap) throw new Error('Moderation is unavailable on this region');
     const target = normAgentId(agentId);
@@ -5374,22 +5426,49 @@ const FSSLTransport = (function () {
     if (!FSUtils.canEditParcel(p, loginData.agent.id)) {
       throw new Error('You do not have permission to edit this parcel');
     }
-    const flags = 0xFFFFFFFF;
+    // Start from the current flags and flip only the bits the form provided;
+    // an undefined field leaves its bit alone. Access-list bits are left as-is
+    // (their dropdown semantics aren't wired yet, and getting them wrong can
+    // lock people out).
     let parcelFlags = p.parcelFlags || 0;
-    if (data.pushRestricted) parcelFlags |= PF_RESTRICT_PUSHOBJECT;
-    else parcelFlags &= ~PF_RESTRICT_PUSHOBJECT;
-    if (data.allowBuild) parcelFlags |= PF_CREATE_OBJECTS;
-    else parcelFlags &= ~PF_CREATE_OBJECTS;
-    if (data.allowScripts) parcelFlags |= PF_ALLOW_OTHER_SCRIPTS;
-    else parcelFlags &= ~PF_ALLOW_OTHER_SCRIPTS;
+    const setBit = function (cond, bit) {
+      if (cond === undefined) return;
+      if (cond) parcelFlags |= bit; else parcelFlags &= ~bit;
+    };
+    setBit(data.pushRestricted, PF_RESTRICT_PUSHOBJECT);
+    setBit(data.allowBuildEveryone, PF_CREATE_OBJECTS);
+    setBit(data.allowBuildGroup, PF_CREATE_GROUP_OBJECTS);
+    setBit(data.allowScriptsEveryone, PF_ALLOW_OTHER_SCRIPTS);
+    setBit(data.allowScriptsGroup, PF_ALLOW_GROUP_SCRIPTS);
+    setBit(data.allowFly, PF_ALLOW_FLY);
+    if (data.safeEnvironment !== undefined) setBit(!data.safeEnvironment, PF_ALLOW_DAMAGE);
+    setBit(data.showInSearch, PF_SHOW_DIRECTORY);
+    setBit(data.soundLocal, PF_SOUND_LOCAL);
+    setBit(data.allowVoice, PF_ALLOW_VOICE_CHAT);
+    setBit(data.sellPasses, PF_USE_PASS_LIST);
+
+    const keep = function (v, cur) { return v !== undefined ? v : cur; };
     await circuit.updateParcel({
       localId: p.localId || 0,
-      flags: flags,
+      flags: 0x01, // message flag: apply this update (matches FS)
       parcelFlags: parcelFlags,
-      name: data.name,
-      desc: data.desc,
-      musicUrl: data.musicUrl,
-      mediaUrl: data.mediaUrl
+      name: keep(data.name, p.name),
+      desc: keep(data.desc, p.desc),
+      musicUrl: keep(data.musicUrl, p.musicUrl),
+      mediaUrl: keep(data.mediaUrl, p.mediaUrl),
+      // Round-trip everything else so an edit never wipes untouched settings.
+      salePrice: p.salePrice || 0,
+      mediaId: p.mediaId || '',
+      mediaAutoScale: p.mediaAutoScale ? 1 : 0,
+      groupId: p.groupId || '',
+      passPrice: p.passPrice || 0,
+      passHours: p.passHours || 0,
+      category: p.category || 0,
+      authBuyerId: p.authBuyerId || '',
+      snapshotId: p.snapshotId || '',
+      userLocation: p.landingPoint || { x: 0, y: 0, z: 0 },
+      userLookAt: p.userLookAt || { x: 0, y: 0, z: 0 },
+      landingType: p.landingType || 0
     });
     emit('parcel-updated', data);
     return data;

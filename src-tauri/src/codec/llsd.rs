@@ -73,10 +73,21 @@ fn parse_node(node: roxmltree::Node) -> Value {
         "real" | "double" => json!(node_text(node).parse::<f64>().unwrap_or(0.0)),
         "uuid" | "string" | "date" | "uri" => json!(node_text(node)),
         "binary" => {
-            let raw = node_text(node);
-            match B64.decode(raw.as_bytes()) {
-                Ok(bytes) => Value::Array(bytes.into_iter().map(|b| json!(b)).collect()),
-                Err(_) => Value::Array(Vec::new()),
+            // Honor the encoding attribute (Firestorm skips a non-base64 encoding),
+            // and strip ASCII whitespace before decoding: LLSD-XML produced by
+            // non-Linden formatters/proxies line-wraps or indents the base64, which
+            // the STANDARD engine rejects — silently dropping the field (audit #17,
+            // cf. llsdserialize_xml.cpp DEV-39358).
+            let enc = node.attribute("encoding").unwrap_or("base64");
+            if !enc.eq_ignore_ascii_case("base64") {
+                Value::Array(Vec::new())
+            } else {
+                let cleaned: String =
+                    node_text(node).chars().filter(|c| !c.is_ascii_whitespace()).collect();
+                match B64.decode(cleaned.as_bytes()) {
+                    Ok(bytes) => Value::Array(bytes.into_iter().map(|b| json!(b)).collect()),
+                    Err(_) => Value::Array(Vec::new()),
+                }
             }
         }
         "undef" => Value::Null,

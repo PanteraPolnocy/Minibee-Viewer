@@ -1,6 +1,7 @@
 pub mod bridge;
 pub mod codec;
 pub mod commands;
+pub mod urlmatch;
 
 use bridge::state::{version_payload, AppState};
 use tauri::Manager;
@@ -33,6 +34,7 @@ pub fn run() {
             commands::bridge_map_region,
             commands::bridge_map_regions,
             commands::bridge_region_by_name,
+            commands::bridge_linkify,
             commands::sl_open_circuit,
             commands::sl_close_circuit,
             commands::sl_retarget,

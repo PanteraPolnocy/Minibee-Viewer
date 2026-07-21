@@ -182,11 +182,13 @@ const FSChat = (function () {
       ? ('You chose: ' + FSUtils.escapeHtml(dialog.response))
       : '';
 
+    const oo = objectOwnerAttrs(dialog.ownerId, dialog.isGroup);
     el.innerHTML =
       '<div class="script-dialog__header">' +
         '<span class="script-dialog__badge">Script</span>' +
         '<div class="script-dialog__titles">' +
-          '<span class="script-dialog__object">' + FSUtils.escapeHtml(dialog.objectName || msg.fromName || 'Object') + '</span>' +
+          '<span class="script-dialog__object' + oo.cls + '"' + oo.attrs + '>' +
+            FSUtils.escapeHtml(dialog.objectName || msg.fromName || 'Object') + '</span>' +
           (ownerLine ? '<span class="script-dialog__owner">' + FSUtils.escapeHtml(ownerLine) + '</span>' : '') +
         '</div>' +
         '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
@@ -197,7 +199,34 @@ const FSChat = (function () {
         responseNote + '</p>';
 
     bindScriptDialog(el, msg);
+    bindObjectOwner(el);
     return el;
+  }
+
+  // Clickable object title → owner profile (avatar, or group when group-owned).
+  const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
+  function objectOwnerAttrs(ownerId, isGroup) {
+    const id = String(ownerId || '').trim();
+    if (!id || id === ZERO_UUID) return { cls: '', attrs: '' };
+    return {
+      cls: ' script-dialog__object--link',
+      attrs: ' data-owner-id="' + FSUtils.escapeHtml(id) + '"' +
+        ' data-owner-group="' + (isGroup ? '1' : '0') + '"' +
+        ' title="View owner profile"'
+    };
+  }
+  function bindObjectOwner(el) {
+    if (!el || !el.querySelectorAll) return;
+    el.querySelectorAll('.script-dialog__object--link').forEach(function (node) {
+      node.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = node.dataset.ownerId;
+        if (!id || typeof FSProfile === 'undefined') return;
+        if (node.dataset.ownerGroup === '1') FSProfile.openGroup(id);
+        else FSProfile.openAvatar(id);
+      });
+    });
   }
 
   function isAllowedExternalUrl(url) {
@@ -420,11 +449,12 @@ const FSChat = (function () {
           '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
             (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
         '</div>';
+      const ooUrl = objectOwnerAttrs(prompt.ownerId, prompt.ownerIsGroup);
       el.innerHTML =
         '<div class="script-dialog__header">' +
           '<span class="script-dialog__badge ' + badgeClass + '">' + badge + '</span>' +
           '<div class="script-dialog__titles">' +
-            '<span class="script-dialog__object">' +
+            '<span class="script-dialog__object' + ooUrl.cls + '"' + ooUrl.attrs + '>' +
               FSUtils.escapeHtml(prompt.objectName || msg.fromName || 'Object') + '</span>' +
             (ownerLine ? '<span class="script-dialog__owner">' + FSUtils.escapeHtml(ownerLine) + '</span>' : '') +
           '</div>' +
@@ -436,6 +466,7 @@ const FSChat = (function () {
           FSUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
+      bindObjectOwner(el);
       return el;
     }
 
@@ -444,7 +475,7 @@ const FSChat = (function () {
       badgeClass = 'script-dialog__badge--map';
       const pos = prompt.position || { x: 128, y: 128, z: 25 };
       const locationLine = (prompt.regionName || 'Region') + ' (' +
-        Math.round(pos.x) + ', ' + Math.round(pos.y) + ', ' + Math.round(pos.z).toFixed(1) + ')';
+        Math.round(pos.x) + ', ' + Math.round(pos.y) + ', ' + Math.round(pos.z) + ')';
       body = '<p class="script-dialog__body">Teleport to this location or show it on the map?</p>' +
         '<p class="interactive-prompt__location">' + FSUtils.escapeHtml(locationLine) + '</p>';
       actions =
@@ -606,12 +637,7 @@ const FSChat = (function () {
       '</div>' +
       '<p class="msg__body">' + body + '</p>';
 
-    el.querySelectorAll('.slurl-link').forEach(function (link) {
-      link.addEventListener('click', function (e) {
-        e.preventDefault();
-        FSMap.showLocation(link.dataset.slurl || link.textContent);
-      });
-    });
+    FSSlurl.bindLinks(el);
 
     return el;
   }
@@ -648,14 +674,17 @@ const FSChat = (function () {
     el.dataset.id = msg.id;
 
     if (isSystem) {
-      el.innerHTML = '<p class="msg__body">' + FSUtils.escapeHtml(msg.text) + '</p>';
+      el.innerHTML = '<p class="msg__body">' + FSSlurl.linkify(msg.text, FSUtils.escapeHtml) + '</p>';
+      FSSlurl.bindLinks(el);
       return el;
     }
 
-    const nameClass = CHAT_TYPE_CLASS[volume] || (msg.source === 'object' ? 'msg__name--object' : '');
+    const isObject = msg.source === 'object';
+    const nameClass = CHAT_TYPE_CLASS[volume] || (isObject ? 'msg__name--object' : '');
     const label = volume === 'whisper' ? 'whispers' : volume === 'shout' ? 'shouts' : '';
     const speakerId = msg.fromId || '';
-    const avatarHtml = speakerId
+    // Only agents get an avatar thumbnail; an object's UUID is not an avatar.
+    const avatarHtml = (speakerId && !isObject)
       ? '<span class="msg__avatar avatar-thumb avatar-thumb--chat" data-agent-id="' +
         FSUtils.escapeHtml(speakerId) + '" data-resolve-image="0" data-label="' +
         FSUtils.escapeHtml(msg.fromName || '') + '"></span>'
@@ -671,18 +700,21 @@ const FSChat = (function () {
       '</div>' +
       '<p class="msg__body">' + FSSlurl.linkify(msg.text, FSUtils.escapeHtml) + '</p>';
 
-    el.querySelectorAll('.slurl-link').forEach(function (link) {
-      link.addEventListener('click', function (e) {
-        e.preventDefault();
-        FSMap.showLocation(link.dataset.slurl || link.textContent);
-      });
-    });
+    FSSlurl.bindLinks(el);
 
     const thumb = el.querySelector('.msg__avatar[data-agent-id]');
     if (thumb) FSAvatarThumb.refresh(thumb);
-    if (speakerId && typeof FSProfile !== 'undefined') {
+    if (typeof FSProfile !== 'undefined') {
       const nameEl = el.querySelector('.msg__name');
-      if (nameEl) {
+      if (nameEl && isObject && msg.ownerId) {
+        // An object's name links to its owner, not an avatar profile keyed by
+        // the object's own UUID.
+        nameEl.classList.add('msg__name--link');
+        nameEl.title = 'View owner profile';
+        nameEl.addEventListener('click', function () {
+          FSProfile.openAvatar(msg.ownerId);
+        });
+      } else if (nameEl && !isObject && speakerId) {
         nameEl.classList.add('msg__name--link');
         nameEl.title = 'View profile';
         nameEl.addEventListener('click', function () {

@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UdpSocket};
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 use crate::codec;
@@ -89,6 +90,18 @@ fn parse_addr(ip: &str, port: u16) -> Option<SocketAddr> {
     format!("{}:{}", ip, port).parse().ok()
 }
 
+/// Resolve a target that may be an IP literal or (rarely, OpenSim) a hostname.
+/// DNS resolution is async so it never blocks a Tokio worker (to-do audit #45).
+async fn resolve_target(ip: &str, port: u16) -> Option<SocketAddr> {
+    if let Some(addr) = parse_addr(ip, port) {
+        return Some(addr);
+    }
+    tokio::net::lookup_host((ip, port))
+        .await
+        .ok()
+        .and_then(|mut it| it.find(|a| a.is_ipv4()).or_else(|| it.next()))
+}
+
 /// High-frequency inbound messages the UI never consumes (no 3D world). These
 /// are single-byte message ids that sit at offset 6; they are dropped only when
 /// unreliable, so a needed ack is never skipped.
@@ -124,7 +137,7 @@ pub async fn open(
     sim_ip: &str,
     sim_port: u16,
 ) -> Result<(String, Arc<Session>, u16), String> {
-    let target = parse_addr(sim_ip, sim_port).ok_or("Invalid sim_ip or sim_port")?;
+    let target = resolve_target(sim_ip, sim_port).await.ok_or("Invalid sim_ip or sim_port")?;
     let socket = UdpSocket::bind("0.0.0.0:0")
         .await
         .map_err(|e| format!("socket bind failed: {e}"))?;
@@ -141,7 +154,7 @@ pub async fn open(
     let session_id = now_id();
 
     let reader = spawn_reader(app.clone(), session.clone(), session_id.clone());
-    let http = spawn_http_listener(app, session_id.clone(), local_port);
+    let http = spawn_http_listener(app, session.clone(), session_id.clone(), local_port);
     {
         let mut tasks = session.tasks.lock().unwrap();
         tasks.push(reader);
@@ -195,38 +208,78 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
 static HTTP_MSG_PATH: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)/(?:trusted-message|message)/([^/?]+)").unwrap());
 
-fn spawn_http_listener(app: AppHandle, session_id: String, port: u16) -> JoinHandle<()> {
+fn spawn_http_listener(
+    app: AppHandle,
+    session: Arc<Session>,
+    session_id: String,
+    port: u16,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
+        // The sim connects back to the viewer's UDP-listen port over TCP, so the
+        // socket must accept from the network — but every connection is then
+        // validated to originate from the current sim (audit #3), mirroring
+        // Firestorm's LLTrustedMessageService / isTrustedSender (message.cpp).
         let listener = match TcpListener::bind(("0.0.0.0", port)).await {
             Ok(l) => l,
             Err(_) => return, // inbound trusted-message delivery unavailable; not fatal
         };
+        // Bound the number of concurrent inbound handlers so a flood of
+        // connections cannot exhaust tasks/memory (audit #43).
+        let sem = Arc::new(Semaphore::new(8));
         loop {
-            let (mut stream, _peer) = match listener.accept().await {
+            let (mut stream, peer) = match listener.accept().await {
                 Ok(v) => v,
                 Err(_) => continue,
+            };
+            // Only the current sim (circuit target IP) may post trusted messages.
+            let trusted_ip = session.target.lock().unwrap().ip();
+            if peer.ip() != trusted_ip {
+                let _ = stream
+                    .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .await;
+                let _ = stream.flush().await;
+                continue;
+            }
+            let permit = match sem.clone().try_acquire_owned() {
+                Ok(p) => p,
+                Err(_) => {
+                    // Too many in flight; shed load rather than queue unbounded.
+                    let _ = stream
+                        .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        .await;
+                    let _ = stream.flush().await;
+                    continue;
+                }
             };
             let app = app.clone();
             let session_id = session_id.clone();
             tokio::spawn(async move {
+                let _permit = permit; // released when this handler ends
                 let mut data = Vec::new();
                 let mut chunk = [0u8; 8192];
-                loop {
-                    match stream.read(&mut chunk).await {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            data.extend_from_slice(&chunk[..n]);
-                            if let Some(total) = request_complete_len(&data) {
-                                if data.len() >= total {
+                // Total read budget so a slow-loris / stuck sender cannot pin a
+                // handler forever (audit #43).
+                let read_all = async {
+                    loop {
+                        match stream.read(&mut chunk).await {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                data.extend_from_slice(&chunk[..n]);
+                                if let Some(total) = request_complete_len(&data) {
+                                    if data.len() >= total {
+                                        break;
+                                    }
+                                }
+                                if data.len() > 1_048_576 {
                                     break;
                                 }
                             }
-                            if data.len() > 1_048_576 {
-                                break;
-                            }
+                            Err(_) => break,
                         }
-                        Err(_) => break,
                     }
+                };
+                if tokio::time::timeout(Duration::from_secs(15), read_all).await.is_err() {
+                    return; // timed out; connection abandoned
                 }
                 if let Some((name, body, content_type)) = parse_trusted_message(&data) {
                     let _ = app.emit(
@@ -268,11 +321,19 @@ fn request_complete_len(data: &[u8]) -> Option<usize> {
     Some(body_start + content_length)
 }
 
+/// Byte offset of the CRLFCRLF header/body separator.
+fn header_end(data: &[u8]) -> Option<usize> {
+    data.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
 fn parse_trusted_message(data: &[u8]) -> Option<(String, String, String)> {
-    let text = String::from_utf8_lossy(data);
-    let hdr_end = text.find("\r\n\r\n")?;
-    let head = &text[..hdr_end];
-    let body = text[hdr_end + 4..].to_string();
+    // Parse the (ASCII) header region and the body from the RAW byte boundary,
+    // so a non-UTF8 body cannot shift the header parse or be silently mangled by
+    // decoding the whole request at once (audit #46). The body is still surfaced
+    // as text (this path carries LLSD-XML); only the body bytes are lossy-decoded.
+    let hdr_end = header_end(data)?;
+    let head = String::from_utf8_lossy(&data[..hdr_end]);
+    let body = String::from_utf8_lossy(&data[hdr_end + 4..]).to_string();
     let request_line = head.lines().next()?;
     if !request_line.to_ascii_uppercase().starts_with("POST ") {
         return None;

@@ -2,7 +2,6 @@
 //! normalisation, seed-capability URL rewriting, and LLSD capability parsing.
 
 use std::collections::HashMap;
-use std::net::ToSocketAddrs;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -71,14 +70,9 @@ pub fn normalize_sim_ip_str(raw: &str) -> String {
             return long2ip((u & 0xFFFF_FFFF) as u32);
         }
     }
-    // Hostname: resolve to the first IPv4 address, else return unchanged.
-    if let Ok(addrs) = (s, 0u16).to_socket_addrs() {
-        for addr in addrs {
-            if addr.is_ipv4() {
-                return addr.ip().to_string();
-            }
-        }
-    }
+    // Hostname: return unchanged. DNS resolution happens asynchronously at the
+    // point of use (circuit::open via lookup_host); doing a blocking
+    // getaddrinfo here would stall a Tokio worker thread (audit #45).
     s.to_string()
 }
 
@@ -204,4 +198,97 @@ pub fn seed_has_region_caps(keys: &[String]) -> bool {
 pub fn trim_quotes(s: &str) -> String {
     s.trim_matches(|c| c == ' ' || c == '\t' || c == '"' || c == '\'')
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn xml_escape_covers_entities() {
+        assert_eq!(xml_escape("a<b>&\"'"), "a&lt;b&gt;&amp;&quot;&apos;");
+    }
+
+    #[test]
+    fn long2ip_big_endian() {
+        assert_eq!(long2ip(0x7F00_0001), "127.0.0.1");
+        assert_eq!(long2ip(0xC0A8_0101), "192.168.1.1");
+    }
+
+    #[test]
+    fn normalize_sim_ip_from_integer() {
+        // 3232235777 = 0xC0A80101 = 192.168.1.1
+        assert_eq!(normalize_sim_ip(&json!(3232235777u64)), "192.168.1.1");
+    }
+
+    #[test]
+    fn normalize_sim_ip_from_dotted_and_numeric_string() {
+        assert_eq!(normalize_sim_ip(&json!("54.10.20.30")), "54.10.20.30");
+        assert_eq!(normalize_sim_ip(&json!("2130706433")), "127.0.0.1");
+        assert_eq!(normalize_sim_ip(&json!("  \"8.8.8.8\" ")), "8.8.8.8");
+    }
+
+    #[test]
+    fn uuid_to_bytes_round_trips_and_rejects_bad() {
+        let b = uuid_to_bytes("00112233-4455-6677-8899-aabbccddeeff");
+        assert_eq!(b[0], 0x00);
+        assert_eq!(b[1], 0x11);
+        assert_eq!(b[15], 0xff);
+        assert_eq!(uuid_to_bytes("not-a-uuid"), [0u8; 16]);
+    }
+
+    #[test]
+    fn normalize_seed_url_collapses_split_simhost() {
+        // Split form: host `simhost-<digits>`, path `/<hex>.agni.secondlife.io.../cap/...`.
+        let input = "https://simhost-1234/abcdef.agni.secondlife.io:12043/cap/foo";
+        assert_eq!(
+            normalize_seed_url(input),
+            "https://simhost-1234abcdef.agni.secondlife.io:12043/cap/foo"
+        );
+    }
+
+    #[test]
+    fn normalize_seed_url_passthrough_for_normal_urls() {
+        let u = "https://simhost-1234.agni.secondlife.io:12043/cap/x";
+        assert_eq!(normalize_seed_url(u), u);
+    }
+
+    #[test]
+    fn normalize_seed_url_adds_scheme() {
+        assert_eq!(normalize_seed_url("example.com/x"), "https://example.com/x");
+    }
+
+    #[test]
+    fn llsd_array_xml_wraps_names() {
+        let xml = llsd_array_xml(&["EventQueueGet", "GetDisplayNames"]);
+        assert!(xml.contains("<string>EventQueueGet</string>"));
+        assert!(xml.contains("<string>GetDisplayNames</string>"));
+        assert!(xml.starts_with("<llsd><array>"));
+    }
+
+    #[test]
+    fn llsd_cap_map_and_keys_parse() {
+        let body = "<llsd><map>\
+            <key>EventQueueGet</key><uri>https://sim/cap/eq</uri>\
+            <key>GetDisplayNames</key><string>https://sim/cap/dn</string>\
+            </map></llsd>";
+        let map = llsd_cap_map(body);
+        assert_eq!(map.get("EventQueueGet").unwrap(), "https://sim/cap/eq");
+        assert_eq!(map.get("GetDisplayNames").unwrap(), "https://sim/cap/dn");
+        let keys = llsd_cap_keys(body);
+        assert_eq!(keys, vec!["EventQueueGet", "GetDisplayNames"]);
+    }
+
+    #[test]
+    fn seed_has_region_caps_detects_needles() {
+        assert!(seed_has_region_caps(&["EventQueueGet".into(), "Foo".into()]));
+        assert!(seed_has_region_caps(&["remoteparcelrequest".into()]));
+        assert!(!seed_has_region_caps(&["Foo".into(), "Bar".into()]));
+    }
+
+    #[test]
+    fn trim_quotes_strips_wrapping() {
+        assert_eq!(trim_quotes("  '\"abc\"'  "), "abc");
+    }
 }

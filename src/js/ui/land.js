@@ -129,6 +129,25 @@ const FSLand = (function () {
     }
   }
 
+  // The parcel "owner" is a group when the land is group-owned; in that case
+  // OwnerID is the group's UUID, so the field must resolve a group name and
+  // open the group profile (not a resident profile with a bare UUID).
+  function ownerFieldInfo(parcel) {
+    const groupOwned = !!parcel.isGroupOwned;
+    const id = parcel.ownerId || '';
+    if (groupOwned) {
+      const label = parcel.groupName ||
+        (typeof FSTransport.getGroupName === 'function' ? FSTransport.getGroupName(id) : '') ||
+        (typeof FSProfiles !== 'undefined' && FSProfiles.getGroupName ? FSProfiles.getGroupName(id) : '') ||
+        'Group-owned';
+      return { id: id, label: label, type: 'group', isGroup: true };
+    }
+    const label = parcel.ownerName ||
+      (typeof FSTransport.getCachedName === 'function' ? FSTransport.getCachedName(id) : '') ||
+      (id ? 'Resident (resolving…)' : '');
+    return { id: id, label: label, type: 'avatar', isGroup: false };
+  }
+
   function setProfileField(id, label, entityId, entityType) {
     const field = document.getElementById(id);
     if (!field) return;
@@ -172,14 +191,21 @@ const FSLand = (function () {
     setFieldValue('land-traffic', parcel.dwell !== undefined && parcel.dwell !== null
       ? Math.round(parcel.dwell)
       : '');
-    const ownerLabel = parcel.ownerName ||
-      (typeof FSTransport.getCachedName === 'function' ? FSTransport.getCachedName(parcel.ownerId) : '') ||
-      parcel.ownerId || '';
+    const owner = ownerFieldInfo(parcel);
+    const ownerLabel = owner.label;
     const groupLabel = parcel.groupName ||
       (typeof FSTransport.getGroupName === 'function' ? FSTransport.getGroupName(parcel.groupId) : '') ||
       parcel.groupId || '';
-    setProfileField('land-owner', ownerLabel, parcel.ownerId, 'avatar');
+    setProfileField('land-owner', ownerLabel, owner.id, owner.type);
     setProfileField('land-group', groupLabel, parcel.groupId, 'group');
+    // Resolve the right kind of name so the field never shows a bare UUID.
+    if (owner.isGroup && owner.id && owner.id !== ZERO_UUID && !parcel.groupName &&
+        FSProfiles.queueGroupName) {
+      FSProfiles.queueGroupName(owner.id);
+    } else if (!owner.isGroup && owner.id && owner.id !== ZERO_UUID && !parcel.ownerName &&
+        typeof FSTransport.queueNameResolve === 'function') {
+      FSTransport.queueNameResolve([owner.id]);
+    }
     if (parcel.groupId && parcel.groupId !== ZERO_UUID && !parcel.groupName) {
       FSProfiles.queueGroupName(parcel.groupId);
     }
@@ -233,9 +259,10 @@ const FSLand = (function () {
 
     const summary = document.getElementById('land-summary');
     if (summary) {
-      const ownerLink = parcel.ownerId
-        ? '<button type="button" class="profile-inline-link" data-profile-type="avatar" data-profile-id="' +
-          FSUtils.escapeHtml(parcel.ownerId) + '">' + FSUtils.escapeHtml(ownerLabel) + '</button>'
+      const ownerLink = owner.id
+        ? '<button type="button" class="profile-inline-link" data-profile-type="' + owner.type +
+          '" data-profile-id="' + FSUtils.escapeHtml(owner.id) + '">' +
+          FSUtils.escapeHtml(ownerLabel) + '</button>'
         : FSUtils.escapeHtml(ownerLabel || 'Unknown');
       const groupLink = parcel.groupId && parcel.groupId !== ZERO_UUID
         ? '<button type="button" class="profile-inline-link" data-profile-type="group" data-profile-id="' +
@@ -263,15 +290,26 @@ const FSLand = (function () {
   }
 
   function collectForm() {
+    // Every editable control is surfaced (everyone/group kept distinct) so the
+    // update can carry them; the transport folds each into its own PF_ bit.
+    const checked = function (id) {
+      const el = document.getElementById(id);
+      return el ? el.checked : undefined;
+    };
     return {
       name: document.getElementById('land-name').value.trim(),
       desc: document.getElementById('land-desc').value.trim(),
-      access: parseInt(document.getElementById('land-access').value, 10),
-      pushRestricted: document.getElementById('land-push').checked,
-      allowBuild: document.getElementById('land-build-everyone').checked ||
-        document.getElementById('land-build-group').checked,
-      allowScripts: document.getElementById('land-scripts-everyone').checked ||
-        document.getElementById('land-scripts-group').checked,
+      pushRestricted: checked('land-push'),
+      allowBuildEveryone: checked('land-build-everyone'),
+      allowBuildGroup: checked('land-build-group'),
+      allowScriptsEveryone: checked('land-scripts-everyone'),
+      allowScriptsGroup: checked('land-scripts-group'),
+      allowFly: checked('land-fly'),
+      safeEnvironment: checked('land-safe'),
+      showInSearch: checked('land-search'),
+      soundLocal: checked('land-sound-local'),
+      allowVoice: checked('land-voice'),
+      sellPasses: checked('land-sell-passes'),
       musicUrl: document.getElementById('land-music').value.trim(),
       mediaUrl: document.getElementById('land-media').value.trim()
     };
@@ -397,8 +435,9 @@ const FSLand = (function () {
         if (parcel.groupName) {
           setProfileField('land-group', parcel.groupName, parcel.groupId, 'group');
         }
-        if (parcel.ownerName) {
-          setProfileField('land-owner', parcel.ownerName, parcel.ownerId, 'avatar');
+        if (parcel.ownerName || parcel.isGroupOwned) {
+          const owner = ownerFieldInfo(parcel);
+          setProfileField('land-owner', owner.label, owner.id, owner.type);
         }
       }
       if (!partial.parcel || !FSNavigation.isTabActive('land')) return;

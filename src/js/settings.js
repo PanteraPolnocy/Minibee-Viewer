@@ -31,6 +31,13 @@ const FSSettings = (function () {
     buddiesOnlineOnly: { type: 'boolean', default: false },
     destFeed: { type: 'string', default: 'mobile' },
     logSubtab: { type: 'string', default: 'diagnostics' },
+    // When off (default), protocol diagnostics (info/warn) are not retained in
+    // the Debug panel — hard errors still are. Keeps an idle viewer from
+    // growing the list on every EQ poll / cap grant / teleport trace (§7).
+    debugLogDiagnostics: { type: 'boolean', default: false },
+    // Parcel music streaming (§6). Off by default (autoplay policy); volume 0-100.
+    parcelMusicEnabled: { type: 'boolean', default: false },
+    parcelMusicVolume: { type: 'number', default: 50, min: 0, max: 100, step: 1 },
     theme: { type: 'string', default: 'dark' }
   };
 
@@ -222,9 +229,18 @@ const FSSettings = (function () {
     });
 
     sections.push({
-      title: 'Log',
+      title: 'Parcel music',
       items: [
-        { label: 'Default subtab', value: get('logSubtab') === 'settings' ? 'Settings' : 'Diagnostics' }
+        { label: 'Auto-play', value: get('parcelMusicEnabled') ? 'On' : 'Off (default)' },
+        { label: 'Volume', value: String(get('parcelMusicVolume')) + '%' }
+      ]
+    });
+
+    sections.push({
+      title: 'Debug',
+      items: [
+        { label: 'Default subtab', value: get('logSubtab') === 'settings' ? 'Settings' : 'Diagnostics' },
+        { label: 'Record diagnostics', value: get('debugLogDiagnostics') ? 'On' : 'Off (default)' }
       ]
     });
 

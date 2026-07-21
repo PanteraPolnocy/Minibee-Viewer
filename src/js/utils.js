@@ -36,10 +36,16 @@ const FSUtils = (function () {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
+  // Escapes for both element text and quoted attributes. The old textContent
+  // trick left " and ' intact, so any value dropped into a double-quoted
+  // attribute could break out of it.
   function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function debounce(fn, ms) {
@@ -116,8 +122,9 @@ const FSUtils = (function () {
     if (a <= 0) return 0;
     const b = Number(bonus);
     const primBonus = b > 0 ? b : 1;
-    // Matches Linden parcel capacity: sim_object_limit * area / region_area (256m region).
-    return Math.max(0, Math.round((a * 15 / 64) * primBonus));
+    // Fallback estimate only (used when the sim didn't send prim counts):
+    // Linden default 15000 prims per 65536 m2 region.
+    return Math.max(0, Math.round((a * 15000 / 65536) * primBonus));
   }
 
   function canEditParcel(parcel, agentId) {
@@ -126,7 +133,15 @@ const FSUtils = (function () {
     const agent = normUuid(agentId);
     if (!owner || !agent) return false;
     if (owner === GOVERNOR_LINDEN_ID) return false;
-    if (parcel.isGroupOwned && owner !== agent) return false;
+    if (parcel.isGroupOwned) {
+      // Group land: editable if the agent belongs to the owning group. The sim
+      // still enforces the actual land powers, and our update round-trips the
+      // current parcel data, so a rejected attempt changes nothing.
+      if (typeof FSProfiles !== 'undefined' && FSProfiles.isAgentInGroup) {
+        return FSProfiles.isAgentInGroup(owner);
+      }
+      return false;
+    }
     return owner === agent;
   }
 

@@ -50,6 +50,41 @@ fn cap_coords_to_grid(x: i64, y: i64) -> Grid {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn region_name_extracted_from_jsonp() {
+        assert_eq!(parse_region_cap_js("var region = 'Natoma';").as_deref(), Some("Natoma"));
+        assert_eq!(parse_region_cap_js(r#"var region="Da Boom";"#).as_deref(), Some("Da Boom"));
+        assert_eq!(parse_region_cap_js("no region here"), None);
+    }
+
+    #[test]
+    fn region_coords_parsed_and_error_rejected() {
+        assert_eq!(parse_region_coords_cap_js(r#"{'x':1000,'y':1001}"#), Some((1000, 1001)));
+        assert_eq!(parse_region_coords_cap_js(r#"{"error":true}"#), None);
+        assert_eq!(parse_region_coords_cap_js("garbage"), None);
+    }
+
+    #[test]
+    fn cap_coords_grid_index_branch() {
+        // Small values are already grid indices.
+        let g = cap_coords_to_grid(1000, 1001);
+        assert_eq!((g.grid_x, g.grid_y), (1000, 1001));
+        assert_eq!((g.global_x, g.global_y), (256000, 256256));
+    }
+
+    #[test]
+    fn cap_coords_global_metres_branch() {
+        // Large values are global metres → divide by region width.
+        let g = cap_coords_to_grid(256000, 256256);
+        assert_eq!((g.grid_x, g.grid_y), (1000, 1001));
+        assert_eq!((g.global_x, g.global_y), (256000, 256256));
+    }
+}
+
 pub async fn fetch_map_tile(
     state: &AppState,
     level: i64,

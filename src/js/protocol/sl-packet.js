@@ -893,9 +893,10 @@ const FSSLCircuit = (function () {
         pos = u32le(buf, pos, data.flags !== undefined ? data.flags : 2);
         pos = u32le(buf, pos, 0);
         pos = u8(buf, pos, data.godlike ? 1 : 0);
+        // Template PositionData order is MinX, MaxX, MinY, MaxY.
         pos = u16le(buf, pos, data.minX || 0);
-        pos = u16le(buf, pos, data.minY || 0);
         pos = u16le(buf, pos, data.maxX || 0);
+        pos = u16le(buf, pos, data.minY || 0);
         pos = u16le(buf, pos, data.maxY || 0);
         break;
       }
@@ -915,27 +916,28 @@ const FSSLCircuit = (function () {
         break;
       case M.ParcelPropertiesUpdate: {
         const p = data.parcel;
+        const uuidOr = function (v) { return v ? new B.UUID(v) : B.UUID.zero(); };
         pos = new B.UUID(agent).write(buf, pos);
         pos = new B.UUID(session).write(buf, pos);
         pos = i32le(buf, pos, p.localId);
-        pos = u32le(buf, pos, p.flags || 0xFFFFFFFF);
+        pos = u32le(buf, pos, p.flags !== undefined ? p.flags : 0x01);
         pos = u32le(buf, pos, p.parcelFlags || 0);
-        pos = i32le(buf, pos, 0);
+        pos = i32le(buf, pos, p.salePrice || 0);
         pos = writeVar1(buf, pos, p.name || '');
         pos = writeVar1(buf, pos, p.desc || '');
         pos = writeVar1(buf, pos, p.musicUrl || '');
         pos = writeVar1(buf, pos, p.mediaUrl || '');
-        pos = new B.UUID(B.UUID.zero()).write(buf, pos);
-        pos = u8(buf, pos, 0);
-        pos = new B.UUID(B.UUID.zero()).write(buf, pos);
-        pos = i32le(buf, pos, 0);
-        pos = f32le(buf, pos, 0);
-        pos = u8(buf, pos, 0);
-        pos = new B.UUID(B.UUID.zero()).write(buf, pos);
-        pos = new B.UUID(B.UUID.zero()).write(buf, pos);
-        pos = B.writeVec3(buf, pos, { x: 0, y: 0, z: 0 });
-        pos = B.writeVec3(buf, pos, { x: 0, y: 0, z: 0 });
-        pos = u8(buf, pos, 0);
+        pos = uuidOr(p.mediaId).write(buf, pos);
+        pos = u8(buf, pos, p.mediaAutoScale ? 1 : 0);
+        pos = uuidOr(p.groupId).write(buf, pos);
+        pos = i32le(buf, pos, p.passPrice || 0);
+        pos = f32le(buf, pos, p.passHours || 0);
+        pos = u8(buf, pos, p.category || 0);
+        pos = uuidOr(p.authBuyerId).write(buf, pos);
+        pos = uuidOr(p.snapshotId).write(buf, pos);
+        pos = B.writeVec3(buf, pos, p.userLocation || { x: 0, y: 0, z: 0 });
+        pos = B.writeVec3(buf, pos, p.userLookAt || { x: 0, y: 0, z: 0 });
+        pos = u8(buf, pos, p.landingType || 0);
         break;
       }
       case M.ParcelPropertiesRequest:
@@ -1581,11 +1583,22 @@ const FSSLCircuit = (function () {
       const buttons = rawButtons.filter(function (label) {
         return label !== TEXTBOX_MAGIC;
       });
+      // OwnerData (Variable block): count byte + OwnerID (LLUUID) per entry.
+      // The sim always sends the object owner here; used to open their profile.
+      let ownerId = '';
+      if (pos < buf.length) {
+        const ownerCount = buf[pos++];
+        if (ownerCount > 0 && pos + 16 <= buf.length) {
+          ownerId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
+          pos += 16;
+        }
+      }
       const ownerFirst = firstName.text || '';
       const ownerLast = lastName.text || '';
       return {
         objectId: objectId,
         objectName: objectName.text || '',
+        ownerId: ownerId,
         ownerName: ownerFirst ? (ownerFirst + ' ' + ownerLast).trim() : ownerLast,
         isGroup: !ownerFirst && !!ownerLast,
         message: message.text || '',
@@ -1855,8 +1868,8 @@ const FSSLCircuit = (function () {
 
   function parseGenericMessage(buf, pos) {
     try {
-      if (pos + 32 > buf.length) return null;
-      pos += 32; // AgentID + SessionID + TransactionID
+      if (pos + 48 > buf.length) return null;
+      pos += 48; // AgentID + SessionID + TransactionID
       const method = readVar1(buf, pos);
       pos = method.pos;
       pos += 16; // Invoice UUID
@@ -2074,8 +2087,11 @@ const FSSLCircuit = (function () {
             acceptNotices: acceptNotices
           });
         }
-        for (let i = 0; i < groups.length && pos < buf.length; i++) {
-          groups[i].listInProfile = buf[pos++] !== 0;
+        // NewGroupData is a single block with one ListInProfile bool, not one
+        // per group.
+        if (pos < buf.length) {
+          const listInProfile = buf[pos++] !== 0;
+          for (let i = 0; i < groups.length; i++) groups[i].listInProfile = listInProfile;
         }
       }
       return { agentId: agentId, avatarId: avatarId, groups: groups };
@@ -2648,7 +2664,7 @@ const FSSLCircuit = (function () {
           const fromName = readVar1(buf, pos);
           pos = fromName.pos;
           const sourceId = new B.UUID(buf.subarray(pos, pos + 16)).toString(); pos += 16;
-          pos += 16;
+          const ownerId = new B.UUID(buf.subarray(pos, pos + 16)).toString(); pos += 16;
           const sourceType = buf[pos++];
           const chatType = buf[pos++];
           const audible = buf[pos++];
@@ -2657,6 +2673,7 @@ const FSSLCircuit = (function () {
           out.chat = {
             fromName: fromName.text,
             sourceId: sourceId,
+            ownerId: ownerId,
             text: message.text,
             chatType: chatType,
             sourceType: sourceType,
@@ -2672,7 +2689,13 @@ const FSSLCircuit = (function () {
           const locCount = buf[pos++];
           const locations = [];
           for (let i = 0; i < locCount; i++) {
-            locations.push({ x: buf[pos++], y: buf[pos++], z: buf[pos++] * 4 });
+            const x = buf[pos++];
+            const y = buf[pos++];
+            const rawZ = buf[pos++];
+            // The sim sends 0 or 255 when it doesn't know the avatar's altitude;
+            // multiplying blindly would drop them ~1000 m away.
+            const unknownZ = rawZ === 0 || rawZ === 255;
+            locations.push({ x: x, y: y, z: rawZ * 4, unknownZ: unknownZ });
           }
           const dvIdx = new DataView(buf.buffer, buf.byteOffset + pos, 4);
           const youIndex = dvIdx.getInt16(0, true);
@@ -2998,6 +3021,7 @@ const FSSLCircuit = (function () {
       const count = payload[msgPos++];
       const acks = [];
       for (let i = 0; i < count; i++) {
+        if (msgPos + 4 > payload.length) break; // truncated/corrupt ack; stop
         acks.push(new DataView(payload.buffer, payload.byteOffset + msgPos, 4).getUint32(0, true));
         msgPos += 4;
       }

@@ -39,7 +39,12 @@ fn md5_hex(input: &str) -> String {
 
 fn sl_login_passwd(p: &Value) -> String {
     let raw = gs(p, "passwd");
-    let plain: String = raw.trim().chars().take(16).collect();
+    // Firestorm hashes the raw field value (no trim) and only bounds it by the
+    // widget's character limit (16 for SL, 255 for OpenSim). Trimming or a hard
+    // 16-cap broke whitespace passwords and every OpenSim password >16 chars
+    // (audit #19). `passwdMax` lets the frontend set the grid-appropriate cap.
+    let max = p.get("passwdMax").and_then(|v| v.as_u64()).unwrap_or(16).clamp(1, 255) as usize;
+    let plain: String = raw.chars().take(max).collect();
     if gs(p, "auth_type") == "account" {
         plain
     } else {
@@ -207,6 +212,9 @@ fn trim_login_for_client(login: &Map<String, Value>) -> Value {
         "last_name", "session_id", "secure_session_id", "circuit_code", "sim_ip", "sim_port",
         "seed_capability", "buddy-list", "region_x", "region_y", "sim_name", "look_at",
         "home_info", "home", "start_location", "mfa_hash", "agent_access",
+        // Inventory skeleton: needed to resolve folders (e.g. Landmarks). Not secret.
+        "inventory-root", "inventory-skeleton", "inventory-lib-root", "inventory-lib-owner",
+        "inventory-skel-lib",
     ];
     let mut out = Map::new();
     for k in KEYS {
@@ -319,8 +327,122 @@ async fn fetch_login_seed_caps(
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn md5_known_vector() {
+        assert_eq!(md5_hex("password"), "5f4dcc3b5aa765d61d8327deb882cf99");
+    }
+
+    #[test]
+    fn password_is_salted_md5_of_first_16_chars() {
+        // "password" -> "$1$" + md5("password").
+        let p = json!({ "passwd": "password" });
+        assert_eq!(sl_login_passwd(&p), "$1$5f4dcc3b5aa765d61d8327deb882cf99");
+        // Only the first 16 characters are hashed (LL truncates).
+        let a = sl_login_passwd(&json!({ "passwd": "0123456789abcdefEXTRA" }));
+        let b = sl_login_passwd(&json!({ "passwd": "0123456789abcdef" }));
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn account_auth_type_sends_plain_password() {
+        let p = json!({ "passwd": "secrettoken", "auth_type": "account" });
+        assert_eq!(sl_login_passwd(&p), "secrettoken");
+    }
+
+    #[test]
+    fn password_not_trimmed() {
+        // Leading/trailing spaces are part of the password; trimming them would
+        // hash something different than the user set.
+        let spaced = sl_login_passwd(&json!({ "passwd": " secret " }));
+        let plain = sl_login_passwd(&json!({ "passwd": "secret" }));
+        assert_ne!(spaced, plain);
+    }
+
+    #[test]
+    fn passwd_max_allows_long_opensim_passwords() {
+        // A 20-char password must hash in full when passwdMax is 255 (OpenSim),
+        // not be silently truncated to 16 as it would be for an SL grid.
+        let pw = "0123456789abcdefghij"; // 20 chars
+        let sl = sl_login_passwd(&json!({ "passwd": pw, "passwdMax": 16 }));
+        let opensim = sl_login_passwd(&json!({ "passwd": pw, "passwdMax": 255 }));
+        assert_ne!(sl, opensim);
+        assert_eq!(sl, sl_login_passwd(&json!({ "passwd": "0123456789abcdef" })));
+    }
+
+    #[test]
+    fn build_login_xml_shapes_request() {
+        let p = json!({
+            "username": "resident",
+            "passwd": "password",
+            "channel": "Minibee",
+            "version": "0.6.0",
+            "agree_to_tos": true,
+            "options": ["inventory-root", "buddy-list"]
+        });
+        let xml = build_login_xml(&p);
+        assert!(xml.contains("<methodName>login_to_simulator</methodName>"));
+        assert!(xml.contains("<name>username</name><value><string>resident</string>"));
+        assert!(xml.contains("$1$5f4dcc3b5aa765d61d8327deb882cf99"));
+        assert!(xml.contains("<name>agree_to_tos</name><value><boolean>1</boolean>"));
+        assert!(xml.contains("<value><string>inventory-root</string></value>"));
+        // start defaults to "last" when unset.
+        assert!(xml.contains("<name>start</name><value><string>last</string>"));
+    }
+
+    #[test]
+    fn parse_login_response_reads_scalars_and_nested() {
+        let xml = r#"<?xml version="1.0"?><methodResponse><params><param><value><struct>
+            <member><name>login</name><value><boolean>1</boolean></value></member>
+            <member><name>sim_port</name><value><int>13005</int></value></member>
+            <member><name>first_name</name><value><string>Test</string></value></member>
+            <member><name>look_at</name><value><array><data>
+                <value><string>r0</string></value><value><string>r1</string></value>
+            </data></array></value></member>
+        </struct></value></param></params></methodResponse>"#;
+        let m = parse_login_response(xml).unwrap();
+        assert_eq!(m.get("login"), Some(&json!(true)));
+        assert_eq!(m.get("sim_port"), Some(&json!(13005)));
+        assert_eq!(m.get("first_name"), Some(&json!("Test")));
+        assert_eq!(m.get("look_at").unwrap().as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn parse_login_response_rejects_bad_xml() {
+        assert!(parse_login_response("<not-xmlrpc").is_err());
+    }
+
+    #[test]
+    fn trim_login_keeps_whitelist_and_normalizes_seed() {
+        let mut m = Map::new();
+        m.insert("login".into(), json!(true));
+        m.insert("sim_ip".into(), json!("8.8.8.8"));
+        m.insert("secret_extra".into(), json!("should be dropped"));
+        m.insert(
+            "seed_capability".into(),
+            json!("https://simhost-1234/abcdef.agni.secondlife.io:12043/cap/foo"),
+        );
+        let out = trim_login_for_client(&m);
+        let obj = out.as_object().unwrap();
+        assert!(obj.contains_key("login"));
+        assert!(obj.contains_key("sim_ip"));
+        assert!(!obj.contains_key("secret_extra"), "non-whitelisted keys dropped");
+        assert_eq!(
+            obj.get("seed_capability").unwrap().as_str().unwrap(),
+            "https://simhost-1234abcdef.agni.secondlife.io:12043/cap/foo"
+        );
+        assert!(obj.contains_key("seed_capability_raw"));
+    }
+}
+
 pub async fn login(state: Arc<AppState>, body: Value) -> Result<Value, String> {
     let url = body.get("url").and_then(|u| u.as_str()).ok_or("url required")?.to_string();
+    // The login URL is grid-supplied; guard it like any other egress (audit #18).
+    proxy::guard_url(&url).await.map_err(|e| format!("Login target refused: {e}"))?;
     let xml = build_login_xml(&body);
 
     let resp = state

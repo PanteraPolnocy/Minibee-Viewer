@@ -255,6 +255,7 @@ const FSApp = (function () {
       FSProfile.init();
       FSErrorsUI.init();
       FSSessionLost.init();
+      if (typeof FSParcelMusic !== 'undefined') FSParcelMusic.init();
     } catch (err) {
       console.error('Minibee init failed:', err);
       const el = document.getElementById('login-error');

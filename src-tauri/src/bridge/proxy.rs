@@ -1,13 +1,98 @@
 //! HTTP capability proxy with manual redirect handling (POST body preserved
 //! across 303s, redirects off-simhost refused) and simhost IP pinning.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use reqwest::redirect::Policy;
 use reqwest::{Method, Url};
 
 use crate::bridge::util::normalize_seed_url;
+
+/// SSRF guard for the caller-supplied `bridge_proxy` URL (to-do §13 A).
+///
+/// The proxy is only reachable from the app's own WebView, but it still fetches
+/// an arbitrary URL, so we refuse targets that point at the local machine or a
+/// private network: loopback, RFC1918, link-local, unique-local, and
+/// `localhost`. Public hostnames (Agni `*.secondlife.io`, Aditi, and OpenSim
+/// grids) are allowed — we do not maintain a positive host allowlist so
+/// third-party OpenSim logins keep working. Returns `Some(reason)` when blocked.
+pub fn egress_block_reason(url: &str) -> Option<String> {
+    let parsed = Url::parse(url).ok()?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => return Some(format!("scheme not allowed: {other}")),
+    }
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") {
+        return Some("target resolves to localhost".into());
+    }
+    // `url` serializes IPv6 hosts with surrounding brackets; strip for parsing.
+    let host_ip = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(&host);
+    if let Ok(ip) = host_ip.parse::<IpAddr>() {
+        if ip_is_private(&ip) {
+            return Some(format!("target is a private/loopback address: {ip}"));
+        }
+    }
+    None
+}
+
+/// Full SSRF guard: the literal/scheme/localhost check PLUS async DNS
+/// resolution of a hostname target, rejecting if ANY resolved address is
+/// private/loopback/link-local/metadata (audit #4). Resolution failure is not
+/// treated as blocked — the subsequent connect will fail naturally.
+pub async fn guard_url(url: &str) -> Result<(), String> {
+    if let Some(reason) = egress_block_reason(url) {
+        return Err(reason);
+    }
+    let parsed = match Url::parse(url) {
+        Ok(u) => u,
+        Err(_) => return Ok(()),
+    };
+    let host = match parsed.host_str() {
+        Some(h) => h.to_string(),
+        None => return Ok(()),
+    };
+    // IP literals were already handled by egress_block_reason.
+    let stripped = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(&host);
+    if stripped.parse::<IpAddr>().is_ok() {
+        return Ok(());
+    }
+    let port = parsed.port().unwrap_or_else(|| default_port(parsed.scheme()));
+    if let Ok(addrs) = tokio::net::lookup_host((host.as_str(), port)).await {
+        for a in addrs {
+            if ip_is_private(&a.ip()) {
+                return Err(format!("target resolves to a private/loopback address: {}", a.ip()));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn ip_is_private(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.octets()[0] == 0
+                // 100.64.0.0/10 carrier-grade NAT
+                || (v4.octets()[0] == 100 && (64..=127).contains(&v4.octets()[1]))
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                // unique local fc00::/7
+                || (v6.segments()[0] & 0xfe00) == 0xfc00
+                // link local fe80::/10
+                || (v6.segments()[0] & 0xffc0) == 0xfe80
+                // IPv4-mapped: check the embedded v4
+                || v6.to_ipv4().map(|m| ip_is_private(&IpAddr::V4(m))).unwrap_or(false)
+        }
+    }
+}
 
 pub struct ExchangeResult {
     pub status: u16,
@@ -18,7 +103,10 @@ pub struct ExchangeResult {
 }
 
 fn is_simhost(host: &str) -> bool {
-    host.to_ascii_lowercase().starts_with("simhost-")
+    let h = host.to_ascii_lowercase();
+    // Must be a real Linden simhost, not merely anything prefixed "simhost-"
+    // (which a malicious redirect could spoof, e.g. simhost-evil.attacker.com).
+    h.starts_with("simhost-") && h.ends_with(".secondlife.io")
 }
 
 fn default_port(scheme: &str) -> u16 {
@@ -85,6 +173,9 @@ pub async fn exchange(
     let mut cur_url = url.to_string();
     let mut redirects = 0u32;
 
+    // Guard the initial target (resolves DNS); redirect hops are guarded below.
+    guard_url(&cur_url).await?;
+
     loop {
         let m = Method::from_bytes(method_upper.as_bytes()).unwrap_or(Method::GET);
         let mut req = client.request(m, &cur_url).timeout(timeout);
@@ -121,6 +212,9 @@ pub async fn exchange(
                         return Err(format!("Seed cap redirect left simhost ({o} -> {n})"));
                     }
                 }
+                // Re-run the SSRF guard on the redirect target (resolves DNS),
+                // so a 3xx cannot bounce us to an internal/metadata host (#4).
+                guard_url(&next_abs).await?;
                 cur_url = next_abs;
                 redirects += 1;
                 continue;
@@ -149,4 +243,43 @@ fn resolve_location(base: &str, location: &str) -> String {
         }
     }
     location.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allows_public_sl_and_opensim_hosts() {
+        assert!(egress_block_reason("https://simhost-01234.agni.secondlife.io:12043/cap/x").is_none());
+        assert!(egress_block_reason("https://maps.secondlife.com/foo").is_none());
+        assert!(egress_block_reason("http://login.osgrid.org:80/cap").is_none());
+        assert!(egress_block_reason("https://8.8.8.8/cap").is_none());
+    }
+
+    #[test]
+    fn blocks_loopback_and_private() {
+        assert!(egress_block_reason("http://127.0.0.1:8794/proxy").is_some());
+        assert!(egress_block_reason("http://localhost/x").is_some());
+        assert!(egress_block_reason("http://192.168.1.10/x").is_some());
+        assert!(egress_block_reason("http://10.0.0.5/x").is_some());
+        assert!(egress_block_reason("http://169.254.1.1/x").is_some());
+        assert!(egress_block_reason("http://[::1]/x").is_some());
+        assert!(egress_block_reason("http://[fd00::1]/x").is_some());
+    }
+
+    #[test]
+    fn blocks_non_http_schemes() {
+        assert!(egress_block_reason("file:///etc/passwd").is_some());
+        assert!(egress_block_reason("ftp://example.com/x").is_some());
+    }
+
+    #[test]
+    fn is_simhost_requires_linden_domain() {
+        assert!(is_simhost("simhost-08de0e0b.agni.secondlife.io"));
+        // Spoof attempts that merely start with the prefix must be rejected.
+        assert!(!is_simhost("simhost-evil.attacker.com"));
+        assert!(!is_simhost("simhost-1234.example.org"));
+        assert!(!is_simhost("maps.secondlife.com"));
+    }
 }

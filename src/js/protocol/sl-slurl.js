@@ -8,9 +8,65 @@ const FSSlurl = (function () {
   // Region indices on the world map are well below this; global origins are much larger (metres).
   const GRID_INDEX_MAX = 4096;
   const DEFAULT_MAP_SERVER = 'https://map.secondlife.com/';
-  const CAP_REGION_NAME_TO_COORDS =
-    'https://cap.secondlife.com/cap/0/d661249b-2b5a-4436-966a-3d3b8d7a574f';
   const SLURL_PATTERN = /(?:https?:\/\/maps\.secondlife\.com\/secondlife\/[^\s<]+|secondlife:\/\/[^\s<]+)/gi;
+
+  // Chat/IM link matching. The canonical grammar + trust classification lives in
+  // the native core (src-tauri/src/urlmatch.rs, `bridge_linkify`, unit-tested);
+  // this mirrors it for synchronous render-time linkification. Kept in lockstep
+  // with that module — when the chat family moves to Rust (to-do §3 step 3),
+  // Rust emits pre-classified segments and this collapses to a renderer.
+  const TRUSTED_SUFFIXES = [
+    'secondlife.com', 'secondlife.io', 'secondlife.net', 'lindenlab.com',
+    'tilia-inc.com', 'phoenixviewer.com', 'firestormviewer.org'
+  ];
+  const LINK_BRACKET = /\[\s*((?:secondlife:\/\/|https?:\/\/)[^\s\]]+)[ \t]+([^\]]*?)\s*\]/gi;
+  const LINK_SLURL = /(?:secondlife:\/\/[^\s<>\]"]+|https?:\/\/maps\.secondlife\.com\/secondlife\/[^\s<>\]"]+)/gi;
+  const LINK_HTTP = /https?:\/\/[^\s<>\]"]+/gi;
+  const LINK_EMAIL = /\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b/gi;
+
+  function hostOf(url) {
+    const afterScheme = url.indexOf('://') >= 0 ? url.slice(url.indexOf('://') + 3) : url;
+    let host = afterScheme.split(/[/?#]/)[0] || '';
+    const at = host.lastIndexOf('@');
+    if (at >= 0) host = host.slice(at + 1);
+    host = host.split(':')[0];
+    return host.toLowerCase();
+  }
+
+  function hostTrusted(host) {
+    if (!host) return false;
+    return TRUSTED_SUFFIXES.some(function (s) {
+      return host === s || host.endsWith('.' + s);
+    });
+  }
+
+  // Drop sentence punctuation a URL should not swallow; keep a closing paren
+  // only when it balances an opening one inside the URL.
+  function trimTrailingUrl(url) {
+    let end = url.length;
+    while (end > 0) {
+      const c = url[end - 1];
+      let drop = false;
+      if ('.,;:!?\'">'.indexOf(c) >= 0 || c === ']') drop = true;
+      else if (c === ')') drop = url.slice(0, end).indexOf('(') < 0;
+      if (drop) end -= 1; else break;
+    }
+    return url.slice(0, end);
+  }
+
+  function slurlLabel(url) {
+    const parsed = parse(url);
+    if (parsed && parsed.type === 'app-agent') return 'Resident profile';
+    if (parsed && parsed.type === 'app-group') return 'Group profile';
+    if (parsed && parsed.regionName) {
+      if (parsed.x !== undefined && parsed.y !== undefined) {
+        const z = parsed.z !== undefined ? parsed.z : 25;
+        return parsed.regionName + ' (' + parsed.x + ', ' + parsed.y + ', ' + z + ')';
+      }
+      return parsed.regionName;
+    }
+    return url;
+  }
 
   function normalizeMapServerUrl(url) {
     let s = String(url || '').trim();
@@ -139,6 +195,12 @@ const FSSlurl = (function () {
       if (decoded) return enrichParsed(Object.assign({ type: 'maps', url: raw }, decoded));
     }
 
+    // App SLURLs (profile links in chat/notices) are not map locations.
+    m = raw.match(/^secondlife:\/\/\/?app\/(agent|group)\/([0-9a-f-]{32,36})/i);
+    if (m) {
+      return { type: 'app-' + m[1].toLowerCase(), id: m[2].toLowerCase(), url: raw };
+    }
+
     m = raw.match(/^secondlife:\/\/(.+)$/i);
     if (m) {
       const decoded = decodeRegionPath(m[1]);
@@ -192,28 +254,136 @@ const FSSlurl = (function () {
     return name + ' (' + x + ', ' + y + ', ' + z + ')';
   }
 
+  // Split `text` into ordered link segments (mirrors urlmatch::linkify).
+  function scanLinks(text) {
+    const src = String(text || '');
+    const raws = [];
+    let m;
+    const bracket = new RegExp(LINK_BRACKET.source, 'gi');
+    while ((m = bracket.exec(src)) !== null) {
+      const url = trimTrailingUrl(m[1]);
+      const label = (m[2] || '').trim();
+      const isSlurl = /^secondlife:\/\//i.test(url) || /maps\.secondlife\.com\/secondlife\//i.test(url);
+      raws.push({ start: m.index, end: m.index + m[0].length, url: url,
+        label: label || null, kind: isSlurl ? 'slurl' : 'http', bracketed: true, priority: 0 });
+    }
+    const slurl = new RegExp(LINK_SLURL.source, 'gi');
+    while ((m = slurl.exec(src)) !== null) {
+      const trimmed = trimTrailingUrl(m[0]);
+      raws.push({ start: m.index, end: m.index + trimmed.length, url: trimmed,
+        label: null, kind: 'slurl', bracketed: false, priority: 1 });
+    }
+    const http = new RegExp(LINK_HTTP.source, 'gi');
+    while ((m = http.exec(src)) !== null) {
+      const trimmed = trimTrailingUrl(m[0]);
+      raws.push({ start: m.index, end: m.index + trimmed.length, url: trimmed,
+        label: null, kind: 'http', bracketed: false, priority: 2 });
+    }
+    const email = new RegExp(LINK_EMAIL.source, 'gi');
+    while ((m = email.exec(src)) !== null) {
+      raws.push({ start: m.index, end: m.index + m[0].length, url: 'mailto:' + m[0],
+        label: m[0], kind: 'email', bracketed: false, priority: 3 });
+    }
+    raws.sort(function (a, b) { return a.start - b.start || a.priority - b.priority; });
+
+    const segments = [];
+    let cursor = 0;
+    for (let i = 0; i < raws.length; i++) {
+      const raw = raws[i];
+      if (raw.start < cursor || raw.end <= raw.start) continue;
+      if (raw.start > cursor) segments.push({ type: 'text', text: src.slice(cursor, raw.start) });
+      let trusted;
+      if (raw.kind === 'slurl') {
+        trusted = /^secondlife:\/\//i.test(raw.url) || hostTrusted(hostOf(raw.url));
+      } else if (raw.kind === 'http') {
+        trusted = hostTrusted(hostOf(raw.url));
+      } else {
+        trusted = false;
+      }
+      const label = raw.label || (raw.kind === 'slurl' ? slurlLabel(raw.url) : raw.url);
+      segments.push({ type: 'link', url: raw.url, label: label, trusted: trusted,
+        kind: raw.kind, bracketed: raw.bracketed });
+      cursor = raw.end;
+    }
+    if (cursor < src.length) segments.push({ type: 'text', text: src.slice(cursor) });
+    return segments;
+  }
+
   function linkify(text, escapeFn) {
     const esc = escapeFn || function (s) { return String(s); };
-    const src = String(text || '');
-    if (!src) return '';
-
+    const segments = scanLinks(text);
     let html = '';
-    let last = 0;
-    const re = new RegExp(SLURL_PATTERN.source, 'gi');
-    let match;
-    while ((match = re.exec(src)) !== null) {
-      html += esc(src.slice(last, match.index));
-      const url = match[0];
-      const parsed = parse(url);
-      const label = parsed && parsed.regionName
-        ? esc(parsed.regionName + (parsed.x !== undefined ? ' ' + parsed.x + '/' + parsed.y + '/' + parsed.z : ''))
-        : esc(url);
-      html += '<a href="#" class="slurl-link" data-slurl="' +
-        esc(url).replace(/"/g, '&quot;') + '">' + label + '</a>';
-      last = match.index + url.length;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (seg.type === 'text') {
+        html += esc(seg.text);
+        continue;
+      }
+      const attr = function (v) { return esc(String(v)).replace(/"/g, '&quot;'); };
+      if (seg.kind === 'slurl') {
+        html += '<a href="#" class="slurl-link" title="' + attr(seg.url) +
+          '" data-slurl="' + attr(seg.url) + '">' + esc(seg.label) + '</a>';
+      } else {
+        html += '<a href="#" class="chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external') +
+          '" title="' + attr(seg.url) + '" data-url="' + attr(seg.url) +
+          '" data-trusted="' + (seg.trusted ? '1' : '0') + '">' + esc(seg.label) + '</a>';
+      }
     }
-    html += esc(src.slice(last));
     return html;
+  }
+
+  function openExternalUrl(url) {
+    const raw = String(url || '').trim();
+    if (!raw) return;
+    try {
+      if (window.__TAURI__ && window.__TAURI__.opener &&
+          typeof window.__TAURI__.opener.openUrl === 'function') {
+        window.__TAURI__.opener.openUrl(raw);
+        return;
+      }
+    } catch (_e) { /* fall through to window.open */ }
+    window.open(raw, '_blank', 'noopener,noreferrer');
+  }
+
+  // Bind click handlers for links produced by linkify(): SLURLs show on the map;
+  // external URLs open in the OS browser (untrusted ones behind a confirm).
+  function bindLinks(container) {
+    if (!container || !container.querySelectorAll) return;
+    container.querySelectorAll('.slurl-link').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = link.dataset.slurl || link.textContent;
+        const parsed = parse(target);
+        if (parsed && parsed.type === 'app-agent' && typeof FSProfile !== 'undefined') {
+          FSProfile.openAvatar(parsed.id);
+        } else if (parsed && parsed.type === 'app-group' && typeof FSProfile !== 'undefined') {
+          FSProfile.openGroup(parsed.id);
+        } else if (typeof FSMap !== 'undefined' && FSMap.showLocation) {
+          FSMap.showLocation(target);
+        }
+      });
+    });
+    container.querySelectorAll('.chat-link').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        const url = link.dataset.url || '';
+        if (!url) return;
+        const trusted = link.dataset.trusted === '1';
+        if (trusted) {
+          openExternalUrl(url);
+          return;
+        }
+        const ask = (typeof FSUtils !== 'undefined' && FSUtils.confirm)
+          ? FSUtils.confirm({
+              title: 'Open external link?',
+              message: 'This link leaves Second Life and opens in your browser:\n' + url,
+              confirmLabel: 'Open',
+              cancelLabel: 'Cancel'
+            })
+          : Promise.resolve(window.confirm('Open external link?\n' + url));
+        ask.then(function (ok) { if (ok) openExternalUrl(url); });
+      });
+    });
   }
 
   function findSlurls(text) {
@@ -226,78 +396,10 @@ const FSSlurl = (function () {
     return out;
   }
 
-  function fetchRegionByNameCap(regionName, timeoutMs) {
-    const name = String(regionName || '').trim();
-    if (!name) {
-      return Promise.reject(new Error('Region name required'));
-    }
-    if (typeof document === 'undefined' || !document.head) {
-      return Promise.reject(new Error('Region lookup unavailable'));
-    }
-    return new Promise(function (resolve, reject) {
-      const varName = 'mbCap_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      const script = document.createElement('script');
-      let settled = false;
-      const limit = timeoutMs || 12000;
-      const timer = setTimeout(function () {
-        finish(new Error('Region lookup timed out'));
-      }, limit);
-      function finish(err, result) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        try { delete window[varName]; } catch (_e) { window[varName] = undefined; }
-        if (script.parentNode) script.parentNode.removeChild(script);
-        if (err) reject(err);
-        else resolve(result);
-      }
-      function verifyAtGrid(grid) {
-        FSBridge.mapRegions(grid.gridX + ',' + grid.gridY).then(function (data) {
-          if (!data) {
-            finish(new Error('Region not found: ' + name));
-            return;
-          }
-          const regions = data && data.regions ? data.regions : [];
-          const row = regions.find(function (r) {
-            return r && r.gridX === grid.gridX && r.gridY === grid.gridY;
-          });
-          const actual = row && !row.empty && row.name ? String(row.name).trim() : '';
-          if (!actual || actual.toLowerCase() !== name.toLowerCase()) {
-            finish(new Error('Region not found: ' + name));
-            return;
-          }
-          finish(null, {
-            name: actual,
-            globalX: grid.globalX,
-            globalY: grid.globalY,
-            gridX: grid.gridX,
-            gridY: grid.gridY
-          });
-        }).catch(function () {
-          finish(new Error('Region not found: ' + name));
-        });
-      }
-      script.onerror = function () {
-        finish(new Error('Region lookup failed'));
-      };
-      script.onload = function () {
-        const result = window[varName];
-        if (!result || result.error) {
-          finish(new Error('Region not found: ' + name));
-          return;
-        }
-        const grid = capCoordsToGrid(result.x, result.y);
-        if (!grid) {
-          finish(new Error('Region not found: ' + name));
-          return;
-        }
-        verifyAtGrid(grid);
-      };
-      script.src = CAP_REGION_NAME_TO_COORDS + '?var=' + encodeURIComponent(varName) +
-        '&sim_name=' + encodeURIComponent(name);
-      document.head.appendChild(script);
-    });
-  }
+  // Region-name → coordinates now resolves solely through the native core
+  // (`FSBridge.regionByName` → bridge_region_by_name). The former JSONP path
+  // (`<script src="https://cap.secondlife.com/...">` injected into the app
+  // origin) was removed (to-do §13 finding F).
 
   return {
     REGION_WIDTH: REGION_WIDTH,
@@ -316,7 +418,9 @@ const FSSlurl = (function () {
     tileUrl: tileUrl,
     formatLocation: formatLocation,
     linkify: linkify,
-    findSlurls: findSlurls,
-    fetchRegionByNameCap: fetchRegionByNameCap
+    scanLinks: scanLinks,
+    bindLinks: bindLinks,
+    openExternalUrl: openExternalUrl,
+    findSlurls: findSlurls
   };
 })();

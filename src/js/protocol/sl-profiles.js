@@ -344,6 +344,8 @@ const FSProfiles = (function () {
     const value = Number(raw) || 0;
     return {
       raw: value,
+      allowPublish: (value & 0x1) !== 0,
+      online: (value & 0x10) !== 0,
       identified: (value & 0x4) !== 0,
       transacted: (value & 0x8) !== 0
     };
@@ -667,36 +669,6 @@ const FSProfiles = (function () {
     return null;
   }
 
-  function rolesToTitles(groupId, roles) {
-    if (!Array.isArray(roles)) return [];
-    const id = normId(groupId);
-    const profile = groupProfiles.get(id) || {};
-    const worn = String(profile.memberTitle || '').trim();
-    const active = getActiveGroupInfo();
-    const activeTitle = active && active.id === id ? String(active.title || '').trim() : '';
-    const compare = worn || activeTitle;
-    const rows = [];
-    let i;
-    for (i = 0; i < roles.length; i++) {
-      const role = roles[i];
-      if (!role) continue;
-      const title = String(role.title || role.name || '').trim();
-      const roleId = normId(role.id || role.roleId);
-      if (!title || isZero(roleId)) continue;
-      rows.push({
-        title: title,
-        roleId: roleId,
-        selected: compare ? title === compare : !!role.selected
-      });
-    }
-    if (compare && !rows.some(function (row) { return row.selected; })) {
-      for (i = 0; i < rows.length; i++) {
-        if (rows[i].title === compare) rows[i].selected = true;
-      }
-    }
-    return rows;
-  }
-
   function finishGroupTitlesFetch(id, pending, titles, complete) {
     if (pending && pending.timer) clearTimeout(pending.timer);
     if (pending) pendingGroupTitles.delete(id);
@@ -714,7 +686,7 @@ const FSProfiles = (function () {
         roleId: normId(row.roleId),
         selected: !!row.selected
       };
-    }).filter(function (row) { return row.title && !isZero(row.roleId); });
+    }).filter(function (row) { return !!row.title; }); // keep the Everyone role (null UUID)
     const prevRow = groupTitles.get(id);
     const prevJson = prevRow ? JSON.stringify(prevRow.titles || []) : '';
     const nextJson = JSON.stringify(rows);

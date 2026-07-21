@@ -43,6 +43,28 @@ pub fn version_payload(channel: &str, major: u64, minor: u64, patch: u64, build:
     (payload, ua)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_payload_without_build() {
+        let (payload, ua) = version_payload("Minibee-Viewer", 0, 6, 0, 0);
+        assert_eq!(payload["version"], "0.6.0");
+        assert_eq!(payload["channel"], "Minibee-Viewer");
+        assert_eq!(payload["major"], 0);
+        assert_eq!(payload["build"], 0);
+        assert_eq!(ua, "SecondLife/0.6.0 (Minibee-Viewer; Minibee Viewer)");
+    }
+
+    #[test]
+    fn version_payload_with_build_metadata() {
+        let (payload, ua) = version_payload("Minibee-Viewer", 1, 2, 3, 456);
+        assert_eq!(payload["version"], "1.2.3.456");
+        assert!(ua.contains("SecondLife/1.2.3.456"));
+    }
+}
+
 impl AppState {
     pub fn new(version: Value, ua: String) -> Arc<Self> {
         let http = reqwest::Client::builder()

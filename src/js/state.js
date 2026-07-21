@@ -43,9 +43,16 @@ const FSState = (function () {
 
   function emit(event, payload) {
     const set = listeners.get(event);
-    if (set) {
-      set.forEach(function (fn) { fn(payload, state); });
-    }
+    if (!set) return;
+    // Isolate listeners: a throwing subscriber must not unwind through the
+    // transport and skip the rest (e.g. the UDP batch's ACK flush).
+    set.forEach(function (fn) {
+      try {
+        fn(payload, state);
+      } catch (err) {
+        if (typeof console !== 'undefined') console.error('state listener error (' + event + '):', err);
+      }
+    });
   }
 
   function patch(partial) {

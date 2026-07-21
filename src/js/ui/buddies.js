@@ -57,6 +57,9 @@ const FSBuddies = (function () {
         FSIm.startImWith(buddy);
         return;
       }
+      // Without this the same click bubbles to the document handler that closes
+      // the menu, so it would open and shut in one event.
+      e.stopPropagation();
       showContextMenu(e, buddy);
     });
 

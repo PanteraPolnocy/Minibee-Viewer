@@ -1053,8 +1053,9 @@ const FSProfile = (function () {
         Number(profile.money).toLocaleString('en-US') + '</span></div>';
     }
     if (profile.rolesCount !== undefined && profile.rolesCount !== null) {
+      // The reply count excludes the implicit Everyone role.
       html += '<div class="profile-field"><span class="profile-field__label">Roles</span><span>' +
-        FSUtils.escapeHtml(String(profile.rolesCount)) + '</span></div>';
+        FSUtils.escapeHtml(String(Number(profile.rolesCount) + 1)) + '</span></div>';
     }
     if (profile.showInList !== undefined) {
       html += '<div class="profile-field"><span class="profile-field__label">Search</span><span>' +

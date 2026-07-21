@@ -12,20 +12,36 @@ const FSErrors = (function () {
     listeners.forEach(function (fn) { fn(entries.slice()); });
   }
 
+  // Errors are always retained; info/warn diagnostics only when the user has
+  // opted in (setting `debugLogDiagnostics`, default off — §7). The chat mirror
+  // is independent of retention.
+  function shouldRetain(level) {
+    if (level === 'error') return true;
+    try {
+      if (typeof FSSettings !== 'undefined' && FSSettings.get) {
+        return !!FSSettings.get('debugLogDiagnostics');
+      }
+    } catch (_e) { /* fall through */ }
+    return false;
+  }
+
   function log(source, message, options) {
     const opts = options || {};
     const text = String(message || '').trim();
     if (!text) return;
+    const level = opts.level || 'info';
     const row = {
       id: FSUtils.uuid(),
       source: String(source || 'app'),
       text: text,
-      level: opts.level || 'info',
+      level: level,
       timestamp: Date.now()
     };
-    entries.push(row);
-    if (entries.length > MAX) entries.shift();
-    emit();
+    if (shouldRetain(level)) {
+      entries.push(row);
+      if (entries.length > MAX) entries.shift();
+      emit();
+    }
     if (opts.chat) {
       FSTransport.emit('chat', {
         id: FSUtils.uuid(),

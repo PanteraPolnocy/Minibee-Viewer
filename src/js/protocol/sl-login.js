@@ -130,7 +130,12 @@ const FSLoginSL = (function () {
 
   function buildLoginPayload(credentials, session) {
     const user = parseUsername(credentials.username, credentials.grid);
-    const password = String(credentials.password || '').trim().slice(0, 16);
+    // Do NOT trim: Firestorm hashes the field verbatim, and a trimmed password
+    // with leading/trailing spaces produces the wrong MD5. Cap length by grid
+    // (SL widget = 16 chars, OpenSim = 255); the core mirrors this via passwdMax
+    // (audit #19).
+    const passwdMax = isLindenGrid(credentials.grid) ? 16 : 255;
+    const password = String(credentials.password || '').slice(0, passwdMax);
     const payload = {
       url: credentials.loginUrl,
       first: user.first,
@@ -157,6 +162,7 @@ const FSLoginSL = (function () {
     };
 
     payload.passwd = password;
+    payload.passwdMax = passwdMax;
     payload.auth_type = user.type === 'account' ? 'account' : 'agent';
     if (user.type === 'account') {
       payload.username = user.accountName;
@@ -378,8 +384,14 @@ const FSLoginSL = (function () {
       const classified = classifyLogin(login);
 
       if (classified.ok) {
-        if (login.mfa_hash && credentials.remember) {
-          saveMfaHash(creds, login.mfa_hash, true);
+        if (login.mfa_hash) {
+          // Honor the per-challenge "remember this device" choice. When no MFA
+          // challenge happened this login, keep the hash only if we were already
+          // remembering one (don't newly persist a 2FA-bypass token unasked).
+          const rememberMfa = session.rememberMfa !== undefined
+            ? session.rememberMfa
+            : !!session.mfaHash;
+          saveMfaHash(creds, login.mfa_hash, rememberMfa);
         }
         return Object.assign(normalizeLogin(login), {
           circuitBootstrap: resp.circuit || null,
@@ -435,6 +447,7 @@ const FSLoginSL = (function () {
           throw new Error('Authenticator code required.');
         }
         session.token = token;
+        session.rememberMfa = answer.rememberMfa !== false;
         if (classified.mfaHash) {
           session.mfaHash = classified.mfaHash;
         }

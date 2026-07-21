@@ -27,8 +27,10 @@ const FSRadar = (function () {
   }
 
   function isAlertCandidate(entry) {
+    // Coarse-location radar carries no account age, so the old age check was
+    // dead; a name match is the only signal we actually have here.
     const name = String(entry.name || '').toLowerCase();
-    return entry.age === '3d' || name.indexOf('visitor') !== -1;
+    return name.indexOf('visitor') !== -1;
   }
 
   function iconProfile() {

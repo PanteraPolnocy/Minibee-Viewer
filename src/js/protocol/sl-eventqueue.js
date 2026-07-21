@@ -24,12 +24,15 @@ const FSEventQueue = (function () {
   let pendingStopResetAck = true;
   let pollInFlight = false;
   let handoffErrorCount = 0;
+  let steadyErrorCount = 0;
+  let onFatal = null;
 
   function doStop(resetAck) {
     stopRequested = true;
     running = false;
     pollInFlight = false;
     handoffErrorCount = 0;
+    steadyErrorCount = 0;
     if (pollAbort) {
       try { pollAbort.abort(); } catch (_e) { /* ignore */ }
       pollAbort = null;
@@ -364,7 +367,13 @@ const FSEventQueue = (function () {
       primsUsed: primUsed > 0 ? primUsed : totalPrims,
       primsTotal: primCapacity || maxPrims,
       landingPoint: vec3Point(pickValue(row, ['UserLocation', 'user_location'])),
-      landingType: intValue(pickValue(row, ['LandingType', 'landing_type']), 0)
+      landingType: intValue(pickValue(row, ['LandingType', 'landing_type']), 0),
+      userLookAt: vec3Point(pickValue(row, ['UserLookAt', 'user_look_at'])),
+      mediaId: uuidValue(pickValue(row, ['MediaID', 'media_id'])),
+      mediaAutoScale: intValue(pickValue(mediaData, ['MediaAutoScale', 'media_auto_scale']) ||
+        pickValue(row, ['MediaAutoScale', 'media_auto_scale']), 0),
+      category: intValue(pickValue(row, ['Category', 'category']), 0),
+      authBuyerId: uuidValue(pickValue(row, ['AuthBuyerID', 'auth_buyer_id']))
     };
     return parcel;
   }
@@ -424,7 +433,8 @@ const FSEventQueue = (function () {
           events: [],
           early: early,
           elapsedMs: elapsedMs,
-          handoffRetry: early
+          handoffRetry: early,
+          steadyError: !teleportActive
         };
       }
       if (resp.status < 200 || resp.status >= 300) {
@@ -451,12 +461,15 @@ const FSEventQueue = (function () {
       } else if (teleportActive) {
         handoffErrorCount = 0;
       }
+      const missingId = events.length > 0 && (ackId === undefined || ackId === null);
       return {
         events: events,
         early: early,
         elapsedMs: elapsedMs,
         handoffRetry: early,
-        missingId: events.length > 0 && (ackId === undefined || ackId === null)
+        missingId: missingId,
+        // A fast empty poll in steady state is treated as an error to back off on.
+        steadyError: !teleportActive && events.length === 0 && elapsedMs < EQ_POLL_MIN_HOLD_MS
       };
     } finally {
       pollAbort = null;
@@ -472,11 +485,16 @@ const FSEventQueue = (function () {
           running = false;
           break;
         }
-        (result.events || []).forEach(function (ev) {
-          if (onMessage && ev) onMessage(ev);
-        });
-        if (result.missingId && typeof FSErrors !== 'undefined') {
-          FSErrors.warn('eventqueue', 'EventQueue poll returned events without id ack', false);
+        // A batch with no id ack can't be acknowledged; the sim will resend it,
+        // so dispatching would double-process. Drop it (as Firestorm does).
+        if (result.missingId) {
+          if (typeof FSErrors !== 'undefined') {
+            FSErrors.warn('eventqueue', 'EventQueue batch had no id ack; dropped', false);
+          }
+        } else {
+          (result.events || []).forEach(function (ev) {
+            if (onMessage && ev) onMessage(ev);
+          });
         }
         if (teleportActive && typeof FSErrors !== 'undefined') {
           const n = (result.events || []).length;
@@ -498,6 +516,23 @@ const FSEventQueue = (function () {
         }
         if (teleportActive) {
           handoffErrorCount = 0;
+        } else if (result.steadyError) {
+          // Back off instead of hammering; give up after too many so a dead
+          // main-region poll doesn't spin forever.
+          steadyErrorCount += 1;
+          if (steadyErrorCount >= EQ_POLL_MAX_ERRORS) {
+            if (typeof FSErrors !== 'undefined') {
+              FSErrors.error('eventqueue',
+                'EventQueue poll failed ' + steadyErrorCount + ' times; stopping.', false);
+            }
+            if (onFatal) { try { onFatal(); } catch (_e) { /* ignore */ } }
+            running = false;
+            break;
+          }
+          await sleep(EQ_POLL_ERROR_RETRY_MS + steadyErrorCount * EQ_POLL_ERROR_RETRY_INC_MS);
+          continue;
+        } else {
+          steadyErrorCount = 0;
         }
       } catch (err) {
         pollAbort = null;
@@ -522,11 +557,24 @@ const FSEventQueue = (function () {
           } else {
             await sleep(2500);
           }
-        } else if (typeof FSErrors !== 'undefined' && !isTimeout && !isAborted && !isProxyStale) {
-          FSErrors.warn('eventqueue', 'Poll error: ' + msg, false);
-          await sleep(2500);
+        } else if (isTimeout || isAborted) {
+          // Expected for a long-poll; not an error.
+          await sleep(200);
         } else {
-          await sleep(isTimeout || isAborted ? 200 : 2500);
+          steadyErrorCount += 1;
+          if (typeof FSErrors !== 'undefined') {
+            FSErrors.warn('eventqueue', 'Poll error: ' + msg, false);
+          }
+          if (steadyErrorCount >= EQ_POLL_MAX_ERRORS) {
+            if (typeof FSErrors !== 'undefined') {
+              FSErrors.error('eventqueue',
+                'EventQueue poll failed ' + steadyErrorCount + ' times; stopping.', false);
+            }
+            if (onFatal) { try { onFatal(); } catch (_e) { /* ignore */ } }
+            running = false;
+            break;
+          }
+          await sleep(EQ_POLL_ERROR_RETRY_MS + steadyErrorCount * EQ_POLL_ERROR_RETRY_INC_MS);
         }
       }
     }
@@ -534,7 +582,7 @@ const FSEventQueue = (function () {
     loopPromise = null;
   }
 
-  function start(bridgeRef, url, handler) {
+  function start(bridgeRef, url, handler, fatalHandler) {
     if (!bridgeRef || !url) return false;
     const nextUrl = String(url).trim();
     if (running && pollUrl === nextUrl) return true;
@@ -542,7 +590,9 @@ const FSEventQueue = (function () {
     bridge = bridgeRef;
     pollUrl = nextUrl;
     onMessage = handler || null;
+    onFatal = fatalHandler || null;
     lastAck = null;
+    steadyErrorCount = 0;
     running = true;
     stopRequested = false;
     if (typeof FSErrors !== 'undefined') {

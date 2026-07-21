@@ -2837,6 +2837,95 @@ html.require-http #app {
   color: var(--accent-bright, #f0c040);
 }
 
+/* Chat/IM hyperlinks (§9): trusted (Linden/Firestorm) vs external. */
+.chat-link {
+  text-decoration: underline;
+  word-break: break-all;
+  cursor: pointer;
+}
+
+.chat-link--trusted {
+  color: var(--accent);
+}
+
+.chat-link--external {
+  color: var(--text-muted, #9aa0a6);
+}
+
+/* External links carry an outward-arrow affordance and a warmer hover to
+   signal they leave Second Life (a confirm gates the actual open). */
+.chat-link--external::after {
+  content: " \2197"; /* ↗ */
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+.chat-link:hover,
+.chat-link:focus {
+  color: var(--accent-bright, #f0c040);
+}
+
+/* Clickable object title → owner profile */
+.script-dialog__object--link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.script-dialog__object--link:hover,
+.script-dialog__object--link:focus {
+  color: var(--accent);
+}
+
+/* Parcel music: compact top-bar control (§6). Only shown when the current
+   parcel streams music, so it never implies the parcel is editable. */
+.parcel-music-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.05));
+}
+
+.parcel-music-bar__toggle {
+  display: inline-flex;
+  align-items: center;
+}
+
+.parcel-music-bar__toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.parcel-music-bar__volume {
+  width: 72px;
+  vertical-align: middle;
+}
+
+/* Small muted hint under form fields */
+.field-hint {
+  margin: -2px 0 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #9aa0a6);
+}
+
+/* Debug tab: compact "Record diagnostics" toggle */
+.log-record-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted, #9aa0a6);
+  cursor: pointer;
+  user-select: none;
+}
+
+.log-record-toggle input {
+  cursor: pointer;
+}
+
 /* World map */
 
 .map-form {

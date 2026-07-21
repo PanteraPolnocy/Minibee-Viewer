@@ -125,6 +125,17 @@ const FSErrorsUI = (function () {
       });
     }
 
+    const recordToggle = document.getElementById('errors-record-toggle');
+    if (recordToggle && typeof FSSettings !== 'undefined') {
+      recordToggle.checked = !!FSSettings.get('debugLogDiagnostics');
+      recordToggle.addEventListener('change', function () {
+        FSSettings.set('debugLogDiagnostics', recordToggle.checked);
+      });
+      FSSettings.onChange(function (key, value) {
+        if (key === 'debugLogDiagnostics') recordToggle.checked = !!value;
+      });
+    }
+
     document.querySelectorAll('.log-tab').forEach(function (btn) {
       btn.addEventListener('click', function () {
         setLogTab(btn.dataset.logTab || 'diagnostics');
