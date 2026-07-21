@@ -110,6 +110,7 @@ jobs:
     - name: Build Android Kotlin/Java
       run: |
         cd src-tauri/gen/android
+        chmod +x gradlew
         ./gradlew assembleDebug
 
     - name: Perform CodeQL Analysis
