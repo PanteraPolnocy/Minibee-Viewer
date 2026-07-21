@@ -30,7 +30,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Linux build dependencies
         if: matrix.platform == 'ubuntu-latest'
@@ -52,9 +52,9 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install frontend/CLI dependencies
@@ -68,4 +68,4 @@ jobs:
           # Upload to the release that triggered this run.
           releaseId: ${{ github.event.release.id }}
           args: ${{ matrix.args }}
-          releaseAssetNamePattern: '[platform]_[name]_[version]_[arch][_setup][ext]'
+          assetNamePattern: '[platform]_[name]_[version]_[arch][_setup][ext]'
