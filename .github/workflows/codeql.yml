@@ -110,6 +110,7 @@ jobs:
     - name: Build Android Kotlin/Java
       run: |
         cd src-tauri/gen/android
+        sed -i 's/\r$//' gradlew
         chmod +x gradlew
         ./gradlew assembleDebug
 
