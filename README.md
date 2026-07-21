@@ -8,6 +8,8 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 
 Just want to run it? Grab a prebuilt Windows installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** page. Want to build it yourself? Jump to [Build & distribute](#build--distribute).
 
+Images to look at sit in the **[Screenshots](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** directory.
+
 ## Read this first (the "use at your own risk" bit)
 
 Minibee is **experimental software** — a lightweight work-in-progress, not a finished or official Second Life client. Linden Lab hasn't blessed it, and neither has the Firestorm team.
