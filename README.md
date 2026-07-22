@@ -37,8 +37,6 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 - [Roadmap](#roadmap)
 - [Reference](#reference)
 
----
-
 ## Download
 
 Just want to run it? Grab a prebuilt installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** page. Want to build it yourself? Jump to [Build & distribute](#build--distribute). Images to look at sit in the [Screenshots](/src/screenshots) directory.
