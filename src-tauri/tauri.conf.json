@@ -44,8 +44,7 @@
     ],
     "windows": {
       "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "license": "../LICENSE"
+        "installerIcon": "icons/icon.ico"
       }
     }
   }
