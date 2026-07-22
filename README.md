@@ -51,7 +51,7 @@ Short version: great for exploring and testing, not the thing to bet your accoun
 
 ## Build & distribute
 
-The version number is defined **once**, in `src-tauri/tauri.conf.json`; `src-tauri/Cargo.toml` just mirrors it. Rust edition 2024. In `dev` the frontend is served live from `src/`; for a release build it's embedded straight into the binary.
+The version number is defined **once**, in `src-tauri/Cargo.toml`. Rust edition 2024. In `dev` the frontend is served live from `src/`; for a release build it's embedded straight into the binary.
 
 Standalone optimized binary:
 
@@ -98,7 +98,8 @@ Minibee-Viewer/
   src-tauri/             Native core (Rust)
     src/                 Transport, message codec, circuit, commands
     resources/           message_template.msg (bundled)
-    tauri.conf.json      App config — and the single source of the version number
+    tauri.conf.json      App and installer config
+    Cargo.toml           Single source of the version number
 ```
 
 ## Quick start

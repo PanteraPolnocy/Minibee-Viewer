@@ -1,7 +1,6 @@
 [package]
 name = "minibee-viewer"
-# Keep in sync with tauri.conf.json "version" (the single source of truth).
-version = "0.6.3"
+version = "0.6.4"
 description = "Minibee Viewer"
 authors = ["PanteraPolnocy"]
 edition = "2024"
