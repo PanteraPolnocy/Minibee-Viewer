@@ -25,7 +25,7 @@
     "homepage": "https://github.com/PanteraPolnocy/Minibee-Viewer",
     "shortDescription": "Minimalist client for Second Life",
     "longDescription": "A lightweight buzz into the infinite grid.",
-    "category": "Network",
+    "category": "SocialNetworking",
     "active": true,
     "targets": "all",
     "licenseFile": "../LICENSE",
