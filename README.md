@@ -6,6 +6,39 @@ A tiny Second Life client: a JavaScript / HTML / CSS interface running in a WebV
 
 What it does **not** do is render the 3D world. Minibee is the friend who comes to the party to talk to people and check the map, not to admire the furniture.
 
+## Table of Contents
+
+- [Download](#download)
+- [Read this first (the "use at your own risk" bit)](#read-this-first-the-use-at-your-own-risk-bit)
+- [Build & distribute](#build--distribute)
+- [What's in the box](#whats-in-the-box)
+- [Quick start](#quick-start)
+  - [Icons](#icons)
+- [Tests](#tests)
+- [How it's built](#how-its-built)
+  - [The frontend (`src/js/`)](#the-frontend-srcjs)
+  - [The core (`src-tauri/`)](#the-core-src-tauri)
+  - [How a login actually happens](#how-a-login-actually-happens)
+  - [Who does what (and where it's heading)](#who-does-what-and-where-its-heading)
+  - [The Debug tab](#the-debug-tab)
+  - [Lazy tabs](#lazy-tabs)
+- [Features at a glance](#features-at-a-glance)
+- [Getting around](#getting-around)
+- [Chat and Events](#chat-and-events)
+- [Instant messages](#instant-messages)
+- [Profiles](#profiles)
+- [Search](#search)
+- [Map and teleport](#map-and-teleport)
+- [Radar](#radar)
+- [Land](#land)
+- [Destination Guide](#destination-guide)
+- [When the connection drops](#when-the-connection-drops)
+- [Limitations (a.k.a. things it honestly can't do)](#limitations-aka-things-it-honestly-cant-do)
+- [Roadmap](#roadmap)
+- [Reference](#reference)
+
+---
+
 ## Download
 
 Just want to run it? Grab a prebuilt installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** page. Want to build it yourself? Jump to [Build & distribute](#build--distribute). Images to look at sit in the [Screenshots](/src/screenshots) directory.
@@ -17,49 +50,6 @@ Minibee is **experimental software** — a lightweight work-in-progress, not a f
 **Whatever you do in-world with it is on you** — logging in, spending L$, accepting script permissions, opening links, all of it. The code is written carefully and in good faith, with real attention to protocol correctness and sensible safety defaults (script dialogs and permission requests always wait for an explicit tap before anything goes back to the simulator — Minibee never answers on your behalf). But experimental code has rough edges, and it won't always behave like a full viewer.
 
 Short version: great for exploring and testing, not the thing to bet your account on.
-
-## What's in the box
-
-```
-Minibee-Viewer/
-  README.md              You are here
-  LICENSE                LGPL 2.1
-  SECURITY.md            How to report a vulnerability
-  CODE_OF_CONDUCT.md
-  CONTRIBUTING.md
-  src/                   Frontend (served by the app)
-    index.html           Shell, login screen, side navigation
-    css/app.css          Styles (dark/light themes)
-    js/                  The client app + SL protocol
-    screenshots/         UI screenshots
-  src-tauri/             Native core (Rust)
-    src/                 Transport, message codec, circuit, commands
-    resources/           message_template.msg (bundled)
-    tauri.conf.json      App config — and the single source of the version number
-```
-
-## Quick start
-
-Minibee is a desktop app. The UI lives in a WebView; the native **Rust core** does everything a browser flat-out can't — the SL UDP circuit, the XML-RPC login, and the cross-origin capability/map requests. The two talk over Tauri IPC (`window.__TAURI__.core.invoke`). There's no local HTTP server and no separate bridge process to babysit.
-
-You'll need (on Windows):
-
-- [Rust](https://rustup.rs) with the MSVC toolchain (`stable-x86_64-pc-windows-msvc`)
-- Visual Studio Build Tools (**Desktop development with C++**)
-- WebView2 runtime (already on Windows 11)
-- Node.js (for the Tauri CLI)
-
-Then:
-
-```bat
-cd Minibee-Viewer
-npm install
-npm run tauri dev
-```
-
-Pick a grid (Agni, Aditi, or a local OpenSim), enter your credentials, and log in. Changed the frontend? Reload the window. Changed Rust? Restart `npm run tauri dev`.
-
-**Certificates:** TLS is checked against the operating system's trust store, so there's no CA bundle to download or configure. One less thing.
 
 ## Build & distribute
 
@@ -92,6 +82,49 @@ Installed copies also include `LICENSE` and `README.md` next to the app executab
 - **WebView2**: preinstalled on Windows 11 and current Windows 10. The bare exe needs it present; the NSIS installer fetches it if it's missing.
 - **Unsigned**: the builds aren't code-signed, so Windows SmartScreen will do its "unknown publisher" song and dance (*More info → Run anyway*). A signing certificate (configured in `tauri.conf.json`) makes it stop.
 - **Console window**: `target/debug` exes show a console with logs; the release exe and installers are windowed and quiet (`main.rs` sets `windows_subsystem = "windows"` in release).
+
+## What's in the box
+
+```
+Minibee-Viewer/
+  README.md              You are here
+  LICENSE                LGPL 2.1
+  SECURITY.md            How to report a vulnerability
+  CODE_OF_CONDUCT.md
+  CONTRIBUTING.md
+  src/                   Frontend (served by the app)
+    index.html           Shell, login screen, side navigation
+    css/app.css          Styles (dark/light themes)
+    js/                  The client app + SL protocol
+    screenshots/         UI screenshots
+  src-tauri/             Native core (Rust)
+    src/                 Transport, message codec, circuit, commands
+    resources/           message_template.msg (bundled)
+    tauri.conf.json      App config — and the single source of the version number
+```
+
+## Quick start
+
+Minibee is - by default, unless you use the Android boilerplate directory - a desktop app. The UI lives in a WebView; the native **Rust core** does everything a browser flat-out can't — the SL UDP circuit, the XML-RPC login, and the cross-origin capability/map requests. The two talk over Tauri IPC (`window.__TAURI__.core.invoke`). There's no local HTTP server and no separate bridge process to babysit.
+
+You'll need (on Windows, but Minibee builds without a problem under Linux or Mac):
+
+- [Rust](https://rustup.rs) with the MSVC toolchain (`stable-x86_64-pc-windows-msvc`)
+- Visual Studio Build Tools (**Desktop development with C++**)
+- WebView2 runtime (already on Windows 11)
+- Node.js (for the Tauri CLI)
+
+Then:
+
+```bat
+cd Minibee-Viewer
+npm install
+npm run tauri dev
+```
+
+Pick a grid (Agni, Aditi, or a local OpenSim), enter your credentials, and log in. Changed the frontend? Reload the window. Changed Rust? Restart `npm run tauri dev`.
+
+**Certificates:** TLS is checked against the operating system's trust store, so there's no CA bundle to download or configure. One less thing.
 
 ### Icons
 
