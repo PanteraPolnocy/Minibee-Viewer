@@ -21,6 +21,11 @@
     }
   },
   "bundle": {
+    "publisher": "Pantera Północy",
+    "homepage": "https://github.com/PanteraPolnocy/Minibee-Viewer",
+    "shortDescription": "Minimalist client for Second Life",
+    "longDescription": "A lightweight buzz into the infinite grid.",
+    "category": "Network",
     "active": true,
     "targets": "all",
     "licenseFile": "../LICENSE",
@@ -39,7 +44,8 @@
     ],
     "windows": {
       "nsis": {
-        "installerIcon": "icons/icon.ico"
+        "installerIcon": "icons/icon.ico",
+        "license": "../LICENSE"
       }
     }
   }
