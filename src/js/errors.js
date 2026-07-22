@@ -1,5 +1,5 @@
 /**
- * Client-side diagnostic log (Log tab + optional chat mirror).
+ * Client-side diagnostic log (Debug tab + optional chat mirror).
  */
 const FSErrors = (function () {
   'use strict';
@@ -13,8 +13,7 @@ const FSErrors = (function () {
   }
 
   // Errors are always retained; info/warn diagnostics only when the user has
-  // opted in (setting `debugLogDiagnostics`, default off — §7). The chat mirror
-  // is independent of retention.
+  // opted in (`debugLogDiagnostics`, default off). The chat mirror is independent.
   function shouldRetain(level) {
     if (level === 'error') return true;
     try {

@@ -130,10 +130,7 @@ const FSLoginSL = (function () {
 
   function buildLoginPayload(credentials, session) {
     const user = parseUsername(credentials.username, credentials.grid);
-    // Do NOT trim: Firestorm hashes the field verbatim, and a trimmed password
-    // with leading/trailing spaces produces the wrong MD5. Cap length by grid
-    // (SL widget = 16 chars, OpenSim = 255); the core mirrors this via passwdMax
-    // (audit #19).
+    // Do NOT trim: the sim hashes the field verbatim. Cap by grid (SL 16, OpenSim 255).
     const passwdMax = isLindenGrid(credentials.grid) ? 16 : 255;
     const password = String(credentials.password || '').slice(0, passwdMax);
     const payload = {

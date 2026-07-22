@@ -52,16 +52,12 @@ const FSSLTransport = (function () {
 
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
   const recentImFallback = new Map();
-  // Live IMs carry Timestamp=0, so this content-based fallback is all that
-  // separates a retransmit / cross-transport copy from a genuine repeat. Keep
-  // the window short (a lost-ack resend or UDP+EQ copy arrives ~sub-second)
-  // so two identical human messages a couple seconds apart aren't swallowed.
-  // TODO: replace with a transport-level receive-sequence dedup.
+  // Content-based IM dedup until transport-level sequence dedup exists. Keep the window short.
   const IM_DEDUP_FALLBACK_MS = 1500;
   const IM_DEDUP_MAX = 600;
   const recentPaymentKeys = new Map();
   // signature -> event id, so a repeated MoneyBalanceReply updates the existing
-  // card in place instead of dropping silently or pushing a duplicate (§4).
+  // card in place instead of dropping silently or pushing a duplicate.
   const recentPaymentEventIds = new Map();
   const PAYMENT_DEDUP_TTL_MS = 15000;
   const PAYMENT_DEDUP_MAX = 200;
@@ -1153,7 +1149,7 @@ const FSSLTransport = (function () {
     const key = paymentDedupKey(data);
     // A transaction can produce more than one MoneyBalanceReply (sim retries /
     // repeated poll batches). On a repeat, refresh the existing card's balance
-    // in place rather than pushing another identical card (§4).
+    // in place rather than pushing another identical card.
     if (key && isDuplicatePayment(data)) {
       const priorId = recentPaymentEventIds.get(key);
       if (priorId && typeof FSState !== 'undefined' && FSState.patchEventMessage) {
@@ -2346,9 +2342,7 @@ const FSSLTransport = (function () {
     });
   }
 
-  // Group IM moderation (MOD tags, text mute) is sim-authoritative via
-  // ChatterBoxSessionAgentListUpdates + ChatSessionRequest "mute update".
-  // It does not use profile GroupTitles or GroupRoleData.
+  // Group text mute is sim-authoritative (ChatterBoxSessionAgentListUpdates + ChatSessionRequest).
   function applyAgentUpdates(session, body) {
     if (!body || typeof body !== 'object') return false;
     let changed = false;
@@ -3624,7 +3618,7 @@ const FSSLTransport = (function () {
   }
 
   async function resolveRegionByName(regionName, local) {
-    // Region-name lookup goes through the native core only (no JSONP; §13 F).
+    // Region-name lookup goes through the native core only (no JSONP).
     const results = [await resolveRegionNameHttp(regionName)];
     let lastErr = null;
     for (let i = 0; i < results.length; i++) {
@@ -5418,8 +5412,7 @@ const FSSLTransport = (function () {
 
   async function moderateSessionText(sessionId, agentId, muteText) {
     if (simActionsBlocked() || !loginData) throw new Error('Not connected');
-    // Firestorm text moderation ("mute update") applies to GROUP sessions only;
-    // never send it for P2P or ad-hoc conferences (to-do §1).
+    // Text moderation ("mute update") applies to group sessions only, not P2P/conference.
     const modSession = chatSessions.get(sessionKey(sessionId));
     if (modSession && modSession.type && modSession.type !== 'group') {
       throw new Error('Moderation applies to group sessions only');

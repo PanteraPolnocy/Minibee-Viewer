@@ -1,18 +1,7 @@
-//! Generic SL UDP packet codec.
+//! Generic SL UDP packet codec driven by `message_template.msg`.
 //!
-//! Encoding and decoding are driven entirely by the message template
-//! (`template.rs`), so *every* message in the template is supported without
-//! per-message code. Framing, zerocoding, message-id widths, and field layout
-//! follow the Second Life UDP wire format exactly.
-//!
-//! Decoded packets become a generic JSON shape:
-//! ```json
-//! { "name": "ChatFromSimulator", "id": 4294901899, "seq": 12,
-//!   "flags": 64, "reliable": true, "acks": [ ... ],
-//!   "blocks": { "ChatData": [ { "FromName": "<base64>", ... } ] } }
-//! ```
-//! Variable/Fixed byte fields are base64 (lossless); U64/S64 are decimal
-//! strings (JS `BigInt`); vectors/quaternions are JSON number arrays.
+//! Decoded packets are JSON: name, id, seq, flags, reliable, acks, blocks.
+//! Byte fields are base64; U64/S64 are decimal strings.
 
 pub mod llsd;
 pub mod template;
@@ -61,13 +50,7 @@ pub fn zerocode_encode(buf: &[u8], start: usize, end: usize) -> Vec<u8> {
     out
 }
 
-/// Expand a zerocoded packet, faithful to `LLMessageSystem::zeroCodeExpand`.
-///
-/// The first 6 bytes (packet-id header) are copied verbatim; expansion begins
-/// at `PHL_NAME` (offset 6) and runs to the end of `input` (acks already
-/// stripped by the caller). A `0x00` byte introduces a zero run: each further
-/// literal `0x00` contributes 256 zeros (the "wrap" form the JS decoder gets
-/// wrong), and the following count byte `n` contributes `n - 1` more.
+/// Expand a zerocoded UDP payload (first 6 header bytes copied verbatim).
 pub fn zerocode_expand(input: &[u8]) -> Vec<u8> {
     const HDR: usize = 6;
     let n = input.len();
@@ -309,9 +292,7 @@ pub fn decode(reg: &Registry, bytes: &[u8]) -> Option<Value> {
         let count = match block.quantity {
             Quantity::Single => 1usize,
             Quantity::Multiple(n) => n as usize,
-            // A missing count byte at EOF means zero repeats for THIS block;
-            // continue so later blocks still decode (Firestorm zero-fills and
-            // keeps going rather than abandoning the rest of the message).
+            // Missing count at EOF: zero repeats for this block; keep decoding later blocks.
             Quantity::Variable => match r.u8() {
                 Some(c) => c as usize,
                 None => 0,
@@ -325,7 +306,7 @@ pub fn decode(reg: &Registry, bytes: &[u8]) -> Option<Value> {
                     Some(v) => {
                         obj.insert(field.name.clone(), v);
                     }
-                    // Truncated packet: keep what we have (parity with JS).
+                    // Truncated packet: keep partial data.
                     None => {
                         instances.push(Value::Object(obj));
                         blocks.insert(block.name.clone(), Value::Array(instances));

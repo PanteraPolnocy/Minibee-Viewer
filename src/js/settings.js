@@ -33,9 +33,9 @@ const FSSettings = (function () {
     logSubtab: { type: 'string', default: 'diagnostics' },
     // When off (default), protocol diagnostics (info/warn) are not retained in
     // the Debug panel — hard errors still are. Keeps an idle viewer from
-    // growing the list on every EQ poll / cap grant / teleport trace (§7).
+    // growing the list on every EQ poll / cap grant / teleport trace.
     debugLogDiagnostics: { type: 'boolean', default: false },
-    // Parcel music streaming (§6). Off by default (autoplay policy); volume 0-100.
+    // Parcel music streaming. Off by default (autoplay policy); volume 0-100.
     parcelMusicEnabled: { type: 'boolean', default: false },
     parcelMusicVolume: { type: 'number', default: 50, min: 0, max: 100, step: 1 },
     theme: { type: 'string', default: 'dark' }

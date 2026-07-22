@@ -491,7 +491,7 @@ const FSEventQueue = (function () {
           break;
         }
         // A batch with no id ack can't be acknowledged; the sim will resend it,
-        // so dispatching would double-process. Drop it (as Firestorm does).
+        // so dispatching would double-process. Drop it.
         if (result.missingId) {
           if (typeof FSErrors !== 'undefined') {
             FSErrors.warn('eventqueue', 'EventQueue batch had no id ack; dropped', false);

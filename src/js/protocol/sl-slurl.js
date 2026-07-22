@@ -10,11 +10,7 @@ const FSSlurl = (function () {
   const DEFAULT_MAP_SERVER = 'https://map.secondlife.com/';
   const SLURL_PATTERN = /(?:https?:\/\/maps\.secondlife\.com\/secondlife\/[^\s<]+|secondlife:\/\/[^\s<]+)/gi;
 
-  // Chat/IM link matching. The canonical grammar + trust classification lives in
-  // the native core (src-tauri/src/urlmatch.rs, `bridge_linkify`, unit-tested);
-  // this mirrors it for synchronous render-time linkification. Kept in lockstep
-  // with that module — when the chat family moves to Rust (to-do §3 step 3),
-  // Rust emits pre-classified segments and this collapses to a renderer.
+  // Canonical grammar lives in urlmatch.rs (`bridge_linkify`); kept here for sync render.
   const TRUSTED_SUFFIXES = [
     'secondlife.com', 'secondlife.io', 'secondlife.net', 'lindenlab.com',
     'tilia-inc.com', 'phoenixviewer.com', 'firestormviewer.org'
@@ -254,7 +250,7 @@ const FSSlurl = (function () {
     return name + ' (' + x + ', ' + y + ', ' + z + ')';
   }
 
-  // Split `text` into ordered link segments (mirrors urlmatch::linkify).
+  // Split text into link segments (same grammar as urlmatch::linkify).
   function scanLinks(text) {
     const src = String(text || '');
     const raws = [];
@@ -396,10 +392,7 @@ const FSSlurl = (function () {
     return out;
   }
 
-  // Region-name → coordinates now resolves solely through the native core
-  // (`FSBridge.regionByName` → bridge_region_by_name). The former JSONP path
-  // (`<script src="https://cap.secondlife.com/...">` injected into the app
-  // origin) was removed (to-do §13 finding F).
+  // Region-name lookup uses the native core only (`FSBridge.regionByName`).
 
   return {
     REGION_WIDTH: REGION_WIDTH,

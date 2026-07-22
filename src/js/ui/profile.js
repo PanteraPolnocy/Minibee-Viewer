@@ -1070,8 +1070,7 @@ const FSProfile = (function () {
         FSUtils.escapeHtml(row.title) + '</option>';
     }).join('');
     const disabled = titles.length <= 1 ? ' disabled' : '';
-    // A single dropdown of the member's titles (current one preselected) with a
-    // Save button beside it, matching Firestorm's "Active title" combo.
+    // Title dropdown + Save (current title preselected).
     return wrap(
       '<div class="profile-group-title-row">' +
       '<select id="profile-group-title-select" class="profile-group-title-select"' + disabled + '>' +

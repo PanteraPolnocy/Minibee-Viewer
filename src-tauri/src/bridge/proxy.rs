@@ -9,14 +9,7 @@ use reqwest::{Method, Url};
 
 use crate::bridge::util::normalize_seed_url;
 
-/// SSRF guard for the caller-supplied `bridge_proxy` URL (to-do §13 A).
-///
-/// The proxy is only reachable from the app's own WebView, but it still fetches
-/// an arbitrary URL, so we refuse targets that point at the local machine or a
-/// private network: loopback, RFC1918, link-local, unique-local, and
-/// `localhost`. Public hostnames (Agni `*.secondlife.io`, Aditi, and OpenSim
-/// grids) are allowed — we do not maintain a positive host allowlist so
-/// third-party OpenSim logins keep working. Returns `Some(reason)` when blocked.
+/// SSRF guard for caller-supplied `bridge_proxy` URLs. Blocks loopback/private targets.
 pub fn egress_block_reason(url: &str) -> Option<String> {
     let parsed = Url::parse(url).ok()?;
     match parsed.scheme() {
@@ -37,10 +30,7 @@ pub fn egress_block_reason(url: &str) -> Option<String> {
     None
 }
 
-/// Full SSRF guard: the literal/scheme/localhost check PLUS async DNS
-/// resolution of a hostname target, rejecting if ANY resolved address is
-/// private/loopback/link-local/metadata (audit #4). Resolution failure is not
-/// treated as blocked — the subsequent connect will fail naturally.
+/// Full SSRF guard: literal check plus async DNS resolution.
 pub async fn guard_url(url: &str) -> Result<(), String> {
     if let Some(reason) = egress_block_reason(url) {
         return Err(reason);
@@ -117,9 +107,7 @@ fn default_port(scheme: &str) -> u16 {
     }
 }
 
-/// Resolve a non-IP host to its first public address so the connection targets
-/// the IP we validated, closing the DNS-rebinding window between guard and
-/// connect. Returns None for IP-literal hosts (already guarded) or on failure.
+/// Pin a simhost URL to the validated IP (closes DNS-rebinding window).
 async fn resolve_public_pin(url: &str) -> Option<(String, SocketAddr)> {
     let parsed = Url::parse(url).ok()?;
     let host = parsed.host_str()?.to_string();
@@ -137,8 +125,7 @@ async fn resolve_public_pin(url: &str) -> Option<(String, SocketAddr)> {
     None
 }
 
-/// Resolve the pin (host -> ip) for a simhost URL so cap requests reach the
-/// exact simulator. Returns the pin and the pinned IP (for reporting).
+/// Resolve simhost pin for cap requests. Returns (pin, pinned IP).
 pub async fn simhost_pin(url: &str, sim_ip: &str) -> (Option<(String, SocketAddr)>, String) {
     let parsed = match Url::parse(url) {
         Ok(u) => u,
@@ -166,8 +153,7 @@ pub async fn simhost_pin(url: &str, sim_ip: &str) -> (Option<(String, SocketAddr
     (None, String::new())
 }
 
-/// Perform a cap request with manual redirects (max 6), preserving the POST
-/// body across 303s and refusing redirects that leave the simhost.
+/// Cap request with manual redirects (POST preserved, off-simhost refused).
 #[allow(clippy::too_many_arguments)]
 pub async fn exchange(
     ua: &str,
@@ -248,7 +234,7 @@ pub async fn exchange(
                     }
                 }
                 // Re-run the SSRF guard on the redirect target (resolves DNS),
-                // so a 3xx cannot bounce us to an internal/metadata host (#4).
+                // so a 3xx cannot bounce us to an internal/metadata host.
                 guard_url(&next_abs).await?;
                 cur_url = next_abs;
                 redirects += 1;

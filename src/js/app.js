@@ -135,10 +135,7 @@ const FSApp = (function () {
       FSUtils.showToast('Radar: ' + label + ' (' + entry.range + 'm)', 'warning', 4500);
     });
 
-    // The sim sends SimStats ~1x/sec; patching fps each time re-runs the whole
-    // top bar every second. FPS is a rough gauge, so coalesce: only patch when
-    // the value actually changed and at most once every few seconds. Other
-    // top-bar fields (balance, region, name) still update on their own events.
+    // The sim sends SimStats ~1/sec; coalesce fps patches to avoid top-bar churn.
     let lastFpsValue = null;
     let lastFpsPatchAt = 0;
     const FPS_PATCH_MIN_MS = 3000;

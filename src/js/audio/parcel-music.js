@@ -1,20 +1,8 @@
 /**
- * Parcel music streaming (to-do §6).
+ * Parcel music streaming via HTMLAudioElement.
  *
- * Firestorm plays the parcel's `musicUrl` through FMOD when the agent is on a
- * parcel with music enabled. In a WebView there is no 3D audio engine, but most
- * SL parcel streams are plain Shoutcast/Icecast/MP3 that an <audio> element can
- * play directly. This is a parcel-wide stream (no positional audio), matching
- * FS parcel-music behaviour in spirit.
- *
- * Notes / caveats handled here:
- * - Autoplay policy: browsers block playback until a user gesture. Auto-play is
- *   opt-in (`parcelMusicEnabled`, default off); when a play() promise rejects we
- *   surface a "click Play" state instead of erroring.
- * - Mixed content: an http:// stream on the app's https origin may be blocked by
- *   the WebView regardless of CSP. We report the failure rather than retrying.
- * - On parcel change / teleport the old stream is stopped and the new URL starts
- *   (deduped against the same URL).
+ * Most SL parcel streams are plain Shoutcast/Icecast/MP3. Parcel-wide only (no
+ * positional audio). Autoplay is opt-in; mixed http/https may be blocked.
  */
 const FSParcelMusic = (function () {
   'use strict';

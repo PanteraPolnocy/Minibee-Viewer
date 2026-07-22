@@ -1,12 +1,4 @@
-//! SL UDP circuit: one bound socket per session, a background reader that
-//! relays each datagram to the frontend as `minibee-viewer://packet-raw` (after
-//! filtering out high-frequency floods the UI never uses), plus an inbound HTTP
-//! listener for trusted messages (e.g. `AgentGroupDataUpdate`, surfaced as
-//! `minibee-viewer://http-message`).
-//!
-//! The frontend sends with `sl_send_raw` (pre-encoded bytes) or `sl_send`
-//! (encode by message name from the template). Reliability/acks are driven by
-//! the frontend so there is a single owner of sequence/ack state.
+//! SL UDP circuit: socket per session, datagram relay, inbound trusted-message HTTP listener.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -91,7 +83,7 @@ fn parse_addr(ip: &str, port: u16) -> Option<SocketAddr> {
 }
 
 /// Resolve a target that may be an IP literal or (rarely, OpenSim) a hostname.
-/// DNS resolution is async so it never blocks a Tokio worker (to-do audit #45).
+/// DNS resolution is async so it never blocks a Tokio worker.
 async fn resolve_target(ip: &str, port: u16) -> Option<SocketAddr> {
     if let Some(addr) = parse_addr(ip, port) {
         return Some(addr);
@@ -177,13 +169,8 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
             };
             let datagram = &buf[..n];
 
-            // Cheap pre-filter: drop object/layer/sound/effect updates the UI never
-            // uses before they cross the IPC boundary. Only when the packet is
-            // unreliable (bit 0x40 clear), carries no appended acks (bit 0x10 clear
-            // — the sim piggybacks acks for our reliable sends onto these floods, so
-            // dropping them would strand the acks), and has no extra header, so the
-            // message id sits at offset 6. High-frequency ids are a single byte;
-            // medium-frequency are `0xFF <n>`.
+            // Drop high/medium-frequency floods before IPC, but only when unreliable
+            // and ack-free (acks for our reliable sends are piggybacked on these).
             if datagram.len() >= 7
                 && (datagram[0] & codec::FLAG_RELIABLE) == 0
                 && (datagram[0] & codec::FLAG_ACK) == 0
@@ -223,14 +210,13 @@ fn spawn_http_listener(
     tokio::spawn(async move {
         // The sim connects back to the viewer's UDP-listen port over TCP, so the
         // socket must accept from the network — but every connection is then
-        // validated to originate from the current sim (audit #3), mirroring
-        // Firestorm's LLTrustedMessageService / isTrustedSender (message.cpp).
+        // validated to originate from the current sim.
         let listener = match TcpListener::bind(("0.0.0.0", port)).await {
             Ok(l) => l,
             Err(_) => return, // inbound trusted-message delivery unavailable; not fatal
         };
         // Bound the number of concurrent inbound handlers so a flood of
-        // connections cannot exhaust tasks/memory (audit #43).
+        // connections cannot exhaust tasks/memory.
         let sem = Arc::new(Semaphore::new(8));
         loop {
             let (mut stream, peer) = match listener.accept().await {
@@ -264,7 +250,7 @@ fn spawn_http_listener(
                 let mut data = Vec::new();
                 let mut chunk = [0u8; 8192];
                 // Total read budget so a slow-loris / stuck sender cannot pin a
-                // handler forever (audit #43).
+                // handler forever.
                 let read_all = async {
                     loop {
                         match stream.read(&mut chunk).await {
@@ -335,7 +321,7 @@ fn header_end(data: &[u8]) -> Option<usize> {
 fn parse_trusted_message(data: &[u8]) -> Option<(String, String, String)> {
     // Parse the (ASCII) header region and the body from the RAW byte boundary,
     // so a non-UTF8 body cannot shift the header parse or be silently mangled by
-    // decoding the whole request at once (audit #46). The body is still surfaced
+    // decoding the whole request at once. The body is still surfaced
     // as text (this path carries LLSD-XML); only the body bytes are lossy-decoded.
     let hdr_end = header_end(data)?;
     let head = String::from_utf8_lossy(&data[..hdr_end]);

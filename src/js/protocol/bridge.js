@@ -1,11 +1,5 @@
 /**
- * Native backend client — talks to the Rust core over Tauri IPC
- * (`window.__TAURI__.core.invoke`) instead of HTTP.
- *
- * Structured calls (login, proxy, map, destinations, circuit lifecycle) are
- * `invoke`d directly. Circuit traffic is sent with `slSend` (the Rust core
- * encodes from the message template) and received as `minibee-viewer://packet` /
- * `minibee-viewer://http-message` events.
+ * Native backend client over Tauri IPC (`window.__TAURI__.core.invoke`).
  */
 const FSBridge = (function () {
   'use strict';
@@ -70,11 +64,6 @@ const FSBridge = (function () {
   };
 
   Bridge.prototype.health = function () {
-    return invoke('bridge_health');
-  };
-
-  // Single backend — the poll/caps split no longer exists.
-  Bridge.prototype.pollHealth = function () {
     return invoke('bridge_health');
   };
 
@@ -148,7 +137,7 @@ const FSBridge = (function () {
     }
   };
 
-  // --- Map / Destination Guide helpers (formerly raw HTTP GETs) -------------
+  // --- Map / Destination Guide helpers ---
 
   function mapTile(level, gridX, gridY, server) {
     return invoke('bridge_map_tile', { level: Number(level) || 1, x: Number(gridX) || 0, y: Number(gridY) || 0, server: server || undefined });
@@ -179,10 +168,6 @@ const FSBridge = (function () {
     mapRegion: mapRegion,
     regionByName: regionByName,
     destinations: destinations,
-    version: version,
-    // Back-compat identifiers (no longer URLs, kept so old references resolve).
-    DEFAULT_URL: '',
-    DEFAULT_CAPS_URL: '',
-    DEFAULT_POLL_URL: ''
+    version: version
   };
 })();

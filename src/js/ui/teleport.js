@@ -206,10 +206,6 @@ const FSTeleportUI = (function () {
     };
   }
 
-  function resetProgress() {
-    /* callers track their own last pct */
-  }
-
   function init() {
     const form = document.getElementById('teleport-prompt-form');
     const decline = document.getElementById('teleport-decline');
@@ -262,7 +258,6 @@ const FSTeleportUI = (function () {
     offerTo: offerTo,
     requestFrom: requestFrom,
     formatProgressLabel: formatProgressLabel,
-    resetProgress: resetProgress,
     reset: reset
   };
 })();

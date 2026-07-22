@@ -2839,7 +2839,7 @@ html.require-http #app {
   color: var(--accent-bright, #f0c040);
 }
 
-/* Chat/IM hyperlinks (§9): trusted (Linden/Firestorm) vs external. */
+/* Chat/IM hyperlinks: trusted vs external. */
 .chat-link {
   text-decoration: underline;
   word-break: break-all;
@@ -2879,7 +2879,7 @@ html.require-http #app {
   color: var(--accent);
 }
 
-/* Parcel music: compact top-bar control (§6). Only shown when the current
+/* Parcel music: compact top-bar control. Only shown when the current
    parcel streams music, so it never implies the parcel is editable. */
 .parcel-music-bar {
   display: inline-flex;

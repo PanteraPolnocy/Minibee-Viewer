@@ -1,10 +1,4 @@
-//! LLSD (Linden Lab Structured Data) codec — the format used by capability
-//! responses and the EventQueue. Parses the XML serialization into
-//! `serde_json::Value` and serializes `Value` back to LLSD XML.
-//!
-//! Binary values decode to a JSON array of byte numbers (what the frontend's
-//! consumers already accept), integers to JSON integers, reals to JSON reals,
-//! and undef to null. A JSON body (used by some feeds) is passed through.
+//! LLSD XML/JSON codec for capability and EventQueue bodies.
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -73,11 +67,7 @@ fn parse_node(node: roxmltree::Node) -> Value {
         "real" | "double" => json!(node_text(node).parse::<f64>().unwrap_or(0.0)),
         "uuid" | "string" | "date" | "uri" => json!(node_text(node)),
         "binary" => {
-            // Honor the encoding attribute (Firestorm skips a non-base64 encoding),
-            // and strip ASCII whitespace before decoding: LLSD-XML produced by
-            // non-Linden formatters/proxies line-wraps or indents the base64, which
-            // the STANDARD engine rejects — silently dropping the field (audit #17,
-            // cf. llsdserialize_xml.cpp DEV-39358).
+            // Honor the encoding attribute; strip whitespace from wrapped base64.
             let enc = node.attribute("encoding").unwrap_or("base64");
             if !enc.eq_ignore_ascii_case("base64") {
                 Value::Array(Vec::new())

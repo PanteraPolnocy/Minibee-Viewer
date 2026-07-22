@@ -72,7 +72,7 @@ pub fn normalize_sim_ip_str(raw: &str) -> String {
     }
     // Hostname: return unchanged. DNS resolution happens asynchronously at the
     // point of use (circuit::open via lookup_host); doing a blocking
-    // getaddrinfo here would stall a Tokio worker thread (audit #45).
+    // getaddrinfo here would stall a Tokio worker thread.
     s.to_string()
 }
 

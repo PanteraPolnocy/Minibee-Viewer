@@ -1,22 +1,11 @@
-//! Chat / IM URL matching, mirroring Firestorm's `LLUrlRegistry` pipeline
-//! (`indra/llui/llurlregistry.cpp`, `llurlentry.*`).
+//! Chat / IM URL matching and trust classification.
 //!
-//! Given a line of text, [`linkify`] returns an ordered list of [`Segment`]s
-//! that fully cover the input: runs of plain text interleaved with links. Each
-//! link carries the resolved URL, a display label (Firestorm's masked
-//! `[url Label]` form or a friendly SLURL label), a `trusted` flag (Linden /
-//! Firestorm domains vs arbitrary external URLs), and its kind.
-//!
-//! This is the canonical implementation. Today the WebView still linkifies
-//! synchronously at render time; once the chat family moves to Rust
-//! (`minibee-viewer://chat`, to-do §3 step 3) the sim-side text flows through
-//! here and the WebView renders pre-computed segments instead.
+//! [`linkify`] splits text into plain runs and [`Segment`] links (URL, label,
+//! trusted flag, kind). Canonical grammar; the WebView mirrors it for sync render.
 
 use serde::Serialize;
 
-/// Hosts treated as trusted (safe to open in the viewer context without an
-/// external-link warning). Matches the intent of `LLUrlEntryTrustedURL` /
-/// `LLUrlEntryFirestormURL`.
+/// Hosts treated as trusted (no external-link warning before open).
 const TRUSTED_SUFFIXES: &[&str] = &[
     "secondlife.com",
     "secondlife.io",
@@ -89,8 +78,7 @@ fn host_trusted(host: &str) -> bool {
         .any(|s| host == *s || host.ends_with(&format!(".{s}")))
 }
 
-/// Trim trailing punctuation a URL should not swallow (sentence punctuation,
-/// closing paren when unbalanced). Mirrors the common `LLUrlEntry` cleanup.
+/// Trim trailing punctuation a URL should not swallow.
 fn trim_trailing(url: &str) -> &str {
     let mut end = url.len();
     let bytes = url.as_bytes();

@@ -11,8 +11,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Single source of truth for version: tauri.conf.json
-            // (productName = channel, version = semver). No version.json.
+            // Version from Cargo.toml
             let channel = app
                 .config()
                 .product_name

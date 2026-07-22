@@ -1,7 +1,5 @@
 /**
- * Minibee Viewer version. The single source of truth is tauri.conf.json
- * (productName = channel, version = semver); the native core exposes it via the
- * `bridge_version` command.
+ * Version metadata from `bridge_version` (sourced from Cargo.toml).
  */
 const MinibeeVersion = (function () {
   'use strict';

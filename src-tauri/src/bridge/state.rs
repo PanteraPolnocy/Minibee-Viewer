@@ -22,10 +22,7 @@ pub struct AppState {
     pub version: Value,
 }
 
-/// Build the version payload + user-agent from Tauri's package info, which is
-/// sourced from `tauri.conf.json` (`productName` = channel, `version` = semver).
-/// This is the single source of truth; there is no separate version.json.
-/// `build` is an optional 4th component carried as semver build metadata.
+/// Build version payload and user-agent from Tauri package info.
 pub fn version_payload(channel: &str, major: u64, minor: u64, patch: u64, build: u64) -> (Value, String) {
     let mut ver_str = format!("{}.{}.{}", major, minor, patch);
     if build > 0 {

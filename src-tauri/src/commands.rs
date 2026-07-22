@@ -1,9 +1,4 @@
-//! Tauri command surface invoked from the frontend over IPC.
-//!
-//! `bridge_*` commands cover login, the capability proxy, and map/destinations
-//! lookups. `sl_*` commands drive the UDP circuit; decoded packets and inbound
-//! trusted messages are delivered to the frontend as `minibee-viewer://packet` /
-//! `minibee-viewer://http-message` events.
+//! Tauri IPC commands: bridge helpers and UDP circuit control.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -203,9 +198,7 @@ pub async fn bridge_region_by_name(state: State<'_, Arc<AppState>>, name: String
     Ok(map::fetch_region_by_name(state.inner(), &name).await)
 }
 
-/// Split a line of chat/IM text into ordered text/link segments with trust
-/// classification (to-do §9). Canonical URL grammar lives in `urlmatch`; the
-/// frontend renders the returned segments (escaping text spans itself).
+/// Split chat/IM text into link segments with trust classification.
 #[tauri::command]
 pub async fn bridge_linkify(text: String) -> Cmd {
     Ok(json!({ "segments": urlmatch::linkify(&text) }))

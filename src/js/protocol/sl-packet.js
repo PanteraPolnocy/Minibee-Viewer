@@ -280,7 +280,7 @@ const FSSLCircuit = (function () {
     M(15, 'PreloadSound', false);
     M(17, 'ViewerEffect', true);
 
-    // Low frequency - all llstartup.cpp inbound handlers
+    // Low-frequency inbound handlers
     L(19, 'FeatureDisabled', false);
     L(25, 'EconomyData', true);
     L(28, 'AvatarPickerReply', false);
@@ -607,7 +607,7 @@ const FSSLCircuit = (function () {
       if (bitmapAfterAabb === 'skip') {
         pos = skipVar2(buf, pos);
       } else if (bitmapAfterAabb === 'none') {
-        // FS reads area immediately after AABB on current sims.
+        // Area follows AABB on current sims.
       } else if (typeof bitmapAfterAabb === 'number') {
         pos += bitmapAfterAabb;
       }
@@ -3188,8 +3188,7 @@ const FSSLCircuit = (function () {
     return this._isPollIdle() ? POLL_BACKOFF_IDLE_MS : POLL_BACKOFF_ACTIVE_MS;
   };
 
-  // Receipt is push-based (native `minibee-viewer://packet-raw` events); just ensure we are
-  // subscribed. No polling loop.
+  // Push-based receipt via `minibee-viewer://packet-raw`; subscribe once.
   Circuit.prototype._ensurePoll = function () {
     this._ensureRecvSub();
   };
@@ -3263,9 +3262,7 @@ const FSSLCircuit = (function () {
     return btoa(binary);
   };
 
-  // Send any queued outbound packets, then wait for inbound datagrams to arrive
-  // as events (which update handshake state). Replaces the old request/response
-  // exchange now that the native core pushes received packets.
+  // Flush outbox, then wait for inbound events to update handshake state.
   Circuit.prototype._exchangeRound = function (timeoutSec) {
     const self = this;
     const out = self._outbox.splice(0);
@@ -3463,9 +3460,7 @@ const FSSLCircuit = (function () {
     return this.bridge.slSendRaw(this.sessionId, b64, t.simIp || null, t.simPort || null);
   };
 
-  // Received datagrams are pushed from the native core as `minibee-viewer://packet-raw`
-  // events (the frontend codec still decodes them); inbound trusted messages
-  // arrive as `minibee-viewer://http-message`. Subscribe once per circuit.
+  // Subscribe to native packet and trusted-message events (once per circuit).
   Circuit.prototype._ensureRecvSub = function () {
     if (this._recvSub || typeof FSBridge === 'undefined' || !FSBridge.listen) return;
     this._recvSub = true;
@@ -3513,8 +3508,7 @@ const FSSLCircuit = (function () {
     return this._rawSend(packet);
   };
 
-  // No-op: datagrams are delivered immediately as events, so there is nothing
-  // to "kick". Kept for call-site compatibility.
+  // No-op (kept for call-site compatibility).
   Circuit.prototype.kickPoll = function () {};
 
   Circuit.prototype._processPackets = function (packets) {
@@ -4016,7 +4010,7 @@ const FSSLCircuit = (function () {
     }, 15000);
   };
 
-  // No-op: superseded by push-based `minibee-viewer://packet-raw` event delivery.
+  // No-op (push-based delivery).
   Circuit.prototype._poll = function () {};
 
   Circuit.prototype._ping = function () {

@@ -245,8 +245,7 @@ const FSIm = (function () {
       return;
     }
     const selfId = String((FSState.get().agent || {}).id || '').toLowerCase();
-    // Firestorm exposes text moderation (MOD tags + mute toggles) for GROUP
-    // sessions only; ad-hoc conferences have no moderation UI (to-do §1).
+    // Text moderation UI is group-only; conferences have no MOD/mute controls.
     const isGroup = !!(session && session.type === 'group');
     const canModerate = !!(session && session.canModerate) && isGroup;
     const sessionId = session.id;

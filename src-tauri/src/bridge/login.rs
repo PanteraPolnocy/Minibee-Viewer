@@ -39,10 +39,7 @@ fn md5_hex(input: &str) -> String {
 
 fn sl_login_passwd(p: &Value) -> String {
     let raw = gs(p, "passwd");
-    // Firestorm hashes the raw field value (no trim) and only bounds it by the
-    // widget's character limit (16 for SL, 255 for OpenSim). Trimming or a hard
-    // 16-cap broke whitespace passwords and every OpenSim password >16 chars
-    // (audit #19). `passwdMax` lets the frontend set the grid-appropriate cap.
+    // Do not trim passwords. SL caps at 16 chars, OpenSim at 255 (`passwdMax`).
     let max = p.get("passwdMax").and_then(|v| v.as_u64()).unwrap_or(16).clamp(1, 255) as usize;
     let plain: String = raw.chars().take(max).collect();
     if gs(p, "auth_type") == "account" {
@@ -441,7 +438,7 @@ mod tests {
 
 pub async fn login(state: Arc<AppState>, body: Value) -> Result<Value, String> {
     let url = body.get("url").and_then(|u| u.as_str()).ok_or("url required")?.to_string();
-    // The login URL is grid-supplied; guard it like any other egress (audit #18).
+    // The login URL is grid-supplied; guard it like any other egress.
     proxy::guard_url(&url).await.map_err(|e| format!("Login target refused: {e}"))?;
     let xml = build_login_xml(&body);
 
