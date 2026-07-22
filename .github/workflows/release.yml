@@ -108,15 +108,66 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Require Android signing secrets
+        if: github.event_name == 'release'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          missing=0
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository secret: ${name#ANDROID_}"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Configure Android release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Android signing secrets not set; release APK will be unsigned."
+            exit 0
+          fi
+          KEY_PASS="${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/upload-keystore.jks
+          {
+            echo "password=${ANDROID_KEYSTORE_PASSWORD}"
+            echo "keyPassword=${KEY_PASS}"
+            echo "keyAlias=${ANDROID_KEY_ALIAS}"
+            echo "storeFile=upload-keystore.jks"
+          } > src-tauri/gen/android/keystore.properties
+
       - name: Build Android APK
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: npx tauri android build --apk
 
+      - name: Verify signed APK
+        if: github.event_name == 'release'
+        run: |
+          apk_dir=src-tauri/gen/android/app/build/outputs/apk/universal/release
+          signed="${apk_dir}/app-universal-release.apk"
+          unsigned="${apk_dir}/app-universal-release-unsigned.apk"
+          if [ -f "$unsigned" ] && [ ! -f "$signed" ]; then
+            echo "::error::Build produced an unsigned APK; check signing configuration."
+            exit 1
+          fi
+          if [ ! -f "$signed" ]; then
+            echo "::error::Signed APK not found at ${signed}"
+            exit 1
+          fi
+
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
-          files: src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+          files: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
