@@ -416,7 +416,10 @@ const FSProfiles = (function () {
     return {
       raw: value,
       allowPublish: (value & 0x1) !== 0,
-      online: (value & 0x10) !== 0,
+      // Tri-state: a set bit means online; a clear bit on this legacy UDP path
+      // means "not visible", not "offline", so leave it unknown (undefined) and
+      // let the subtitle stay silent rather than falsely claiming Offline.
+      online: (value & 0x10) !== 0 ? true : undefined,
       identified: (value & 0x4) !== 0,
       transacted: (value & 0x8) !== 0
     };
@@ -871,6 +874,11 @@ const FSProfiles = (function () {
         const selected = row.titles.find(function (title) { return title.selected; });
         mergeGroupProfile(id, { memberTitle: selected ? selected.title : '' }, { silent: true });
         emitChange('group-titles', id);
+        // If this is the active group, refresh the title shown under the agent
+        // name right away; the sim's AgentDataUpdate will confirm it shortly.
+        if (isActiveGroup(id)) {
+          setActiveGroup(id, { title: selected ? selected.title : '' });
+        }
       }
       return result;
     });
@@ -906,11 +914,22 @@ const FSProfiles = (function () {
     if (!id || !agentGroups.has(id)) return;
     agentGroups.delete(id);
     groupTitles.delete(id);
+    // Also drop it from the cached self-profile cap groups, or a just-left group
+    // keeps showing on your own profile until the cap TTL expires.
+    const selfId = getSelfAgentId();
+    const selfProfile = selfId ? avatarProfiles.get(selfId) : null;
+    if (selfProfile && Array.isArray(selfProfile.groups)) {
+      selfProfile.groups = selfProfile.groups.filter(function (g) {
+        return normId(g && g.id) !== id;
+      });
+    }
     if (activeGroupId === id) {
       activeGroupId = '';
       emitChange('active-group', ZERO_UUID);
     }
-    emitChange('group', id);
+    emitChange('membership', id);
+    // Refresh an open own-profile groups list.
+    if (selfId) emitChange('avatar', selfId);
   }
 
   function scheduleAgentProfileCapFetch(agentId) {
@@ -1530,10 +1549,12 @@ const FSProfiles = (function () {
     capFetchActive.delete(id);
     return hooks.requestAvatarProperties(id).then(function () {
       return new Promise(function (resolve, reject) {
+        let unsub = function () {};
         const timer = setTimeout(function () {
+          unsub(); // release the listener; a reply that never comes must not pin it
           reject(new Error('Avatar profile timed out'));
         }, 12000);
-        const unsub = onChange(function (evt) {
+        unsub = onChange(function (evt) {
           if (evt.kind === 'avatar' && evt.id === id) {
             clearTimeout(timer);
             unsub();
@@ -1619,10 +1640,12 @@ const FSProfiles = (function () {
 
     send.then(function () {
       return new Promise(function (resolve, reject) {
+        let unsub = function () {};
         const timer = setTimeout(function () {
+          unsub(); // release the listener; a reply that never comes must not pin it
           reject(new Error('Group profile timed out'));
         }, 12000);
-        const unsub = onChange(function (evt) {
+        unsub = onChange(function (evt) {
           if (evt.kind === 'group' && evt.id === id) {
             clearTimeout(timer);
             unsub();

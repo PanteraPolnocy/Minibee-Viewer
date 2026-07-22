@@ -784,7 +784,10 @@ const FSSLCircuit = (function () {
   }
 
   function buildBody(msgId, data) {
-    const buf = new Uint8Array(2048);
+    // Sized to the UDP datagram ceiling so a long chat/IM/bucket can never
+    // overflow the scratch and throw a RangeError out of send(). Sends are
+    // user-driven and infrequent, so the allocation cost is irrelevant.
+    const buf = new Uint8Array(65535);
     let pos = 0;
     const agent = data.agentId;
     const session = data.sessionId;
@@ -2530,10 +2533,9 @@ const FSSLCircuit = (function () {
       pos += 4;
       const roles = [];
       if (pos < buf.length) {
-        let blockCount = roleCount;
-        if (buf[pos] === roleCount && roleCount > 0 && roleCount < 128) {
-          blockCount = buf[pos++];
-        }
+        // RoleData is a Variable block: one count byte always precedes the
+        // entries (it can differ from RoleCount when the list spans packets).
+        const blockCount = buf[pos++];
         for (let i = 0; i < blockCount && pos + 16 <= buf.length; i++) {
           const roleId = new B.UUID(buf.subarray(pos, pos + 16)).toString();
           pos += 16;
@@ -2541,7 +2543,7 @@ const FSSLCircuit = (function () {
           pos = roleName.pos;
           const roleTitle = readVar1(buf, pos);
           pos = roleTitle.pos;
-          const roleDesc = readVar2(buf, pos);
+          const roleDesc = readVar1(buf, pos); // Description is Variable 1, not 2
           pos = roleDesc.pos;
           if (pos + 12 > buf.length) break;
           const powers = readU64le(buf, pos);
@@ -2595,7 +2597,11 @@ const FSSLCircuit = (function () {
   function parseSystemKickUser(buf, pos) {
     const ids = [];
     try {
-      while (pos + 16 <= buf.length) {
+      if (pos >= buf.length) return ids;
+      // AgentInfo is a Variable block: consume its count byte before the UUIDs,
+      // otherwise every AgentID reads one byte early and self-kick detection fails.
+      const count = buf[pos++];
+      for (let i = 0; i < count && pos + 16 <= buf.length; i++) {
         ids.push(new B.UUID(buf.subarray(pos, pos + 16)).toString());
         pos += 16;
       }

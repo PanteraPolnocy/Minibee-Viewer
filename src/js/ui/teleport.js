@@ -6,15 +6,29 @@ const FSTeleportUI = (function () {
 
   let pending = null;
   let resolvePrompt = null;
+  // Offers/requests can arrive back-to-back; a single dialog + resolver slot
+  // meant the second one overwrote the first (leaking its promise) and threw on
+  // showModal(). Queue them and show one at a time.
+  const promptQueue = [];
 
   function dialogEl() {
     return document.getElementById('teleport-prompt');
   }
 
   function showPrompt(kind, payload) {
+    if (!dialogEl()) return Promise.resolve('decline');
+    return new Promise(function (resolve) {
+      promptQueue.push({ kind: kind, payload: payload, resolve: resolve });
+      if (!pending) showNext();
+    });
+  }
+
+  function showNext() {
     const dialog = dialogEl();
-    if (!dialog) return Promise.resolve('decline');
-    pending = { kind: kind, payload: payload };
+    const next = promptQueue.shift();
+    if (!dialog || !next) return;
+    pending = { kind: next.kind, payload: next.payload };
+    resolvePrompt = next.resolve;
 
     const title = document.getElementById('teleport-title');
     const body = document.getElementById('teleport-body');
@@ -23,8 +37,9 @@ const FSTeleportUI = (function () {
     const reply = document.getElementById('teleport-reply');
     const acceptBtn = document.getElementById('teleport-accept');
 
+    const payload = next.payload;
     const fromName = payload.fromName || 'Someone';
-    if (kind === 'offer') {
+    if (next.kind === 'offer') {
       title.textContent = 'Teleport offer';
       acceptBtn.textContent = 'Teleport';
       replyWrap.hidden = true;
@@ -35,8 +50,8 @@ const FSTeleportUI = (function () {
       reply.value = 'Come on over.';
     }
 
-    let text = payload.message || '';
-    if (kind === 'offer' && payload.location) {
+    const text = payload.message || '';
+    if (next.kind === 'offer' && payload.location) {
       const loc = payload.location;
       note.textContent = 'Region grid ' + loc.gridX + ',' + loc.gridY +
         ' at ' + Math.round(loc.position.x) + ',' + Math.round(loc.position.y) +
@@ -49,14 +64,12 @@ const FSTeleportUI = (function () {
 
     body.textContent = fromName + (text ? ': ' + text : ' wants you to teleport.');
     if (typeof dialog.showModal === 'function') {
-      dialog.showModal();
+      if (!dialog.open) {
+        try { dialog.showModal(); } catch (_e) { dialog.setAttribute('open', ''); }
+      }
     } else {
       dialog.setAttribute('open', '');
     }
-
-    return new Promise(function (resolve) {
-      resolvePrompt = resolve;
-    });
   }
 
   function closePrompt() {
@@ -67,16 +80,27 @@ const FSTeleportUI = (function () {
   }
 
   function finish(action) {
-    const dialog = dialogEl();
     const current = pending;
+    const done = resolvePrompt;
     pending = null;
+    resolvePrompt = null;
     closePrompt();
-    if (resolvePrompt) {
-      const done = resolvePrompt;
-      resolvePrompt = null;
-      done(action);
-    }
+    if (done) done(action);
+    // Show the next queued prompt once this dialog has fully closed.
+    if (promptQueue.length) setTimeout(showNext, 0);
     return current;
+  }
+
+  // Session lost / logout: decline anything on screen or queued so the awaiting
+  // handlers unwind instead of leaking their promises.
+  function reset() {
+    const queued = promptQueue.splice(0);
+    const done = resolvePrompt;
+    pending = null;
+    resolvePrompt = null;
+    closePrompt();
+    if (done) done('decline');
+    queued.forEach(function (item) { if (item.resolve) item.resolve('decline'); });
   }
 
   async function handleOffer(payload) {
@@ -203,6 +227,14 @@ const FSTeleportUI = (function () {
       finish('decline');
     });
 
+    // Don't strand a pending offer when the session drops.
+    if (typeof FSState !== 'undefined' && FSState.on) {
+      FSState.on('reset', reset);
+      FSState.on('change', function (partial) {
+        if (partial && partial.sessionLost === true) reset();
+      });
+    }
+
     FSTransport.on('teleport-offer', handleOffer);
     FSTransport.on('teleport-request', handleRequest);
     FSTransport.on('teleport-declined', function (data) {
@@ -230,6 +262,7 @@ const FSTeleportUI = (function () {
     offerTo: offerTo,
     requestFrom: requestFrom,
     formatProgressLabel: formatProgressLabel,
-    resetProgress: resetProgress
+    resetProgress: resetProgress,
+    reset: reset
   };
 })();

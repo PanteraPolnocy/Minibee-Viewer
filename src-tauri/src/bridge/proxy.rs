@@ -117,6 +117,26 @@ fn default_port(scheme: &str) -> u16 {
     }
 }
 
+/// Resolve a non-IP host to its first public address so the connection targets
+/// the IP we validated, closing the DNS-rebinding window between guard and
+/// connect. Returns None for IP-literal hosts (already guarded) or on failure.
+async fn resolve_public_pin(url: &str) -> Option<(String, SocketAddr)> {
+    let parsed = Url::parse(url).ok()?;
+    let host = parsed.host_str()?.to_string();
+    let stripped = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(&host);
+    if stripped.parse::<IpAddr>().is_ok() {
+        return None;
+    }
+    let port = parsed.port().unwrap_or_else(|| default_port(parsed.scheme()));
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(format!("{host}:{port}")).await.ok()?.collect();
+    for a in addrs {
+        if !ip_is_private(&a.ip()) {
+            return Some((host, a));
+        }
+    }
+    None
+}
+
 /// Resolve the pin (host -> ip) for a simhost URL so cap requests reach the
 /// exact simulator. Returns the pin and the pinned IP (for reporting).
 pub async fn simhost_pin(url: &str, sim_ip: &str) -> (Option<(String, SocketAddr)>, String) {
@@ -159,26 +179,41 @@ pub async fn exchange(
     pin: Option<(String, SocketAddr)>,
     timeout: Duration,
 ) -> Result<ExchangeResult, String> {
-    let mut builder = reqwest::Client::builder()
-        .user_agent(ua)
-        .redirect(Policy::none())
-        .gzip(true);
-    if let Some((host, addr)) = &pin {
-        builder = builder.resolve(host, *addr);
-    }
-    let client = builder.build().map_err(|e| e.to_string())?;
-
     let method_upper = method.to_ascii_uppercase();
     let is_post = method_upper == "POST";
     let mut cur_url = url.to_string();
     let mut redirects = 0u32;
 
-    // Guard the initial target (resolves DNS); redirect hops are guarded below.
+    // Guard the initial target (resolves DNS + rejects private hosts); redirect
+    // hops are guarded below.
     guard_url(&cur_url).await?;
 
+    // Pin the validated address so we connect to the IP we checked rather than a
+    // possibly-rebound re-resolution at connect time. Simhost pin wins if set.
+    let effective_pin = match &pin {
+        Some(p) => Some(p.clone()),
+        None => resolve_public_pin(&cur_url).await,
+    };
+    let mut builder = reqwest::Client::builder()
+        .user_agent(ua)
+        .redirect(Policy::none())
+        .gzip(true);
+    if let Some((host, addr)) = &effective_pin {
+        builder = builder.resolve(host, *addr);
+    }
+    let client = builder.build().map_err(|e| e.to_string())?;
+
+    // One wall-clock deadline for the whole redirect chain (up to 6 hops), so a
+    // slow chain can't hold the EventQueue lane for ~6x the timeout.
+    let deadline = std::time::Instant::now() + timeout;
+
     loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err("Proxy timeout".into());
+        }
         let m = Method::from_bytes(method_upper.as_bytes()).unwrap_or(Method::GET);
-        let mut req = client.request(m, &cur_url).timeout(timeout);
+        let mut req = client.request(m, &cur_url).timeout(remaining);
         req = req.header("Accept", "application/llsd+xml, application/xml");
         for (k, v) in headers {
             req = req.header(k.as_str(), v.as_str());

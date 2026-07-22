@@ -7,6 +7,7 @@
   --bg-elevated: #241e14;
   --bg-input: #2e281c;
   --bg-panel: #16120c;
+  --surface-2: #241e14;
   --border: #443a28;
   --text: #f8f2e6;
   --text-muted: #b5a68a;
@@ -31,6 +32,7 @@
   --bg-elevated: #ffffff;
   --bg-input: #f0ebe2;
   --bg-panel: #faf7f2;
+  --surface-2: #ffffff;
   --border: #c9bda8;
   --text: #1f1a12;
   --text-muted: #6b5f4d;
@@ -3812,7 +3814,14 @@ html.require-http #app {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: var(--surface-elevated);
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+/* The native option popup ignores the select's background, so set it here or
+   the dark-theme cream text lands on a white popup (reads as yellow-on-white). */
+.profile-group-title-select option {
+  background-color: var(--bg-input);
   color: var(--text);
 }
 

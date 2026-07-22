@@ -1043,68 +1043,43 @@ const FSProfile = (function () {
       FSUtils.escapeHtml(profile.founderId) + '">' + FSUtils.escapeHtml(label) + '</button></span></div>';
   }
 
-  function renderGroupMemberField(profile) {
-    if (!profile.isMember) return '';
-    const title = String(profile.memberTitle || '').trim();
-    return '<div class="profile-field"><span class="profile-field__label">Your title</span><span>' +
-      FSUtils.escapeHtml(title || 'Member') + '</span></div>';
-  }
-
   function renderGroupTitleSection(profile) {
     if (!profile.isMember) return '';
     const titles = profile.titles || [];
     const settled = typeof FSProfiles.isGroupTitlesFetchSettled === 'function' &&
       FSProfiles.isGroupTitlesFetchSettled(profile.groupId);
+    const wrap = function (body) {
+      return '<section class="profile-section profile-section--title">' +
+        '<h3 class="profile-section__title">Active title</h3>' +
+        '<p class="profile-group-title-hint">The title shown next to your name in this group.</p>' +
+        body + '</section>';
+    };
+    // No titles yet: show the current one (or a loading/empty note) with no picker.
     if (!titles.length) {
       const fallback = String(profile.memberTitle || '').trim();
       if (settled && fallback) {
-        return '<section class="profile-section profile-section--your-title">' +
-          '<h3 class="profile-section__title">Your title</h3>' +
-          '<div class="profile-field"><span>' + FSUtils.escapeHtml(fallback) + '</span></div>' +
-          '</section>' +
-          '<section class="profile-section profile-section--title">' +
-          '<h3 class="profile-section__title">Active title</h3>' +
-          '<p class="profile-group-title-hint">Your current title for this group.</p>' +
-          '<div class="profile-field"><span>' + FSUtils.escapeHtml(fallback) + '</span></div>' +
-          '</section>';
+        return wrap('<div class="profile-field"><span>' + FSUtils.escapeHtml(fallback) + '</span></div>');
       }
-      if (settled) {
-        return '<section class="profile-section profile-section--title">' +
-          '<h3 class="profile-section__title">Active title</h3>' +
-          '<p class="profile-section__empty">No titles available for this group.</p></section>';
-      }
-      return '<section class="profile-section profile-section--title">' +
-        '<h3 class="profile-section__title">Active title</h3>' +
-        '<p class="profile-section__empty">Loading titles...</p></section>';
+      return wrap('<p class="profile-section__empty">' +
+        (settled ? 'No titles available for this group.' : 'Loading titles...') + '</p>');
     }
     const selectedId = profile.selectedTitleRoleId || '';
-    const selectedTitle = titles.find(function (row) { return row.roleId === selectedId; }) ||
-      titles.find(function (row) { return row.selected; }) || titles[0];
-    const yourTitleRows = titles.map(function (row) {
-      return '<div class="profile-field"><span>' + FSUtils.escapeHtml(row.title) + '</span></div>';
-    }).join('');
     const options = titles.map(function (row) {
       const selected = row.roleId === selectedId ? ' selected' : '';
       return '<option value="' + FSUtils.escapeHtml(row.roleId) + '"' + selected + '>' +
         FSUtils.escapeHtml(row.title) + '</option>';
     }).join('');
     const disabled = titles.length <= 1 ? ' disabled' : '';
-    return '<section class="profile-section profile-section--your-title">' +
-      '<h3 class="profile-section__title">Your title</h3>' +
-      yourTitleRows +
-      '</section>' +
-      '<section class="profile-section profile-section--title">' +
-      '<h3 class="profile-section__title">Active title</h3>' +
-      '<p class="profile-group-title-hint">Your current title for this group.</p>' +
+    // A single dropdown of the member's titles (current one preselected) with a
+    // Save button beside it, matching Firestorm's "Active title" combo.
+    return wrap(
       '<div class="profile-group-title-row">' +
       '<select id="profile-group-title-select" class="profile-group-title-select"' + disabled + '>' +
       options + '</select>' +
       '<button type="button" class="btn btn--primary" id="profile-group-title-save"' + disabled + '>Save</button>' +
       '</div>' +
-      (selectedTitle ? '<div class="profile-field profile-field--active-title"><span>' +
-        FSUtils.escapeHtml(selectedTitle.title) + '</span></div>' : '') +
-      '<div id="profile-group-title-status" class="profile-notes-status" role="status" aria-live="polite"></div>' +
-      '</section>';
+      '<div id="profile-group-title-status" class="profile-notes-status" role="status" aria-live="polite"></div>'
+    );
   }
 
   function renderGroupSideMeta(profile) {
@@ -1140,7 +1115,6 @@ const FSProfile = (function () {
         FSUtils.escapeHtml(profile.maturePublish ? 'Mature' : 'General') + '</span></div>' +
       renderGroupSideMeta(profile) +
       renderGroupFounderField(profile) +
-      renderGroupMemberField(profile) +
       '</div>' +
       '<div class="profile-resident__about profile-group__about">' +
       renderGroupKeyMeta(profile) +

@@ -416,9 +416,6 @@ const FSSearch = (function () {
     if (cached && cached.rows && cached.rows.length) {
       renderResults(cached.rows);
       setStatus(cached.status || '');
-    } else if (!restoreOnly) {
-      setStatus('');
-      renderResults([]);
     } else {
       setStatus(cached ? cached.status || '' : '');
       renderResults(cached ? cached.rows || [] : []);

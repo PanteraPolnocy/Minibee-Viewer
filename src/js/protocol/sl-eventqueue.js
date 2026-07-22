@@ -126,9 +126,11 @@ const FSEventQueue = (function () {
   }
 
   function parseCrossedRegion(body) {
-    const row = firstRow(body && body.CrossedRegion) || {};
-    const region = firstRow(row.RegionData) || {};
-    const info = firstRow(row.Info) || {};
+    // EventQueue delivers the message's blocks directly on the body (RegionData,
+    // Info) — there is no CrossedRegion wrapper.
+    const b = body || {};
+    const region = firstRow(b.RegionData) || {};
+    const info = firstRow(b.Info) || {};
     const pos = info.Position || info.position;
     const look = info.LookAt || info.look_at;
     return {
@@ -434,7 +436,10 @@ const FSEventQueue = (function () {
           early: early,
           elapsedMs: elapsedMs,
           handoffRetry: early,
-          steadyError: !teleportActive
+          // A full-hold 5xx/499 is the sim's normal "no events" signal on a quiet
+          // region — only treat an EARLY empty response as a real error, matching
+          // lleventpoll.cpp (>= MIN_SECONDS_PASSED resets the error counter).
+          steadyError: !teleportActive && elapsedMs < EQ_POLL_MIN_HOLD_MS
         };
       }
       if (resp.status < 200 || resp.status >= 300) {

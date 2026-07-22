@@ -52,7 +52,12 @@ const FSSLTransport = (function () {
 
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
   const recentImFallback = new Map();
-  const IM_DEDUP_FALLBACK_MS = 4000;
+  // Live IMs carry Timestamp=0, so this content-based fallback is all that
+  // separates a retransmit / cross-transport copy from a genuine repeat. Keep
+  // the window short (a lost-ack resend or UDP+EQ copy arrives ~sub-second)
+  // so two identical human messages a couple seconds apart aren't swallowed.
+  // TODO: replace with a transport-level receive-sequence dedup.
+  const IM_DEDUP_FALLBACK_MS = 1500;
   const IM_DEDUP_MAX = 600;
   const recentPaymentKeys = new Map();
   // signature -> event id, so a repeated MoneyBalanceReply updates the existing
@@ -621,8 +626,10 @@ const FSSLTransport = (function () {
   function isBenignTeleportFailure(reason) {
     const text = String(reason || '').trim().toLowerCase();
     if (!text) return false;
+    // "Could not teleport closer" means you DID arrive, just not at the exact
+    // spot. A missing landmark is a real failure (no arrival) and must not be
+    // reported as success.
     if (text.indexOf('could not teleport closer') >= 0) return true;
-    if (text.indexOf('landmark is missing from the database') >= 0) return true;
     return false;
   }
 
@@ -4383,6 +4390,12 @@ const FSSLTransport = (function () {
       if (agentId && normAgentId(fromId) === agentId) {
         return;
       }
+      // ChatType START(4)/STOP(5) are typing pings, not transcript lines; with
+      // no 3D avatars there's nothing to animate, so drop them.
+      if (evt.data.chatType === 4 || evt.data.chatType === 5) return;
+      // Audible: 1 = fully, 0 = barely, -1 (255 as U8) = not audible / out of
+      // range — don't render text the agent isn't close enough to hear.
+      if (evt.data.audible === 255 || evt.data.audible === -1) return;
       // EChatSourceType: 0 = system, 1 = agent, 2 = object.
       const source = evt.data.sourceType === 1 ? 'agent'
         : evt.data.sourceType === 2 ? 'object' : 'system';
@@ -5254,17 +5267,21 @@ const FSSLTransport = (function () {
     const typeMap = { whisper: 0, normal: 1, shout: 2 };
     const chatType = typeMap[parsed.type] !== undefined ? typeMap[parsed.type] : 1;
     circuit.say(parsed.text, chatType, parsed.channel);
-    emit('chat', {
-      id: FSUtils.uuid(),
-      fromId: loginData.agent.id,
-      fromName: loginData.agent.displayName,
-      text: parsed.text,
-      type: parsed.type,
-      source: 'agent',
-      channel: parsed.channel,
-      timestamp: Date.now(),
-      outgoing: true
-    });
+    // Only public chat (channel 0) belongs in the nearby transcript; echoing a
+    // `/N ...` command channel there would show private text as if spoken aloud.
+    if (parsed.channel === 0) {
+      emit('chat', {
+        id: FSUtils.uuid(),
+        fromId: loginData.agent.id,
+        fromName: loginData.agent.displayName,
+        text: parsed.text,
+        type: parsed.type,
+        source: 'agent',
+        channel: parsed.channel,
+        timestamp: Date.now(),
+        outgoing: true
+      });
+    }
   }
 
   function sendIm(sessionId, text) {

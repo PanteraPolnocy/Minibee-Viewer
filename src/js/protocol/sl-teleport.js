@@ -119,9 +119,13 @@ const FSTeleport = (function () {
     let regionAccess = 'PG';
     if (accessToken === 'A') regionAccess = 'Adult';
     else if (accessToken === 'M') regionAccess = 'Mature';
+    // The first two values are the region origin in global metres; convert to
+    // grid indices (÷256). Values already small enough to be indices are left
+    // as-is, mirroring the cap-coord heuristic.
+    const toGrid = function (n) { return n >= 4096 ? Math.floor(n / 256) : n; };
     return {
-      gridX: nums[0],
-      gridY: nums[1],
+      gridX: toGrid(nums[0]),
+      gridY: toGrid(nums[1]),
       position: { x: nums[2], y: nums[3], z: nums[4] },
       lookAt: { x: nums[5], y: nums[6], z: nums[7] },
       regionAccess: regionAccess

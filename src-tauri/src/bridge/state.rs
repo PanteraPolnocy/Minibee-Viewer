@@ -52,7 +52,7 @@ mod tests {
         let (payload, ua) = version_payload("Minibee-Viewer", 1, 2, 3, 0);
         assert_eq!(payload["version"], "1.2.3");
         assert_eq!(payload["channel"], "Minibee-Viewer");
-        assert_eq!(payload["major"], 0);
+        assert_eq!(payload["major"], 1);
         assert_eq!(payload["build"], 0);
         assert_eq!(ua, "SecondLife/1.2.3 (Minibee-Viewer; Minibee Viewer)");
     }

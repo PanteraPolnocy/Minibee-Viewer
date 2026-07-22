@@ -135,8 +135,20 @@ const FSApp = (function () {
       FSUtils.showToast('Radar: ' + label + ' (' + entry.range + 'm)', 'warning', 4500);
     });
 
+    // The sim sends SimStats ~1x/sec; patching fps each time re-runs the whole
+    // top bar every second. FPS is a rough gauge, so coalesce: only patch when
+    // the value actually changed and at most once every few seconds. Other
+    // top-bar fields (balance, region, name) still update on their own events.
+    let lastFpsValue = null;
+    let lastFpsPatchAt = 0;
+    const FPS_PATCH_MIN_MS = 3000;
     FSTransport.on('stats', function (stats) {
-      if (stats.fps) FSState.patch({ fps: stats.fps });
+      if (!stats || !stats.fps) return;
+      const now = Date.now();
+      if (stats.fps === lastFpsValue || now - lastFpsPatchAt < FPS_PATCH_MIN_MS) return;
+      lastFpsValue = stats.fps;
+      lastFpsPatchAt = now;
+      FSState.patch({ fps: stats.fps });
     });
 
     FSTransport.on('money-balance', function (data) {
@@ -147,7 +159,7 @@ const FSApp = (function () {
     FSTransport.on('parcel', function (parcel) {
       if (!parcel) return;
       const prev = FSState.get().parcel || {};
-      if (parcel.stub && (!prev || prev.stub)) {
+      if (parcel.stub && prev.stub) {
         FSState.patch({ parcel: parcel });
       } else {
         const next = Object.assign({}, prev, parcel);

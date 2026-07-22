@@ -16,6 +16,9 @@ const FSMap = (function () {
   let mapServerUrl = FSSlurl.DEFAULT_MAP_SERVER;
   let centerGridX = 1000;
   let centerGridY = 1000;
+  // Once the user pans, stop auto-following the agent's position so their view
+  // isn't yanked back on every movement tick. Reset on tab open / teleport.
+  let userPanned = false;
   let selection = null;
   let regionInfo = new Map();
   let fetchedBlocks = new Set();
@@ -416,7 +419,7 @@ const FSMap = (function () {
       });
     }
     if (FSState.get().activeTab === 'map') {
-      if (region.x !== undefined && region.y !== undefined) {
+      if (!userPanned && region.x !== undefined && region.y !== undefined) {
         centerGridX = region.x;
         centerGridY = region.y;
       }
@@ -600,6 +603,7 @@ const FSMap = (function () {
   function centerOn(gridX, gridY) {
     centerGridX = gridX;
     centerGridY = gridY;
+    userPanned = false; // an explicit recenter resumes following
   }
 
   function handleMapClick(e) {
@@ -885,6 +889,7 @@ const FSMap = (function () {
     if (panN) {
       panN.addEventListener('click', function (e) {
         e.stopPropagation();
+        userPanned = true;
         centerGridY += 1;
         renderTiles();
       });
@@ -892,6 +897,7 @@ const FSMap = (function () {
     if (panS) {
       panS.addEventListener('click', function (e) {
         e.stopPropagation();
+        userPanned = true;
         centerGridY -= 1;
         renderTiles();
       });
@@ -899,6 +905,7 @@ const FSMap = (function () {
     if (panE) {
       panE.addEventListener('click', function (e) {
         e.stopPropagation();
+        userPanned = true;
         centerGridX += 1;
         renderTiles();
       });
@@ -906,6 +913,7 @@ const FSMap = (function () {
     if (panW) {
       panW.addEventListener('click', function (e) {
         e.stopPropagation();
+        userPanned = true;
         centerGridX -= 1;
         renderTiles();
       });
@@ -968,6 +976,7 @@ const FSMap = (function () {
       } else {
         resetTeleportButton();
       }
+      userPanned = false; // arriving somewhere new resumes following
       syncAvatarOnMap(data);
       if (data && data.region) {
         const region = normalizeRegion(data.region);

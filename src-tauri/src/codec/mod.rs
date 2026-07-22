@@ -229,10 +229,10 @@ fn decode_field(ty: FieldType, r: &mut Reader) -> Option<Value> {
         FieldType::IpPort => json!(r.u16be()?),
         FieldType::Fixed(n) => json!(B64.encode(r.take(n as usize)?)),
         FieldType::VarLen(k) => {
-            let len = if k == 2 {
-                r.u16le()? as usize
-            } else {
-                r.u8()? as usize
+            let len = match k {
+                2 => r.u16le()? as usize,
+                4 => r.u32le()? as usize,
+                _ => r.u8()? as usize,
             };
             json!(B64.encode(r.take(len)?))
         }
@@ -309,9 +309,12 @@ pub fn decode(reg: &Registry, bytes: &[u8]) -> Option<Value> {
         let count = match block.quantity {
             Quantity::Single => 1usize,
             Quantity::Multiple(n) => n as usize,
+            // A missing count byte at EOF means zero repeats for THIS block;
+            // continue so later blocks still decode (Firestorm zero-fills and
+            // keeps going rather than abandoning the rest of the message).
             Quantity::Variable => match r.u8() {
                 Some(c) => c as usize,
-                None => break 'blocks,
+                None => 0,
             },
         };
         let mut instances = Vec::with_capacity(count);
@@ -451,10 +454,10 @@ fn encode_field(ty: FieldType, v: Option<&Value>, out: &mut Vec<u8>) {
         }
         FieldType::VarLen(k) => {
             let b = v_bytes(v);
-            if k == 2 {
-                out.extend_from_slice(&(b.len() as u16).to_le_bytes());
-            } else {
-                out.push(b.len() as u8);
+            match k {
+                2 => out.extend_from_slice(&(b.len() as u16).to_le_bytes()),
+                4 => out.extend_from_slice(&(b.len() as u32).to_le_bytes()),
+                _ => out.push(b.len() as u8),
             }
             out.extend_from_slice(&b);
         }
@@ -483,8 +486,12 @@ fn encode_body(def: &MessageDef, blocks: &Value) -> Vec<u8> {
                 }
             }
             Quantity::Variable => {
-                body.push(instances.len() as u8);
-                for inst in &instances {
+                // The count is a single byte; clamp so >255 instances truncate
+                // the list to match rather than writing a byte that disagrees
+                // with how many blocks follow (which would corrupt decoding).
+                let n = instances.len().min(255);
+                body.push(n as u8);
+                for inst in instances.iter().take(n) {
                     encode_instance(block, inst, &mut body);
                 }
             }

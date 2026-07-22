@@ -8,13 +8,15 @@ const FSLand = (function () {
   const LOADING_MESSAGE = 'Loading land data, please wait...';
 
   const EDITABLE_IDS = [
-    'land-name', 'land-desc', 'land-access', 'land-push',
+    'land-name', 'land-desc', 'land-push',
     'land-build-everyone', 'land-build-group',
     'land-scripts-everyone', 'land-scripts-group',
     'land-fly', 'land-safe', 'land-search',
     'land-sound-local', 'land-voice', 'land-sell-passes',
     'land-music', 'land-media'
   ];
+  // 'land-access' stays display-only: the access dropdown's mapping to the
+  // access-list PF bits isn't wired, and applying a guess could lock people out.
 
   let activateToken = 0;
   let activeLandTab = 'general';

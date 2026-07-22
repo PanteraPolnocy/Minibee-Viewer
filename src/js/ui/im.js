@@ -170,23 +170,13 @@ const FSIm = (function () {
     return el;
   }
 
-  function renderThread(sessionId) {
-    const list = document.getElementById('im-messages');
-    if (!list) return;
-    list.innerHTML = '';
-
-    const session = FSState.get().imSessions[sessionId];
+  // Header/status/roster only \u2014 no message-list rebuild. Safe to call on
+  // presence/roster updates without disturbing scrollback.
+  function updateThreadHeader(session) {
     if (!session) return;
-
     if (typeof FSState.resolveParticipantPresence === 'function') {
       session.participant = FSState.resolveParticipantPresence(session.participant);
     }
-
-    session.messages.forEach(function (msg) {
-      list.appendChild(renderImMessage(msg));
-    });
-    list.scrollTop = list.scrollHeight;
-
     const p = session.participant;
     const names = FSUtils.agentNameLines(p || {});
     const nameEl = document.getElementById('im-thread-name');
@@ -212,6 +202,31 @@ const FSIm = (function () {
       if (statusEl) statusEl.textContent = status;
     }
     syncImLayout();
+  }
+
+  // Full rebuild \u2014 only for opening / switching sessions. Jumps to the latest
+  // message (expected when you open a conversation).
+  function renderThread(sessionId) {
+    const list = document.getElementById('im-messages');
+    if (!list) return;
+    list.innerHTML = '';
+    const session = FSState.get().imSessions[sessionId];
+    if (!session) return;
+    session.messages.forEach(function (msg) {
+      list.appendChild(renderImMessage(msg));
+    });
+    list.scrollTop = list.scrollHeight;
+    updateThreadHeader(session);
+  }
+
+  // Append a single new message to the already-rendered active thread, keeping
+  // the user's scroll position unless they're at the bottom.
+  function appendImMessage(msg) {
+    const list = document.getElementById('im-messages');
+    if (!list || !msg) return;
+    const pinned = (list.scrollHeight - list.scrollTop - list.clientHeight) < 40;
+    list.appendChild(renderImMessage(msg));
+    if (pinned) list.scrollTop = list.scrollHeight;
   }
 
   function renderRoster(session) {
@@ -776,7 +791,7 @@ const FSIm = (function () {
       if (!data || !data.message) return;
       if (!FSNavigation.isTabActive('im')) return;
       if (FSState.get().activeImSession === data.sessionId) {
-        renderThread(data.sessionId);
+        appendImMessage(data.message);
         return;
       }
       if (!data.message.outgoing) refreshIncomingImUi(data.sessionId);
@@ -787,8 +802,9 @@ const FSIm = (function () {
       const active = FSState.get().activeImSession;
       if (active && data && active === data.sessionId) {
         const session = FSState.get().imSessions[active];
-        if (session) renderRoster(session);
-        renderThread(active);
+        // Roster/presence change: refresh header + roster only, never rebuild
+        // the message list (that would wipe scrollback).
+        if (session) updateThreadHeader(session);
       }
     });
     FSState.on('im-session-migrated', function (data) {

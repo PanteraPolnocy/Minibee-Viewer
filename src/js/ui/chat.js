@@ -729,8 +729,12 @@ const FSChat = (function () {
   function appendMessage(msg, scroll, listId) {
     const list = document.getElementById(listId || 'chat-messages');
     if (!list) return;
+    // Preserve the user's scrollback: only auto-scroll if they're already at the
+    // bottom (or a caller explicitly forces it).
+    const pinned = (list.scrollHeight - list.scrollTop - list.clientHeight) < 40;
     list.appendChild(renderMessage(msg));
-    if (scroll !== false) list.scrollTop = list.scrollHeight;
+    if (scroll === false) return;
+    if (scroll === true || pinned) list.scrollTop = list.scrollHeight;
   }
 
   function updateMessage(msg, listId) {

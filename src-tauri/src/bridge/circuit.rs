@@ -179,10 +179,16 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
 
             // Cheap pre-filter: drop object/layer/sound/effect updates the UI never
             // uses before they cross the IPC boundary. Only when the packet is
-            // unreliable (bit 0x40 clear) with no extra header, so a needed ack is
-            // never skipped and the message id sits at offset 6. High-frequency ids
-            // are a single byte; medium-frequency are `0xFF <n>`.
-            if datagram.len() >= 7 && datagram[0] & codec::FLAG_RELIABLE == 0 && datagram[5] == 0 {
+            // unreliable (bit 0x40 clear), carries no appended acks (bit 0x10 clear
+            // — the sim piggybacks acks for our reliable sends onto these floods, so
+            // dropping them would strand the acks), and has no extra header, so the
+            // message id sits at offset 6. High-frequency ids are a single byte;
+            // medium-frequency are `0xFF <n>`.
+            if datagram.len() >= 7
+                && (datagram[0] & codec::FLAG_RELIABLE) == 0
+                && (datagram[0] & codec::FLAG_ACK) == 0
+                && datagram[5] == 0
+            {
                 let b6 = datagram[6];
                 if b6 != 0xFF {
                     if IGNORED_HIGH_FREQ.contains(&b6) {

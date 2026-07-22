@@ -178,7 +178,7 @@ const FSParcelMusic = (function () {
           const parcel = partial.parcel || {};
           applyUrl(parcel.musicUrl || '');
         }
-        if (partial && partial.connected === false) {
+        if (partial && (partial.connected === false || partial.sessionLost === true)) {
           applyUrl('');
         }
       });

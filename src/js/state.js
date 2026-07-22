@@ -233,11 +233,29 @@ const FSState = (function () {
 
   const DEFAULT_SESSION_TITLES = { group: 'Group chat', conference: 'Conference' };
 
+  // A base64 session bucket decodes to binary (UUIDs/flags); a real group name
+  // that merely happens to be alphanumeric decodes to printable ASCII. Use that
+  // to avoid treating names like "Firestormers" as placeholders.
+  function looksLikeBase64Bucket(text) {
+    if (!/^[A-Za-z0-9+/]{16,}={0,2}$/.test(text) || text.length % 4 !== 0) return false;
+    if (typeof atob !== 'function') return false;
+    try {
+      const bin = atob(text);
+      for (let i = 0; i < bin.length; i++) {
+        const c = bin.charCodeAt(i);
+        if (c < 0x20 || c > 0x7e) return true; // non-printable byte => real bucket
+      }
+      return false;
+    } catch (_e) {
+      return false;
+    }
+  }
+
   function isDefaultSessionTitle(title) {
     const text = String(title || '').trim();
     return !text || text === DEFAULT_SESSION_TITLES.group ||
       text === DEFAULT_SESSION_TITLES.conference || looksLikeUuid(text) ||
-      /^[A-Za-z0-9+/]{12,}={0,2}$/.test(text);
+      looksLikeBase64Bucket(text);
   }
 
   function ensureKeyedSession(sessionId, info) {

@@ -142,7 +142,13 @@ const FSSettings = (function () {
     if (STATE_MAP[key]) {
       FSState.patch({ [STATE_MAP[key]]: values[key] });
     }
-    listeners.forEach(function (fn) { fn(key, values[key]); });
+    listeners.forEach(function (fn) {
+      try {
+        fn(key, values[key]);
+      } catch (err) {
+        if (typeof console !== 'undefined') console.error('settings listener error (' + key + '):', err);
+      }
+    });
   }
 
   function onChange(fn) {

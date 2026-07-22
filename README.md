@@ -323,7 +323,7 @@ Open a resident or group profile from **Search**, **Buddies**, **Radar**, **IM**
 
 - Open group chat
 - **Activate** the group (`ActivateGroup`, confirmed via `AgentDataUpdate`)
-- Pick and **Save** an active title (`GroupTitlesRequest` / `GroupTitleUpdate`)
+- Pick their **active title** from a dropdown (current one preselected) and **Save** it (`GroupTitlesRequest` / `GroupTitleUpdate`); if this is your active group, the title under your name updates too
 - **Join** or **Leave** (with a confirm; `JoinGroupRequest` / `LeaveGroupRequest`)
 
 Non-members can join when enrollment is open (the join prompt shows any fee).
@@ -409,11 +409,10 @@ Simplified view of what's still open.
 - **Auto-reconnect** after unexpected disconnect, with backoff and a manual override.
 - **MFA reliability** — investigate frequent "invalid" challenges (token, `mfa_hash`, clock skew).
 - **Group text moderation** — re-test in-world (`mute update` regression; client path matches Firestorm but reports persist).
-- IM list performance (incremental updates, smarter autoscroll, dedup by message id).
+- De-dup IM/chat on a message/sequence id instead of the current content + time-window heuristic.
 - **Own profile groups** — show every membership including hidden ones; bold the active group.
 - Avatar thumbnails beyond the buddies list (radar, search, chat).
 - Open group chat from search results.
-- Selecting an active group role.
 - Missing About Land tabs: **Covenant**, **Experiences**, **Environment**.
 - **Objects** tab (prim counts, owner list, return).
 - **Access** lists, landing-point controls, terraforming / object-entry options.

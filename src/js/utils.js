@@ -111,7 +111,7 @@ const FSUtils = (function () {
     }
   }
 
-  const GOVERNOR_LINDEN_ID = '69bf667e-4de9-f25e-7644-99505a7c4aae';
+  const GOVERNOR_LINDEN_ID = '3d6181b0-6a4b-97ef-18d8-722652995cf1';
 
   function normUuid(id) {
     return String(id || '').toLowerCase().replace(/[{}]/g, '').trim();

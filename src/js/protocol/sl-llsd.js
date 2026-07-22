@@ -30,12 +30,20 @@ const FSLLSD = (function () {
       if (tag === 'uuid') return textContent(child);
       if (tag === 'uri') return textContent(child);
       if (tag === 'binary') {
-        const b64 = textContent(child);
+        // Honor the encoding attribute (default base64); a non-base64 encoding
+        // isn't something we decode — return empty, matching the Rust codec.
+        const enc = (child.getAttribute && child.getAttribute('encoding')) || 'base64';
+        if (String(enc).toLowerCase() !== 'base64') return new Uint8Array(0);
+        const b64 = textContent(child).replace(/\s+/g, '');
         if (!b64) return new Uint8Array(0);
-        const bin = atob(b64);
-        const out = new Uint8Array(bin.length);
-        for (let j = 0; j < bin.length; j++) out[j] = bin.charCodeAt(j);
-        return out;
+        try {
+          const bin = atob(b64);
+          const out = new Uint8Array(bin.length);
+          for (let j = 0; j < bin.length; j++) out[j] = bin.charCodeAt(j);
+          return out;
+        } catch (_e) {
+          return new Uint8Array(0);
+        }
       }
       if (tag === 'date') return textContent(child);
       if (tag === 'undef') return null;

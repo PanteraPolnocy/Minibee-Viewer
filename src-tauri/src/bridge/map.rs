@@ -105,6 +105,9 @@ pub async fn fetch_map_tile(
         grid_x,
         grid_y
     );
+    // The map-server base is caller-supplied (OpenSim grids vary), so guard it
+    // like any other egress before fetching.
+    crate::bridge::proxy::guard_url(&url).await?;
     let resp = state
         .http
         .get(&url)
