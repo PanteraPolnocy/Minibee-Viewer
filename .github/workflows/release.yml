@@ -1,6 +1,6 @@
 name: Release (build + attach installers)
 
-# Builds native bundles for Windows, macOS (universal), and Linux whenever a
+# Builds native bundles for Windows, macOS (universal), Linux, and Android whenever a
 # GitHub Release is published, and attaches the artifacts to that release.
 #
 # Flow: create/publish a Release in the GitHub UI (tag e.g. v0.5.1) -> this
@@ -69,3 +69,54 @@ jobs:
           releaseId: ${{ github.event.release.id }}
           args: ${{ matrix.args }}
           assetNamePattern: '[platform]_[name]_[version]_[arch][_setup][ext]'
+
+  build-android:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r26d
+          link-to-sdk: true
+
+      - name: Set up Rust & Android Targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Android APK
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: npx tauri android build --apk
+
+      - name: Upload APK to Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release'
+        with:
+          files: src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
