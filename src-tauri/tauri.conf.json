@@ -42,9 +42,6 @@
       "icons/icon.ico"
     ],
     "windows": {
-      "certificateThumbprint": "5da9b8eff96084ae3b29b40ea4cd3f2f84d1934c",
-      "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.digicert.com",
       "nsis": {
         "installerIcon": "icons/icon.ico"
       }
