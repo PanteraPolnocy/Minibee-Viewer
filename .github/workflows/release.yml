@@ -171,3 +171,54 @@ jobs:
           files: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+update-release-notes:
+    name: Append Readme and License to Release
+    needs: [build, build-android]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Update Release Notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ github.event.release.id }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+          OLD_BODY: ${{ github.event.release.body }}
+        run: |
+          # Define standard URLs
+          README_URL="https://github.com/${REPO}/blob/${TAG}/README.md"
+          LICENSE_URL="https://github.com/${REPO}/blob/${TAG}/LICENSE"
+
+          # Pool of 5 random flavor texts
+          MESSAGES=(
+            "*Forgot how this magic works?* Check out the [README](${README_URL})! *(And remember to respect the [LICENSE](${LICENSE_URL}) so no dragons get involved! 🐉)*"
+            "*RTFM time!* Dive into the [README](${README_URL}) before things explode, and peek at the [LICENSE](${LICENSE_URL}) to keep the legal team sleeping soundly."
+            "*Lost in the source code wilderness?* Here is your survival map: [README](${README_URL}). Playground rules apply: see [LICENSE](${LICENSE_URL})."
+            "*Pro tip:* Reading the [README](${README_URL}) grants +10 code stability. Terms & conditions apply ([LICENSE](${LICENSE_URL}))."
+            "*Before you smash that run button:* Get the full lore in the [README](${README_URL}) and inspect the fine print in the [LICENSE](${LICENSE_URL})."
+          )
+
+          # Pick a random message from the list (0 to 4)
+          RAND_INDEX=$(( RANDOM % ${#MESSAGES[@]} ))
+          SELECTED_MSG="${MESSAGES[$RAND_INDEX]}"
+
+          # Construct new release notes
+          EXTRA_TEXT="
+
+          ---
+          ${SELECTED_MSG}"
+
+          NEW_BODY="${OLD_BODY}${EXTRA_TEXT}"
+
+          # Patch the release notes via GitHub CLI
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPO}/releases/${RELEASE_ID}" \
+            -f body="${NEW_BODY}"
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPO}/releases/${RELEASE_ID}" \
+            -f body="${NEW_BODY}"
