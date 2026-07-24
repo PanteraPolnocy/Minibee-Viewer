@@ -1,6 +1,7 @@
-//! Map tiles, region-name/coord lookups, and Destination Guide proxy.
-//! All fetches use the shared client (system TLS, follows redirects) — the OS
-//! trust store handles certificates, so no CA bundle management is needed.
+//! Map tiles, region-name/coordinate lookups, and the Destination Guide proxy.
+//! Lookups hit fixed Linden hosts and use the shared redirect-following client;
+//! map tiles take their base URL from the grid, so they use the no-redirect client
+//! and re-guard every hop. TLS rides the OS trust store, so no CA bundle is needed.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,7 +42,12 @@ struct Grid {
 }
 
 fn cap_coords_to_grid(x: i64, y: i64) -> Grid {
-    if x < 4096 && y < 4096 {
+    // Grid indices run 0..MAP_MAX_SIZE (16384 regions per axis); anything at or above
+    // that is really global metres (grid * 256). A region could genuinely sit at grid
+    // index >= 4096, and we still need to treat those as grid indices, so we draw the
+    // line at 16384.
+    const MAP_MAX_SIZE: i64 = 16384;
+    if x < MAP_MAX_SIZE && y < MAP_MAX_SIZE {
         Grid { grid_x: x, grid_y: y, global_x: x * 256, global_y: y * 256 }
     } else {
         let gx = x / 256;
@@ -70,7 +76,7 @@ mod tests {
 
     #[test]
     fn cap_coords_grid_index_branch() {
-        // Small values are already grid indices.
+        // Small values come in as grid indices already.
         let g = cap_coords_to_grid(1000, 1001);
         assert_eq!((g.grid_x, g.grid_y), (1000, 1001));
         assert_eq!((g.global_x, g.global_y), (256000, 256256));
@@ -78,7 +84,7 @@ mod tests {
 
     #[test]
     fn cap_coords_global_metres_branch() {
-        // Large values are global metres → divide by region width.
+        // Large values are global metres, so divide by the region width.
         let g = cap_coords_to_grid(256000, 256256);
         assert_eq!((g.grid_x, g.grid_y), (1000, 1001));
         assert_eq!((g.global_x, g.global_y), (256000, 256256));
@@ -105,18 +111,46 @@ pub async fn fetch_map_tile(
         grid_x,
         grid_y
     );
-    // The map-server base is caller-supplied (OpenSim grids vary), so guard it
-    // like any other egress before fetching.
-    crate::bridge::proxy::guard_url(&url).await?;
-    let resp = state
-        .http
-        .get(&url)
-        .header("Referer", "https://secondlife.com/")
-        .header("Accept", "image/jpeg,image/*,*/*")
-        .timeout(Duration::from_secs(20))
-        .send()
-        .await
-        .map_err(|e| format!("map tile fetch failed: {e}"))?;
+    // The map-server base comes from the caller (OpenSim grids vary), so we guard it
+    // like any other egress. And because a hostile grid could 3xx us onto an internal
+    // host, or DNS-rebind between the check and the connect, we follow redirects by
+    // hand: on each hop we re-run the SSRF guard AND pin the validated IP, so the GET
+    // connects to exactly the address we checked (mirrors proxy::exchange).
+    let mut current = url;
+    let mut resp;
+    let mut hops = 0u32;
+    loop {
+        crate::bridge::proxy::guard_url(&current).await?;
+        let pin = crate::bridge::proxy::resolve_public_pin(&current).await;
+        let mut builder = reqwest::Client::builder()
+            .user_agent(&state.ua)
+            .redirect(reqwest::redirect::Policy::none())
+            .gzip(true);
+        if let Some((host, addr)) = &pin {
+            builder = builder.resolve(host, *addr);
+        }
+        let client = builder.build().map_err(|e| e.to_string())?;
+        resp = client
+            .get(&current)
+            .header("Referer", "https://secondlife.com/")
+            .header("Accept", "image/jpeg,image/*,*/*")
+            .timeout(Duration::from_secs(20))
+            .send()
+            .await
+            .map_err(|e| format!("map tile fetch failed: {e}"))?;
+        if resp.status().is_redirection() && hops < 4 {
+            let next = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|loc| resp.url().join(loc).ok())
+                .ok_or_else(|| "map tile fetch failed: bad redirect".to_string())?;
+            current = next.to_string();
+            hops += 1;
+            continue;
+        }
+        break;
+    }
     if !resp.status().is_success() {
         return Err(format!("map tile fetch failed: HTTP {}", resp.status().as_u16()));
     }
@@ -126,7 +160,16 @@ pub async fn fetch_map_tile(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("image/jpeg")
         .to_string();
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    // Cap the read: the map-server host is grid-supplied, so a hostile or broken
+    // server must not be able to stream an unbounded body into memory.
+    const MAX_TILE_BYTES: usize = 8 * 1024 * 1024;
+    let mut bytes = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+        if bytes.len() + chunk.len() > MAX_TILE_BYTES {
+            return Err("map tile fetch failed: response too large".to_string());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
     let content_type = if ctype.starts_with("image/") { ctype } else { "image/jpeg".to_string() };
     Ok(json!({ "contentType": content_type, "b64": B64.encode(&bytes) }))
 }
@@ -184,15 +227,28 @@ pub async fn fetch_region_by_name(state: &AppState, name: &str) -> Value {
             .send()
             .await;
         let body = match resp {
-            Ok(r) if r.status().is_success() => match r.text().await {
-                Ok(t) => t,
-                Err(_) => continue,
-            },
-            _ => continue,
+            Ok(r) => {
+                let st = r.status();
+                if !st.is_success() {
+                    crate::dlog!("region_by_name '{}': {} -> HTTP {}", name, url, st.as_u16());
+                    continue;
+                }
+                match r.text().await {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                }
+            }
+            Err(e) => {
+                crate::dlog!("region_by_name '{}': {} -> transport error: {}", name, url, e);
+                continue;
+            }
         };
         let (x, y) = match parse_region_coords_cap_js(&body) {
             Some(v) => v,
-            None => continue,
+            None => {
+                crate::dlog!("region_by_name '{}': {} -> 200 but unparseable body ({} bytes)", name, url, body.len());
+                continue;
+            }
         };
         let grid = cap_coords_to_grid(x, y);
         let verified = fetch_region_cap_body(state, grid.grid_x, grid.grid_y).await;
@@ -209,6 +265,7 @@ pub async fn fetch_region_by_name(state: &AppState, name: &str) -> Value {
             _ => continue,
         }
     }
+    crate::dlog!("region_by_name '{}': all lookup services failed -> region not found", name);
     json!({ "error": "region not found", "name": name })
 }
 

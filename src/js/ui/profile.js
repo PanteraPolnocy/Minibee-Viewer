@@ -1,5 +1,5 @@
 /**
- * Avatar and group profile floater.
+ * The floater that shows avatar and group profiles.
  */
 const FSProfile = (function () {
   'use strict';
@@ -125,9 +125,10 @@ const FSProfile = (function () {
   }
 
   function profileTitleText(profile) {
-    const displayName = String(profile.displayName || '').trim();
-    const userName = String(profile.userName || profile.legacyName || '').trim();
-    const fallback = String(profile.name || '').trim();
+    const clean = function (v) { const s = String(v || '').trim(); return FSUtils.isUuid(s) ? '' : s; };
+    const displayName = clean(profile.displayName);
+    const userName = clean(profile.userName || profile.legacyName);
+    const fallback = clean(profile.name);
     if (displayName && userName && displayName.toLowerCase() !== userName.toLowerCase()) {
       return displayName + ' (' + userName + ')';
     }
@@ -198,8 +199,11 @@ const FSProfile = (function () {
 
   function formatAccountInfo(profile) {
     const parts = ['Resident'];
-    if (profile.charterMember) parts.push('Charter member');
-    if (profile.caption) parts.push(profile.caption);
+    // The account caption (UDP `CharterMember` / cap `caption`) is already the
+    // label text itself (e.g. "Charter Member", "Linden"), so show it verbatim
+    // rather than forcing a hardcoded "Charter member" for any non-empty value.
+    const caption = String(profile.caption || profile.charterMember || '').trim();
+    if (caption && caption.toLowerCase() !== 'resident') parts.push(caption);
     return parts.join(' \u00b7 ');
   }
 
@@ -268,10 +272,14 @@ const FSProfile = (function () {
 
   function applyNameHint(profile, hint) {
     if (!profile || !hint) return profile;
-    const hintName = String(hint.name || '').trim();
-    profile.displayName = String(hint.displayName || '').trim() || profile.displayName || '';
+    // A hint that came from a buddy/radar object keeps the UUID in `name` until
+    // GetDisplayNames resolves it. Never let a UUID slip into a name field - that
+    // was what gave us headers like "5e9c… (Pantera Północy)".
+    const clean = function (v) { const s = String(v || '').trim(); return FSUtils.isUuid(s) ? '' : s; };
+    const hintName = clean(hint.name);
+    profile.displayName = clean(hint.displayName) || clean(profile.displayName) || '';
     if (!profile.displayName && hintName) profile.displayName = hintName;
-    profile.userName = String(hint.userName || hint.legacyName || '').trim() || profile.userName || '';
+    profile.userName = clean(hint.userName || hint.legacyName) || clean(profile.userName) || '';
     if (!profile.userName && hintName && hintName.toLowerCase() !== profile.displayName.toLowerCase()) {
       profile.userName = hintName;
     }
@@ -348,7 +356,7 @@ const FSProfile = (function () {
     let html = '';
     if (showClearActive) {
       html += '<button type="button" class="profile-link profile-groups-list__clear" data-clear-active-group>' +
-        'Set active group to none</button>';
+        '[ Set active group to none ]</button>';
     }
     if (!groups || !groups.length) {
       return html + '<p class="profile-section__empty">No groups listed</p>';
@@ -419,10 +427,12 @@ const FSProfile = (function () {
 
   function profileDetailLocation(detail) {
     if (!detail) return null;
-    const regionName = String(detail.regionName || detail.simName || '').trim();
+    let regionName = String(detail.regionName || detail.simName || '').trim();
     const parcel = String(detail.originalName || detail.parcelName || '').trim();
-    if (!regionName || (parcel && regionName.toLowerCase() === parcel.toLowerCase())) return null;
-    if (detail.x !== undefined && detail.y !== undefined && detail.z !== undefined) {
+    // If the region name just echoes the parcel name, it isn't a real sim name.
+    if (parcel && regionName.toLowerCase() === parcel.toLowerCase()) regionName = '';
+    if (detail.x !== undefined && detail.y !== undefined && detail.z !== undefined &&
+        (detail.gridX || detail.gridY)) {
       return {
         regionName: regionName,
         gridX: detail.gridX,
@@ -434,8 +444,12 @@ const FSProfile = (function () {
         z: detail.z
       };
     }
+    // Picks and classifieds carry PosGlobal even when SimName is empty, so we
+    // derive the location from it (the reference viewer resolves the region from
+    // the global coords). A missing name shouldn't hide the location row or buttons.
     if (!detail.posGlobal) return null;
     const pos = detail.posGlobal;
+    if (!pos || (!pos.x && !pos.y)) return null; // this pick has no location set
     const rw = 256;
     const grid = typeof FSSlurl !== 'undefined' && FSSlurl.globalToGrid
       ? FSSlurl.globalToGrid(pos.x, pos.y)
@@ -465,15 +479,21 @@ const FSProfile = (function () {
     if (descHtml) {
       html += '<div class="profile-detail__desc">' + descHtml + '</div>';
     }
-    if (detail.location) {
+    const loc = profileDetailLocation(detail);
+    if (loc) {
+      // Format: "Parcel name (x, y, z) - Region name", with each part shown only when known.
+      const coords = loc.x + ', ' + loc.y + ', ' + loc.z;
+      const parcelName = detail.resolvedParcelName || detail.parcelName || '';
+      let locText = (parcelName ? parcelName + ' ' : '') + '(' + coords + ')';
+      if (loc.regionName) locText += ' - ' + loc.regionName;
       html += '<div class="profile-field"><span class="profile-field__label">Location</span><span>' +
-        FSUtils.escapeHtml(detail.location) + '</span></div>';
+        FSUtils.escapeHtml(locText) + '</span></div>';
     }
     if (kind === 'classified' && detail.priceForListing) {
       html += '<div class="profile-field"><span class="profile-field__label">Listing price</span><span>L$ ' +
         Number(detail.priceForListing).toLocaleString('en-US') + '</span></div>';
     }
-    if (profileDetailLocation(detail)) {
+    if (loc) {
       html += '<div class="profile-detail__actions">' +
         '<button type="button" class="btn btn--secondary profile-detail__action" data-detail-action="map">Show on map</button>' +
         '<button type="button" class="btn btn--primary profile-detail__action" data-detail-action="teleport">Teleport</button>' +
@@ -518,6 +538,39 @@ const FSProfile = (function () {
     bindDetailActions(detailEl, detail);
   }
 
+  // Resolved parcel info (region + parcel name), keyed by parcel id and cached
+  // for the session so re-opening a pick is instant and we never re-ask the sim.
+  const parcelInfoCache = new Map();
+
+  function applyResolvedParcel(detailEl, item, kind, rowId, info) {
+    if (!current || current.type !== 'avatar') return;
+    const selId = kind === 'pick' ? current.selectedPickId : current.selectedClassifiedId;
+    if (selId !== rowId) return;
+    paintItemDetail(detailEl, Object.assign({}, item, {
+      simName: info.simName || item.simName,
+      regionName: info.simName || item.regionName,
+      resolvedParcelName: info.name || item.resolvedParcelName || ''
+    }), kind);
+  }
+
+  // A pick or classified carries a parcelId but often an empty SimName, so the
+  // location line shows only coordinates. Fill the region name in from the parcel
+  // info and repaint (cached after the first lookup). This is best-effort; the
+  // pick's own PosGlobal stays the teleport target.
+  function enrichItemLocation(detailEl, item, kind, rowId) {
+    if (!item || !item.parcelId || item.simName || item.regionName) return;
+    if (FSProfiles.isZero && FSProfiles.isZero(item.parcelId)) return;
+    const key = FSProfiles.normId(item.parcelId);
+    const cached = parcelInfoCache.get(key);
+    if (cached) { applyResolvedParcel(detailEl, item, kind, rowId, cached); return; }
+    if (typeof FSTransport.fetchParcelInfo !== 'function') return;
+    FSTransport.fetchParcelInfo(item.parcelId).then(function (info) {
+      if (!info || (!info.simName && !info.name)) return;
+      parcelInfoCache.set(key, info);
+      applyResolvedParcel(detailEl, item, kind, rowId, info);
+    }).catch(function () {});
+  }
+
   function findDetailPane(tabId) {
     const content = el('profile-content');
     if (!content) return null;
@@ -537,7 +590,8 @@ const FSProfile = (function () {
     return AVATAR_TABS.filter(function (tab) {
       if (tab.id === 'web') return !!profileWebUrl(profile);
       if (tab.id === 'more') return !!(profile.flAbout || (profile.flImageId && profile.flImageId !== ZERO_UUID));
-      if (tab.id === 'notes') return !self;
+      // Notes appear on everyone's profile, your own included (Firestorm lets you
+      // keep notes on yourself too).
       return true;
     });
   }
@@ -662,13 +716,20 @@ const FSProfile = (function () {
   }
 
   function renderNotesTab(profile) {
+    // Only allow editing and saving once the notes have actually been fetched
+    // (AvatarNotesReply sets a string, even an empty one). Saving before that
+    // reply arrives would overwrite the real notes with a blank field - data loss.
+    const loaded = typeof profile.notes === 'string';
     const notes = String(profile.notes || '');
     return '<div class="profile-pane profile-pane--notes">' +
       '<p class="profile-notes-hint">Your private notes about this person. Only you can see them.</p>' +
       '<textarea id="profile-notes-input" class="profile-notes-input" rows="10" maxlength="65535" ' +
-        'placeholder="Add private notes...">' + FSUtils.escapeHtml(notes) + '</textarea>' +
+        (loaded ? '' : 'readonly ') +
+        'placeholder="' + (loaded ? 'Add private notes...' : 'Loading notes…') + '">' +
+        FSUtils.escapeHtml(notes) + '</textarea>' +
       '<div class="profile-notes-actions">' +
-      '<button type="button" class="btn btn--primary" id="profile-notes-save">Save notes</button>' +
+      '<button type="button" class="btn btn--primary" id="profile-notes-save"' +
+        (loaded ? '' : ' disabled') + '>Save notes</button>' +
       '</div>' +
       '<div id="profile-notes-status" class="profile-notes-status" role="status" aria-live="polite"></div>' +
       '</div>';
@@ -720,6 +781,7 @@ const FSProfile = (function () {
         : FSProfiles.getClassifiedDetail(row.id);
       if (cached) {
         paintItemDetail(detail, cached, kind);
+        enrichItemLocation(detail, cached, kind, row.id);
       } else {
         detail.innerHTML = '<p class="profile-section__empty">Loading...</p>';
       }
@@ -731,6 +793,7 @@ const FSProfile = (function () {
         const selectedId = kind === 'pick' ? current.selectedPickId : current.selectedClassifiedId;
         if (selectedId !== row.id) return;
         paintItemDetail(detail, loaded, kind);
+        enrichItemLocation(detail, loaded, kind, row.id);
       }).catch(function () {
         if (!detail || cached) return;
         detail.innerHTML = '<h4 class="profile-split__title">' + FSUtils.escapeHtml(row.name || 'Item') + '</h4>' +
@@ -775,7 +838,7 @@ const FSProfile = (function () {
     const notesInput = root.querySelector('#profile-notes-input');
     const notesSave = root.querySelector('#profile-notes-save');
     const notesStatus = root.querySelector('#profile-notes-status');
-    if (!notesInput || !notesSave || !profile.avatarId || isSelfProfile(profile)) return;
+    if (!notesInput || !notesSave || !profile.avatarId) return;
 
     let feedbackTimer = null;
     let timeoutTimer = null;
@@ -998,9 +1061,13 @@ const FSProfile = (function () {
     next.isMember = profileShowsAsMember(next);
     if (!next.isMember) next.memberTitle = '';
     next.isActive = typeof FSProfiles.isActiveGroup === 'function' && FSProfiles.isActiveGroup(next.groupId);
-    next.titles = typeof FSProfiles.getGroupTitles === 'function'
+    // getGroupTitles returns { titles, complete } or null - never a bare array.
+    // Handing that straight to .find() used to crash group profiles with
+    // "Cannot read properties of null (reading 'find')".
+    const gt = typeof FSProfiles.getGroupTitles === 'function'
       ? FSProfiles.getGroupTitles(next.groupId)
-      : [];
+      : null;
+    next.titles = gt && Array.isArray(gt.titles) ? gt.titles : (Array.isArray(gt) ? gt : []);
     const selectedTitle = next.titles.find(function (row) { return row.selected; });
     next.selectedTitleRoleId = selectedTitle ? selectedTitle.roleId : '';
     if (selectedTitle && selectedTitle.title) next.memberTitle = selectedTitle.title;
@@ -1054,7 +1121,7 @@ const FSProfile = (function () {
         '<p class="profile-group-title-hint">The title shown next to your name in this group.</p>' +
         body + '</section>';
     };
-    // No titles yet: show the current one (or a loading/empty note) with no picker.
+    // No titles yet - just show the current one (or a loading/empty note), no picker.
     if (!titles.length) {
       const fallback = String(profile.memberTitle || '').trim();
       if (settled && fallback) {
@@ -1066,11 +1133,14 @@ const FSProfile = (function () {
     const selectedId = profile.selectedTitleRoleId || '';
     const options = titles.map(function (row) {
       const selected = row.roleId === selectedId ? ' selected' : '';
+      // A group's default/Everyone title can be blank, so show a placeholder to
+      // keep it selectable rather than an empty, invisible option.
+      const label = row.title && row.title.trim() ? row.title : '(no title)';
       return '<option value="' + FSUtils.escapeHtml(row.roleId) + '"' + selected + '>' +
-        FSUtils.escapeHtml(row.title) + '</option>';
+        FSUtils.escapeHtml(label) + '</option>';
     }).join('');
     const disabled = titles.length <= 1 ? ' disabled' : '';
-    // Title dropdown + Save (current title preselected).
+    // Title dropdown plus Save, with the current title preselected.
     return wrap(
       '<div class="profile-group-title-row">' +
       '<select id="profile-group-title-select" class="profile-group-title-select"' + disabled + '>' +
@@ -1089,7 +1159,7 @@ const FSProfile = (function () {
         Number(profile.money).toLocaleString('en-US') + '</span></div>';
     }
     if (profile.rolesCount !== undefined && profile.rolesCount !== null) {
-      // The reply count excludes the implicit Everyone role.
+      // The reply's count leaves out the implicit Everyone role.
       html += '<div class="profile-field"><span class="profile-field__label">Roles</span><span>' +
         FSUtils.escapeHtml(String(Number(profile.rolesCount) + 1)) + '</span></div>';
     }
@@ -1118,8 +1188,10 @@ const FSProfile = (function () {
       '<div class="profile-resident__about profile-group__about">' +
       renderGroupKeyMeta(profile) +
       renderAboutBlock(charterHtml, 'No charter text.') +
-      '</div></div>' +
+      // The active-title picker sits under the description in the right column;
+      // the Activate control lives in the actions bar (renderGroupActions).
       renderGroupTitleSection(profile) +
+      '</div></div>' +
       '</div>';
   }
 
@@ -1582,7 +1654,10 @@ const FSProfile = (function () {
       ? enrichAvatarProfile(Object.assign({}, cached))
       : enrichAvatarProfile({ avatarId: id });
     queueProfileNames(profile);
-    if (cached) ensureProfileExtras(profile);
+    // Fetch picks/classifieds/notes on every open, not just when cached -
+    // otherwise the first time a profile is opened they never load and the user
+    // has to reopen it. The reply re-renders through the FSProfiles onChange.
+    ensureProfileExtras({ avatarId: id });
     renderAvatar(profile);
 
     if (!mustFetch) return;

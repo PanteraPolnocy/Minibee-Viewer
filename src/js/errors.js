@@ -1,5 +1,5 @@
 /**
- * Client-side diagnostic log (Debug tab + optional chat mirror).
+ * Client-side diagnostic log that backs the Debug tab, with an optional chat mirror.
  */
 const FSErrors = (function () {
   'use strict';
@@ -12,15 +12,15 @@ const FSErrors = (function () {
     listeners.forEach(function (fn) { fn(entries.slice()); });
   }
 
-  // Errors are always retained; info/warn diagnostics only when the user has
-  // opted in (`debugLogDiagnostics`, default off). The chat mirror is independent.
+  // Errors are always retained. Info and warn diagnostics are only kept once the
+  // user has opted in via `debugLogDiagnostics` (off by default); the chat mirror is decided separately.
   function shouldRetain(level) {
     if (level === 'error') return true;
     try {
       if (typeof FSSettings !== 'undefined' && FSSettings.get) {
         return !!FSSettings.get('debugLogDiagnostics');
       }
-    } catch (_e) { /* fall through */ }
+    } catch (_e) { /* if it throws, fall through */ }
     return false;
   }
 

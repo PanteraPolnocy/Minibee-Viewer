@@ -1,5 +1,5 @@
 /**
- * Events panel - script dialogs, permissions, prompts, and payments.
+ * The Events panel - where script dialogs, permissions, prompts, and payments land.
  */
 const FSEvents = (function () {
   'use strict';

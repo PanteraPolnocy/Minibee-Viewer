@@ -1,5 +1,5 @@
 /**
- * Land / parcel management panel.
+ * Land / parcel management panel - the Land tab's view and edit logic.
  */
 const FSLand = (function () {
   'use strict';
@@ -15,8 +15,9 @@ const FSLand = (function () {
     'land-sound-local', 'land-voice', 'land-sell-passes',
     'land-music', 'land-media'
   ];
-  // 'land-access' stays display-only: the access dropdown's mapping to the
-  // access-list PF bits isn't wired, and applying a guess could lock people out.
+  // 'land-access' is left off this list on purpose - it stays display-only. Its
+  // dropdown isn't wired to the access-list PF bits yet, and writing back a
+  // guess could lock people out.
 
   let activateToken = 0;
   let activeLandTab = 'general';
@@ -68,17 +69,16 @@ const FSLand = (function () {
   }
 
   function parcelCanEdit(parcel) {
-    if (!parcel || parcel.stub) return false;
-    if (parcel.canEdit !== undefined) return !!parcel.canEdit;
-    const agentId = FSState.get().agent && FSState.get().agent.id;
-    return FSUtils.canEditParcel(parcel, agentId);
+    // canEdit comes from the Rust parcel handler: true if you own the parcel, or
+    // belong to the owning group on group land (the Governor doesn't count).
+    return !!(parcel && !parcel.stub && parcel.canEdit);
   }
 
   function readOnlyNote(parcel) {
     if (parcel.isGroupOwned) {
-      return 'View only — group land requires officer powers to edit';
+      return 'View only - group land requires officer powers to edit';
     }
-    return 'View only — you do not own this parcel';
+    return 'View only - you do not own this parcel';
   }
 
   function setFormEditable(canEdit) {
@@ -106,6 +106,11 @@ const FSLand = (function () {
       el.disabled = false;
       el.readOnly = true;
     });
+    // The access dropdown is display-only - its mapping to the access-list PF
+    // bits isn't wired, and a wrong guess could lock people out - so we keep it
+    // disabled always, not only when the parcel is read-only.
+    const access = document.getElementById('land-access');
+    if (access) access.disabled = true;
     const submit = document.getElementById('land-apply') || form.querySelector('[type="submit"]');
     if (submit) submit.disabled = !canEdit;
     form.classList.toggle('land-form--readonly', !canEdit);
@@ -131,9 +136,9 @@ const FSLand = (function () {
     }
   }
 
-  // The parcel "owner" is a group when the land is group-owned; in that case
-  // OwnerID is the group's UUID, so the field must resolve a group name and
-  // open the group profile (not a resident profile with a bare UUID).
+  // On group-owned land the parcel "owner" is really the group, so OwnerID holds
+  // the group's UUID. This field therefore has to resolve a group name and open
+  // the group profile, rather than a resident profile showing a bare UUID.
   function ownerFieldInfo(parcel) {
     const groupOwned = !!parcel.isGroupOwned;
     const id = parcel.ownerId || '';
@@ -181,10 +186,7 @@ const FSLand = (function () {
 
     const canEdit = parcelCanEdit(parcel);
     const primsUsed = parcel.primsUsed !== undefined && parcel.primsUsed !== null ? parcel.primsUsed : 0;
-    let primsTotal = parcel.primsTotal || 0;
-    if (!primsTotal && parcel.area > 0 && typeof FSUtils.estimateParcelPrimCapacity === 'function') {
-      primsTotal = FSUtils.estimateParcelPrimCapacity(parcel.area, parcel.parcelPrimBonus);
-    }
+    const primsTotal = parcel.primsTotal || 0; // comes from the Rust parcel handler
 
     setFieldValue('land-name', parcel.name || '');
     setFieldValue('land-desc', parcel.desc || '');
@@ -200,7 +202,7 @@ const FSLand = (function () {
       parcel.groupId || '';
     setProfileField('land-owner', ownerLabel, owner.id, owner.type);
     setProfileField('land-group', groupLabel, parcel.groupId, 'group');
-    // Resolve the right kind of name so the field never shows a bare UUID.
+    // Kick off the right kind of name lookup so the field never shows a bare UUID.
     if (owner.isGroup && owner.id && owner.id !== ZERO_UUID && !parcel.groupName &&
         FSProfiles.queueGroupName) {
       FSProfiles.queueGroupName(owner.id);
@@ -258,42 +260,54 @@ const FSLand = (function () {
     }
 
     setFormEditable(canEdit);
+    renderSummary(parcel);
+  }
 
+  // Renders the summary line ("Standing on … Owner: … Group: …"). It lives on its
+  // own so we can re-render it once the owner/group name resolves after the form
+  // first paints - otherwise it stays stuck showing the UUID.
+  function renderSummary(parcel) {
     const summary = document.getElementById('land-summary');
-    if (summary) {
-      const ownerLink = owner.id
-        ? '<button type="button" class="profile-inline-link" data-profile-type="' + owner.type +
-          '" data-profile-id="' + FSUtils.escapeHtml(owner.id) + '">' +
-          FSUtils.escapeHtml(ownerLabel) + '</button>'
-        : FSUtils.escapeHtml(ownerLabel || 'Unknown');
-      const groupLink = parcel.groupId && parcel.groupId !== ZERO_UUID
-        ? '<button type="button" class="profile-inline-link" data-profile-type="group" data-profile-id="' +
-          FSUtils.escapeHtml(parcel.groupId) + '">' + FSUtils.escapeHtml(groupLabel) + '</button>'
-        : '';
-      let html =
-        'Standing on <strong>' + FSUtils.escapeHtml(parcel.name) + '</strong><br>' +
-        'Owner: ' + ownerLink +
-        (groupLink ? ' &middot; Group: ' + groupLink : '');
-      if (!canEdit) {
-        html += '<br><span class="land-summary__note">' +
-          FSUtils.escapeHtml(readOnlyNote(parcel)) + '</span>';
-      }
-      summary.innerHTML = html;
-      summary.querySelectorAll('.profile-inline-link').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          const entityId = btn.getAttribute('data-profile-id');
-          const entityType = btn.getAttribute('data-profile-type');
-          if (!entityId) return;
-          if (entityType === 'group') FSProfile.openGroup(entityId);
-          else FSProfile.openAvatar(entityId);
-        });
-      });
+    if (!summary || !parcel || parcel.stub) return;
+    const canEdit = parcelCanEdit(parcel);
+    const owner = ownerFieldInfo(parcel);
+    const ownerLabel = owner.label;
+    const groupLabel = parcel.groupName ||
+      (typeof FSTransport.getGroupName === 'function' ? FSTransport.getGroupName(parcel.groupId) : '') ||
+      (FSProfiles.getGroupName ? FSProfiles.getGroupName(parcel.groupId) : '') ||
+      parcel.groupId || '';
+    const ownerLink = owner.id
+      ? '<button type="button" class="profile-inline-link" data-profile-type="' + owner.type +
+        '" data-profile-id="' + FSUtils.escapeHtml(owner.id) + '">' +
+        FSUtils.escapeHtml(ownerLabel) + '</button>'
+      : FSUtils.escapeHtml(ownerLabel || 'Unknown');
+    const groupLink = parcel.groupId && parcel.groupId !== ZERO_UUID
+      ? '<button type="button" class="profile-inline-link" data-profile-type="group" data-profile-id="' +
+        FSUtils.escapeHtml(parcel.groupId) + '">' + FSUtils.escapeHtml(groupLabel) + '</button>'
+      : '';
+    let html =
+      'Standing on <strong>' + FSUtils.escapeHtml(parcel.name) + '</strong><br>' +
+      'Owner: ' + ownerLink +
+      (groupLink ? ' &middot; Group: ' + groupLink : '');
+    if (!canEdit) {
+      html += '<br><span class="land-summary__note">' +
+        FSUtils.escapeHtml(readOnlyNote(parcel)) + '</span>';
     }
+    summary.innerHTML = html;
+    summary.querySelectorAll('.profile-inline-link').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const entityId = btn.getAttribute('data-profile-id');
+        const entityType = btn.getAttribute('data-profile-type');
+        if (!entityId) return;
+        if (entityType === 'group') FSProfile.openGroup(entityId);
+        else FSProfile.openAvatar(entityId);
+      });
+    });
   }
 
   function collectForm() {
-    // Every editable control is surfaced (everyone/group kept distinct) so the
-    // update can carry them; the transport folds each into its own PF_ bit.
+    // Collect every editable control, keeping everyone vs group distinct, so the
+    // update can carry them all; the transport folds each into its own PF_ bit.
     const checked = function (id) {
       const el = document.getElementById(id);
       return el ? el.checked : undefined;
@@ -342,7 +356,11 @@ const FSLand = (function () {
       FSUtils.showToast('You cannot edit this parcel', 'error');
       return;
     }
-    const data = collectForm();
+    // Send the FULL current parcel with the edits layered on top. The core needs
+    // localId, the baseline parcelFlags (to fold the checkboxes onto), groupId,
+    // snapshotId, the landing point, and so on - collectForm() alone drops them,
+    // which would zero those fields on the sim and lose data.
+    const data = Object.assign({}, parcel, collectForm());
     const btn = document.getElementById('land-apply') || e.target.querySelector('[type="submit"]');
     btn.disabled = true;
     btn.textContent = 'Applying...';
@@ -350,6 +368,13 @@ const FSLand = (function () {
     try {
       await FSTransport.updateParcel(data);
       FSUtils.showToast('Parcel updated', 'success');
+      // Re-fetch the authoritative parcel data so the form and the next save's
+      // baseline reflect what the sim actually stored.
+      if (typeof FSTransport.refreshParcel === 'function') {
+        FSTransport.refreshParcel({ force: true })
+          .then(function () { applyParcel(FSState.get().parcel); })
+          .catch(function () { /* leave the optimistic values in place */ });
+      }
     } catch (err) {
       FSUtils.showToast(err.message || 'Update failed', 'error');
     } finally {
@@ -364,6 +389,41 @@ const FSLand = (function () {
     hideLoading();
   }
 
+  // ParcelProperties carries neither the parcel UUID nor dwell (Traffic), so we
+  // fetch them via RemoteParcelRequest for the parcel the agent is standing on.
+  // The matching parcel-info event (correlated by id below) merges them back in.
+  let expectedParcelInfoId = '';
+  function requestParcelExtras() {
+    if (typeof FSTransport.remoteParcel !== 'function') return;
+    const region = FSState.get().region || {};
+    const pos = FSState.get().position || {};
+    const gx = region.x != null ? region.x : region.gridX;
+    const gy = region.y != null ? region.y : region.gridY;
+    if (gx == null || gy == null) return;
+    FSTransport.remoteParcel(gx, gy,
+      pos.x != null ? pos.x : 128, pos.y != null ? pos.y : 128, pos.z != null ? pos.z : 25
+    ).then(function (res) {
+      if (res && res.parcelId) expectedParcelInfoId = FSUtils.normUuid(res.parcelId);
+    });
+  }
+
+  function mergeParcelExtras(info) {
+    if (!info || !info.parcelId) return;
+    // Accept only the parcel we're standing on - its id came back from our own
+    // request - never a place-search detail's parcel-info.
+    if (FSUtils.normUuid(info.parcelId) !== expectedParcelInfoId) return;
+    const parcel = FSState.get().parcel;
+    if (!parcel || parcel.stub) return;
+    FSState.patch({ parcel: Object.assign({}, parcel, {
+      parcelId: info.parcelId,
+      dwell: info.dwell
+    }) });
+    if (FSNavigation.isTabActive('land')) {
+      setFieldValue('land-uuid', info.parcelId);
+      if (info.dwell != null) setFieldValue('land-traffic', Math.round(info.dwell));
+    }
+  }
+
   function parcelIsRich(parcel) {
     return !!(parcel && !parcel.stub &&
       (parcel.parcelFlags || 0) > 0 &&
@@ -375,6 +435,7 @@ const FSLand = (function () {
     const token = ++activateToken;
     const parcel = FSState.get().parcel;
     const pending = parcelNeedsLoad(parcel);
+    requestParcelExtras(); // fetch the parcel UUID + Traffic, which ParcelProperties omits
 
     if (pending) {
       clearDisplay();
@@ -451,16 +512,42 @@ const FSLand = (function () {
       applyParcel(partial.parcel);
     });
 
+    // Re-resolve the owner + group display fields from the caches. Group names
+    // arrive asynchronously (AgentGroupDataUpdate / GroupProfileReply), and the
+    // owner (on Linden/avatar-owned parcels) via names-updated - all of it AFTER
+    // the form first paints. Without this the fields stay stuck on the UUID or
+    // "(resolving…)".
+    function refreshOwnerGroupFields() {
+      const parcel = FSState.get().parcel;
+      if (!parcel || parcel.stub) return;
+      const owner = ownerFieldInfo(parcel);
+      setProfileField('land-owner', owner.label, owner.id, owner.type);
+      const groupLabel = parcel.groupName ||
+        (typeof FSTransport.getGroupName === 'function' ? FSTransport.getGroupName(parcel.groupId) : '') ||
+        (FSProfiles.getGroupName ? FSProfiles.getGroupName(parcel.groupId) : '') ||
+        parcel.groupId || '';
+      setProfileField('land-group', groupLabel, parcel.groupId, 'group');
+      // Re-render the summary line as well, since it shows the owner/group name too.
+      renderSummary(parcel);
+    }
+
     if (typeof FSProfiles !== 'undefined') {
       FSProfiles.onChange(function (evt) {
         if (!FSNavigation.isTabActive('land')) return;
-        const parcel = FSState.get().parcel;
-        if (!parcel || parcel.stub) return;
-        if (evt.kind === 'group-name' && parcel.groupId && FSUtils.normUuid(parcel.groupId) === evt.id) {
-          const name = FSProfiles.getGroupName(parcel.groupId);
-          if (name) setProfileField('land-group', name, parcel.groupId, 'group');
+        // The group name resolves via 'group' (GroupProfileReply) or 'membership'
+        // (AgentGroupDataUpdate). Older code watched for a 'group-name' kind that
+        // is never emitted, so the field never refreshed.
+        if (evt && (evt.kind === 'group' || evt.kind === 'membership' || evt.kind === 'group-name')) {
+          refreshOwnerGroupFields();
         }
       });
+    }
+    if (typeof FSTransport !== 'undefined' && FSTransport.on) {
+      FSTransport.on('names-updated', function () {
+        if (FSNavigation.isTabActive('land')) refreshOwnerGroupFields();
+      });
+      // Parcel UUID + Traffic (dwell) come in via RemoteParcelRequest -> parcel-info.
+      FSTransport.on('parcel-info', mergeParcelExtras);
     }
 
     if (typeof FSTransport !== 'undefined') {

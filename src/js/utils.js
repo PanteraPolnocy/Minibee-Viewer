@@ -1,5 +1,5 @@
 /**
- * Shared utilities for Minibee Viewer.
+ * Shared helpers used throughout the Minibee Viewer.
  */
 const FSUtils = (function () {
   'use strict';
@@ -36,9 +36,9 @@ const FSUtils = (function () {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
-  // Escapes for both element text and quoted attributes. The old textContent
-  // trick left " and ' intact, so any value dropped into a double-quoted
-  // attribute could break out of it.
+  // Escapes a value so it's safe both as element text and inside quoted
+  // attributes. The old textContent trick left " and ' intact, so any value
+  // dropped into a double-quoted attribute could break right out of it.
   function escapeHtml(text) {
     return String(text == null ? '' : text)
       .replace(/&/g, '&amp;')
@@ -107,43 +107,17 @@ const FSUtils = (function () {
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch (_e) {
-      /* quota or private mode */
+      /* likely a quota error or private mode; nothing to do */
     }
   }
-
-  const GOVERNOR_LINDEN_ID = '3d6181b0-6a4b-97ef-18d8-722652995cf1';
 
   function normUuid(id) {
     return String(id || '').toLowerCase().replace(/[{}]/g, '').trim();
   }
 
-  function estimateParcelPrimCapacity(area, bonus) {
-    const a = Number(area) || 0;
-    if (a <= 0) return 0;
-    const b = Number(bonus);
-    const primBonus = b > 0 ? b : 1;
-    // Fallback estimate only (used when the sim didn't send prim counts):
-    // Linden default 15000 prims per 65536 m2 region.
-    return Math.max(0, Math.round((a * 15000 / 65536) * primBonus));
-  }
-
-  function canEditParcel(parcel, agentId) {
-    if (!parcel || !agentId) return false;
-    const owner = normUuid(parcel.ownerId);
-    const agent = normUuid(agentId);
-    if (!owner || !agent) return false;
-    if (owner === GOVERNOR_LINDEN_ID) return false;
-    if (parcel.isGroupOwned) {
-      // Group land: editable if the agent belongs to the owning group. The sim
-      // still enforces the actual land powers, and our update round-trips the
-      // current parcel data, so a rejected attempt changes nothing.
-      if (typeof FSProfiles !== 'undefined' && FSProfiles.isAgentInGroup) {
-        return FSProfiles.isAgentInGroup(owner);
-      }
-      return false;
-    }
-    return owner === agent;
-  }
+  // Parcel edit-gating (owner / owning-group member / Governor) and prim
+  // capacity now live in the Rust parcel handler, which emits `canEdit` and
+  // `primsTotal` on the parcel event, so we don't compute them here anymore.
 
   function formatSltTime(date) {
     const d = date instanceof Date ? date : new Date(date);
@@ -158,17 +132,26 @@ const FSUtils = (function () {
 
   function formatLindenBalance(amount) {
     if (amount === null || amount === undefined || Number.isNaN(amount)) {
-      return 'L$ —';
+      return 'L$ -';
     }
     const n = Math.trunc(amount);
     const sign = n < 0 ? '-' : '';
     return 'L$ ' + sign + Math.abs(n).toLocaleString('en-US');
   }
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  function isUuid(s) {
+    return UUID_RE.test(String(s || '').trim());
+  }
+
   function agentNameLines(agent) {
-    const displayName = String((agent && agent.displayName) || '').trim();
-    const userName = String((agent && (agent.userName || agent.legacyName)) || '').trim();
-    const fallback = String((agent && agent.name) || '').trim();
+    // A bare UUID isn't a display name. Buddies and radar entries arrive with
+    // only an id (name === the UUID) until GetDisplayNames resolves them, so we
+    // treat any UUID-valued field as absent instead of rendering the raw key.
+    const clean = function (v) { const s = String(v || '').trim(); return isUuid(s) ? '' : s; };
+    const displayName = clean(agent && agent.displayName);
+    const userName = clean(agent && (agent.userName || agent.legacyName));
+    const fallback = clean(agent && agent.name);
     const title = displayName || userName || fallback || '?';
     let subtitle = '';
     if (displayName && userName && displayName.toLowerCase() !== userName.toLowerCase()) {
@@ -177,15 +160,15 @@ const FSUtils = (function () {
     return { title: title, subtitle: subtitle };
   }
 
-  // Close a modal <dialog> reliably. WebView2 can leave a modal dialog painted
-  // until the next input event when closed programmatically; drop focus out of
-  // it and force a reflow so it disappears on the first click.
+  // Reliably close a modal <dialog>. When closed programmatically, WebView2 can
+  // leave the dialog painted until the next input event, so we pull focus out
+  // of it and force a reflow to make it disappear on the first click.
   function dismissDialog(dialog) {
     if (!dialog) return;
-    try { if (dialog.open) dialog.close(); } catch (_e) { /* ignore */ }
+    try { if (dialog.open) dialog.close(); } catch (_e) { /* safe to ignore */ }
     if (dialog.open) dialog.open = false;
     if (document.activeElement && dialog.contains(document.activeElement)) {
-      try { document.activeElement.blur(); } catch (_e) { /* ignore */ }
+      try { document.activeElement.blur(); } catch (_e) { /* safe to ignore */ }
     }
     const prevDisplay = dialog.style.display;
     dialog.style.display = 'none';
@@ -193,8 +176,8 @@ const FSUtils = (function () {
     dialog.style.display = prevDisplay;
   }
 
-  // Styled modal confirmation. Returns a Promise<boolean>. Falls back to the
-  // native confirm only if the dialog element is unavailable.
+  // Styled modal confirmation that resolves to a Promise<boolean>. Falls back
+  // to the native confirm only when the dialog element isn't available.
   function confirmDialog(options) {
     const o = options || {};
     return new Promise(function (resolve) {
@@ -247,9 +230,8 @@ const FSUtils = (function () {
     formatRelative: formatRelative,
     initials: initials,
     agentNameLines: agentNameLines,
+    isUuid: isUuid,
     normUuid: normUuid,
-    canEditParcel: canEditParcel,
-    estimateParcelPrimCapacity: estimateParcelPrimCapacity,
     escapeHtml: escapeHtml,
     debounce: debounce,
     clamp: clamp,

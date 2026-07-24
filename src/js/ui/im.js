@@ -10,6 +10,23 @@ const FSIm = (function () {
 
   let rosterVisible = true;
 
+  // Participants and members arrive with only a UUID; their names resolve
+  // asynchronously (via the names-updated event). Prefer the resolved cache,
+  // falling back to the object's own fields.
+  function nameLines(agent) {
+    const info = agent && agent.id && typeof FSTransport.getCachedNameInfo === 'function'
+      ? FSTransport.getCachedNameInfo(agent.id)
+      : null;
+    if (info && (info.userName || info.label || info.displayName)) {
+      return FSUtils.agentNameLines({
+        displayName: info.displayName || '',
+        userName: info.userName || info.label || '',
+        name: info.label || (agent && agent.name) || ''
+      });
+    }
+    return FSUtils.agentNameLines(agent || {});
+  }
+
   const ME_TYPING_RESEND_MS = 4000;
   const ME_TYPING_IDLE_MS = 5000;
   const OTHER_TYPING_TIMEOUT_MS = 9000;
@@ -34,19 +51,36 @@ const FSIm = (function () {
     const sessionChat = isSessionChat(session);
     const memberCount = sessionChat && Array.isArray(session.participants)
       ? session.participants.length : 0;
-    const names = FSUtils.agentNameLines(p || {});
+    const names = nameLines(p || {});
+    // A group session's id IS the group id, so resolve its name and insignia
+    // here - that way the tab shows the real group name and icon instead of a
+    // generic "Group chat" glyph.
+    const isGroup = session.type === 'group';
+    let title = names.title;
+    let insigniaId = '';
+    if (isGroup && typeof FSProfiles !== 'undefined') {
+      const gname = FSProfiles.getGroupName && FSProfiles.getGroupName(session.id);
+      if (gname) title = gname;
+      insigniaId = (FSProfiles.getGroupInsigniaId && FSProfiles.getGroupInsigniaId(session.id)) || '';
+      if ((!gname || !insigniaId) && FSProfiles.queueGroupName) FSProfiles.queueGroupName(session.id);
+    }
     const avatarClass = 'im-session__avatar' + (sessionChat
       ? ' im-session__avatar--session'
       : (online ? ' im-session__avatar--online' : ''));
-    const avatarInner = sessionChat
-      ? GROUP_GLYPH + (memberCount
-        ? '<span class="im-session__count">' + memberCount + '</span>' : '')
-      : '';
-    const avatarNode = sessionChat
-      ? '<div class="' + avatarClass + '">' + avatarInner + '</div>'
-      : '<div class="' + avatarClass + '" data-agent-id="' + FSUtils.escapeHtml((p && p.id) || '') +
+    const countBadge = (sessionChat && memberCount)
+      ? '<span class="im-session__count">' + memberCount + '</span>' : '';
+    let avatarNode;
+    if (isGroup) {
+      avatarNode = '<div class="' + avatarClass + '" data-agent-id="' + FSUtils.escapeHtml(session.id) +
+        '" data-kind="group" data-resolve-image="0" data-image-id="' + FSUtils.escapeHtml(insigniaId) +
+        '" data-label="' + FSUtils.escapeHtml(title) + '">' + countBadge + '</div>';
+    } else if (sessionChat) {
+      avatarNode = '<div class="' + avatarClass + '">' + GROUP_GLYPH + countBadge + '</div>';
+    } else {
+      avatarNode = '<div class="' + avatarClass + '" data-agent-id="' + FSUtils.escapeHtml((p && p.id) || '') +
         '" data-resolve-image="0" data-label="' + FSUtils.escapeHtml(names.title) + '"' +
         (online ? ' data-online="1"' : '') + '></div>';
+    }
     const mutedGlyph = session.muted
       ? '<span class="im-session__muted-glyph" title="Notifications muted">' + MUTE_BELL_GLYPH + '</span>'
       : '';
@@ -60,7 +94,7 @@ const FSIm = (function () {
       avatarNode +
       '<div class="im-session__body">' +
         '<div class="im-session__top">' +
-          '<span class="im-session__name">' + FSUtils.escapeHtml(names.title) + '</span>' +
+          '<span class="im-session__name">' + FSUtils.escapeHtml(title) + '</span>' +
           mutedGlyph +
           '<span class="im-session__time">' + FSUtils.escapeHtml(FSUtils.formatRelative(session.updatedAt)) + '</span>' +
         '</div>' +
@@ -90,7 +124,7 @@ const FSIm = (function () {
 
     row.appendChild(openBtn);
     row.appendChild(closeBtn);
-    if (!sessionChat) {
+    if (!sessionChat || isGroup) {
       const thumb = openBtn.querySelector('[data-agent-id]');
       if (thumb) FSAvatarThumb.refresh(thumb);
     }
@@ -147,9 +181,9 @@ const FSIm = (function () {
     sessions.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
 
     sessions.forEach(function (session) {
-      // Resolve presence inline, WITHOUT emitting: refreshImSessionPresence fires
-      // 'im-sessions-updated' synchronously, which re-enters renderSessions
-      // mid-loop and duplicates rows.
+      // Resolve presence inline here, without emitting - refreshImSessionPresence
+      // fires 'im-sessions-updated' synchronously, which would re-enter
+      // renderSessions mid-loop and duplicate rows.
       if (typeof FSState.resolveParticipantPresence === 'function' && session.participant) {
         session.participant = FSState.resolveParticipantPresence(session.participant);
       }
@@ -170,15 +204,15 @@ const FSIm = (function () {
     return el;
   }
 
-  // Header/status/roster only \u2014 no message-list rebuild. Safe to call on
-  // presence/roster updates without disturbing scrollback.
+  // Header, status and roster only - no message-list rebuild. Safe to call on
+  // presence or roster updates without disturbing scrollback.
   function updateThreadHeader(session) {
     if (!session) return;
     if (typeof FSState.resolveParticipantPresence === 'function') {
       session.participant = FSState.resolveParticipantPresence(session.participant);
     }
     const p = session.participant;
-    const names = FSUtils.agentNameLines(p || {});
+    const names = nameLines(p || {});
     const nameEl = document.getElementById('im-thread-name');
     const statusEl = document.getElementById('im-thread-status');
     if (isSessionChat(session)) {
@@ -204,8 +238,8 @@ const FSIm = (function () {
     syncImLayout();
   }
 
-  // Full rebuild \u2014 only for opening / switching sessions. Jumps to the latest
-  // message (expected when you open a conversation).
+  // Full rebuild - only for opening or switching sessions. Jumps to the latest
+  // message, which is what you expect when you open a conversation.
   function renderThread(sessionId) {
     const list = document.getElementById('im-messages');
     if (!list) return;
@@ -220,7 +254,7 @@ const FSIm = (function () {
   }
 
   // Append a single new message to the already-rendered active thread, keeping
-  // the user's scroll position unless they're at the bottom.
+  // the user's scroll position unless they're already at the bottom.
   function appendImMessage(msg) {
     const list = document.getElementById('im-messages');
     if (!list || !msg) return;
@@ -245,7 +279,7 @@ const FSIm = (function () {
       return;
     }
     const selfId = String((FSState.get().agent || {}).id || '').toLowerCase();
-    // Text moderation UI is group-only; conferences have no MOD/mute controls.
+    // The text moderation UI is group-only; conferences have no MOD or mute controls.
     const isGroup = !!(session && session.type === 'group');
     const canModerate = !!(session && session.canModerate) && isGroup;
     const sessionId = session.id;
@@ -253,7 +287,7 @@ const FSIm = (function () {
       if (!!a.isModerator !== !!b.isModerator) return a.isModerator ? -1 : 1;
       return String(a.name || a.id).localeCompare(String(b.name || b.id));
     }).forEach(function (member) {
-      const names = FSUtils.agentNameLines(member);
+      const names = nameLines(member);
       const label = names.title || member.name || member.id;
       const isSelf = member.id && String(member.id).toLowerCase() === selfId;
 
@@ -264,7 +298,7 @@ const FSIm = (function () {
       const nameBtn = document.createElement('button');
       nameBtn.type = 'button';
       nameBtn.className = 'im-roster__name-btn' + (isSelf ? ' im-roster__name-btn--static' : '');
-      nameBtn.title = isSelf ? label : ('IM ' + label);
+      nameBtn.title = isSelf ? label : ('View profile: ' + label);
       nameBtn.innerHTML =
         '<span class="im-roster__dot' + (member.online ? ' im-roster__dot--online' : '') + '"></span>' +
         '<span class="im-roster__name' + (member.muted ? ' im-roster__name--muted' : '') + '">' +
@@ -272,7 +306,11 @@ const FSIm = (function () {
         ((member.isModerator && isGroup) ? '<span class="im-roster__mod">MOD</span>' : '');
       if (!isSelf) {
         nameBtn.addEventListener('click', function () {
-          startImWith({ id: member.id, name: label });
+          if (typeof FSProfile !== 'undefined' && FSProfile.openAvatar) {
+            FSProfile.openAvatar(member.id, { agent: { id: member.id, name: label } });
+          } else {
+            startImWith({ id: member.id, name: label });
+          }
         });
       } else {
         nameBtn.disabled = true;
@@ -317,7 +355,7 @@ const FSIm = (function () {
     if (show) {
       const name = session.typingName ||
         (session.participant &&
-          (FSUtils.agentNameLines(session.participant).title || session.participant.name)) ||
+          (nameLines(session.participant).title || session.participant.name)) ||
         'Someone';
       if (textEl) textEl.textContent = name + ' is typing...';
       bar.hidden = false;
@@ -473,7 +511,7 @@ const FSIm = (function () {
     const amountEl = document.getElementById('pay-amount');
     const noteEl = document.getElementById('pay-note');
     if (!dialog || !participant) return;
-    const names = FSUtils.agentNameLines(participant);
+    const names = nameLines(participant);
     if (nameEl) nameEl.textContent = 'Pay ' + (names.title || participant.name || 'resident');
     if (amountEl) amountEl.value = '';
     if (noteEl) noteEl.value = '';
@@ -537,7 +575,9 @@ const FSIm = (function () {
     conferenceMode = { mode: mode, sessionId: opts.sessionId || null };
     if (heading) heading.textContent = mode === 'invite' ? 'Invite to conference' : 'New conference chat';
     if (submit) submit.textContent = mode === 'invite' ? 'Invite' : 'Start';
-    if (titleField) titleField.hidden = mode === 'invite';
+    // What was the "Session name" field is now a contact filter, handy in both
+    // modes (the sim auto-names conferences from their participants).
+    if (titleField) titleField.hidden = false;
 
     const exclude = {};
     (opts.excludeIds || []).forEach(function (id) {
@@ -547,13 +587,23 @@ const FSIm = (function () {
     (preselectIds || []).forEach(function (id) {
       preselect[String(id).toLowerCase()] = true;
     });
-    if (titleEl) titleEl.value = '';
+    if (titleEl) {
+      titleEl.value = '';
+      // Live-filter the participant list by account or display name as the user types.
+      titleEl.oninput = function () {
+        const q = titleEl.value.trim().toLowerCase();
+        picker.querySelectorAll('.conference-picker__row').forEach(function (row) {
+          const hay = row.getAttribute('data-filter') || '';
+          row.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';
+        });
+      };
+    }
     picker.innerHTML = '';
     const buddies = (FSState.get().buddies || []).slice().filter(function (b) {
       return !exclude[String(b.id).toLowerCase()];
     }).sort(function (a, b) {
-      const an = FSUtils.agentNameLines(a).title || a.name || '';
-      const bn = FSUtils.agentNameLines(b).title || b.name || '';
+      const an = nameLines(a).title || a.name || '';
+      const bn = nameLines(b).title || b.name || '';
       return an.localeCompare(bn);
     });
     if (!buddies.length) {
@@ -563,9 +613,14 @@ const FSIm = (function () {
       picker.appendChild(empty);
     } else {
       buddies.forEach(function (buddy) {
-        const label = FSUtils.agentNameLines(buddy).title || buddy.name || buddy.id;
+        const nl = nameLines(buddy);
+        const label = nl.title || buddy.name || buddy.id;
         const row = document.createElement('label');
         row.className = 'conference-picker__row';
+        // The filter key favours the account/user name (what people type to look
+        // someone up) but also includes the display name, so either one matches.
+        row.setAttribute('data-filter',
+          [buddy.userName, nl.userName, nl.displayName, label].filter(Boolean).join(' ').toLowerCase());
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.value = buddy.id;
@@ -588,6 +643,16 @@ const FSIm = (function () {
     if (!sessionId || !text || !FSState.gridOnline()) return;
 
     FSTransport.sendIm(sessionId, text);
+    // The sim doesn't echo our own IMs back to us, so show them locally (optimistic).
+    const agent = FSState.get().agent || {};
+    FSState.addImMessage(sessionId, {
+      id: FSUtils.uuid(),
+      fromId: agent.id || '',
+      fromName: agent.displayName || agent.name || 'You',
+      text: text,
+      outgoing: true,
+      timestamp: Date.now()
+    }, null, null);
     input.value = '';
     endTyping();
   }
@@ -667,7 +732,6 @@ const FSIm = (function () {
       conferenceForm.addEventListener('submit', function (e) {
         e.preventDefault();
         const picker = document.getElementById('conference-picker');
-        const titleEl = document.getElementById('conference-title');
         const ids = Array.prototype.slice
           .call(picker.querySelectorAll('input[type="checkbox"]:checked'))
           .map(function (cb) { return cb.value; });
@@ -677,19 +741,24 @@ const FSIm = (function () {
         }
         FSUtils.dismissDialog(conferenceDialog);
         if (conferenceMode.mode === 'invite' && conferenceMode.sessionId) {
+          const invited = ids.length;
           Promise.resolve(FSTransport.inviteToSession(conferenceMode.sessionId, ids))
-            .then(function (count) {
-              FSUtils.showToast('Invited ' + count +
-                (count === 1 ? ' person.' : ' people.'), 'success');
+            .then(function (result) {
+              if (!result || !result.sent) throw new Error('send failed');
+              FSUtils.showToast('Invited ' + invited +
+                (invited === 1 ? ' person.' : ' people.'), 'success');
             }).catch(function (err) {
               FSUtils.showToast('Could not invite: ' +
                 (err && err.message ? err.message : err), 'warning');
             });
           return;
         }
-        const title = titleEl ? titleEl.value.trim() : '';
-        Promise.resolve(FSTransport.startConference(ids, title)).then(function (tempId) {
-          if (tempId) openSession(tempId);
+        // The dialog's text field is a contact filter now, not a session name, so
+        // let the sim auto-name the conference from its participants.
+        Promise.resolve(FSTransport.startConference(ids, '')).then(function (result) {
+          // startConference resolves { sessionId, type, title } - open by its id.
+          const sid = result && result.sessionId ? result.sessionId : result;
+          if (sid) openSession(sid);
         }).catch(function (err) {
           FSUtils.showToast('Could not start conference: ' +
             (err && err.message ? err.message : err), 'warning');
@@ -725,7 +794,7 @@ const FSIm = (function () {
     document.getElementById('im-friend').addEventListener('click', async function () {
       const participant = getActiveParticipant();
       if (!participant || !participant.id) return;
-      const names = FSUtils.agentNameLines(participant);
+      const names = nameLines(participant);
       const label = names.title || participant.name || 'this resident';
       const ok = await FSUtils.confirm({
         title: 'Offer friendship?',
@@ -801,19 +870,28 @@ const FSIm = (function () {
       const active = FSState.get().activeImSession;
       if (active && data && active === data.sessionId) {
         const session = FSState.get().imSessions[active];
-        // Roster/presence change: refresh header + roster only, never rebuild
-        // the message list (that would wipe scrollback).
+        // Roster or presence change: refresh the header and roster only, never
+        // rebuild the message list (that would wipe scrollback).
         if (session) updateThreadHeader(session);
       }
     });
-    FSState.on('im-session-migrated', function (data) {
-      if (!data) return;
-      if (FSState.get().activeImSession === data.sessionId) {
-        openSession(data.sessionId);
-      } else if (FSNavigation.isTabActive('im')) {
-        renderSessions();
-      }
+
+    // Names resolve only after the roster/session list first renders; repaint
+    // here so members show real names instead of the "?" placeholder.
+    FSTransport.on('names-updated', function () {
+      if (!FSNavigation.isTabActive('im')) return;
+      renderSessions();
+      const active = FSState.get().activeImSession;
+      const session = active && FSState.get().imSessions[active];
+      if (session) updateThreadHeader(session);
     });
+    // A group-chat tab's group name and insignia also resolve asynchronously.
+    if (typeof FSProfiles !== 'undefined' && FSProfiles.onChange) {
+      FSProfiles.onChange(function (evt) {
+        if (!FSNavigation.isTabActive('im')) return;
+        if (evt && (evt.kind === 'group' || evt.kind === 'membership')) renderSessions();
+      });
+    }
     FSState.on('im-typing-changed', function (data) {
       if (!data || !data.sessionId) return;
       if (incomingTypingTimers[data.sessionId]) {

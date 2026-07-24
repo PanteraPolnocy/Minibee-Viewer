@@ -1,5 +1,5 @@
 /**
- * Nearby chat panel.
+ * Nearby chat panel - renders the message stream along with the dialogs and prompts that come through it.
  */
 const FSChat = (function () {
   'use strict';
@@ -203,7 +203,7 @@ const FSChat = (function () {
     return el;
   }
 
-  // Clickable object title → owner profile (avatar, or group when group-owned).
+  // Clicking an object's title opens the owner's profile - the avatar, or the group when it's group-owned.
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
   function objectOwnerAttrs(ownerId, isGroup) {
     const id = String(ownerId || '').trim();
@@ -340,6 +340,31 @@ const FSChat = (function () {
       return Promise.resolve();
     }
 
+    if (prompt.type === 'friendship-offer') {
+      if (action === 'accept') {
+        return FSTransport.acceptFriendship(prompt.transactionId).then(function (result) {
+          if (!result || !result.sent) throw new Error('send failed');
+          finish('Accepted');
+        }).catch(function () {
+          if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
+            FSUtils.showToast('Could not accept friendship offer.', 'warning');
+          }
+        });
+      }
+      if (action === 'decline') {
+        return FSTransport.declineFriendship(prompt.transactionId).then(function (result) {
+          if (!result || !result.sent) throw new Error('send failed');
+          finish('Declined');
+        }).catch(function () {
+          if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
+            FSUtils.showToast('Could not decline friendship offer.', 'warning');
+          }
+        });
+      }
+      finish('Ignored');
+      return Promise.resolve();
+    }
+
     return Promise.resolve();
   }
 
@@ -390,7 +415,7 @@ const FSChat = (function () {
       return;
     }
 
-    if (prompt.type === 'calling-card') {
+    if (prompt.type === 'calling-card' || prompt.type === 'friendship-offer') {
       const accept = el.querySelector('.interactive-prompt__accept');
       const decline = el.querySelector('.interactive-prompt__decline');
       const ignore = el.querySelector('.interactive-prompt__ignore');
@@ -523,6 +548,36 @@ const FSChat = (function () {
       el.innerHTML =
         '<div class="script-dialog__header">' +
           '<span class="script-dialog__badge ' + badgeClass + '">' + badge + '</span>' +
+          '<div class="script-dialog__titles">' +
+            '<span class="script-dialog__object">' +
+              FSUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
+          '</div>' +
+          '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+        '</div>' +
+        body + actions +
+        '<p class="script-dialog__response"' +
+          ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
+          FSUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+        '</p>';
+      bindInteractivePrompt(el, msg);
+      return el;
+    }
+
+    if (prompt.type === 'friendship-offer') {
+      const who = FSUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone');
+      body = '<p class="script-dialog__body">' + who + ' has offered you friendship.</p>';
+      actions =
+        '<div class="script-dialog__actions script-dialog__actions--buttons">' +
+          '<button type="button" class="btn btn--primary interactive-prompt__accept"' +
+            (prompt.resolved ? ' disabled' : '') + '>Accept</button>' +
+          '<button type="button" class="btn btn--secondary interactive-prompt__decline"' +
+            (prompt.resolved ? ' disabled' : '') + '>Decline</button>' +
+          '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
+            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+        '</div>';
+      el.innerHTML =
+        '<div class="script-dialog__header">' +
+          '<span class="script-dialog__badge script-dialog__badge--friend">Friend</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object">' +
               FSUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
@@ -683,7 +738,7 @@ const FSChat = (function () {
     const nameClass = CHAT_TYPE_CLASS[volume] || (isObject ? 'msg__name--object' : '');
     const label = volume === 'whisper' ? 'whispers' : volume === 'shout' ? 'shouts' : '';
     const speakerId = msg.fromId || '';
-    // Only agents get an avatar thumbnail; an object's UUID is not an avatar.
+    // Give the avatar thumbnail to agents only - an object's UUID isn't an avatar.
     const avatarHtml = (speakerId && !isObject)
       ? '<span class="msg__avatar avatar-thumb avatar-thumb--chat" data-agent-id="' +
         FSUtils.escapeHtml(speakerId) + '" data-resolve-image="0" data-label="' +
@@ -707,8 +762,8 @@ const FSChat = (function () {
     if (typeof FSProfile !== 'undefined') {
       const nameEl = el.querySelector('.msg__name');
       if (nameEl && isObject && msg.ownerId) {
-        // An object's name links to its owner, not an avatar profile keyed by
-        // the object's own UUID.
+        // For an object, the name links through to its owner rather than to an
+        // avatar profile keyed by the object's own UUID.
         nameEl.classList.add('msg__name--link');
         nameEl.title = 'View owner profile';
         nameEl.addEventListener('click', function () {
@@ -729,8 +784,8 @@ const FSChat = (function () {
   function appendMessage(msg, scroll, listId) {
     const list = document.getElementById(listId || 'chat-messages');
     if (!list) return;
-    // Preserve the user's scrollback: only auto-scroll if they're already at the
-    // bottom (or a caller explicitly forces it).
+    // Respect where the user is reading: only auto-scroll when they're already
+    // pinned to the bottom (or a caller explicitly forces it).
     const pinned = (list.scrollHeight - list.scrollTop - list.clientHeight) < 40;
     list.appendChild(renderMessage(msg));
     if (scroll === false) return;

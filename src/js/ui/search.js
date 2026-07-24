@@ -1,5 +1,5 @@
 /**
- * Search panel - avatars, places, and groups.
+ * Search panel for avatars, places, and groups.
  */
 const FSSearch = (function () {
   'use strict';
@@ -119,7 +119,10 @@ const FSSearch = (function () {
   }
 
   async function ensurePlaceDetails(row) {
-    if (!row || row.kind !== 'place' || !row.parcelId || row.detailLoaded) return row;
+    // `kind` only exists as a local at render time - it's never stored on the
+    // row, so gating on row.kind here always failed and details never loaded.
+    // Callers already guarantee this is a place with a parcelId.
+    if (!row || !row.parcelId || row.detailLoaded) return row;
     if (typeof FSTransport.fetchParcelInfo !== 'function') return row;
     const info = await FSTransport.fetchParcelInfo(row.parcelId);
     if (!info) return row;
@@ -129,6 +132,19 @@ const FSSearch = (function () {
 
   function showPlaceOnMap(row) {
     if (!row) return;
+    // Grid coords come straight from the enriched parcel info (computed in the
+    // Rust core), so they center the map directly - no region-name lookup needed.
+    if ((row.gridX || row.gridY) && typeof FSMap !== 'undefined' && FSMap.showLocation) {
+      FSMap.showLocation({
+        regionName: row.simName || row.name || '',
+        gridX: row.gridX,
+        gridY: row.gridY,
+        x: row.x != null ? row.x : 128,
+        y: row.y != null ? row.y : 128,
+        z: row.z != null ? row.z : 25
+      });
+      return;
+    }
     if (row.slurl && typeof FSMap !== 'undefined' && FSMap.showLocation) {
       FSMap.showLocation(row.slurl);
       return;
@@ -168,6 +184,9 @@ const FSSearch = (function () {
         FSUtils.escapeHtml(String(row.gridX) + ', ' + String(row.gridY)) + '</p>';
     } else if (kind === 'place' && row.location) {
       textHtml += '<p class="search-result__meta">' + FSUtils.escapeHtml(row.location) + '</p>';
+      if (row.dwell !== undefined && row.dwell !== null) {
+        textHtml += '<p class="search-result__meta">Traffic: ' + Math.round(row.dwell) + '</p>';
+      }
       if (row.maturity) {
         textHtml += '<p class="search-result__meta">Rating: ' + FSUtils.escapeHtml(row.maturity) + '</p>';
       }
@@ -228,6 +247,13 @@ const FSSearch = (function () {
       e.stopPropagation();
       if (row.id) FSProfile.openAvatar(row.id, { agent: row });
     });
+    // Clicking the row (like a radar entry) opens the profile; the action buttons
+    // call stopPropagation so they still do their own thing.
+    const body = li.querySelector('.entity-item__body');
+    if (body && row.id) {
+      body.classList.add('entity-item__body--clickable');
+      body.addEventListener('click', function () { FSProfile.openAvatar(row.id, { agent: row }); });
+    }
     const thumb = li.querySelector('.entity-item__avatar[data-agent-id]');
     if (thumb) FSAvatarThumb.refresh(thumb);
     return li;
@@ -253,6 +279,12 @@ const FSSearch = (function () {
       e.stopPropagation();
       if (row.id) FSProfile.openGroup(row.id, { group: row });
     });
+    // Clicking the row opens the group profile.
+    const groupBody = li.querySelector('.entity-item__body');
+    if (groupBody && row.id) {
+      groupBody.classList.add('entity-item__body--clickable');
+      groupBody.addEventListener('click', function () { FSProfile.openGroup(row.id, { group: row }); });
+    }
     const groupThumb = li.querySelector('.entity-item__avatar[data-agent-id]');
     if (groupThumb) FSAvatarThumb.refresh(groupThumb);
     return li;
@@ -347,22 +379,26 @@ const FSSearch = (function () {
     });
   }
 
-  const MIN_SEARCH_LEN = (typeof FSSearchApi !== 'undefined' && FSSearchApi.MIN_QUERY_LEN) || 3;
+  const MIN_SEARCH_LEN = 3;
 
   async function runSearch() {
     if (searching) return;
     const input = el('search-input');
     const query = input ? input.value.trim() : '';
-    const searchQuery = (activeKind === 'avatars' && typeof FSSearchApi !== 'undefined' &&
-      FSSearchApi.normalizePeopleQuery)
-      ? FSSearchApi.normalizePeopleQuery(query)
-      : query;
+    const searchQuery = query;
     if (!searchQuery) {
       setStatus('Enter a search term.');
       return;
     }
     if (searchQuery.length < MIN_SEARCH_LEN) {
       setStatus('Enter at least ' + MIN_SEARCH_LEN + ' characters.');
+      return;
+    }
+    // Reject symbol-only queries like "////" - the sim just answers those with a
+    // placeholder "Resident" row. Require at least one letter or digit in any
+    // script so unicode place and group names still search.
+    if (!/[\p{L}\p{N}]/u.test(searchQuery)) {
+      setStatus('Enter letters or numbers to search.');
       return;
     }
     if (!FSState.gridOnline()) {

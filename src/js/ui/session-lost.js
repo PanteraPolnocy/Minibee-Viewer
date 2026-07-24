@@ -1,5 +1,5 @@
 /**
- * Session lost overlay - sim disconnect without tearing down the shell.
+ * Session lost overlay - lets us flag a sim disconnect without tearing down the app shell.
  */
 const FSSessionLost = (function () {
   'use strict';

@@ -172,7 +172,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-update-release-notes:
+  update-release-notes:
     name: Append Readme and License to Release
     needs: [build, build-android]
     if: github.event_name == 'release'
@@ -205,20 +205,13 @@ update-release-notes:
           RAND_INDEX=$(( RANDOM % ${#MESSAGES[@]} ))
           SELECTED_MSG="${MESSAGES[$RAND_INDEX]}"
 
-          # Construct new release notes
-          EXTRA_TEXT="
-
-          ---
-          ${SELECTED_MSG}"
-
-          NEW_BODY="${OLD_BODY}${EXTRA_TEXT}"
+          # Construct new release notes. printf keeps the divider/message flush
+          # left so they don't render as an indented code block in Markdown.
+          NEW_BODY=$(printf '%s\n\n---\n%s' "${OLD_BODY}" "${SELECTED_MSG}")
 
           # Patch the release notes via GitHub CLI
           gh api \
             --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/${REPO}/releases/${RELEASE_ID}" \
-            -f body="${NEW_BODY}"
             -H "Accept: application/vnd.github+json" \
             "/repos/${REPO}/releases/${RELEASE_ID}" \
             -f body="${NEW_BODY}"

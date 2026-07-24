@@ -1,13 +1,14 @@
 /**
- * Full-screen teleport lock: while a teleport is in progress a centered modal
- * with a progress bar covers the UI (its backdrop blocks interaction). It opens
- * on teleport start/progress and closes on finish/failure/disconnect, with a
- * safety timeout so the screen never stays locked indefinitely.
+ * Full-screen teleport lock. While a teleport is running, a centered modal
+ * with a progress bar covers the UI, and its backdrop blocks interaction
+ * underneath. It opens on teleport start/progress and closes on finish,
+ * failure, or disconnect, with a safety timeout so the screen can never stay
+ * locked forever.
  */
 const FSTeleportProgress = (function () {
   'use strict';
 
-  const MAX_MS = 120000; // matches the sim teleport timeout; auto-releases the lock
+  const MAX_MS = 120000; // mirrors the sim's teleport timeout; lets the lock release itself
   const STAGE = { requesting: 8, request: 8, starting: 25, start: 25, teleporting: 55, arriving: 92, arrive: 92 };
 
   let timeoutTimer = null;
@@ -20,7 +21,7 @@ const FSTeleportProgress = (function () {
     if (!key || key.indexOf('request') >= 0) return 'Requesting teleport…';
     if (key.indexOf('start') >= 0) return 'Starting teleport…';
     if (key.indexOf('arriv') >= 0) return 'Arriving…';
-    // Sim progress strings (e.g. "resolving", "downloading") pass through.
+    // Anything else the sim reports (e.g. "resolving", "downloading") passes straight through.
     return message.charAt(0).toUpperCase() + message.slice(1) + '…';
   }
 
@@ -46,7 +47,7 @@ const FSTeleportProgress = (function () {
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
     setProgress(message);
     if (!dialog.open && typeof dialog.showModal === 'function') {
-      try { dialog.showModal(); } catch (_e) { /* already open */ }
+      try { dialog.showModal(); } catch (_e) { /* already open, so ignore */ }
     }
     if (timeoutTimer) clearTimeout(timeoutTimer);
     timeoutTimer = setTimeout(close, MAX_MS);
@@ -70,7 +71,7 @@ const FSTeleportProgress = (function () {
 
   function init() {
     const dialog = el('teleport-progress-dialog');
-    // Keep the lock: Escape must not dismiss it (finish/fail/timeout will).
+    // Hold the lock open: Escape must not dismiss it - only finish, failure, or the timeout should.
     if (dialog) dialog.addEventListener('cancel', function (e) { e.preventDefault(); });
 
     if (typeof FSTransport === 'undefined') return;

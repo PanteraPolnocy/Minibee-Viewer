@@ -1,5 +1,5 @@
 /**
- * Per-panel loading overlay for lazy-loaded tab content.
+ * Shows a loading overlay inside a single panel while its tab content lazy-loads.
  */
 const FSPanelBusy = (function () {
   'use strict';

@@ -1,5 +1,5 @@
 /**
- * Version metadata from `bridge_version` (sourced from Cargo.toml).
+ * Holds the version metadata that `bridge_version` reports, which in turn comes from Cargo.toml.
  */
 const MinibeeVersion = (function () {
   'use strict';
@@ -46,8 +46,9 @@ const MinibeeVersion = (function () {
         if (!apply(data)) throw new Error('invalid version payload');
         return state;
       }).catch(function (err) {
-        // Don't cache the failure, or one transient error blocks version load
-        // for the whole session (and can throw during login).
+        // Deliberately don't cache the failure here, otherwise a single transient
+        // error would block version loading for the whole session (and could even
+        // throw during login).
         loadPromise = null;
         throw err;
       });

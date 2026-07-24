@@ -1,4 +1,4 @@
-/* Minibee Viewer - pure CSS, mobile-first */
+/* Minibee Viewer - pure CSS, built mobile-first */
 
 :root,
 [data-theme="dark"] {
@@ -2098,6 +2098,8 @@ html.require-http #app {
 .entity-item__avatar--online { box-shadow: 0 0 0 2px var(--online); }
 
 .entity-item__body { flex: 1; min-width: 0; }
+.entity-item__body--clickable { cursor: pointer; }
+.entity-item__body--clickable:hover .entity-item__name { color: var(--accent); }
 
 .entity-item__name {
   font-weight: 600;
@@ -2689,64 +2691,74 @@ html.require-http #app {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Degraded-capabilities banner - the core raises this when a region's caps or
+   EventQueue fail to come up. Sits just below the top bar. */
+.caps-banner {
+  position: fixed;
+  top: calc(var(--top-bar-h) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: min(560px, calc(100% - 24px));
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--warning);
+  border-left: 4px solid var(--warning);
+  box-shadow: var(--shadow);
+  font-size: 0.875rem;
+  color: var(--text);
+  animation: toast-in 0.25s ease;
+}
+.caps-banner[hidden] { display: none; }
+.caps-banner__icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--warning);
+  display: flex;
+}
+.caps-banner__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.caps-banner__title { font-weight: 600; }
+.caps-banner__detail { color: var(--text-muted); line-height: 1.35; }
+.caps-banner__actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.caps-banner__relog { white-space: nowrap; }
+
 .btn--sm {
   padding: 6px 10px;
   font-size: 0.8rem;
 }
 
-.errors-list {
-  list-style: none;
-  margin: 0;
-  padding: 8px 12px 16px;
+/* Settings panel - subtabs, preference controls, the about card, and the doc viewer. */
+#panel-settings.panel--active {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  overflow-y: auto;
-  flex: 1;
 }
 
-.errors-item {
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  font-size: 0.8rem;
-  line-height: 1.4;
-}
-
-.errors-item--error { border-color: var(--danger); }
-.errors-item--warn { border-color: var(--warning); }
-.errors-item--empty { opacity: 0.6; font-style: italic; }
-
-.errors-item__meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
-  font-size: 0.72rem;
-  opacity: 0.75;
-}
-
-.errors-item__source {
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.errors-item__text {
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-
-.log-tabs {
+.settings-tabs {
   display: flex;
   gap: 6px;
   padding: 10px 12px 0;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
-.log-tab {
+.settings-tab {
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
@@ -2756,22 +2768,24 @@ html.require-http #app {
   font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.log-tab--active {
+.settings-tab--active {
   color: var(--text);
   background: var(--bg-elevated);
   border-color: var(--border);
 }
 
-.log-pane {
+.settings-pane {
   flex: 1 1 auto;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 12px calc(16px + var(--safe-bottom));
 }
 
-.log-pane[hidden] {
+.settings-pane[hidden] {
   display: none !important;
 }
 
@@ -2779,51 +2793,190 @@ html.require-http #app {
   font-size: 0.72rem;
   color: var(--text-muted);
   line-height: 1.3;
+  margin: 0 0 12px;
 }
 
-.settings-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px 12px calc(12px + var(--safe-bottom));
-  -webkit-overflow-scrolling: touch;
+/* The interactive preference controls */
+.settings-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
-.settings-section {
-  margin-bottom: 16px;
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.settings-section__title {
-  margin: 0 0 8px;
-  font-size: 0.78rem;
+.settings-group__title {
+  margin: 0 0 2px;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--accent);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 
-.settings-dl {
-  margin: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 42%) minmax(0, 1fr);
-  gap: 6px 12px;
+.settings-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.settings-control--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.settings-control__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-control__label {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.settings-control__value {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-control__select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
   font-size: 0.82rem;
+  min-width: 120px;
 }
 
-.settings-dl dt {
-  margin: 0;
+.settings-control__range {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.settings-control__toggle {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* About card */
+.about-card {
+  max-width: 460px;
+  margin: 0 auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The About tab reuses the full login logo (.login-logo: striped square + MB + bee). */
+.about-logo {
+  margin: 22px auto 14px;
+  flex: 0 0 auto;
+}
+
+.about-hr {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+
+.about-meta--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+}
+
+.about-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.about-copy-status {
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
-.settings-dl dd {
+.about-name {
   margin: 0;
-  color: var(--text);
+  font-size: 1.3rem;
+}
+
+.about-version {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.about-catchphrase {
+  margin: 6px 0 10px;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.about-meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 14px;
+  text-align: left;
+  font-size: 0.85rem;
+  width: 100%;
+  max-width: 360px;
+}
+
+.about-meta dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.about-meta dd {
+  margin: 0;
   word-break: break-word;
 }
 
-#panel-errors.panel--active {
-  display: flex;
-  flex-direction: column;
+.settings-link {
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+/* License / README viewer */
+.settings-doc {
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
 }
 
 /* SLURL links */
@@ -2839,7 +2992,7 @@ html.require-http #app {
   color: var(--accent-bright, #f0c040);
 }
 
-/* Chat/IM hyperlinks: trusted vs external. */
+/* Chat and IM hyperlinks, split into trusted vs external. */
 .chat-link {
   text-decoration: underline;
   word-break: break-all;
@@ -2854,8 +3007,8 @@ html.require-http #app {
   color: var(--text-muted, #9aa0a6);
 }
 
-/* External links carry an outward-arrow affordance and a warmer hover to
-   signal they leave Second Life (a confirm gates the actual open). */
+/* External links carry an outward-arrow affordance and a warmer hover, a cue
+   that they lead out of Second Life (a confirm still gates the actual open). */
 .chat-link--external::after {
   content: " \2197"; /* ↗ */
   font-size: 0.85em;
@@ -2867,7 +3020,7 @@ html.require-http #app {
   color: var(--accent-bright, #f0c040);
 }
 
-/* Clickable object title → owner profile */
+/* Clickable object title that opens the owner's profile */
 .script-dialog__object--link {
   cursor: pointer;
   text-decoration: underline;
@@ -2879,7 +3032,7 @@ html.require-http #app {
   color: var(--accent);
 }
 
-/* Parcel music: compact top-bar control. Only shown when the current
+/* Parcel music - a compact top-bar control. It only appears when the current
    parcel streams music, so it never implies the parcel is editable. */
 .parcel-music-bar {
   display: inline-flex;
@@ -2899,19 +3052,25 @@ html.require-http #app {
   color: var(--accent);
 }
 
+/* Only one of the two state icons shows at a time. On its own the `hidden`
+   attribute loses to the button's flex display, so we hide it explicitly. */
+.parcel-music-bar svg[hidden] {
+  display: none;
+}
+
 .parcel-music-bar__volume {
   width: 72px;
   vertical-align: middle;
 }
 
-/* Small muted hint under form fields */
+/* A small, muted hint shown under form fields */
 .field-hint {
   margin: -2px 0 8px;
   font-size: 0.78rem;
   color: var(--text-muted, #9aa0a6);
 }
 
-/* Debug tab: compact "Record diagnostics" toggle */
+/* Debug tab - the compact "Record diagnostics" toggle */
 .log-record-toggle {
   display: inline-flex;
   align-items: center;
@@ -3772,7 +3931,9 @@ html.require-http #app {
   word-break: break-word;
 }
 
-.profile-groups-list__item--active {
+/* Kept more specific than .profile-link (which sets `font: inherit`) so the
+   active group's bold weight actually wins out. */
+.profile-groups-list .profile-groups-list__item--active {
   font-weight: 700;
   color: var(--accent);
 }
@@ -3803,8 +3964,8 @@ html.require-http #app {
 .profile-group-title-row {
   display: flex;
   gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
+  /* Stretch, so the Save button ends up exactly as tall as the dropdown. */
+  align-items: stretch;
 }
 
 .profile-group-title-select {
@@ -3818,8 +3979,9 @@ html.require-http #app {
   color: var(--text);
 }
 
-/* The native option popup ignores the select's background, so set it here or
-   the dark-theme cream text lands on a white popup (reads as yellow-on-white). */
+
+/* The native option popup ignores the select's own background, so we set it here;
+   otherwise the dark-theme cream text lands on a white popup (reads as yellow-on-white). */
 .profile-group-title-select option {
   background-color: var(--bg-input);
   color: var(--text);
@@ -4138,6 +4300,76 @@ html.require-http #app {
     width: 96px;
     height: 96px;
   }
+
+  /* Phones have little width to spare, so stack the shell: navigation moves to
+     a horizontal bar along the bottom and the content area takes the full width,
+     instead of the desktop left rail. */
+  .main-body { flex-direction: column; }
+  .main-content { order: 1; flex: 1 1 auto; min-height: 0; }
+  .app-sidebar {
+    order: 2;
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-top: 1px solid var(--border);
+  }
+  .side-nav.bottom-nav {
+    flex: 0 0 auto;
+    flex-direction: row;
+    height: auto;
+    min-height: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 0 var(--safe-bottom);
+    border-top: none;
+  }
+  .side-nav .bottom-nav__item {
+    width: auto;
+    flex: 1 0 auto;
+    min-width: 56px;
+    padding: 8px 6px;
+    font-size: 0.62rem;
+  }
+  .side-nav .bottom-nav__item--active {
+    background: transparent;
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+  .side-nav .bottom-nav__item > span:not(.nav-badge):not(.nav-dot) {
+    white-space: nowrap;
+  }
+  .side-nav .nav-badge { top: 4px; right: calc(50% - 20px); }
+
+  /* Top bar on phones: shed the niche chrome (FPS, SLT clock, music volume
+     slider, parcel sub-line) and let the name grow, so the agent name and the
+     L$ balance keep their place instead of being squeezed off the right edge. */
+  .top-bar { padding: 0 8px 0 10px; }
+  .top-bar__left { max-width: none; flex: 1 1 auto; }
+  .top-bar__center { flex: 0 1 auto; padding: 0 6px; }
+  .top-bar__parcel { display: none; }
+  #fps-badge { display: none; }
+  .parcel-music-bar__volume { display: none; }
+  /* Keep the balance and SLT clock, but stack them so they don't grow the bar. */
+  .top-bar__stats {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0;
+    line-height: 1.15;
+  }
+  #balance-badge { font-size: 0.72rem; }
+  #slt-clock { font-size: 0.6rem; padding: 0; background: none; }
+
+  /* Group title: on narrow screens, stack the Save button below the dropdown.
+     Reset the select's flex so its 180px basis isn't read as a huge height once
+     the layout switches to a column. */
+  .profile-group-title-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .profile-group-title-select {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 8px 10px;
+  }
 }
 
 .land-field--profile { cursor: pointer; color: var(--accent); }
@@ -4147,7 +4379,7 @@ html.require-http #app {
 .msg__name--link:hover { text-decoration: underline; }
 
 /* ============================================================
-   Scrollbars — theme-aware (follow the active --border/--text-muted)
+   Scrollbars - theme-aware, following the active --border / --text-muted
    ============================================================ */
 * {
   scrollbar-width: thin;
@@ -4168,7 +4400,7 @@ html.require-http #app {
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* ============================================================
-   Confirm dialog (FSUtils.confirm) — padded, themed, dark/light aware
+   Confirm dialog (FSUtils.confirm) - padded, themed, and dark/light aware
    ============================================================ */
 .confirm-dialog { max-width: min(400px, calc(100vw - 32px)); }
 .confirm-dialog::backdrop { background: var(--overlay); }
@@ -4196,7 +4428,7 @@ html.require-http #app {
 .confirm-dialog .login-challenge__actions { margin-top: 6px; }
 
 /* ============================================================
-   Teleport progress lock — padded, themed progress bar
+   Teleport progress lock - a padded, themed progress bar
    ============================================================ */
 .tp-progress-dialog { max-width: min(340px, calc(100vw - 32px)); }
 .tp-progress-dialog::backdrop { background: var(--overlay); }

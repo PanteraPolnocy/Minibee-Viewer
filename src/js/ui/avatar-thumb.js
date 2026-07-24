@@ -1,5 +1,5 @@
 /**
- * Shared profile image element for list surfaces.
+ * A single profile image element shared across the list surfaces.
  */
 const FSAvatarThumb = (function () {
   'use strict';
@@ -33,12 +33,24 @@ const FSAvatarThumb = (function () {
   }
 
   function setImage(el, url, agentId, options) {
+    // Skip redundant work here: resolving one avatar fires several profile events,
+    // and any list re-render comes back through this function too. If we're already
+    // showing this exact image, leave the <img> alone instead of tearing it down
+    // and re-assigning src - that forces a fresh fetch/decode every time, which is
+    // what made refreshes needlessly expensive.
+    const current = el.firstElementChild;
+    if (el.classList.contains('avatar-thumb--image') && current &&
+        current.tagName === 'IMG' && current.getAttribute('src') === url) {
+      return;
+    }
     el.innerHTML = '';
     el.classList.add('avatar-thumb--image');
     const img = document.createElement('img');
     img.className = 'avatar-thumb__img';
     img.alt = '';
-    img.loading = 'eager';
+    // Load lazily so off-screen rows in a long list (buddies/radar/search) hold off
+    // on fetching their thumbnail until they're scrolled into view.
+    img.loading = 'lazy';
     img.decoding = 'async';
     img.src = url;
     img.addEventListener('error', function () {
@@ -138,13 +150,34 @@ const FSAvatarThumb = (function () {
     });
   }
 
+  // Refresh just the thumbnails belonging to a single id. We match on the
+  // normalized id, so a case difference between the DOM attribute and the event id
+  // still lines up.
+  function refreshFor(id) {
+    const key = FSProfiles.normId(id || '');
+    if (!key) return;
+    document.querySelectorAll('[data-agent-id].avatar-thumb, .entity-item__avatar[data-agent-id]').forEach(function (el) {
+      if (FSProfiles.normId(el.dataset.agentId) === key) refreshElement(el);
+    });
+  }
+
   function init() {
     FSProfiles.onChange(function (evt) {
-      if (evt && evt.kind && evt.kind !== 'image' && evt.kind !== 'avatar' &&
-          evt.kind !== 'group-name') {
+      if (!evt) return;
+      // Only two kinds can change a thumbnail: an avatar image or a group insignia.
+      // ('group' used to be refreshed only as a side effect of refreshAll running on
+      // avatar events; now that refresh is targeted, we have to handle it explicitly.)
+      if (evt.kind && evt.kind !== 'image' && evt.kind !== 'avatar' &&
+          evt.kind !== 'group' && evt.kind !== 'group-name') {
         return;
       }
-      refreshAll(document);
+      // Refresh only the thumbs for the id that changed, NOT every thumb in the
+      // document. The old refreshAll(document)-on-every-event approach turned
+      // opening the buddy list into an O(N²) re-render + re-request cascade: a single
+      // avatar resolving re-scanned all N rows and re-queued a properties fetch for
+      // every still-unresolved friend (see queueAvatarThumb's in-flight guard).
+      if (evt.id) refreshFor(evt.id);
+      else refreshAll(document);
     });
   }
 

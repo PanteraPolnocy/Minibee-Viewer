@@ -1,5 +1,5 @@
 /**
- * Central application state with pub/sub.
+ * The single source of truth for app state, with a small pub/sub layer on top.
  */
 const FSState = (function () {
   'use strict';
@@ -44,8 +44,8 @@ const FSState = (function () {
   function emit(event, payload) {
     const set = listeners.get(event);
     if (!set) return;
-    // Isolate listeners: a throwing subscriber must not unwind through the
-    // transport and skip the rest (e.g. the UDP batch's ACK flush).
+    // Keep listeners isolated from one another: if one subscriber throws, it must
+    // not unwind through the transport and skip the rest (e.g. the UDP batch's ACK flush).
     set.forEach(function (fn) {
       try {
         fn(payload, state);
@@ -233,9 +233,9 @@ const FSState = (function () {
 
   const DEFAULT_SESSION_TITLES = { group: 'Group chat', conference: 'Conference' };
 
-  // A base64 session bucket decodes to binary (UUIDs/flags); a real group name
-  // that merely happens to be alphanumeric decodes to printable ASCII. Use that
-  // to avoid treating names like "Firestormers" as placeholders.
+  // A base64 session bucket decodes to binary (UUIDs and flags), whereas a real
+  // group name that just happens to be alphanumeric decodes to printable ASCII.
+  // We lean on that so names like "Adventurers" don't get mistaken for placeholders.
   function looksLikeBase64Bucket(text) {
     if (!/^[A-Za-z0-9+/]{16,}={0,2}$/.test(text) || text.length % 4 !== 0) return false;
     if (typeof atob !== 'function') return false;
@@ -243,7 +243,7 @@ const FSState = (function () {
       const bin = atob(text);
       for (let i = 0; i < bin.length; i++) {
         const c = bin.charCodeAt(i);
-        if (c < 0x20 || c > 0x7e) return true; // non-printable byte => real bucket
+        if (c < 0x20 || c > 0x7e) return true; // a non-printable byte means this is a real bucket
       }
       return false;
     } catch (_e) {
@@ -276,6 +276,34 @@ const FSState = (function () {
     };
     emit('im-session-new', state.imSessions[sessionId]);
     return sessionId;
+  }
+
+  // Rebind a conference session from the client's temporary id to the sim's real
+  // one (ChatterBoxSessionStartReply), keeping the existing tab and its messages.
+  function remapImSession(oldId, newId) {
+    if (!oldId || !newId || oldId === newId) return;
+    const session = state.imSessions[oldId];
+    const partial = {};
+    if (session) {
+      const target = state.imSessions[newId];
+      if (target) {
+        // A session under the real id already exists (the roster arrived first),
+        // so fold the temp session's messages into it and drop the temp.
+        target.messages = (session.messages || []).concat(target.messages || []);
+        delete state.imSessions[oldId];
+      } else {
+        session.id = newId;
+        if (session.participant) session.participant.id = newId;
+        state.imSessions[newId] = session;
+        delete state.imSessions[oldId];
+      }
+    }
+    if (state.activeImSession === oldId) {
+      state.activeImSession = newId;
+      partial.activeImSession = newId;
+    }
+    if (Object.keys(partial).length) patch(partial);
+    emit('im-sessions-updated');
   }
 
   function updateSessionRoster(sessionId, participants, moderator) {
@@ -337,36 +365,6 @@ const FSState = (function () {
     session.type = type;
     emit('im-sessions-updated');
     return true;
-  }
-
-  function migrateSession(tempId, realId, info) {
-    if (!tempId || !realId || tempId === realId) return realId;
-    const session = state.imSessions[tempId];
-    if (!session) return ensureKeyedSession(realId, info);
-
-    if (state.imSessions[realId]) {
-      const target = state.imSessions[realId];
-      session.messages.forEach(function (m) {
-        if (!target.messages.some(function (x) { return x.id === m.id; })) {
-          target.messages.push(m);
-        }
-      });
-      target.updatedAt = Date.now();
-    } else {
-      session.id = realId;
-      if (info && info.type) session.type = info.type;
-      if (info && info.title && !isDefaultSessionTitle(info.title)) session.title = info.title;
-      if (session.participant) {
-        session.participant.id = realId;
-        session.participant.name = session.title;
-      }
-      state.imSessions[realId] = session;
-    }
-    delete state.imSessions[tempId];
-    if (state.activeImSession === tempId) state.activeImSession = realId;
-    emit('im-session-migrated', { tempId: tempId, sessionId: realId });
-    emit('im-sessions-updated');
-    return realId;
   }
 
   function addImMessage(sessionId, msg, participant, sessionInfo) {
@@ -518,12 +516,12 @@ const FSState = (function () {
     dismissImSession: dismissImSession,
     ensureImSession: ensureImSession,
     ensureKeyedSession: ensureKeyedSession,
+    remapImSession: remapImSession,
     updateSessionRoster: updateSessionRoster,
     setSessionTyping: setSessionTyping,
     setSessionMuted: setSessionMuted,
     renameSession: renameSession,
     setSessionType: setSessionType,
-    migrateSession: migrateSession,
     refreshImSessionPresence: refreshImSessionPresence,
     resolveParticipantPresence: resolveParticipantPresence,
     get: get,

@@ -1,28 +1,34 @@
 /**
- * SLURL / maps URL parsing, region handles, and chat linkification.
+ * Parses SLURLs and map URLs, converts region handles, and linkifies chat.
  */
 const FSSlurl = (function () {
   'use strict';
 
   const REGION_WIDTH = 256;
-  // Region indices on the world map are well below this; global origins are much larger (metres).
-  const GRID_INDEX_MAX = 4096;
+  // Grid indices run 0..16384 (one per region along each axis); global origins are larger, in metres.
+  const GRID_INDEX_MAX = 16384;
   const DEFAULT_MAP_SERVER = 'https://map.secondlife.com/';
-  const SLURL_PATTERN = /(?:https?:\/\/maps\.secondlife\.com\/secondlife\/[^\s<]+|secondlife:\/\/[^\s<]+)/gi;
+  const SLURL_PATTERN = /(?:https?:\/\/(?:maps\.secondlife\.com|slurl\.com)\/secondlife\/[^\s<]+|secondlife:\/\/[^\s<]+)/gi;
 
-  // Canonical grammar lives in urlmatch.rs (`bridge_linkify`); kept here for sync render.
+  // The canonical grammar lives in urlmatch.rs (`bridge_linkify`); we keep it in
+  // sync here because chat/IM/login render their links through this JS path, not
+  // the Rust one.
   const TRUSTED_SUFFIXES = [
-    'secondlife.com', 'secondlife.io', 'secondlife.net', 'lindenlab.com',
-    'tilia-inc.com', 'phoenixviewer.com', 'firestormviewer.org'
+    'secondlife.com', 'secondlife.io', 'secondlifegrid.net',
+    'secondlife-status.statuspage.io', 'lindenlab.com', 'tilia-inc.com',
+    'phoenixviewer.com', 'firestormviewer.org', 'slurl.com'
   ];
   const LINK_BRACKET = /\[\s*((?:secondlife:\/\/|https?:\/\/)[^\s\]]+)[ \t]+([^\]]*?)\s*\]/gi;
-  const LINK_SLURL = /(?:secondlife:\/\/[^\s<>\]"]+|https?:\/\/maps\.secondlife\.com\/secondlife\/[^\s<>\]"]+)/gi;
+  const LINK_SLURL = /(?:secondlife:\/\/[^\s<>\]"]+|https?:\/\/(?:maps\.secondlife\.com|slurl\.com)\/secondlife\/[^\s<>\]"]+)/gi;
   const LINK_HTTP = /https?:\/\/[^\s<>\]"]+/gi;
   const LINK_EMAIL = /\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b/gi;
 
   function hostOf(url) {
     const afterScheme = url.indexOf('://') >= 0 ? url.slice(url.indexOf('://') + 3) : url;
-    let host = afterScheme.split(/[/?#]/)[0] || '';
+    // A backslash counts as an authority delimiter too (WHATWG normalizes '\' -> '/'),
+    // so `http://evil.com\.secondlife.com/` really resolves to host evil.com, not a
+    // trusted domain. Splitting on it closes off a phishing trusted-link bypass.
+    let host = afterScheme.split(/[/\\?#]/)[0] || '';
     const at = host.lastIndexOf('@');
     if (at >= 0) host = host.slice(at + 1);
     host = host.split(':')[0];
@@ -36,8 +42,8 @@ const FSSlurl = (function () {
     });
   }
 
-  // Drop sentence punctuation a URL should not swallow; keep a closing paren
-  // only when it balances an opening one inside the URL.
+  // Strip trailing sentence punctuation a URL shouldn't swallow, but keep a
+  // closing paren when it balances an opening one inside the URL.
   function trimTrailingUrl(url) {
     let end = url.length;
     while (end > 0) {
@@ -106,7 +112,7 @@ const FSSlurl = (function () {
     };
   }
 
-  // Linden name-to-coords cap returns map grid indices, not global metres.
+  // The Linden name-to-coords cap gives us map grid indices, not global metres.
   function capCoordsToGrid(x, y) {
     const nx = Number(x);
     const ny = Number(y);
@@ -185,13 +191,13 @@ const FSSlurl = (function () {
     const raw = String(input || '').trim();
     if (!raw) return null;
 
-    let m = raw.match(/^https?:\/\/maps\.secondlife\.com\/secondlife\/(.+)$/i);
+    let m = raw.match(/^https?:\/\/(?:maps\.secondlife\.com|slurl\.com)\/secondlife\/(.+)$/i);
     if (m) {
       const decoded = decodeRegionPath(m[1]);
       if (decoded) return enrichParsed(Object.assign({ type: 'maps', url: raw }, decoded));
     }
 
-    // App SLURLs (profile links in chat/notices) are not map locations.
+    // App SLURLs (the profile links in chat/notices) aren't map locations.
     m = raw.match(/^secondlife:\/\/\/?app\/(agent|group)\/([0-9a-f-]{32,36})/i);
     if (m) {
       return { type: 'app-' + m[1].toLowerCase(), id: m[2].toLowerCase(), url: raw };
@@ -250,7 +256,7 @@ const FSSlurl = (function () {
     return name + ' (' + x + ', ' + y + ', ' + z + ')';
   }
 
-  // Split text into link segments (same grammar as urlmatch::linkify).
+  // Split the text into link segments, using the same grammar as urlmatch::linkify.
   function scanLinks(text) {
     const src = String(text || '');
     const raws = [];
@@ -259,7 +265,7 @@ const FSSlurl = (function () {
     while ((m = bracket.exec(src)) !== null) {
       const url = trimTrailingUrl(m[1]);
       const label = (m[2] || '').trim();
-      const isSlurl = /^secondlife:\/\//i.test(url) || /maps\.secondlife\.com\/secondlife\//i.test(url);
+      const isSlurl = /^secondlife:\/\//i.test(url) || /(?:maps\.secondlife\.com|slurl\.com)\/secondlife\//i.test(url);
       raws.push({ start: m.index, end: m.index + m[0].length, url: url,
         label: label || null, kind: isSlurl ? 'slurl' : 'http', bracketed: true, priority: 0 });
     }
@@ -337,12 +343,12 @@ const FSSlurl = (function () {
         window.__TAURI__.opener.openUrl(raw);
         return;
       }
-    } catch (_e) { /* fall through to window.open */ }
+    } catch (_e) { /* fall through to the window.open below */ }
     window.open(raw, '_blank', 'noopener,noreferrer');
   }
 
-  // Bind click handlers for links produced by linkify(): SLURLs show on the map;
-  // external URLs open in the OS browser (untrusted ones behind a confirm).
+  // Wire up click handlers for the links linkify() produced: SLURLs open on the
+  // map, and external URLs open in the OS browser (untrusted ones behind a confirm).
   function bindLinks(container) {
     if (!container || !container.querySelectorAll) return;
     container.querySelectorAll('.slurl-link').forEach(function (link) {
@@ -392,7 +398,7 @@ const FSSlurl = (function () {
     return out;
   }
 
-  // Region-name lookup uses the native core only (`FSBridge.regionByName`).
+  // Region-name lookup goes through the native core only (`FSBridge.regionByName`).
 
   return {
     REGION_WIDTH: REGION_WIDTH,

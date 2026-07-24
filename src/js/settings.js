@@ -1,41 +1,23 @@
 /**
- * Viewer preferences persisted in localStorage.
+ * Viewer preferences, kept in localStorage between sessions.
  */
 const FSSettings = (function () {
   'use strict';
 
   const STORAGE_KEY = 'minibee-settings';
-  const STORAGE_KEY_LEGACY = 'fs-mobile-settings';
-  const CREDENTIALS_KEY = 'minibee-credentials';
-  const CREDENTIALS_KEY_LEGACY = 'fs-mobile-credentials';
-  const MFA_PREFIX = 'minibee-mfa-';
-  const MFA_PREFIX_LEGACY = 'fs-mobile-mfa-';
-
-  const SENSITIVE_KEY_PATTERNS = [
-    /^minibee-mfa-/i,
-    /^fs-mobile-mfa-/i,
-    /password/i,
-    /token/i,
-    /hash/i,
-    /^minibee-mac$/i,
-    /^fs-mobile-mac$/i,
-    /^minibee-id0$/i,
-    /^fs-mobile-id0$/i,
-    /^minibee-host-id$/i,
-    /^fs-mobile-host-id$/i
-  ];
 
   const SCHEMA = {
     radarRange: { type: 'number', default: 96, min: 16, max: 256, step: 8 },
     radarAlerts: { type: 'boolean', default: true },
     buddiesOnlineOnly: { type: 'boolean', default: false },
     destFeed: { type: 'string', default: 'mobile' },
-    logSubtab: { type: 'string', default: 'diagnostics' },
-    // When off (default), protocol diagnostics (info/warn) are not retained in
-    // the Debug panel — hard errors still are. Keeps an idle viewer from
-    // growing the list on every EQ poll / cap grant / teleport trace.
+    // Reconnect on an unexpected disconnect (off by default). The Rust core
+    // keeps the credentials (obfuscated) and replays the login when asked.
+    autoReconnect: { type: 'boolean', default: false },
+    // When off (the default), info/warn diagnostics aren't kept in the in-memory
+    // log - hard errors still are. (File logging lives separately, in Rust.)
     debugLogDiagnostics: { type: 'boolean', default: false },
-    // Parcel music streaming. Off by default (autoplay policy); volume 0-100.
+    // Parcel music streaming. Off by default because of autoplay policy; volume 0-100.
     parcelMusicEnabled: { type: 'boolean', default: false },
     parcelMusicVolume: { type: 'number', default: 50, min: 0, max: 100, step: 1 },
     theme: { type: 'string', default: 'dark' }
@@ -48,10 +30,6 @@ const FSSettings = (function () {
 
   let values = {};
   const listeners = new Set();
-
-  function isSensitiveStorageKey(key) {
-    return SENSITIVE_KEY_PATTERNS.some(function (pattern) { return pattern.test(key); });
-  }
 
   function coerce(key, raw) {
     const spec = SCHEMA[key];
@@ -79,14 +57,7 @@ const FSSettings = (function () {
   }
 
   function loadRaw() {
-    let raw = FSUtils.storageGet(STORAGE_KEY, null);
-    if (!raw) {
-      raw = FSUtils.storageGet(STORAGE_KEY_LEGACY, null);
-      if (raw) {
-        FSUtils.storageSet(STORAGE_KEY, raw);
-        try { localStorage.removeItem(STORAGE_KEY_LEGACY); } catch (_e) { /* ignore */ }
-      }
-    }
+    const raw = FSUtils.storageGet(STORAGE_KEY, null);
     return raw && typeof raw === 'object' ? raw : {};
   }
 
@@ -156,166 +127,6 @@ const FSSettings = (function () {
     return function () { listeners.delete(fn); };
   }
 
-  function gridLabel(grid) {
-    const map = { agni: 'Second Life (Agni)', aditi: 'Second Life (Aditi)', local: 'OpenSim (local)' };
-    return map[grid] || grid;
-  }
-
-  function feedLabel(feedId) {
-    const map = {
-      mobile: 'Mobile',
-      popular: 'Popular',
-      new: 'New',
-      editor: 'Editor',
-      events: 'Events'
-    };
-    return map[feedId] || feedId;
-  }
-
-  function readCredentials() {
-    let saved = FSUtils.storageGet(CREDENTIALS_KEY, null);
-    if (!saved) {
-      saved = FSUtils.storageGet(CREDENTIALS_KEY_LEGACY, null);
-    }
-    return saved && typeof saved === 'object' ? saved : null;
-  }
-
-  function mfaRememberedRows() {
-    const rows = [];
-    const seen = new Set();
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        let suffix = '';
-        if (key.indexOf(MFA_PREFIX) === 0) suffix = key.slice(MFA_PREFIX.length);
-        else if (key.indexOf(MFA_PREFIX_LEGACY) === 0) suffix = key.slice(MFA_PREFIX_LEGACY.length);
-        else continue;
-        if (!suffix || seen.has(suffix)) continue;
-        seen.add(suffix);
-        rows.push({
-          label: 'MFA remembered',
-          value: suffix.replace(/-/g, ' / ') + ' (stored, value hidden)'
-        });
-      }
-    } catch (_e) { /* ignore */ }
-    return rows;
-  }
-
-  function getDisplaySections() {
-    const sections = [];
-
-    sections.push({
-      title: 'Radar',
-      items: [
-        { label: 'Range', value: String(get('radarRange')) + ' m' },
-        { label: 'Alerts', value: get('radarAlerts') ? 'On' : 'Off' }
-      ]
-    });
-
-    sections.push({
-      title: 'Buddies',
-      items: [
-        { label: 'Online only filter', value: get('buddiesOnlineOnly') ? 'On' : 'Off' }
-      ]
-    });
-
-    sections.push({
-      title: 'Destination Guide',
-      items: [
-        { label: 'Last feed', value: feedLabel(get('destFeed')) }
-      ]
-    });
-
-    sections.push({
-      title: 'Appearance',
-      items: [
-        { label: 'Theme', value: get('theme') === 'light' ? 'Light' : 'Dark (default)' }
-      ]
-    });
-
-    sections.push({
-      title: 'Parcel music',
-      items: [
-        { label: 'Auto-play', value: get('parcelMusicEnabled') ? 'On' : 'Off (default)' },
-        { label: 'Volume', value: String(get('parcelMusicVolume')) + '%' }
-      ]
-    });
-
-    sections.push({
-      title: 'Debug',
-      items: [
-        { label: 'Default subtab', value: get('logSubtab') === 'settings' ? 'Settings' : 'Diagnostics' },
-        { label: 'Record diagnostics', value: get('debugLogDiagnostics') ? 'On' : 'Off (default)' }
-      ]
-    });
-
-    const creds = readCredentials();
-    const loginItems = [
-      { label: 'Remember credentials', value: creds && creds.remember ? 'Yes' : 'No' }
-    ];
-    if (creds && creds.remember) {
-      if (creds.username) loginItems.push({ label: 'Saved username', value: creds.username });
-      if (creds.grid) loginItems.push({ label: 'Saved grid', value: gridLabel(creds.grid) });
-    }
-    loginItems.push.apply(loginItems, mfaRememberedRows());
-    sections.push({ title: 'Login', items: loginItems });
-
-    sections.push({
-      title: 'Storage',
-      items: storageSummaryRows()
-    });
-
-    return sections;
-  }
-
-  function storageSummaryRows() {
-    let total = 0;
-    let hidden = 0;
-    const visible = [];
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        total += 1;
-        if (isSensitiveStorageKey(key)) {
-          hidden += 1;
-        } else {
-          visible.push(key);
-        }
-      }
-    } catch (_e) { /* ignore */ }
-    visible.sort();
-    const rows = [
-      { label: 'Settings key', value: STORAGE_KEY },
-      { label: 'Total localStorage keys', value: String(total) },
-      {
-        label: 'Listed here',
-        value: visible.length ? visible.join(', ') : 'none'
-      }
-    ];
-    if (hidden > 0) {
-      rows.push({
-        label: 'Hidden from this panel',
-        value: hidden + ' (device ID, MAC, MFA token — values not shown)'
-      });
-    }
-    return rows;
-  }
-
-  function listSafeStorageKeys() {
-    const keys = [];
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key || isSensitiveStorageKey(key)) continue;
-        keys.push(key);
-      }
-    } catch (_e) { /* ignore */ }
-    keys.sort();
-    return keys;
-  }
-
   return {
     init: init,
     get: get,
@@ -325,9 +136,6 @@ const FSSettings = (function () {
     toggleTheme: function () {
       set('theme', get('theme') === 'light' ? 'dark' : 'light');
     },
-    getDisplaySections: getDisplaySections,
-    listSafeStorageKeys: listSafeStorageKeys,
-    isSensitiveStorageKey: isSensitiveStorageKey,
     SCHEMA: SCHEMA
   };
 })();

@@ -1,11 +1,52 @@
 /**
- * Radar - nearby avatar list (client-side enumeration in real viewer).
+ * Radar - the nearby-avatar list (enumerated client-side in the real viewer).
  */
 const FSRadar = (function () {
   'use strict';
 
   let filter = '';
   let renderScheduled = false;
+
+  // CoarseLocationUpdate gives us only an id per nearby avatar; the names
+  // resolve asynchronously (names-updated), so prefer a resolved name when
+  // one is cached.
+  function nameLines(agent) {
+    const info = agent && agent.id && typeof FSTransport.getCachedNameInfo === 'function'
+      ? FSTransport.getCachedNameInfo(agent.id)
+      : null;
+    if (info && (info.userName || info.label || info.displayName)) {
+      return FSUtils.agentNameLines({
+        displayName: info.displayName || '',
+        userName: info.userName || info.label || '',
+        name: info.label || (agent && agent.name) || ''
+      });
+    }
+    return FSUtils.agentNameLines(agent);
+  }
+
+  // Turn a born-on date into a compact account age, e.g. "12d", "5mo", "3y".
+  function compactAge(bornOn) {
+    if (!bornOn) return '';
+    const d = bornOn instanceof Date ? bornOn : new Date(bornOn);
+    if (Number.isNaN(d.getTime())) return '';
+    const days = Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+    if (days < 60) return days + 'd';
+    if (days < 730) return Math.floor(days / 30) + 'mo';
+    return Math.floor(days / 365) + 'y';
+  }
+
+  // Age comes from each avatar's basic properties (born-on), which we fetch
+  // lazily and dedupe (queueAvatarThumb -> sl_request_avatar_properties).
+  // Deliberately not the extended AgentProfile cap - that stays profile-open only.
+  function ageFor(entry) {
+    const p = (typeof FSProfiles !== 'undefined' && FSProfiles.getAvatarProfile)
+      ? FSProfiles.getAvatarProfile(entry.id) : null;
+    if (p && p.bornOn) return compactAge(p.bornOn);
+    if (typeof FSProfiles !== 'undefined' && FSProfiles.queueAvatarThumb && entry.id) {
+      FSProfiles.queueAvatarThumb(entry.id); // deduped; bornOn will be ready for the next render
+    }
+    return (entry.age && entry.age !== '?') ? entry.age : '';
+  }
 
   function scheduleRender() {
     if (renderScheduled) return;
@@ -27,8 +68,8 @@ const FSRadar = (function () {
   }
 
   function isAlertCandidate(entry) {
-    // Coarse-location radar carries no account age, so the old age check was
-    // dead; a name match is the only signal we actually have here.
+    // Coarse-location radar carries no account age, so the old age check never
+    // fired; a name match is the only signal we actually have to go on here.
     const name = String(entry.name || '').toLowerCase();
     return name.indexOf('visitor') !== -1;
   }
@@ -39,7 +80,7 @@ const FSRadar = (function () {
 
   function renderItem(entry, options) {
     const opts = options || {};
-    const names = FSUtils.agentNameLines(entry);
+    const names = nameLines(entry);
     const outOfRange = !!opts.outOfRange;
     const highlightAlert = !!opts.highlightAlert && !outOfRange;
 
@@ -50,6 +91,8 @@ const FSRadar = (function () {
     li.className = className;
     li.dataset.id = entry.id;
     const status = entry.status ? ' [' + entry.status + ']' : '';
+    const age = ageFor(entry);
+    const ageText = age ? ('Age: ' + age) : 'Age: …';
     li.innerHTML =
       '<div class="entity-item__avatar" data-agent-id="' + FSUtils.escapeHtml(entry.id) +
         '" data-resolve-image="0" data-label="' + FSUtils.escapeHtml(names.title) + '"></div>' +
@@ -58,7 +101,8 @@ const FSRadar = (function () {
         (names.subtitle
           ? '<div class="entity-item__legacy">' + FSUtils.escapeHtml(names.subtitle) + '</div>'
           : '') +
-        '<div class="entity-item__sub">Age: ' + FSUtils.escapeHtml(entry.age) + status + '</div>' +
+        '<div class="entity-item__sub">' + FSUtils.escapeHtml(ageText) +
+          ' · ' + FSUtils.escapeHtml(String(entry.range)) + 'm' + FSUtils.escapeHtml(status) + '</div>' +
       '</div>' +
       '<div class="entity-item__actions">' +
         '<button type="button" class="icon-btn" data-action="profile" title="Profile" aria-label="Profile">' +
@@ -137,7 +181,7 @@ const FSRadar = (function () {
     if (filter) {
       const q = filter.toLowerCase();
       entries = entries.filter(function (e) {
-        const names = FSUtils.agentNameLines(e);
+        const names = nameLines(e);
         return names.title.toLowerCase().indexOf(q) !== -1 ||
           (names.subtitle && names.subtitle.toLowerCase().indexOf(q) !== -1) ||
           e.id.toLowerCase().indexOf(q) !== -1;
@@ -233,6 +277,32 @@ const FSRadar = (function () {
     FSState.on('radar-update', function () {
       if (FSNavigation.isTabActive('radar')) scheduleRender();
     });
+
+    // Repaint once names resolve, so entries show the real name rather than the UUID/"?".
+    FSTransport.on('names-updated', function () {
+      if (FSNavigation.isTabActive('radar')) scheduleRender();
+    });
+    // Repaint when the avatar properties (age/born-on) come in.
+    if (typeof FSProfiles !== 'undefined' && FSProfiles.onChange) {
+      FSProfiles.onChange(function (evt) {
+        if (evt && evt.kind === 'avatar' && FSNavigation.isTabActive('radar')) scheduleRender();
+      });
+    }
+
+    // When range or alerts are changed elsewhere (e.g. the Settings tab), mirror
+    // those changes back into the radar controls and list.
+    if (typeof FSSettings !== 'undefined' && FSSettings.onChange) {
+      FSSettings.onChange(function (key, value) {
+        if (key === 'radarRange') {
+          if (rangeInput) rangeInput.value = String(value);
+          if (rangeLabel) rangeLabel.textContent = value + 'm';
+          if (FSNavigation.isTabActive('radar')) scheduleRender();
+        } else if (key === 'radarAlerts') {
+          if (alertInput) alertInput.checked = !!value;
+          if (FSNavigation.isTabActive('radar')) scheduleRender();
+        }
+      });
+    }
   }
 
   return { init: init, render: render };

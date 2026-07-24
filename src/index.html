@@ -109,7 +109,7 @@
 
   <div id="app" class="app">
 
-    <!-- Login -->
+    <!-- Login screen -->
     <section id="screen-login" class="screen screen--active" aria-label="Login">
       <div class="login-shell">
         <div class="login-side-decor" aria-hidden="true">
@@ -228,7 +228,7 @@
       </div>
     </section>
 
-    <!-- Main shell -->
+    <!-- Main viewer shell -->
     <section id="screen-main" class="screen" hidden aria-label="Viewer">
       <header class="top-bar">
         <div class="top-bar__left">
@@ -244,20 +244,20 @@
           </div>
         </div>
         <div class="top-bar__center">
-          <span id="parcel-line" class="top-bar__parcel">—</span>
+          <span id="parcel-line" class="top-bar__parcel">-</span>
           <span id="region-name" class="top-bar__region">Offline</span>
         </div>
         <div class="top-bar__right">
           <div id="parcel-music" class="parcel-music-bar" hidden>
             <button type="button" id="parcel-music-toggle" class="icon-btn parcel-music-bar__toggle" aria-pressed="false" title="Play parcel music">
-              <svg id="parcel-music-icon-off" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12z"/></svg>
-              <svg id="parcel-music-icon-on" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" hidden><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z"/></svg>
+              <svg id="parcel-music-icon-off" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M4.27 3 3 4.27l9 9v.28c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4v-1.73L19.73 21 21 19.73 4.27 3zM14 7h4V3h-6v5.18l2 2z"/></svg>
+              <svg id="parcel-music-icon-on" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" hidden><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
             </button>
             <input type="range" id="parcel-music-volume" class="parcel-music-bar__volume" min="0" max="100" step="1" value="50" title="Parcel music volume" aria-label="Parcel music volume">
             <span id="parcel-music-now" class="sr-only" aria-live="polite"></span>
           </div>
           <div id="top-bar-stats" class="top-bar__stats" hidden>
-            <span id="balance-badge" class="status-chip status-chip--balance" title="Linden dollar balance">L$ —</span>
+            <span id="balance-badge" class="status-chip status-chip--balance" title="Linden dollar balance">L$ -</span>
             <span id="slt-clock" class="status-chip status-chip--time" title="Second Life Time (US Pacific)">--:-- SLT</span>
           </div>
           <button type="button" id="btn-theme" class="icon-btn" title="Switch to light mode" aria-label="Toggle light/dark theme">
@@ -315,10 +315,14 @@
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/></svg>
               <span>Guide</span>
             </button>
-            <button type="button" class="bottom-nav__item" data-tab="errors" role="tab" aria-selected="false" aria-controls="panel-errors">
-              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-              <span>Debug</span>
-              <span id="badge-errors" class="nav-dot nav-dot--alert" hidden aria-label="New log errors"></span>
+            <button type="button" class="bottom-nav__item" data-tab="settings" role="tab" aria-selected="false" aria-controls="panel-settings">
+              <svg class="nav-bee" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <path fill="currentColor" opacity="0.5" d="M9 8C7.3 6.1 4.9 5.9 3.9 6.8c-1 1-.4 3.3 1.5 4.6.9.6 1.9 1 2.6 1 .2-1.6.5-3.1 1-4.4z"/>
+                <path fill="currentColor" opacity="0.5" d="M15 8c1.7-1.9 4.1-2.1 5.1-1.2 1 1 .4 3.3-1.5 4.6-.9.6-1.9 1-2.6 1-.2-1.6-.5-3.1-1-4.4z"/>
+                <path fill="currentColor" fill-rule="evenodd" d="M12 8a4.2 6 0 0 1 0 12 4.2 6 0 0 1 0-12Zm-3.9 4.6h7.8v1.2H8.1Zm.6 2.8h6.6v1.2H8.7Z"/>
+                <path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M10.2 6.4 8.9 4.1M13.8 6.4 15.1 4.1"/>
+              </svg>
+              <span>Settings</span>
             </button>
           </nav>
         </aside>
@@ -341,7 +345,7 @@
 
           <main id="panel-container" class="panel-container">
 
-        <!-- Chat -->
+        <!-- Nearby chat -->
         <div id="panel-chat" class="panel panel--active" data-panel="chat" role="tabpanel" aria-label="Nearby chat">
           <div id="chat-messages" class="message-list" role="log" aria-live="polite" aria-relevant="additions"></div>
           <form id="chat-form" class="composer">
@@ -356,7 +360,7 @@
           </form>
         </div>
 
-        <!-- IM -->
+        <!-- Instant messages -->
         <div id="panel-im" class="panel" data-panel="im" role="tabpanel" aria-label="Instant messages" hidden>
           <div class="im-layout">
             <div class="im-sessions-pane">
@@ -438,13 +442,13 @@
           </div>
         </div>
 
-        <!-- Events -->
+        <!-- Events feed -->
         <div id="panel-events" class="panel" data-panel="events" role="tabpanel" aria-label="Events" hidden>
           <div id="event-messages" class="message-list message-list--events" role="log" aria-live="polite" aria-relevant="additions" hidden></div>
           <p id="events-empty" class="events-empty">Script dialogs, payment notices, and other prompts appear here.</p>
         </div>
 
-        <!-- Buddies -->
+        <!-- Buddies list -->
         <div id="panel-buddies" class="panel" data-panel="buddies" role="tabpanel" aria-label="Buddies" hidden>
           <div class="panel-toolbar">
             <input type="search" id="buddies-search" class="toolbar-search" placeholder="Search buddies..." autocomplete="off">
@@ -456,7 +460,7 @@
           <ul id="buddies-list" class="entity-list" role="list"></ul>
         </div>
 
-        <!-- Search -->
+        <!-- Search (people, places, groups) -->
         <div id="panel-search" class="panel" data-panel="search" role="tabpanel" aria-label="Search" hidden>
           <div class="panel-toolbar panel-toolbar--wrap">
             <input type="search" id="search-input" class="toolbar-search" placeholder="Search people by username..." autocomplete="off" minlength="3">
@@ -471,7 +475,7 @@
           <ul id="search-results" class="entity-list search-results" role="list"></ul>
         </div>
 
-        <!-- Radar -->
+        <!-- Radar (nearby avatars) -->
         <div id="panel-radar" class="panel" data-panel="radar" role="tabpanel" aria-label="Radar" hidden>
           <div class="panel-toolbar panel-toolbar--wrap">
             <input type="search" id="radar-search" class="toolbar-search" placeholder="Filter nearby..." autocomplete="off">
@@ -492,7 +496,7 @@
           <ul id="radar-list" class="entity-list entity-list--radar" role="list"></ul>
         </div>
 
-        <!-- Map -->
+        <!-- World map -->
         <div id="panel-map" class="panel panel--map" data-panel="map" role="tabpanel" aria-label="World map" hidden>
           <div id="map-viewport" class="map-viewport">
             <div class="map-stage">
@@ -522,7 +526,7 @@
           </aside>
         </div>
 
-        <!-- Land -->
+        <!-- Land (parcel management) -->
         <div id="panel-land" class="panel" data-panel="land" role="tabpanel" aria-label="Land management" hidden>
           <div id="land-summary" class="land-summary"></div>
           <div class="land-tabs" role="tablist" aria-label="Land sections">
@@ -716,36 +720,78 @@
           </form>
         </div>
 
-        <!-- Destination Guide -->
+        <!-- Destination Guide feeds -->
         <div id="panel-destinations" class="panel" data-panel="destinations" role="tabpanel" aria-label="Destination Guide" hidden>
           <div id="dest-feedbar" class="dest-feedbar" role="tablist" aria-label="Destination feeds"></div>
           <div id="dest-status" class="dest-status"></div>
           <div id="dest-content" class="dest-content"></div>
         </div>
 
-        <!-- Log / diagnostics -->
-        <div id="panel-errors" class="panel" data-panel="errors" role="tabpanel" aria-label="Debug" hidden>
-          <div class="log-tabs" role="tablist" aria-label="Debug sections">
-            <button type="button" class="log-tab log-tab--active" data-log-tab="diagnostics" role="tab" aria-selected="true" aria-controls="log-pane-diagnostics">Diagnostics</button>
-            <button type="button" class="log-tab" data-log-tab="settings" role="tab" aria-selected="false" aria-controls="log-pane-settings">Settings</button>
+        <!-- Settings (preferences, about, help, readme, license) -->
+        <div id="panel-settings" class="panel" data-panel="settings" role="tabpanel" aria-label="Settings" hidden>
+          <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+            <button type="button" class="settings-tab settings-tab--active" data-settings-tab="prefs" role="tab" aria-selected="true" aria-controls="settings-pane-prefs">Settings</button>
+            <button type="button" class="settings-tab" data-settings-tab="about" role="tab" aria-selected="false" aria-controls="settings-pane-about">About Minibee</button>
+            <button type="button" class="settings-tab" data-settings-tab="help" role="tab" aria-selected="false" aria-controls="settings-pane-help">Help</button>
+            <button type="button" class="settings-tab" data-settings-tab="readme" role="tab" aria-selected="false" aria-controls="settings-pane-readme">README</button>
+            <button type="button" class="settings-tab" data-settings-tab="license" role="tab" aria-selected="false" aria-controls="settings-pane-license">License</button>
           </div>
-          <div id="log-pane-diagnostics" class="log-pane" role="tabpanel" aria-label="Diagnostics">
-            <div class="panel-toolbar">
-              <span class="badge">Protocol diagnostics</span>
-              <label class="log-record-toggle" title="Retain info/warn diagnostics in this panel (off by default)">
-                <input type="checkbox" id="errors-record-toggle">
-                <span>Record diagnostics</span>
-              </label>
-              <button type="button" id="errors-clear" class="btn btn--ghost btn--sm">Clear</button>
-            </div>
-            <ul id="errors-list" class="errors-list" role="log" aria-live="polite"></ul>
+
+          <div id="settings-pane-prefs" class="settings-pane" role="tabpanel" aria-label="Viewer settings">
+            <p class="settings-note">Everything you change here is applied across the viewer immediately.</p>
+            <div id="settings-controls" class="settings-controls"></div>
           </div>
-          <div id="log-pane-settings" class="log-pane" role="tabpanel" aria-label="Saved settings" hidden>
-            <div class="panel-toolbar">
-              <span class="badge">Local preferences</span>
-              <span class="settings-note">Secrets (passwords, MFA tokens, device ids) are never shown here.</span>
+
+          <div id="settings-pane-about" class="settings-pane" role="tabpanel" aria-label="About Minibee" hidden>
+            <div class="about-card">
+              <div class="login-logo about-logo" aria-hidden="true">
+                <svg class="login-logo__bee" viewBox="0 0 32 32">
+                  <path d="M7 13 C3 9 3 5 9 7 C11 8 12 11 11 14" fill="rgba(255,248,230,0.7)" stroke="rgba(255,255,255,0.35)" stroke-width="0.6"/>
+                  <path d="M25 13 C29 9 29 5 23 7 C21 8 20 11 21 14" fill="rgba(255,248,230,0.7)" stroke="rgba(255,255,255,0.35)" stroke-width="0.6"/>
+                  <ellipse cx="16" cy="18.5" rx="5.8" ry="7.8" fill="#f5c542"/>
+                  <path d="M10.8 15.2 H21.2" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M10.4 18.6 H21.6" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M10.8 22 H21.2" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
+                  <circle cx="16" cy="9.8" r="4.6" fill="#1a1408"/>
+                  <circle cx="14.2" cy="9.2" r="1.1" fill="#fff8e8"/>
+                  <circle cx="17.8" cy="9.2" r="1.1" fill="#fff8e8"/>
+                  <circle cx="14.5" cy="9.2" r="0.45" fill="#1a1408"/>
+                  <circle cx="18.1" cy="9.2" r="0.45" fill="#1a1408"/>
+                  <path d="M13.2 6.2 Q11.2 2.8 10.2 1.2" stroke="#1a1408" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+                  <path d="M18.8 6.2 Q20.8 2.8 21.8 1.2" stroke="#1a1408" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+                  <circle cx="10.2" cy="1.2" r="1" fill="#f0b429"/>
+                  <circle cx="21.8" cy="1.2" r="1" fill="#f0b429"/>
+                </svg>
+                <span class="login-logo__mark">MB</span>
+              </div>
+              <h2 id="about-name" class="about-name">Minibee Viewer</h2>
+              <p id="about-version" class="about-version"></p>
+              <p id="about-catchphrase" class="about-catchphrase"></p>
+              <dl class="about-meta">
+                <dt>Author</dt><dd id="about-author"></dd>
+                <dt>Contact</dt><dd id="about-contact"></dd>
+              </dl>
+              <hr class="about-hr">
+              <dl class="about-meta about-meta--mono" id="about-build"></dl>
+              <hr class="about-hr">
+              <dl class="about-meta about-meta--mono" id="about-system"></dl>
+              <div class="about-actions">
+                <button type="button" id="about-copy" class="btn btn--secondary">Copy all</button>
+                <span id="about-copy-status" class="about-copy-status" role="status" aria-live="polite"></span>
+              </div>
             </div>
-            <div id="settings-list" class="settings-list"></div>
+          </div>
+
+          <div id="settings-pane-help" class="settings-pane" role="tabpanel" aria-label="Help" hidden>
+            <pre id="settings-help" class="settings-doc" tabindex="0">Loading…</pre>
+          </div>
+
+          <div id="settings-pane-readme" class="settings-pane" role="tabpanel" aria-label="README" hidden>
+            <pre id="settings-readme" class="settings-doc" tabindex="0">Loading…</pre>
+          </div>
+
+          <div id="settings-pane-license" class="settings-pane" role="tabpanel" aria-label="License" hidden>
+            <pre id="settings-license" class="settings-doc" tabindex="0">Loading…</pre>
           </div>
         </div>
 
@@ -754,10 +800,29 @@
       </div>
     </section>
 
-    <!-- Toast -->
+    <!-- Degraded-capabilities banner (FSCapsBanner). We show it when the Rust
+         core reports the region's caps / EventQueue never came up; it stays
+         hidden by default and is painted purely from the core's caps-status read. -->
+    <div id="caps-banner" class="caps-banner" role="alert" aria-live="assertive" hidden>
+      <span class="caps-banner__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2 1 21h22L12 2zm0 5 7.53 13H4.47L12 7zm-1 4v4h2v-4h-2zm0 5v2h2v-2h-2z"/></svg>
+      </span>
+      <span class="caps-banner__text">
+        <strong id="caps-banner-title" class="caps-banner__title">Some region features unavailable</strong>
+        <span id="caps-banner-detail" class="caps-banner__detail"></span>
+      </span>
+      <span class="caps-banner__actions">
+        <button type="button" id="caps-banner-relog" class="btn btn--ghost btn--sm caps-banner__relog">Relog</button>
+        <button type="button" id="caps-banner-dismiss" class="icon-btn caps-banner__close" aria-label="Dismiss">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </span>
+    </div>
+
+    <!-- Toast notifications -->
     <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
 
-    <!-- Teleport progress lock (FSTeleportProgress) -->
+    <!-- Teleport-progress lock dialog (FSTeleportProgress) -->
     <dialog id="teleport-progress-dialog" class="login-challenge tp-progress-dialog">
       <div class="login-challenge__body tp-progress">
         <h2 class="login-challenge__title">Teleporting</h2>
@@ -766,7 +831,7 @@
       </div>
     </dialog>
 
-    <!-- Generic confirmation (FSUtils.confirm) -->
+    <!-- Reusable confirmation dialog (FSUtils.confirm) -->
     <dialog id="confirm-dialog" class="login-challenge confirm-dialog">
       <div class="login-challenge__body">
         <h2 id="confirm-title" class="login-challenge__title">Please confirm</h2>
@@ -778,7 +843,7 @@
       </div>
     </dialog>
 
-    <!-- Login challenge (TOS / critical / MFA) -->
+    <!-- Login challenge (TOS, critical, MFA) -->
     <dialog id="login-challenge" class="login-challenge">
       <form id="login-challenge-form" method="dialog">
         <h2 id="challenge-title">Action required</h2>
@@ -867,8 +932,8 @@
       <form id="conference-form" method="dialog">
         <h2 class="pay-dialog__title" id="conference-dialog-title">New conference chat</h2>
         <label class="field" id="conference-title-field">
-          <span>Session name (optional)</span>
-          <input type="text" id="conference-title" maxlength="63" autocomplete="off" placeholder="Conference">
+          <span>Filter contacts</span>
+          <input type="text" id="conference-title" maxlength="63" autocomplete="off" placeholder="Filter by name or username">
         </label>
         <p class="conference-dialog__hint">Select people to invite:</p>
         <div id="conference-picker" class="conference-picker" role="group" aria-label="Select participants"></div>
@@ -879,7 +944,7 @@
       </form>
     </dialog>
 
-    <!-- Context menu -->
+    <!-- Right-click context menu -->
     <menu id="context-menu" class="context-menu" hidden></menu>
 
   </div>
@@ -888,19 +953,12 @@
   <script src="js/version.js"></script>
   <script src="js/state.js"></script>
   <script src="js/settings.js"></script>
-  <script src="js/protocol/sl-binary.js"></script>
-  <script src="js/protocol/sl-slurl.js"></script>
-  <script src="js/protocol/transport.js"></script>
-  <script src="js/protocol/sl-packet.js"></script>
-  <script src="js/protocol/bridge.js"></script>
-  <script src="js/protocol/sl-llsd.js"></script>
-  <script src="js/protocol/sl-caps.js"></script>
-  <script src="js/protocol/sl-eventqueue.js"></script>
-  <script src="js/protocol/sl-login.js"></script>
-  <script src="js/protocol/sl-teleport.js"></script>
-  <script src="js/protocol/sl-search.js"></script>
-  <script src="js/protocol/sl-profiles.js"></script>
-  <script src="js/protocol/sl-transport.js"></script>
+  <script src="js/core/sl-slurl.js"></script>
+  <script src="js/core/transport.js"></script>
+  <script src="js/core/bridge.js"></script>
+  <script src="js/diaglog.js"></script>
+  <script src="js/core/sl-profiles.js"></script>
+  <script src="js/core/sl-bridge.js"></script>
   <script src="js/errors.js"></script>
   <script src="js/ui/navigation.js"></script>
   <script src="js/ui/panel-busy.js"></script>
@@ -918,8 +976,9 @@
   <script src="js/ui/teleport-progress.js"></script>
   <script src="js/ui/avatar-thumb.js"></script>
   <script src="js/ui/profile.js"></script>
-  <script src="js/ui/errors.js"></script>
+  <script src="js/ui/settings.js"></script>
   <script src="js/ui/session-lost.js"></script>
+  <script src="js/ui/caps-banner.js"></script>
   <script src="js/audio/parcel-music.js"></script>
   <script src="js/app.js"></script>
 </body>

@@ -1,19 +1,22 @@
-//! Chat / IM URL matching and trust classification.
+//! URL matching and trust classification for chat and IM.
 //!
-//! [`linkify`] splits text into plain runs and [`Segment`] links (URL, label,
-//! trusted flag, kind). Canonical grammar; the WebView mirrors it for sync render.
+//! [`linkify`] breaks text into plain runs and [`Segment`] links, each carrying a
+//! URL, label, trusted flag, and kind. This is the canonical grammar; the WebView
+//! mirrors it so both sides stay in sync.
 
 use serde::Serialize;
 
-/// Hosts treated as trusted (no external-link warning before open).
+/// Hosts we trust, so opening them skips the external-link warning.
 const TRUSTED_SUFFIXES: &[&str] = &[
     "secondlife.com",
     "secondlife.io",
-    "secondlife.net",
+    "secondlifegrid.net",
+    "secondlife-status.statuspage.io",
     "lindenlab.com",
     "tilia-inc.com",
     "phoenixviewer.com",
     "firestormviewer.org",
+    "slurl.com", // legacy in-world map host; we treat it as an in-world SLURL
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -27,19 +30,19 @@ pub enum LinkKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Segment {
-    /// A run of literal text (must be HTML-escaped by the renderer).
+    /// A stretch of literal text; the renderer still has to HTML-escape it.
     Text { text: String },
-    /// A recognised link.
+    /// A link we recognised.
     Link {
-        /// The underlying URL to act on / show in a tooltip.
+        /// The real URL we act on and show in the tooltip.
         url: String,
-        /// The text to display (bracket label, friendly SLURL label, or url).
+        /// What we show: a bracket label, a friendly SLURL label, or the url.
         label: String,
-        /// Trusted (Linden/Firestorm) vs arbitrary external URL.
+        /// True for Linden/known hosts, false for an arbitrary external URL.
         trusted: bool,
-        /// Which matcher produced this link.
+        /// The matcher that produced this link.
         kind: LinkKind,
-        /// Whether it came from `[url Label]` bracket syntax.
+        /// True when it came from `[url Label]` bracket syntax.
         bracketed: bool,
     },
 }
@@ -51,20 +54,23 @@ struct Raw {
     label: Option<String>,
     kind: LinkKind,
     bracketed: bool,
-    /// Lower number = higher priority on an equal start offset.
+    /// When two matches share a start offset, the lower number wins.
     priority: u8,
 }
 
 fn host_of(url: &str) -> Option<String> {
-    // Strip scheme.
+    // Drop the scheme first.
     let after_scheme = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
-    // Host ends at the first '/', '?', '#', or ':'.
+    // The host ends at the first authority delimiter, and backslash has to count
+    // too: the WHATWG URL parser normalizes '\' to '/' in http(s) URLs, so a link
+    // like `http://evil.com\.secondlife.com/` really targets evil.com. Leaving '\'
+    // in the host would let that phishing URL read as a trusted domain.
     let host = after_scheme
-        .split(|c| c == '/' || c == '?' || c == '#')
+        .split(|c| c == '/' || c == '\\' || c == '?' || c == '#')
         .next()
         .unwrap_or("");
-    let host = host.split('@').next_back().unwrap_or(host); // drop userinfo
-    let host = host.split(':').next().unwrap_or(host); // drop port
+    let host = host.split('@').next_back().unwrap_or(host); // drop any userinfo
+    let host = host.split(':').next().unwrap_or(host); // drop the port
     if host.is_empty() {
         None
     } else {
@@ -78,7 +84,7 @@ fn host_trusted(host: &str) -> bool {
         .any(|s| host == *s || host.ends_with(&format!(".{s}")))
 }
 
-/// Trim trailing punctuation a URL should not swallow.
+/// Strip trailing punctuation that a URL shouldn't swallow.
 fn trim_trailing(url: &str) -> &str {
     let mut end = url.len();
     let bytes = url.as_bytes();
@@ -99,13 +105,13 @@ fn trim_trailing(url: &str) -> &str {
     &url[..end]
 }
 
-/// Build a friendly label for a SLURL: `Region (x, y, z)` when coordinates are
-/// present, else the region name, else the raw URL.
+/// Build a friendly label for a SLURL: `Region (x, y, z)` when the coordinates
+/// are present, otherwise the region name, and failing that the raw URL.
 fn slurl_label(url: &str) -> String {
-    // Locate the path after the scheme/host.
+    // Find the path that follows the scheme and host.
     let lower = url.to_ascii_lowercase();
     let path = if let Some(rest) = lower.strip_prefix("secondlife://") {
-        // secondlife://Region/x/y/z  or  secondlife:///app/...
+        // e.g. secondlife://Region/x/y/z  or  secondlife:///app/...
         let orig = &url["secondlife://".len()..];
         if rest.starts_with("/app/") || rest.starts_with("app/") {
             return url.to_string();
@@ -127,16 +133,16 @@ fn slurl_label(url: &str) -> String {
         .take(3)
         .filter_map(|p| p.parse::<i64>().ok())
         .collect();
-    if nums.len() >= 2 {
-        let z = nums.get(2).copied().unwrap_or(25);
-        format!("{region} ({}, {}, {})", nums[0], nums[1], z)
-    } else {
-        region
+    match nums.len() {
+        // Don't make up a Z the URL never carried: two-coord SLURLs render as (x, y).
+        n if n >= 3 => format!("{region} ({}, {}, {})", nums[0], nums[1], nums[2]),
+        2 => format!("{region} ({}, {})", nums[0], nums[1]),
+        _ => region,
     }
 }
 
-/// Minimal percent-decoding for SLURL region names (labels only, not security
-/// sensitive).
+/// Just enough percent-decoding for SLURL region names. These feed labels only,
+/// so it isn't security sensitive.
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -157,19 +163,20 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
-/// Parse the input into ordered text/link segments.
+/// Parse the input into an ordered run of text and link segments.
 pub fn linkify(text: &str) -> Vec<Segment> {
     use once_cell::sync::Lazy;
     use regex::Regex;
 
-    // `[ (secondlife://|http(s)://)URL  Label ]` -> masked label link.
+    // `[ (secondlife://|http(s)://)URL  Label ]` becomes a masked label link.
     static BRACKET: Lazy<Regex> = Lazy::new(|| {
         Regex::new(r#"(?i)\[\s*((?:secondlife://|https?://)[^\s\]]+)[ \t]+([^\]]*?)\s*\]"#).unwrap()
     });
-    // SLURLs: secondlife:// scheme or maps.secondlife.com map links.
+    // SLURLs: either the secondlife:// scheme, or maps.secondlife.com / slurl.com
+    // map links (the reference viewer's LLUrlEntrySLURL recognizes both map hosts).
     static SLURL: Lazy<Regex> = Lazy::new(|| {
         Regex::new(
-            r#"(?i)(?:secondlife://[^\s<>\]"]+|https?://maps\.secondlife\.com/secondlife/[^\s<>\]"]+)"#,
+            r#"(?i)(?:secondlife://[^\s<>\]"]+|https?://(?:maps\.secondlife\.com|slurl\.com)/secondlife/[^\s<>\]"]+)"#,
         )
         .unwrap()
     });
@@ -184,8 +191,10 @@ pub fn linkify(text: &str) -> Vec<Segment> {
         let whole = m.get(0).unwrap();
         let url = trim_trailing(m.get(1).unwrap().as_str()).to_string();
         let label = m.get(2).map(|l| l.as_str().trim().to_string());
-        let kind = if url.to_ascii_lowercase().starts_with("secondlife://")
-            || url.to_ascii_lowercase().contains("maps.secondlife.com/secondlife/")
+        let lower = url.to_ascii_lowercase();
+        let kind = if lower.starts_with("secondlife://")
+            || lower.contains("maps.secondlife.com/secondlife/")
+            || lower.contains("slurl.com/secondlife/")
         {
             LinkKind::Slurl
         } else {
@@ -237,14 +246,14 @@ pub fn linkify(text: &str) -> Vec<Segment> {
         });
     }
 
-    // Earliest match wins; on a tie the higher-priority matcher wins.
+    // Earliest match wins, and ties go to the higher-priority matcher.
     raws.sort_by(|a, b| a.start.cmp(&b.start).then(a.priority.cmp(&b.priority)));
 
     let mut segments: Vec<Segment> = Vec::new();
     let mut cursor = 0usize;
     for raw in raws {
         if raw.start < cursor || raw.end <= raw.start {
-            continue; // overlaps an already-accepted link
+            continue; // overlaps a link we've already accepted
         }
         if raw.start > cursor {
             segments.push(Segment::Text {
@@ -253,7 +262,7 @@ pub fn linkify(text: &str) -> Vec<Segment> {
         }
         let trusted = match raw.kind {
             LinkKind::Slurl => {
-                // secondlife:// is in-world (trusted); maps links checked by host.
+                // secondlife:// is in-world so always trusted; maps links get checked by host.
                 raw.url.to_ascii_lowercase().starts_with("secondlife://")
                     || host_of(&raw.url).map(|h| host_trusted(&h)).unwrap_or(false)
             }
@@ -325,7 +334,7 @@ mod tests {
 
     #[test]
     fn bracket_label_masks_url() {
-        // Firestorm LLUrlEntryHTTPLabel: [url  Label] -> shows "Label".
+        // Mirrors the reference viewer's LLUrlEntryHTTPLabel: [url  Label] shows "Label".
         let segs = linkify("click [http://www.example.org/x  Label text] now");
         let l = links(&segs);
         assert_eq!(l.len(), 1);
@@ -341,8 +350,8 @@ mod tests {
 
     #[test]
     fn unterminated_bracket_stays_plain_but_url_still_links() {
-        // "[http://x" with no closing ] : the bare-URL matcher still links the
-        // URL; the leading '[' is preserved as text.
+        // "[http://x" with no closing ]: the bare-URL matcher still links the
+        // URL, and the leading '[' is kept as text.
         let segs = linkify("[http://www.example.org/x");
         let l = links(&segs);
         assert_eq!(l.len(), 1);
@@ -357,6 +366,40 @@ mod tests {
                 assert_eq!(label, "Natoma (128, 64, 25)");
                 assert!(*trusted);
                 assert_eq!(*kind, LinkKind::Slurl);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn backslash_host_is_not_trusted() {
+        // `http://evil.com\.secondlife.com/` really targets evil.com (WHATWG
+        // normalizes '\' to '/'), so it must NOT be classified as a trusted domain.
+        let segs = linkify("visit http://evil.com\\.secondlife.com/phish now");
+        let l = links(&segs);
+        assert_eq!(l.len(), 1);
+        match l[0] {
+            Segment::Link { trusted, .. } => assert!(!*trusted, "backslash host must be untrusted"),
+            _ => panic!(),
+        }
+        // The userinfo variant mustn't be trusted either.
+        let segs2 = linkify("http://evil.com\\@login.secondlife.com/");
+        match links(&segs2)[0] {
+            Segment::Link { trusted, .. } => assert!(!*trusted),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn slurl_com_is_slurl_and_trusted() {
+        // Legacy slurl.com map links count as in-world SLURLs, not untrusted HTTP.
+        let segs = linkify("http://slurl.com/secondlife/Natoma/128/64/25");
+        let l = links(&segs);
+        assert_eq!(l.len(), 1);
+        match l[0] {
+            Segment::Link { kind, trusted, .. } => {
+                assert_eq!(*kind, LinkKind::Slurl);
+                assert!(*trusted);
             }
             _ => panic!(),
         }

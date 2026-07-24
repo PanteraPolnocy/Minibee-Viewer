@@ -1,14 +1,14 @@
 //! Parser for Linden Lab's `message_template.msg`.
 //!
-//! The template is embedded at build time and parsed once at startup into a
-//! registry keyed by message name (for encoding) and by wire id (for decoding).
-//! This gives a single generic codec that supports every message in the
-//! template instead of hand-written per-message parsers.
+//! We bake the template into the binary at build time and parse it just once
+//! at startup, building a registry keyed by message name (for encoding) and by
+//! wire id (for decoding). That gives us a single generic codec covering every
+//! message in the template, rather than a hand-written parser for each one.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Raw template text, bundled with the binary.
+/// Raw template text, shipped inside the binary.
 const TEMPLATE_SRC: &str = include_str!("../../resources/message_template.msg");
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -39,9 +39,9 @@ pub enum FieldType {
     Quat,
     IpAddr,
     IpPort,
-    /// Fixed-length byte blob of the given size.
+    /// A fixed-length byte blob of exactly the given size.
     Fixed(u16),
-    /// Variable-length blob with a 1- or 2-byte little-endian length prefix.
+    /// A variable-length blob, sized by a 1- or 2-byte little-endian prefix.
     VarLen(u8),
 }
 
@@ -69,7 +69,7 @@ pub struct BlockDef {
 pub struct MessageDef {
     pub name: String,
     pub frequency: Frequency,
-    /// Full wire id (e.g. Low 80 -> 0xFFFF0050).
+    /// The full wire id (e.g. Low 80 becomes 0xFFFF0050).
     pub id: u32,
     pub zerocoded: bool,
     pub blocks: Vec<BlockDef>,
@@ -102,7 +102,7 @@ enum Tok {
 fn tokenize(src: &str) -> Vec<Tok> {
     let mut toks = Vec::new();
     for raw_line in src.lines() {
-        // Strip `//` line comments.
+        // Drop anything from a `//` line comment onward.
         let line = match raw_line.find("//") {
             Some(i) => &raw_line[..i],
             None => raw_line,
@@ -165,7 +165,7 @@ fn field_type(name: &str, count: Option<u32>) -> Option<FieldType> {
     })
 }
 
-/// Parse the embedded template into a lookup registry.
+/// Turn the embedded template into a registry ready for lookups.
 pub fn build_registry() -> Registry {
     let toks = tokenize(TEMPLATE_SRC);
     let mut by_name = HashMap::new();
@@ -174,7 +174,7 @@ pub fn build_registry() -> Registry {
     let mut i = 0usize;
     let n = toks.len();
     while i < n {
-        // Advance to the next message-opening brace at top level.
+        // Walk forward to the next top-level `{`, which opens a message.
         match &toks[i] {
             Tok::LBrace => {}
             _ => {
@@ -182,9 +182,9 @@ pub fn build_registry() -> Registry {
                 continue;
             }
         }
-        i += 1; // consume message `{`
+        i += 1; // step past the message's opening `{`
 
-        // Header words until the first `{` (a block) or `}` (bodyless message).
+        // Gather the header words up to the first `{` (a block) or `}` (a bodyless message).
         let mut header = Vec::new();
         while i < n {
             match &toks[i] {
@@ -196,7 +196,7 @@ pub fn build_registry() -> Registry {
             }
         }
         if header.len() < 5 {
-            // Not a well-formed message header; skip to its closing brace.
+            // Header isn't well-formed, so skip ahead to its closing brace.
             i = skip_to_brace_close(&toks, i);
             continue;
         }
@@ -226,7 +226,7 @@ pub fn build_registry() -> Registry {
             Frequency::Fixed => number,
         };
 
-        // Parse blocks until the message-closing `}`.
+        // Read the blocks until the message's closing `}`.
         let mut blocks = Vec::new();
         while i < n {
             match &toks[i] {
@@ -235,7 +235,7 @@ pub fn build_registry() -> Registry {
                     break;
                 }
                 Tok::LBrace => {
-                    i += 1; // consume block `{`
+                    i += 1; // step past the block's opening `{`
                     let mut bhdr = Vec::new();
                     while i < n {
                         match &toks[i] {
@@ -260,7 +260,7 @@ pub fn build_registry() -> Registry {
                     };
                     let bname = bhdr.first().cloned().unwrap_or_default();
 
-                    // Parse fields until the block-closing `}`.
+                    // Read the fields until the block's closing `}`.
                     let mut fields = Vec::new();
                     while i < n {
                         match &toks[i] {
@@ -269,7 +269,7 @@ pub fn build_registry() -> Registry {
                                 break;
                             }
                             Tok::LBrace => {
-                                i += 1; // consume field `{`
+                                i += 1; // step past the field's opening `{`
                                 let mut fw = Vec::new();
                                 while i < n {
                                     match &toks[i] {
@@ -280,7 +280,7 @@ pub fn build_registry() -> Registry {
                                         _ => break,
                                     }
                                 }
-                                // consume field-closing `}`
+                                // step past the field's closing `}`
                                 if i < n {
                                     if let Tok::RBrace = &toks[i] {
                                         i += 1;
@@ -327,7 +327,7 @@ pub fn build_registry() -> Registry {
     Registry { by_name, by_id }
 }
 
-/// Skip forward past one balanced `{ ... }` group (defensive recovery).
+/// Skip past a single balanced `{ ... }` group, so we can recover from bad input.
 fn skip_to_brace_close(toks: &[Tok], mut i: usize) -> usize {
     let mut depth = 1i32;
     while i < toks.len() && depth > 0 {
@@ -348,27 +348,63 @@ mod tests {
     #[test]
     fn parses_known_messages() {
         let reg = build_registry();
-        // A healthy template yields hundreds of messages.
+        // A healthy template should hand us hundreds of messages.
         assert!(reg.len() > 300, "only parsed {} messages", reg.len());
 
-        // ChatFromViewer is Low 80 -> 0xFFFF0050.
+        // ChatFromViewer is Low 80, which comes out as 0xFFFF0050.
         let cfv = reg.by_name("ChatFromViewer").expect("ChatFromViewer");
         assert_eq!(cfv.frequency, Frequency::Low);
         assert_eq!(cfv.id, 0xFFFF_0050);
         assert!(cfv.zerocoded);
 
-        // PacketAck is Fixed 0xFFFFFFFB, unencoded.
+        // PacketAck is Fixed 0xFFFFFFFB and not zerocoded.
         let ack = reg.by_name("PacketAck").expect("PacketAck");
         assert_eq!(ack.frequency, Frequency::Fixed);
         assert_eq!(ack.id, 0xFFFF_FFFB);
         assert!(!ack.zerocoded);
 
-        // AgentUpdate is High 4.
+        // AgentUpdate lives at High 4.
         let au = reg.by_name("AgentUpdate").expect("AgentUpdate");
         assert_eq!(au.frequency, Frequency::High);
         assert_eq!(au.id, 4);
 
-        // Lookup by id round-trips.
+        // Looking it back up by id round-trips to the same message.
         assert_eq!(reg.by_id(0xFFFF_0050).unwrap().name, "ChatFromViewer");
+    }
+
+    /// Every message the frontend circuit handles (MSG_META in sl-packet.js) has
+    /// to exist in the registry, or else the Rust engine can't replace it.
+    #[test]
+    fn registry_covers_all_frontend_messages() {
+        let reg = build_registry();
+        const NEEDED: &[&str] = &[
+            "AcceptCallingCard", "ActivateGroup", "AgentAlertMessage", "AgentDataUpdate",
+            "AgentDataUpdateRequest", "AgentGroupDataUpdate", "AgentMovementComplete",
+            "AgentUpdate", "AlertMessage", "AvatarNotesUpdate", "AvatarPickerRequest",
+            "AvatarPropertiesRequest", "ChatFromSimulator", "ChatFromViewer",
+            "ClassifiedInfoRequest", "CoarseLocationUpdate", "CompleteAgentMovement",
+            "CompletePingCheck", "ConfirmEnableSimulator", "CrossedRegion",
+            "DataHomeLocationReply", "DataHomeLocationRequest", "DeclineCallingCard",
+            "DirFindQuery", "DirPlacesQuery", "DisableSimulator", "EconomyDataRequest",
+            "EnableSimulator", "FeatureDisabled", "GenericMessage", "GroupProfileRequest",
+            "GroupRoleDataRequest", "GroupTitleUpdate", "GroupTitlesRequest", "HealthMessage",
+            "ImprovedInstantMessage", "JoinGroupReply", "JoinGroupRequest", "KickUser",
+            "KillChildAgents", "LeaveGroupReply", "LeaveGroupRequest", "LoadURL", "LogoutReply",
+            "LogoutRequest", "MapBlockReply", "MapBlockRequest", "MapItemReply", "MapItemRequest",
+            "MapLayerReply", "MapNameRequest", "MeanCollisionAlert", "MoneyBalanceReply",
+            "MoneyBalanceRequest", "MoneyTransferRequest", "OfferCallingCard",
+            "OfflineNotification", "OnlineNotification", "PacketAck", "ParcelInfoReply",
+            "ParcelInfoRequest", "ParcelProperties", "ParcelPropertiesRequest",
+            "ParcelPropertiesRequestByID", "ParcelPropertiesUpdate", "RegionHandshake",
+            "RegionHandshakeReply", "ScriptAnswerYes", "ScriptControlChange", "ScriptDialog",
+            "ScriptDialogReply", "ScriptQuestion", "ScriptTeleportRequest",
+            "SimulatorViewerTimeMessage", "StartLure", "StartPingCheck", "SystemKickUser",
+            "TeleportCancel", "TeleportFailed", "TeleportFinish", "TeleportLandmarkRequest",
+            "TeleportLocal", "TeleportLocationRequest", "TeleportLureRequest", "TeleportProgress",
+            "TeleportStart", "TerminateFriendship", "UUIDNameReply", "UUIDNameRequest",
+            "UseCircuitCode", "ViewerFrozenMessage",
+        ];
+        let missing: Vec<&str> = NEEDED.iter().copied().filter(|m| reg.by_name(m).is_none()).collect();
+        assert!(missing.is_empty(), "registry missing frontend messages: {missing:?}");
     }
 }

@@ -1,12 +1,13 @@
 /**
- * Login screen.
+ * Login screen - credential entry, the login-challenge flow (MFA, ToS,
+ * critical messages), and the handoff to the app once the user connects.
  */
 const FSLogin = (function () {
   'use strict';
 
   const STORAGE_KEY = 'minibee-credentials';
   const STORAGE_KEY_LEGACY = 'fs-mobile-credentials';
-  // MFA tokens are stored one key per account under these prefixes.
+  // MFA tokens live one key per account, matched by these prefixes.
   const MFA_KEY_PATTERNS = [/^minibee-mfa-/i, /^fs-mobile-mfa-/i];
   const GRID_OPTIONS = ['agni', 'aditi', 'local'];
 
@@ -39,7 +40,7 @@ const FSLogin = (function () {
       saved = FSUtils.storageGet(STORAGE_KEY_LEGACY, null);
       if (saved) {
         FSUtils.storageSet(STORAGE_KEY, saved);
-        try { localStorage.removeItem(STORAGE_KEY_LEGACY); } catch (_e) { /* ignore */ }
+        try { localStorage.removeItem(STORAGE_KEY_LEGACY); } catch (_e) { /* ignore; storage may be unavailable */ }
       }
     }
     if (!saved) {
@@ -64,7 +65,7 @@ const FSLogin = (function () {
         remember: true
       });
     } else {
-      try { localStorage.removeItem(STORAGE_KEY); } catch (_e) { /* ignore */ }
+      try { localStorage.removeItem(STORAGE_KEY); } catch (_e) { /* ignore; storage may be unavailable */ }
     }
   }
 
@@ -77,7 +78,7 @@ const FSLogin = (function () {
           keys.push(key);
         }
       }
-    } catch (_e) { /* ignore */ }
+    } catch (_e) { /* ignore; storage may be unavailable */ }
     return keys;
   }
 
@@ -87,7 +88,7 @@ const FSLogin = (function () {
     return mfaKeys().length > 0;
   }
 
-  // Clear the saved username/grid and every remembered MFA token.
+  // Forget the saved username/grid and every remembered MFA token.
   async function forgetCredentials() {
     const ok = await FSUtils.confirm({
       title: 'Forget saved login?',
@@ -97,7 +98,7 @@ const FSLogin = (function () {
     });
     if (!ok) return;
     [STORAGE_KEY, STORAGE_KEY_LEGACY].concat(mfaKeys()).forEach(function (key) {
-      try { localStorage.removeItem(key); } catch (_e) { /* ignore */ }
+      try { localStorage.removeItem(key); } catch (_e) { /* ignore; storage may be unavailable */ }
     });
     const user = document.getElementById('login-username');
     const pass = document.getElementById('login-password');
@@ -186,7 +187,15 @@ const FSLogin = (function () {
         mfaFields.hidden = true;
       }
 
-      body.textContent = challenge.message || 'Please confirm to continue.';
+      // Render the message with clickable, safely-opened links, so a user can
+      // read a Terms of Service or critical-message URL before having to agree.
+      const rawMsg = challenge.message || 'Please confirm to continue.';
+      if (typeof FSSlurl !== 'undefined' && FSSlurl.linkify) {
+        body.innerHTML = FSSlurl.linkify(rawMsg, FSUtils.escapeHtml).replace(/\n/g, '<br>');
+        if (FSSlurl.bindLinks) FSSlurl.bindLinks(body);
+      } else {
+        body.textContent = rawMsg;
+      }
       decline.hidden = false;
 
       form.addEventListener('submit', onSubmit);
@@ -214,7 +223,7 @@ const FSLogin = (function () {
       showError('Viewer failed to load. Hard-refresh (Ctrl+Shift+R) and check the browser console.');
       return;
     }
-    if (typeof FSSLTransport === 'undefined') {
+    if (typeof FSSLBridge === 'undefined') {
       showError('Protocol module failed to load. Hard-refresh (Ctrl+Shift+R).');
       return;
     }
@@ -248,12 +257,10 @@ const FSLogin = (function () {
     const apply = function () {
       if (typeof MinibeeVersion !== 'undefined' && MinibeeVersion.isLoaded()) {
         el.textContent = MinibeeVersion.getVersionString();
-      } else if (typeof FSLoginSL !== 'undefined' && FSLoginSL.getViewerVersion) {
-        el.textContent = FSLoginSL.getViewerVersion();
       }
     };
     if (typeof MinibeeVersion !== 'undefined') {
-      MinibeeVersion.load().then(apply).catch(function () { /* keep HTML placeholder */ });
+      MinibeeVersion.load().then(apply).catch(function () { /* leave the HTML placeholder in place */ });
     }
   }
 

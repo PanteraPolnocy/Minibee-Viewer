@@ -30,7 +30,8 @@
     "licenseFile": "../LICENSE",
     "resources": {
       "../LICENSE": "LICENSE",
-      "../README.md": "README.md"
+      "../README.md": "README.md",
+      "../HELP.md": "HELP.md"
     },
     "icon": [
       "icons/32x32.png",

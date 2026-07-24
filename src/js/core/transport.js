@@ -1,11 +1,10 @@
 /**
- * Transport abstraction for future real SL protocol integration.
- *
- * Real implementation would need:
- * - XML-RPC login (login.cgi)
- * - UDP circuit + message_template.msg codec
- * - HTTP capability discovery (seed_capability)
- * - EventQueueGet long-poll
+ * The in-app event bus and method facade the UI talks to. The actual Second Life
+ * protocol - XML-RPC login, the UDP circuit and message_template.msg codec,
+ * capability discovery, and the EventQueueGet long-poll - all lives in the Rust
+ * core now. This layer just relays the core's events onto a bus the UI can
+ * subscribe to, and forwards UI actions to whichever adapter is wired up
+ * (sl-bridge.js, which turns them into invoke() calls).
  */
 const FSTransport = (function () {
   'use strict';
@@ -24,7 +23,14 @@ const FSTransport = (function () {
 
   function emit(event, data) {
     const set = handlers.get(event);
-    if (set) set.forEach(function (fn) { fn(data); });
+    if (!set) return;
+    // Keep each subscriber isolated: one handler that throws must not block
+    // delivery to the other subscribers of the same event (mirrors FSState.emit).
+    set.forEach(function (fn) {
+      try { fn(data); } catch (e) {
+        if (typeof console !== 'undefined') console.error('FSTransport handler for "' + event + '" threw', e);
+      }
+    });
   }
 
   async function login(credentials) {
@@ -35,6 +41,13 @@ const FSTransport = (function () {
   async function logout() {
     if (adapter && adapter.logout) await adapter.logout();
     emit('disconnected');
+  }
+
+  function reconnect() {
+    if (!adapter || !adapter.reconnect) {
+      return Promise.reject(new Error('Reconnect not supported'));
+    }
+    return adapter.reconnect();
   }
 
   function sendChat(text, options) {
@@ -109,6 +122,20 @@ const FSTransport = (function () {
       return Promise.resolve({ sent: false });
     }
     return adapter.declineCallingCard(transactionId);
+  }
+
+  function acceptFriendship(transactionId) {
+    if (!adapter || !adapter.acceptFriendship) {
+      return Promise.resolve({ sent: false });
+    }
+    return adapter.acceptFriendship(transactionId);
+  }
+
+  function declineFriendship(transactionId) {
+    if (!adapter || !adapter.declineFriendship) {
+      return Promise.resolve({ sent: false });
+    }
+    return adapter.declineFriendship(transactionId);
   }
 
   function isBuddy(agentId) {
@@ -199,6 +226,11 @@ const FSTransport = (function () {
       return Promise.reject(new Error('Parcel info unavailable'));
     }
     return adapter.fetchParcelInfo(parcelId);
+  }
+
+  function remoteParcel(gridX, gridY, x, y, z) {
+    if (!adapter || !adapter.remoteParcel) return Promise.resolve(null);
+    return adapter.remoteParcel(gridX, gridY, x, y, z);
   }
 
   function sendTeleportOffer(targetId, message) {
@@ -298,6 +330,26 @@ const FSTransport = (function () {
     return adapter.getBridgeUrl();
   }
 
+  function getCachedName(id) {
+    if (!adapter || !adapter.getCachedName) return '';
+    return adapter.getCachedName(id);
+  }
+
+  function getCachedNameInfo(id) {
+    if (!adapter || !adapter.getCachedNameInfo) return null;
+    return adapter.getCachedNameInfo(id);
+  }
+
+  function getGroupName(id) {
+    if (!adapter || !adapter.getGroupName) return '';
+    return adapter.getGroupName(id);
+  }
+
+  function queueNameResolve(ids) {
+    if (!adapter || !adapter.queueNameResolve) return;
+    adapter.queueNameResolve(ids);
+  }
+
   function start() {
     if (adapter && adapter.start) adapter.start();
   }
@@ -312,6 +364,7 @@ const FSTransport = (function () {
     emit: emit,
     login: login,
     logout: logout,
+    reconnect: reconnect,
     sendChat: sendChat,
     sendIm: sendIm,
     sendTypingState: sendTypingState,
@@ -324,6 +377,8 @@ const FSTransport = (function () {
     replyScriptPermission: replyScriptPermission,
     acceptCallingCard: acceptCallingCard,
     declineCallingCard: declineCallingCard,
+    acceptFriendship: acceptFriendship,
+    declineFriendship: declineFriendship,
     isBuddy: isBuddy,
     isAgentOnline: isAgentOnline,
     offerFriendship: offerFriendship,
@@ -338,6 +393,7 @@ const FSTransport = (function () {
     updateParcel: updateParcel,
     refreshParcel: refreshParcel,
     fetchParcelInfo: fetchParcelInfo,
+    remoteParcel: remoteParcel,
     sendTeleportOffer: sendTeleportOffer,
     sendTeleportRequest: sendTeleportRequest,
     acceptTeleportOffer: acceptTeleportOffer,
@@ -355,6 +411,10 @@ const FSTransport = (function () {
     getMapServerUrl: getMapServerUrl,
     getMapTileUrl: getMapTileUrl,
     getBridgeUrl: getBridgeUrl,
+    getCachedName: getCachedName,
+    getCachedNameInfo: getCachedNameInfo,
+    getGroupName: getGroupName,
+    queueNameResolve: queueNameResolve,
     start: start,
     stop: stop
   };

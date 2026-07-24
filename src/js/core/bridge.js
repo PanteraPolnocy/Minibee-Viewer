@@ -1,5 +1,5 @@
 /**
- * Native backend client over Tauri IPC (`window.__TAURI__.core.invoke`).
+ * Talks to the native backend over Tauri IPC (`window.__TAURI__.core.invoke`).
  */
 const FSBridge = (function () {
   'use strict';
@@ -16,12 +16,12 @@ const FSBridge = (function () {
   function invoke(cmd, args) {
     const t = tauri();
     if (!t || !t.core || typeof t.core.invoke !== 'function') {
-      return Promise.reject(new Error('Minibee backend unavailable — run the Minibee app (Tauri), not a browser.'));
+      return Promise.reject(new Error('Minibee backend unavailable - run the Minibee app (Tauri), not a browser.'));
     }
     return t.core.invoke(cmd, args || {});
   }
 
-  /** Subscribe to a backend event. Returns a Promise of an unlisten function. */
+  /** Subscribe to a backend event. Resolves to a function you call to unlisten. */
   function listen(event, handler) {
     const t = tauri();
     if (!t || !t.event || typeof t.event.listen !== 'function') {
@@ -89,7 +89,7 @@ const FSBridge = (function () {
     return invoke('bridge_proxy', { params: proxyParams(this, url, body, contentType, options, 'POST') });
   };
 
-  // Same backend path; kept distinct so latency-sensitive callers read clearly.
+  // Same backend path under the hood, but kept as its own name so latency-sensitive callers read clearly.
   Bridge.prototype.proxyPriority = function (url, body, contentType, options) {
     return invoke('bridge_proxy', { params: proxyParams(this, url, body, contentType, options, 'POST') });
   };
@@ -110,7 +110,7 @@ const FSBridge = (function () {
     return invoke('sl_retarget', { sessionId: sessionId, simIp: simIp, simPort: Number(simPort) || 0 });
   };
 
-  /** Encode (from the message template) and send a message on the circuit. */
+  /** Encode a message from the template and send it over the circuit. */
   Bridge.prototype.slSend = function (sessionId, name, blocks, reliable) {
     return invoke('sl_send', {
       sessionId: sessionId,
@@ -120,7 +120,7 @@ const FSBridge = (function () {
     });
   };
 
-  /** Send an already-framed packet (base64). Optional per-send sim target. */
+  /** Send an already-framed packet (base64). The sim target is optional, per send. */
   Bridge.prototype.slSendRaw = function (sessionId, packetB64, simIp, simPort) {
     const args = { sessionId: sessionId, packet: packetB64 };
     if (simIp) args.simIp = simIp;
@@ -137,7 +137,7 @@ const FSBridge = (function () {
     }
   };
 
-  // --- Map / Destination Guide helpers ---
+  // --- Map and Destination Guide helpers ---
 
   function mapTile(level, gridX, gridY, server) {
     return invoke('bridge_map_tile', { level: Number(level) || 1, x: Number(gridX) || 0, y: Number(gridY) || 0, server: server || undefined });

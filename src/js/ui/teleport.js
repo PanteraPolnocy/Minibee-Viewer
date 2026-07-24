@@ -1,14 +1,14 @@
 /**
- * Incoming teleport offer/request prompts.
+ * Prompts for handling incoming teleport offers and requests.
  */
 const FSTeleportUI = (function () {
   'use strict';
 
   let pending = null;
   let resolvePrompt = null;
-  // Offers/requests can arrive back-to-back; a single dialog + resolver slot
-  // meant the second one overwrote the first (leaking its promise) and threw on
-  // showModal(). Queue them and show one at a time.
+  // Offers and requests can arrive back-to-back. With only one dialog and one
+  // resolver slot, the second would overwrite the first (leaking its promise)
+  // and throw on showModal(), so we queue them and show one at a time.
   const promptQueue = [];
 
   function dialogEl() {
@@ -55,7 +55,7 @@ const FSTeleportUI = (function () {
       const loc = payload.location;
       note.textContent = 'Region grid ' + loc.gridX + ',' + loc.gridY +
         ' at ' + Math.round(loc.position.x) + ',' + Math.round(loc.position.y) +
-        ' (' + loc.regionAccess + ')';
+        (loc.regionAccess ? ' (' + loc.regionAccess + ')' : '');
       note.hidden = false;
     } else {
       note.hidden = true;
@@ -86,13 +86,13 @@ const FSTeleportUI = (function () {
     resolvePrompt = null;
     closePrompt();
     if (done) done(action);
-    // Show the next queued prompt once this dialog has fully closed.
+    // Wait for this dialog to fully close, then bring up the next queued prompt.
     if (promptQueue.length) setTimeout(showNext, 0);
     return current;
   }
 
-  // Session lost / logout: decline anything on screen or queued so the awaiting
-  // handlers unwind instead of leaking their promises.
+  // On session loss or logout, decline whatever is on screen or still queued so
+  // the awaiting handlers can unwind instead of leaking their promises.
   function reset() {
     const queued = promptQueue.splice(0);
     const done = resolvePrompt;
@@ -223,7 +223,7 @@ const FSTeleportUI = (function () {
       finish('decline');
     });
 
-    // Don't strand a pending offer when the session drops.
+    // Make sure a pending offer isn't left stranded when the session drops.
     if (typeof FSState !== 'undefined' && FSState.on) {
       FSState.on('reset', reset);
       FSState.on('change', function (partial) {
@@ -244,9 +244,6 @@ const FSTeleportUI = (function () {
     });
     FSTransport.on('teleport-cancelled', function () {
       FSUtils.showToast('Teleport cancelled', 'warning');
-    });
-    FSTransport.on('teleport-forced', function () {
-      FSUtils.showToast('You are being teleported...', 'warning', 4500);
     });
     FSTransport.on('teleport-finish', function () {
       FSUtils.showToast('Arrived in region', 'success');

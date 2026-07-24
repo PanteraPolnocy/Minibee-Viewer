@@ -1,11 +1,28 @@
 /**
- * Buddies / friends list.
+ * Buddies - the friends list.
  */
 const FSBuddies = (function () {
   'use strict';
 
   let filter = '';
   let onlineOnly = false;
+
+  // A buddy arrives with just a UUID; its display name resolves later and
+  // asynchronously via GetDisplayNames (which reaches us as names-updated).
+  // Prefer the resolved cache, falling back to whatever the buddy object carries.
+  function nameLines(agent) {
+    const info = agent && agent.id && typeof FSTransport.getCachedNameInfo === 'function'
+      ? FSTransport.getCachedNameInfo(agent.id)
+      : null;
+    if (info && (info.userName || info.label || info.displayName)) {
+      return FSUtils.agentNameLines({
+        displayName: info.displayName || '',
+        userName: info.userName || info.label || '',
+        name: info.label || (agent && agent.name) || ''
+      });
+    }
+    return FSUtils.agentNameLines(agent);
+  }
 
   function iconProfile() {
     return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
@@ -22,7 +39,7 @@ const FSBuddies = (function () {
     const li = document.createElement('li');
     li.className = 'entity-item';
     li.dataset.id = buddy.id;
-    const names = FSUtils.agentNameLines(buddy);
+    const names = nameLines(buddy);
     const status = buddy.online ? (buddy.region || 'Online') : 'Offline';
     const notes = buddy.notes ? ' - ' + buddy.notes : '';
 
@@ -57,8 +74,8 @@ const FSBuddies = (function () {
         FSIm.startImWith(buddy);
         return;
       }
-      // Without this the same click bubbles to the document handler that closes
-      // the menu, so it would open and shut in one event.
+      // Stop here - otherwise this same click bubbles up to the document
+      // handler that closes the menu, and it would open and shut in one event.
       e.stopPropagation();
       showContextMenu(e, buddy);
     });
@@ -82,7 +99,7 @@ const FSBuddies = (function () {
       { label: 'Teleport offer', fn: function () { FSTeleportUI.offerTo(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
       { label: 'Teleport request', fn: function () { FSTeleportUI.requestFrom(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
       { label: 'Remove friend', fn: async function () {
-        const names = FSUtils.agentNameLines(buddy);
+        const names = nameLines(buddy);
         const label = names.title || buddy.name || 'this friend';
         const ok = await FSUtils.confirm({
           title: 'Remove friend?',
@@ -137,7 +154,7 @@ const FSBuddies = (function () {
     if (filter) {
       const q = filter.toLowerCase();
       buddies = buddies.filter(function (b) {
-        const names = FSUtils.agentNameLines(b);
+        const names = nameLines(b);
         return names.title.toLowerCase().indexOf(q) !== -1 ||
           (names.subtitle && names.subtitle.toLowerCase().indexOf(q) !== -1) ||
           (b.notes && b.notes.toLowerCase().indexOf(q) !== -1);
@@ -193,6 +210,12 @@ const FSBuddies = (function () {
 
     FSState.on('change', function (partial) {
       if (partial.buddies && FSNavigation.isTabActive('buddies')) render();
+    });
+
+    // Names land asynchronously, after the list has first rendered, so repaint
+    // to swap the UUID placeholder out for the real names on each row.
+    FSTransport.on('names-updated', function () {
+      if (FSNavigation.isTabActive('buddies')) render();
     });
 
     FSState.on('reset', function () {

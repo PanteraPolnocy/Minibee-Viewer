@@ -1,5 +1,6 @@
 /**
- * World map panel with tile rendering, click-to-select, and manual teleport.
+ * The world map panel: renders tiles, lets you click to pick a spot, and
+ * handles manual teleports.
  */
 const FSMap = (function () {
   'use strict';
@@ -16,8 +17,8 @@ const FSMap = (function () {
   let mapServerUrl = FSSlurl.DEFAULT_MAP_SERVER;
   let centerGridX = 1000;
   let centerGridY = 1000;
-  // Once the user pans, stop auto-following the agent's position so their view
-  // isn't yanked back on every movement tick. Reset on tab open / teleport.
+  // Once the user pans, we stop auto-following the agent's position so the
+  // view isn't yanked back on every movement tick. Reset on tab open or teleport.
   let userPanned = false;
   let selection = null;
   let regionInfo = new Map();
@@ -315,7 +316,7 @@ const FSMap = (function () {
         }
       });
     }).catch(function () {
-      /* ignore */
+      /* best effort - ignore failures */
     }).finally(function () {
       batch.forEach(function (item) {
         httpNamePending.delete(item.key);
@@ -479,8 +480,8 @@ const FSMap = (function () {
       waiters.forEach(function (fn) { fn(); });
     }
 
-    // Fallback: fetch the tile bytes through the native core (bypasses any
-    // cross-origin restriction on the map server) and build a blob URL.
+    // Fallback path: pull the tile bytes through the native core (which sidesteps
+    // any cross-origin restriction on the map server) and wrap them in a blob URL.
     function loadViaBackend() {
       FSBridge.mapTile(MAP_LEVEL, gridX, gridY, mapServerUrl).then(function (data) {
         if (!data || !data.b64) throw new Error('no tile');
@@ -603,7 +604,7 @@ const FSMap = (function () {
   function centerOn(gridX, gridY) {
     centerGridX = gridX;
     centerGridY = gridY;
-    userPanned = false; // an explicit recenter resumes following
+    userPanned = false; // an explicit recenter resumes following the agent
   }
 
   function handleMapClick(e) {
@@ -772,14 +773,16 @@ const FSMap = (function () {
     FSNavigation.switchTab('map');
     const hasGrid = parsed.gridX !== undefined && parsed.gridY !== undefined;
     const regionName = String(parsed.regionName || '').trim();
-    if (hasGrid && regionName) {
+    // Grid coords alone are enough to center; the region name is optional (a pick
+    // may not carry one). Requesting the tile area will resolve the name anyway.
+    if (hasGrid) {
       centerOn(parsed.gridX, parsed.gridY);
       setSelection(parsed);
       const field = el('map-location-input');
-      if (field) field.value = FSSlurl.buildMapsUrl(regionName, parsed);
+      if (field && regionName) field.value = FSSlurl.buildMapsUrl(regionName, parsed);
       if (FSState.gridOnline() && typeof FSTransport.requestMapArea === 'function') {
         FSTransport.requestMapArea(parsed.gridX, parsed.gridY, parsed.gridX, parsed.gridY)
-          .catch(function () { /* optional tile refresh */ });
+          .catch(function () { /* tile refresh is optional - ignore errors */ });
       }
       return;
     }
@@ -976,9 +979,18 @@ const FSMap = (function () {
       } else {
         resetTeleportButton();
       }
-      userPanned = false; // arriving somewhere new resumes following
+      userPanned = false; // arriving somewhere new resumes following the agent
       syncAvatarOnMap(data);
-      if (data && data.region) {
+      if (data && data.gridX != null && data.gridY != null) {
+        // Recenter on the destination region - the grid coords come decoded from
+        // the teleport's RegionHandle. Without this the map lingers on the old region.
+        centerOn(data.gridX, data.gridY);
+        setSelection({
+          regionName: data.regionName || getRegionName(data.gridX, data.gridY) ||
+            ('Region ' + data.gridX + ', ' + data.gridY),
+          gridX: data.gridX, gridY: data.gridY
+        });
+      } else if (data && data.region) {
         const region = normalizeRegion(data.region);
         if (region.x !== undefined && region.y !== undefined) {
           centerGridX = region.x;

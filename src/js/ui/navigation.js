@@ -1,10 +1,10 @@
 /**
- * Tab navigation and shell chrome.
+ * Tab navigation and the shell chrome around it - the top bar, nav badges, and status readouts.
  */
 const FSNavigation = (function () {
   'use strict';
 
-  const TABS = ['chat', 'im', 'events', 'buddies', 'search', 'radar', 'map', 'land', 'destinations', 'errors'];
+  const TABS = ['chat', 'im', 'events', 'buddies', 'search', 'radar', 'map', 'land', 'destinations', 'settings'];
   const radarKnownIds = new Set();
   const SLT_TICK_MS = 60000;
   let sltTimer = null;
@@ -130,10 +130,10 @@ const FSNavigation = (function () {
           FSDestinations.loadFeed(null, false);
         }
         break;
-      case 'errors':
-        if (typeof FSErrorsUI.activate === 'function') FSErrorsUI.activate();
-        else if (typeof FSErrorsUI.render === 'function') FSErrorsUI.render();
-        if (typeof FSErrorsUI.markViewed === 'function') FSErrorsUI.markViewed();
+      case 'settings':
+        if (typeof FSSettingsUI !== 'undefined' && typeof FSSettingsUI.activate === 'function') {
+          FSSettingsUI.activate();
+        }
         break;
       default:
         break;
@@ -186,9 +186,6 @@ const FSNavigation = (function () {
     setBadge('badge-events', eventsUnread);
     setDot('badge-radar', (s.unreadRadar || 0) > 0 && s.activeTab !== 'radar');
     setDot('badge-land', !!s.landUpdated && s.activeTab !== 'land');
-    if (typeof FSErrorsUI.updateNavBadge === 'function') {
-      FSErrorsUI.updateNavBadge();
-    }
   }
 
   function setBadge(id, count) {

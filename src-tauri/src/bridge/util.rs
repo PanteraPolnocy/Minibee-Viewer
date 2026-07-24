@@ -1,5 +1,5 @@
-//! Shared helpers for the Second Life UDP/HTTP transport: address and UUID
-//! normalisation, seed-capability URL rewriting, and LLSD capability parsing.
+//! Small shared helpers for the Second Life UDP/HTTP transport: normalising
+//! addresses and UUIDs, rewriting seed-capability URLs, and parsing LLSD caps.
 
 use std::collections::HashMap;
 
@@ -7,8 +7,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
 
-/// Escape a string for embedding in XML text/attributes (XML1 entities plus
-/// both quote characters).
+/// Escape a string so it's safe inside XML text or attributes (the XML1
+/// entities, plus both quote characters).
 pub fn xml_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -24,7 +24,7 @@ pub fn xml_escape(s: &str) -> String {
     out
 }
 
-/// Interpret a 32-bit integer as a dotted IPv4 address.
+/// Format a 32-bit integer as a dotted IPv4 address.
 pub fn long2ip(n: u32) -> String {
     format!(
         "{}.{}.{}.{}",
@@ -39,8 +39,8 @@ fn is_valid_ip(s: &str) -> bool {
     s.parse::<std::net::IpAddr>().is_ok()
 }
 
-/// Normalise a sim IP that may arrive as an integer, dotted string, numeric
-/// string, or hostname.
+/// Normalise a sim IP, which may arrive as an integer, a dotted string, a
+/// numeric string, or a hostname.
 pub fn normalize_sim_ip(value: &Value) -> String {
     match value {
         Value::Number(n) => {
@@ -70,13 +70,13 @@ pub fn normalize_sim_ip_str(raw: &str) -> String {
             return long2ip((u & 0xFFFF_FFFF) as u32);
         }
     }
-    // Hostname: return unchanged. DNS resolution happens asynchronously at the
-    // point of use (circuit::open via lookup_host); doing a blocking
-    // getaddrinfo here would stall a Tokio worker thread.
+    // Hostname: leave it unchanged. DNS gets resolved asynchronously at the
+    // point of use (circuit::open via lookup_host); a blocking getaddrinfo
+    // here would stall a Tokio worker thread.
     s.to_string()
 }
 
-/// Convert a UUID string to its 16 raw bytes; zero-filled when malformed.
+/// Convert a UUID string into its 16 raw bytes, or all zeros if it's malformed.
 pub fn uuid_to_bytes(uuid: &str) -> [u8; 16] {
     let hex: String = uuid.chars().filter(|c| c.is_ascii_hexdigit()).collect();
     let mut out = [0u8; 16];
@@ -103,7 +103,7 @@ static SEED_SIMHOST_PATH: Lazy<Regex> = Lazy::new(|| {
 });
 static SIMHOST_HOST: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^simhost-\d+$").unwrap());
 
-/// Rewrite the split simhost seed capability form into the collapsed host form
+/// Collapse the split simhost seed-capability form back into its single-host form
 /// (e.g. `https://simhost-N/HEX.agni.secondlife.io/...` -> `https://simhost-NHEX...`).
 pub fn normalize_seed_url(url: &str) -> String {
     let mut url = url.trim().to_string();
@@ -114,7 +114,7 @@ pub fn normalize_seed_url(url: &str) -> String {
         url = format!("https://{}", url.trim_start_matches('/'));
     }
 
-    // Parsed-URL branch: `simhost-N` host + `/HEX.agni.secondlife.io.../cap/...`
+    // Parsed-URL branch: a `simhost-N` host with `/HEX.agni.secondlife.io.../cap/...`.
     if let Ok(parsed) = reqwest::Url::parse(&url) {
         if let Some(host) = parsed.host_str() {
             if SIMHOST_HOST.is_match(host) {
@@ -141,7 +141,7 @@ pub fn normalize_seed_url(url: &str) -> String {
         }
     }
 
-    // Raw-string branch.
+    // Raw-string branch: match the URL text directly.
     if let Some(caps) = SEED_SIMHOST_RAW.captures(&url) {
         let n = &caps[2];
         let hex = &caps[3];
@@ -159,7 +159,7 @@ static LLSD_CAP_MAP: Lazy<Regex> = Lazy::new(|| {
 static LLSD_CAP_KEYS: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)<key>([^<]+)</key>\s*<(?:uri|string)>").unwrap());
 
-/// Build the LLSD `<array>` of capability names sent to the seed cap.
+/// Build the LLSD `<array>` of capability names we send to the seed cap.
 pub fn llsd_array_xml(names: &[&str]) -> String {
     let mut inner = String::new();
     for name in names {
@@ -170,7 +170,7 @@ pub fn llsd_array_xml(names: &[&str]) -> String {
     format!("<llsd><array>{inner}</array></llsd>\n")
 }
 
-/// Extract capability name→URL pairs from an LLSD map response.
+/// Pull the capability name-to-URL pairs out of an LLSD map response.
 pub fn llsd_cap_map(body: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for caps in LLSD_CAP_MAP.captures_iter(body) {
@@ -179,7 +179,7 @@ pub fn llsd_cap_map(body: &str) -> HashMap<String, String> {
     map
 }
 
-/// Extract the ordered list of capability keys present in an LLSD map.
+/// List the capability keys found in an LLSD map, in the order they appear.
 pub fn llsd_cap_keys(body: &str) -> Vec<String> {
     LLSD_CAP_KEYS
         .captures_iter(body)
@@ -187,14 +187,14 @@ pub fn llsd_cap_keys(body: &str) -> Vec<String> {
         .collect()
 }
 
-/// A seed grant is usable once it contains at least one region cap.
+/// A seed grant becomes usable as soon as it carries at least one region cap.
 pub fn seed_has_region_caps(keys: &[String]) -> bool {
     let needles = ["eventqueueget", "getdisplaynames", "remoteparcelrequest"];
     keys.iter()
         .any(|k| needles.contains(&k.to_ascii_lowercase().as_str()))
 }
 
-/// Trim spaces, tabs, and surrounding single/double quotes.
+/// Strip leading and trailing spaces, tabs, and any wrapping single or double quotes.
 pub fn trim_quotes(s: &str) -> String {
     s.trim_matches(|c| c == ' ' || c == '\t' || c == '"' || c == '\'')
         .to_string()
@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn normalize_sim_ip_from_integer() {
-        // 3232235777 = 0xC0A80101 = 192.168.1.1
+        // 3232235777 is 0xC0A80101, i.e. 192.168.1.1
         assert_eq!(normalize_sim_ip(&json!(3232235777u64)), "192.168.1.1");
     }
 
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn normalize_seed_url_collapses_split_simhost() {
-        // Split form: host `simhost-<digits>`, path `/<hex>.agni.secondlife.io.../cap/...`.
+        // Split form: a `simhost-<digits>` host with a `/<hex>.agni.secondlife.io.../cap/...` path.
         let input = "https://simhost-1234/abcdef.agni.secondlife.io:12043/cap/foo";
         assert_eq!(
             normalize_seed_url(input),

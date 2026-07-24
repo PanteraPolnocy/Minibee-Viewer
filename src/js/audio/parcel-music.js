@@ -1,8 +1,9 @@
 /**
- * Parcel music streaming via HTMLAudioElement.
+ * Parcel music streaming, built on a plain HTMLAudioElement.
  *
- * Most SL parcel streams are plain Shoutcast/Icecast/MP3. Parcel-wide only (no
- * positional audio). Autoplay is opt-in; mixed http/https may be blocked.
+ * Most SL parcel streams are ordinary Shoutcast/Icecast/MP3, so this stays
+ * parcel-wide with no positional audio. Autoplay is opt-in, and mixing http
+ * with https may get the stream blocked.
  */
 const FSParcelMusic = (function () {
   'use strict';
@@ -25,12 +26,18 @@ const FSParcelMusic = (function () {
   }
 
   function updateToggleUI() {
+    // Track the on/off intent (enabled) here, not the transient `playing` state:
+    // a stream can be enabled while 'playing' hasn't fired yet (buffering or
+    // blocked), which otherwise left the slashed "off" note showing the whole time.
     if (els.toggle) {
-      els.toggle.setAttribute('aria-pressed', playing ? 'true' : 'false');
-      els.toggle.title = playing ? 'Pause parcel music' : 'Play parcel music';
+      els.toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+      els.toggle.title = enabled ? 'Stop parcel music' : 'Play parcel music';
     }
-    if (els.iconOn) els.iconOn.hidden = !playing;
-    if (els.iconOff) els.iconOff.hidden = playing;
+    // An <svg> is an SVGElement, which has no `.hidden` IDL property, so setting
+    // it does nothing. Toggle the real attribute instead, since that's what the
+    // CSS (svg[hidden]) reacts to.
+    if (els.iconOn) els.iconOn.toggleAttribute('hidden', !enabled);
+    if (els.iconOff) els.iconOff.toggleAttribute('hidden', enabled);
   }
 
   function ensureAudio() {
@@ -61,7 +68,7 @@ const FSParcelMusic = (function () {
         updateToggleUI();
         setNow('Playing: ' + currentUrl);
       }).catch(function () {
-        // Autoplay blocked or mixed content refused.
+        // Autoplay was blocked, or mixed content was refused.
         playing = false;
         updateToggleUI();
         setNow('Click Play to start: ' + currentUrl);
@@ -76,15 +83,15 @@ const FSParcelMusic = (function () {
   function stop() {
     if (audio) {
       audio.pause();
-      try { audio.removeAttribute('src'); audio.load(); } catch (_e) { /* ignore */ }
+      try { audio.removeAttribute('src'); audio.load(); } catch (_e) { /* safe to ignore */ }
     }
     playing = false;
     updateToggleUI();
   }
 
-  // Called when the parcel's music URL changes. The top-bar control is only
-  // visible when the current parcel actually streams music, so it never implies
-  // the user can edit someone else's land.
+  // Runs whenever the parcel's music URL changes. The top-bar control only shows
+  // when the current parcel actually streams music, so it never suggests the user
+  // can edit someone else's land.
   function applyUrl(url) {
     const next = String(url || '').trim();
     if (next === currentUrl) {
@@ -117,8 +124,9 @@ const FSParcelMusic = (function () {
     }
   }
 
-  // Top-bar speaker click: enable + play, or disable + stop. Because the click
-  // is a user gesture, play() succeeds even when autoplay would be blocked.
+  // Handles the top-bar speaker click: enable and play, or disable and stop.
+  // Since the click counts as a user gesture, play() succeeds even where autoplay
+  // would normally be blocked.
   function toggle() {
     if (playing) {
       setEnabled(false);
@@ -159,7 +167,28 @@ const FSParcelMusic = (function () {
     showRoot(false);
     updateToggleUI();
 
-    // React to parcel changes (music must follow the agent, not the Land tab).
+    // Pick up enable/volume changes made over in the Settings tab. The guard
+    // keeps our own writes from looping back through FSSettings.set.
+    if (typeof FSSettings !== 'undefined' && FSSettings.onChange) {
+      FSSettings.onChange(function (key, value) {
+        if (key === 'parcelMusicEnabled') {
+          const on = !!value;
+          if (on === enabled) return;
+          enabled = on;
+          updateToggleUI();
+          if (enabled) { if (currentUrl) play(); }
+          else { stop(); if (currentUrl) setNow('Parcel music available: ' + currentUrl); }
+        } else if (key === 'parcelMusicVolume') {
+          const v = Math.max(0, Math.min(100, Number(value) || 0));
+          if (Math.round(volume * 100) === v) return;
+          volume = v / 100;
+          if (audio) audio.volume = volume;
+          if (els.volume) els.volume.value = String(v);
+        }
+      });
+    }
+
+    // React to parcel changes - music should follow the agent, not the Land tab.
     if (typeof FSState !== 'undefined' && FSState.on) {
       FSState.on('change', function (partial) {
         if (partial && Object.prototype.hasOwnProperty.call(partial, 'parcel')) {
@@ -170,8 +199,9 @@ const FSParcelMusic = (function () {
           applyUrl('');
         }
       });
-      // Logout / disconnect clears the session via reset() (which does not emit
-      // a 'change'); stop the stream so music never outlives the session.
+      // Logout or disconnect clears the session through reset(), which doesn't
+      // emit a 'change', so stop the stream here - music should never outlive
+      // the session.
       FSState.on('reset', function () { applyUrl(''); });
       const parcel = (FSState.get() || {}).parcel;
       if (parcel && parcel.musicUrl) applyUrl(parcel.musicUrl);

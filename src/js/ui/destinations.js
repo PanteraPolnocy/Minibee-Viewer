@@ -1,5 +1,5 @@
 /**
- * Destination Guide panel - Linden Lab curated destinations feed.
+ * Destination Guide panel - shows Linden Lab's curated destinations feed.
  */
 const FSDestinations = (function () {
   'use strict';
@@ -136,7 +136,25 @@ const FSDestinations = (function () {
   function renderCard(item) {
     const name = String(item.name || 'Destination').trim();
     const desc = String(item.description || '').trim();
-    const slurl = String(item.slurl || '').trim();
+    let slurl = '';
+    if (typeof item.slurl === 'string') {
+      slurl = item.slurl.trim();
+    } else if (item.slurl && typeof item.slurl === 'object') {
+      // A few feed items hand us slurl as an object instead of a string, and
+      // `String()` on it produced "[object Object]", which then broke teleport.
+      // So we log its shape (diag) and best-effort build a secondlife:// SLURL.
+      const o = item.slurl;
+      if (typeof FSDiag !== 'undefined' && FSDiag.log) {
+        FSDiag.log('destinations', 'slurl is an object, keys: ' + Object.keys(o).join(','));
+      }
+      const rn = o.region_name || o.regionName || o.sim_name || o.region || o.name || '';
+      if (rn) {
+        const x = o.x != null ? o.x : (o.global_x != null ? o.global_x : 128);
+        const y = o.y != null ? o.y : (o.global_y != null ? o.global_y : 128);
+        const z = o.z != null ? o.z : 22;
+        slurl = 'secondlife://' + String(rn).trim().replace(/\s+/g, '%20') + '/' + x + '/' + y + '/' + z;
+      }
+    }
     const image = assetFullsize(item);
     const mat = String(item.maturity || '').toUpperCase();
     const pop = item.population && Number.isFinite(Number(item.population.current))

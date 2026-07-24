@@ -1,6 +1,6 @@
 [package]
 name = "minibee-viewer"
-version = "0.6.4"
+version = "0.7.0"
 description = "Minibee Viewer"
 authors = ["PanteraPolnocy"]
 edition = "2024"
@@ -32,6 +32,16 @@ regex = "1"
 urlencoding = "2"
 futures = "0.3"
 once_cell = "1"
+# About screen: cross-platform OS version + memory stats.
+os_info = "3"
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+
+# Hardware id lookup (mac/id0), per platform.
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+mac_address = "1.1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wmi = "0.14"
 
 [profile.release]
 opt-level = 3

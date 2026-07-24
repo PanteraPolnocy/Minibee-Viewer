@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const src = fs.readFileSync(path.join(here, '..', 'src', 'js', 'protocol', 'sl-slurl.js'), 'utf8');
+const src = fs.readFileSync(path.join(here, '..', 'src', 'js', 'core', 'sl-slurl.js'), 'utf8');
 
 // eslint-disable-next-line no-new-func
 const FSSlurl = new Function('window', 'document', src + '\n;return FSSlurl;')({}, undefined);
