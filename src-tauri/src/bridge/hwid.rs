@@ -87,7 +87,7 @@ fn is_usable_uuid(s: &str) -> bool {
 #[cfg(target_os = "windows")]
 fn windows_ids() -> (Option<String>, Option<String>, Option<u32>) {
     use std::collections::HashMap;
-    use wmi::{COMLibrary, Variant, WMIConnection};
+    use wmi::{Variant, WMIConnection};
 
     fn str_field(
         con: &WMIConnection,
@@ -105,11 +105,7 @@ fn windows_ids() -> (Option<String>, Option<String>, Option<u32>) {
         None
     }
 
-    let com = match COMLibrary::new() {
-        Ok(c) => c,
-        Err(_) => return (None, None, None),
-    };
-    let con = match WMIConnection::new(com) {
+    let con = match WMIConnection::new() {
         Ok(c) => c,
         Err(_) => return (None, None, None),
     };
