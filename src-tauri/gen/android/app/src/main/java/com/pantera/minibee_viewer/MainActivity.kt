@@ -4,6 +4,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.webkit.WebSettings
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -13,6 +15,19 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     requestNotificationPermission()
+  }
+
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    // Parcel music streams are nearly always plain http:// Shoutcast/Icecast,
+    // while the app itself is served over https - so Android counts them as mixed
+    // content and, by default, refuses to play them at all.
+    //
+    // COMPATIBILITY_MODE is the narrowest setting that helps: it lets passive
+    // content through (audio, video, images) while still blocking the dangerous
+    // kind - insecure scripts, stylesheets and fetch/XHR. ALWAYS_ALLOW would also
+    // work but permits far more than we need for an audio stream.
+    webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
   }
 
   override fun onPause() {

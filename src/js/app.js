@@ -397,7 +397,7 @@ const FSApp = (function () {
     if (window.MINIBEE_BLOCKED) return;
     try {
       if (typeof FSDiag !== 'undefined') FSDiag.init();
-      disableContextMenuInRelease();
+      installContextMenu();
       if (typeof FSSettings !== 'undefined') FSSettings.init();
       bindUnloadGuard();
       bindTransport();
@@ -430,9 +430,11 @@ const FSApp = (function () {
     }
   }
 
-  // In release builds the WebView's default right-click menu exposes a Reload
-  // item that just confuses end users, so suppress it. Dev builds keep it.
-  function disableContextMenuInRelease() {
+  function installContextMenu() {
+    if (typeof FSContextMenu !== 'undefined' && FSContextMenu.init) {
+      FSContextMenu.init();
+      return;
+    }
     if (typeof FSBridge === 'undefined' || !FSBridge.invoke) return;
     FSBridge.invoke('bridge_health').then(function (h) {
       if (h && h.dev === false) {

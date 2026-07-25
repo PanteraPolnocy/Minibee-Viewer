@@ -130,6 +130,10 @@ impl Session {
         self.engine.lock().unwrap().as_ref().and_then(|s| s.caps.get(name).cloned())
     }
 
+    pub fn last_position(&self) -> Option<[f64; 3]> {
+        self.engine.lock().unwrap().as_ref().and_then(|s| s.last_pos)
+    }
+
     /// Swap in a fresh capability map for the engine, e.g. after a region change.
     pub fn set_caps(&self, caps: std::collections::HashMap<String, String>) {
         if let Some(st) = self.engine.lock().unwrap().as_mut() {

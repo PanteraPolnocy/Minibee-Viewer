@@ -89,6 +89,11 @@ pub struct SessionState {
     /// The agent's group powers (lowercased group id -> GP_* bitmask), so that
     /// editing group land can demand the actual land power rather than mere membership.
     pub group_powers: HashMap<String, u64>,
+    /// What we know about each group we belong to (lowercased id -> that group's
+    /// row). The sim may describe our membership across several
+    /// AgentGroupDataUpdate messages, so these accumulate rather than replace;
+    /// see merge_group_data.
+    pub group_data: HashMap<String, Value>,
     /// Wall-clock ms, refreshed by the IO layer before every route() call so that
     /// time-based dedup stays deterministic and testable.
     pub now_ms: u64,
@@ -320,6 +325,58 @@ mod pflag {
 
 fn set_flag(flags: u32, bit: u32, on: bool) -> u32 {
     if on { flags | bit } else { flags & !bit }
+}
+
+/// Merge a batch of group rows into what we already know and hand back the full
+/// membership, sorted by name.
+///
+/// The sim is free to describe our groups over several AgentGroupDataUpdate
+/// messages (and sends single-group updates after a join or leave), so replacing
+/// the list wholesale would drop every group not mentioned in the latest
+/// message - which is exactly how groups went missing from the profile. The
+/// reference viewer merges per group too (llagent.cpp
+/// processAgentGroupDataUpdate). Membership ids and powers are refreshed here as
+/// well, since parcel edit-gating leans on them.
+fn merge_group_data(state: &mut SessionState, incoming: Vec<Value>) -> Vec<Value> {
+    for g in incoming {
+        let id = g.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if is_zero_uuid(&id) {
+            continue;
+        }
+        let key = id.to_lowercase();
+        let powers = g
+            .get("powers")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        state.group_powers.insert(key.clone(), powers);
+        state.groups.insert(key.clone());
+        state.group_data.insert(key, g);
+    }
+    group_list(state)
+}
+
+/// Our membership as the UI wants it: every group we know of, sorted by name.
+fn group_list(state: &SessionState) -> Vec<Value> {
+    let mut out: Vec<Value> = state.group_data.values().cloned().collect();
+    out.sort_by_key(|g| {
+        g.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_lowercase()
+    });
+    out
+}
+
+/// Forget a group we've left or been ejected from, and hand back what's left.
+/// Because membership accumulates (see merge_group_data), this is the only thing
+/// that removes a group - without it a group you left would linger until relog.
+fn drop_group(state: &mut SessionState, group_id: &str) -> Vec<Value> {
+    let key = group_id.to_lowercase();
+    state.group_data.remove(&key);
+    state.group_powers.remove(&key);
+    state.groups.remove(&key);
+    group_list(state)
 }
 
 /// Fold the About-Land checkbox booleans (from the UI's update payload) onto the
@@ -1012,14 +1069,29 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         // Results of joining or leaving a group.
         "JoinGroupReply" | "LeaveGroupReply" => {
             let g = block0(decoded, "GroupData").cloned().unwrap_or(Value::Null);
+            let success = g.get("Success").and_then(|v| v.as_bool()).unwrap_or(false);
             actions.push(Action::emit(
                 "group-action",
                 json!({
                     "groupId": inst_str(&g, "GroupID"),
                     "action": if name == "JoinGroupReply" { "join" } else { "leave" },
-                    "success": g.get("Success").and_then(|v| v.as_bool()).unwrap_or(false),
+                    "success": success,
                 }),
             ));
+            // Joining or leaving changes our membership, but the sim won't tell us
+            // unless we ask - so pull the group data again. Without this a group
+            // joined from search keeps showing its "Join" button until something
+            // else (like switching your active group) happens to refresh things.
+            // The reference viewer does exactly this in llgroupmgr.cpp.
+            if success && !state.agent_id.is_empty() {
+                actions.push(Action::send(
+                    "AgentDataUpdateRequest",
+                    json!({
+                        "AgentData": [{ "AgentID": state.agent_id, "SessionID": state.session_uuid }],
+                    }),
+                    true,
+                ));
+            }
         }
 
         // Our own group membership (this also arrives via HTTP trusted-message).
@@ -1028,29 +1100,40 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if !agent.is_empty() && !same_uuid(&agent, &state.agent_id) {
                 return actions; // this update isn't about us
             }
-            let mut ids = HashSet::new();
-            let mut powers = HashMap::new();
-            let groups: Vec<Value> = block_instances(decoded, "GroupData")
+            let incoming: Vec<Value> = block_instances(decoded, "GroupData")
                 .iter()
                 .filter_map(|g| {
                     let id = inst_str(g, "GroupID");
                     if is_zero_uuid(&id) {
                         return None;
                     }
-                    ids.insert(id.to_lowercase());
-                    let power_str = inst_str(g, "GroupPowers");
-                    powers.insert(id.to_lowercase(), power_str.parse::<u64>().unwrap_or(0));
                     Some(json!({
                         "id": id, "name": inst_text(g, "GroupName"),
                         "insigniaId": inst_str(g, "GroupInsigniaID"),
-                        "powers": power_str,
+                        "powers": inst_str(g, "GroupPowers"),
                         "acceptNotices": g.get("AcceptNotices").and_then(|v| v.as_bool()).unwrap_or(false),
                         "contribution": inst_i64(g, "Contribution"),
                     }))
                 })
                 .collect();
-            state.groups = ids;
-            state.group_powers = powers;
+            let groups = merge_group_data(state, incoming);
+            actions.push(Action::emit("group-membership", json!({ "groups": groups })));
+        }
+
+        // We've left a group, or been ejected from one. Mostly arrives over the
+        // EventQueue these days (the UDP form is deprecated), so route_eq handles
+        // it too.
+        "AgentDropGroup" => {
+            let ad = block0(decoded, "AgentData").cloned().unwrap_or(Value::Null);
+            let agent = inst_str(&ad, "AgentID");
+            if !agent.is_empty() && !same_uuid(&agent, &state.agent_id) {
+                return actions; // not about us
+            }
+            let gid = inst_str(&ad, "GroupID");
+            if is_zero_uuid(&gid) {
+                return actions;
+            }
+            let groups = drop_group(state, &gid);
             actions.push(Action::emit("group-membership", json!({ "groups": groups })));
         }
 
@@ -1293,6 +1376,24 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     json!({
                         "AgentData": [{ "AgentID": state.agent_id, "SessionID": state.session_uuid }],
                         "MoneyData": [{ "TransactionID": "00000000-0000-0000-0000-000000000000" }],
+                    }),
+                    true,
+                ));
+                // Now that the sim has told us where we actually are, ask about the
+                // parcel under our feet. Doing it here rather than leaving it to the
+                // UI means the request always carries the real position: the
+                // frontend can still be holding the login placeholder of 128,128,
+                // which is the middle of the region and so the wrong parcel.
+                let west = 4.0 * (px / 4.0).floor();
+                let south = 4.0 * (py / 4.0).floor();
+                actions.push(Action::send(
+                    "ParcelPropertiesRequest",
+                    json!({
+                        "AgentData": [{ "AgentID": state.agent_id, "SessionID": state.session_uuid }],
+                        "ParcelData": [{
+                            "SequenceID": -50000, "West": west, "South": south,
+                            "East": west + 4.0, "North": south + 4.0, "SnapSelection": false,
+                        }],
                     }),
                     true,
                 ));
@@ -2064,9 +2165,7 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             if !agent.is_empty() && !same_uuid(agent, &state.agent_id) {
                 return actions; // this update isn't about us
             }
-            let mut ids = HashSet::new();
-            let mut powers = HashMap::new();
-            let groups: Vec<Value> = body
+            let incoming: Vec<Value> = body
                 .get("GroupData")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
@@ -2076,14 +2175,11 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                             if is_zero_uuid(&id) {
                                 return None;
                             }
-                            ids.insert(id.to_lowercase());
-                            let power_str = llsd_u64_str(g.get("GroupPowers"));
-                            powers.insert(id.to_lowercase(), power_str.parse::<u64>().unwrap_or(0));
                             Some(json!({
                                 "id": id,
                                 "name": g.get("GroupName").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                                 "insigniaId": g.get("GroupInsigniaID").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                "powers": power_str,
+                                "powers": llsd_u64_str(g.get("GroupPowers")),
                                 "acceptNotices": g.get("AcceptNotices").and_then(|v| v.as_bool()).unwrap_or(false),
                                 "contribution": g.get("Contribution").and_then(|v| v.as_i64()).unwrap_or(0),
                             }))
@@ -2091,8 +2187,28 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                         .collect()
                 })
                 .unwrap_or_default();
-            state.groups = ids;
-            state.group_powers = powers;
+            let groups = merge_group_data(state, incoming);
+            actions.push(Action::emit("group-membership", json!({ "groups": groups })));
+        }
+
+        // Left or ejected from a group. This is the path that actually fires these
+        // days, since the UDP AgentDropGroup is deprecated.
+        "AgentDropGroup" => {
+            let ad = body
+                .get("AgentData")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .cloned()
+                .unwrap_or(Value::Null);
+            let agent = ad.get("AgentID").and_then(|v| v.as_str()).unwrap_or("");
+            if !agent.is_empty() && !same_uuid(agent, &state.agent_id) {
+                return actions; // not about us
+            }
+            let gid = ad.get("GroupID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if is_zero_uuid(&gid) {
+                return actions;
+            }
+            let groups = drop_group(state, &gid);
             actions.push(Action::emit("group-membership", json!({ "groups": groups })));
         }
 
@@ -2626,6 +2742,9 @@ mod tests {
         let j = emit_of(&join, "group-action").unwrap();
         assert_eq!(j["action"], "join");
         assert_eq!(j["success"], true);
+        // A successful join must also re-request our group data, otherwise the
+        // freshly joined group keeps offering its "Join" button.
+        assert!(join.iter().any(|x| matches!(x, Action::Send { name, .. } if name == "AgentDataUpdateRequest")));
 
         let mem = route(&mut st, &json!({
             "name": "AgentGroupDataUpdate",
@@ -3071,6 +3190,15 @@ mod tests {
         let a = route(&mut st, &pkt);
         assert!(a.iter().any(|x| matches!(x, Action::Send { name, .. } if name == "MoneyBalanceRequest")));
         assert!(a.iter().any(|x| matches!(x, Action::Send { name, .. } if name == "AgentDataUpdateRequest")));
+        // The parcel is requested for where we actually landed, snapped to the
+        // sim's 4m grid - not the region centre the login response suggests.
+        let parcel_req = a.iter().find_map(|x| match x {
+            Action::Send { name, blocks, .. } if name == "ParcelPropertiesRequest" => Some(blocks),
+            _ => None,
+        }).expect("parcel request");
+        assert_eq!(parcel_req["ParcelData"][0]["West"], 0.0);
+        assert_eq!(parcel_req["ParcelData"][0]["South"], 0.0);
+        assert_eq!(parcel_req["ParcelData"][0]["East"], 4.0);
     }
 
     #[test]
@@ -3168,6 +3296,51 @@ mod tests {
         assert_eq!(global_to_grid(256_128.0, 256_384.0, 25.0), (1000, 1001, 128, 128, 25));
         // No location -> grid 0,0, which the UI treats as "no location set".
         assert_eq!(global_to_grid(0.0, 0.0, 0.0), (0, 0, 0, 0, 0));
+    }
+
+    #[test]
+    fn group_membership_accumulates_across_updates() {
+        // The sim can describe our groups over several messages (and sends a
+        // single-group update after a join). Each one must add to what we know,
+        // never replace it, or groups vanish from the profile.
+        let mut st = SessionState { agent_id: "me".into(), ..Default::default() };
+        let update = |st: &mut SessionState, id: &str, name: &[u8], powers: &str| {
+            route(st, &json!({
+                "name": "AgentGroupDataUpdate",
+                "blocks": {
+                    "AgentData": [{ "AgentID": "me" }],
+                    "GroupData": [{
+                        "GroupID": id, "GroupName": B64.encode(name), "GroupPowers": powers,
+                        "GroupInsigniaID": "00000000-0000-0000-0000-000000000000",
+                        "AcceptNotices": true, "Contribution": 0,
+                    }]
+                }
+            }))
+        };
+        let a = update(&mut st, "g0000000-0000-0000-0000-00000000000b", b"Bees\0", "0");
+        assert_eq!(emit_of(&a, "group-membership").unwrap()["groups"].as_array().unwrap().len(), 1);
+
+        // A second, separate update must leave the first group in place.
+        let b = update(&mut st, "g0000000-0000-0000-0000-00000000000a", b"Ants\0", "262144");
+        let groups = emit_of(&b, "group-membership").unwrap()["groups"].clone();
+        let list = groups.as_array().unwrap();
+        assert_eq!(list.len(), 2, "earlier group was dropped");
+        assert_eq!(list[0]["name"], "Ants"); // sorted by name
+        assert_eq!(list[1]["name"], "Bees");
+        // Membership + powers stay in sync for parcel edit-gating.
+        assert_eq!(st.groups.len(), 2);
+        assert_eq!(st.group_powers.get("g0000000-0000-0000-0000-00000000000a"), Some(&(1 << 18)));
+
+        // Since membership accumulates, AgentDropGroup is what removes one again.
+        let d = route(&mut st, &json!({
+            "name": "AgentDropGroup",
+            "blocks": { "AgentData": [{ "AgentID": "me", "GroupID": "g0000000-0000-0000-0000-00000000000a" }] }
+        }));
+        let left = emit_of(&d, "group-membership").unwrap()["groups"].clone();
+        assert_eq!(left.as_array().unwrap().len(), 1);
+        assert_eq!(left[0]["name"], "Bees");
+        assert!(!st.groups.contains("g0000000-0000-0000-0000-00000000000a"));
+        assert!(st.group_powers.get("g0000000-0000-0000-0000-00000000000a").is_none());
     }
 
     #[test]

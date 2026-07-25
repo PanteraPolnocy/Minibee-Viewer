@@ -34,6 +34,8 @@ Down the side (or along the bottom on a phone) are the main tabs:
 
 A dot or number on a tab means there's something new there.
 
+Right-clicking gives you a small menu with Cut, Copy, Paste and Select all in text boxes, and Copy link / Open link in browser when you right-click a link.
+
 ---
 
 ## Chatting

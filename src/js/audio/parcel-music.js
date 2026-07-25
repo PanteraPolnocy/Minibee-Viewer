@@ -13,6 +13,7 @@ const FSParcelMusic = (function () {
   let enabled = false;
   let volume = 0.5;
   let playing = false;
+  let triedSecureUrl = false;
   const els = {};
 
   function setNow(text) {
@@ -40,6 +41,38 @@ const FSParcelMusic = (function () {
     if (els.iconOff) els.iconOff.toggleAttribute('hidden', enabled);
   }
 
+  // Turn a MediaError into something a human (and a bug report) can act on.
+  // Streams fail for boring, specific reasons and the bare "error" event hides
+  // them, which made the Android failures impossible to tell apart.
+  function describeMediaError(a) {
+    const code = (a && a.error && a.error.code) || 0;
+    const names = {
+      1: 'playback aborted',
+      2: 'network error',
+      3: 'cannot decode the stream',
+      4: 'stream format not supported'
+    };
+    let why = names[code] || 'unknown error';
+    // The usual Android culprit: an http:// stream on our https:// page counts as
+    // mixed content, and Android's WebView refuses it outright.
+    if (isMixedContent(currentUrl)) {
+      why += ' (insecure http:// stream blocked on an https:// page)';
+    }
+    return why + ' [code ' + code + ']';
+  }
+
+  function isMixedContent(url) {
+    try {
+      return location.protocol === 'https:' && /^http:\/\//i.test(String(url || ''));
+    } catch (_e) { return false; }
+  }
+
+  function reportStreamProblem(detail) {
+    if (typeof FSErrors !== 'undefined' && FSErrors.warn) {
+      FSErrors.warn('parcel-music', detail + ' url=' + currentUrl);
+    }
+  }
+
   function ensureAudio() {
     if (!audio) {
       audio = new Audio();
@@ -49,17 +82,36 @@ const FSParcelMusic = (function () {
       audio.addEventListener('pause', function () { playing = false; updateToggleUI(); });
       audio.addEventListener('error', function () {
         playing = false;
+        // The stream's own http URL didn't work. If it's insecure and we're on an
+        // https page, give the https form one try before giving up.
+        if (!triedSecureUrl && isMixedContent(currentUrl) && enabled) {
+          triedSecureUrl = true;
+          reportStreamProblem('http stream failed, retrying over https');
+          play();
+          return;
+        }
         updateToggleUI();
-        if (currentUrl) setNow('Stream unavailable: ' + currentUrl);
+        const why = describeMediaError(audio);
+        reportStreamProblem('stream error: ' + why);
+        if (currentUrl) setNow('Stream unavailable (' + why + '): ' + currentUrl);
       });
     }
     return audio;
   }
 
+  // Play the stream exactly as the parcel advertises it
+  function playableUrl(url) {
+    if (triedSecureUrl && isMixedContent(url)) {
+      return String(url).replace(/^http:\/\//i, 'https://');
+    }
+    return url;
+  }
+
   function play() {
     if (!currentUrl) return;
     const a = ensureAudio();
-    if (a.src !== currentUrl) a.src = currentUrl;
+    const wanted = playableUrl(currentUrl);
+    if (a.src !== wanted) a.src = wanted;
     a.volume = volume;
     const p = a.play();
     if (p && typeof p.then === 'function') {
@@ -67,11 +119,16 @@ const FSParcelMusic = (function () {
         playing = true;
         updateToggleUI();
         setNow('Playing: ' + currentUrl);
-      }).catch(function () {
+      }).catch(function (err) {
         // Autoplay was blocked, or mixed content was refused.
         playing = false;
         updateToggleUI();
-        setNow('Click Play to start: ' + currentUrl);
+        const name = (err && err.name) || 'error';
+        reportStreamProblem('play() rejected: ' + name +
+          (isMixedContent(currentUrl) ? ' (insecure http:// stream on an https:// page)' : ''));
+        setNow(name === 'NotAllowedError'
+          ? 'Click Play to start: ' + currentUrl
+          : 'Could not start (' + name + '): ' + currentUrl);
       });
     } else {
       playing = true;
@@ -100,6 +157,7 @@ const FSParcelMusic = (function () {
     }
     stop();
     currentUrl = next;
+    triedSecureUrl = false;
     showRoot(!!next);
     updateToggleUI();
     if (!next) {

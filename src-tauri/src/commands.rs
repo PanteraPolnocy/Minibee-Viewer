@@ -782,10 +782,15 @@ pub async fn sl_resolve_names(state: State<'_, Arc<AppState>>, ids: Vec<String>)
 }
 
 #[tauri::command]
-pub async fn sl_request_parcel(state: State<'_, Arc<AppState>>, x: f64, y: f64) -> Cmd {
+pub async fn sl_request_parcel(state: State<'_, Arc<AppState>>, x: Option<f64>, y: Option<f64>) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
+    let (x, y) = match s.last_position() {
+        Some(p) => (p[0], p[1]),
+        None => (x.unwrap_or(128.0), y.unwrap_or(128.0)),
+    };
     let west = 4.0 * (x / 4.0).floor();
     let south = 4.0 * (y / 4.0).floor();
+    crate::dlog!("ParcelPropertiesRequest at ({:.0},{:.0})", x, y);
     s.send_encoded(
         "ParcelPropertiesRequest",
         &json!({
@@ -1228,7 +1233,16 @@ pub async fn sl_start_session(app: AppHandle, state: State<'_, Arc<AppState>>, p
     }
 
     if let Some(connected) = params.get("connected") {
-        let _ = app.emit("minibee-viewer://connected", connected.clone());
+        let mut connected = connected.clone();
+        if let Some(p) = session.last_position() {
+            if let Some(obj) = connected.as_object_mut() {
+                obj.insert(
+                    "position".into(),
+                    json!({ "x": p[0], "y": p[1], "z": p[2] }),
+                );
+            }
+        }
+        let _ = app.emit("minibee-viewer://connected", connected);
     }
 
     // Raise (or clear) the degraded-features banner based on the caps the

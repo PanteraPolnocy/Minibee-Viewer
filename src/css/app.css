@@ -2909,7 +2909,7 @@ html.require-http #app {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 6px;
+  margin-top: 22px;
 }
 
 .about-copy-status {
@@ -2929,7 +2929,8 @@ html.require-http #app {
 }
 
 .about-catchphrase {
-  margin: 6px 0 10px;
+  /* Same breathing room below as we leave above the Copy-all button. */
+  margin: 6px 0 22px;
   font-style: italic;
   color: var(--text-muted);
 }

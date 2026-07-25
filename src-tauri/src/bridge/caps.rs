@@ -411,6 +411,37 @@ pub async fn sl_fetch_agent_profile(app: AppHandle, state: State<'_, Arc<AppStat
         "source": "cap",
     });
     let _ = app.emit("minibee-viewer://avatar-profile", profile);
+    if let Some(rows) = data.get("groups").and_then(|v| v.as_array()) {
+        let groups: Vec<Value> = rows
+            .iter()
+            .filter_map(|g| {
+                let gid = cap_str(g, &["group_id", "id"]);
+                let name = cap_str(g, &["group_name", "name"]);
+                if gid.is_empty() || name.is_empty() {
+                    return None;
+                }
+                Some(json!({
+                    "id": gid,
+                    "name": name,
+                    "insigniaId": cap_str(g, &["group_insignia", "insignia_id", "group_insignia_id"]),
+                    "powers": cap_str(g, &["group_powers", "powers"]),
+                    // The cap says whether it's hidden from the profile; assume
+                    // visible when it doesn't mention it.
+                    "listInProfile": g
+                        .get("list_in_profile")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true),
+                }))
+            })
+            .collect();
+        crate::dlog!("AgentProfile {}: {} group(s) from cap", id, groups.len());
+        if !groups.is_empty() {
+            let _ = app.emit(
+                "minibee-viewer://avatar-groups",
+                json!({ "avatarId": id, "groups": groups }),
+            );
+        }
+    }
     Ok(json!({ "ok": true }))
 }
 

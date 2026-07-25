@@ -80,6 +80,12 @@ const FSBuddies = (function () {
       showContextMenu(e, buddy);
     });
 
+    li.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e, buddy);
+    });
+
     return li;
   }
 

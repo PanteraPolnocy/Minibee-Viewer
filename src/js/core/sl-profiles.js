@@ -132,7 +132,20 @@ const FSProfiles = (function () {
       if (!p || isZero(p.avatarId)) return;
       const id = normId(p.avatarId);
       const cur = profiles.get(id) || { avatarId: id };
-      cur.groups = p.groups || [];
+      // Two sources describe someone's groups: the UDP AvatarGroupsReply (only
+      // the ones they show in their profile) and the AgentProfile cap (the fuller
+      // list). They arrive in either order, so keep the union rather than letting
+      // whichever lands last win - that's how groups kept going missing.
+      const byId = new Map();
+      (Array.isArray(cur.groups) ? cur.groups : []).forEach(function (g) {
+        if (g && g.id) byId.set(normId(g.id), g);
+      });
+      (p.groups || []).forEach(function (g) {
+        if (!g || !g.id) return;
+        const key = normId(g.id);
+        byId.set(key, Object.assign({}, byId.get(key), g));
+      });
+      cur.groups = Array.from(byId.values());
       profiles.set(id, cur);
       (p.groups || []).forEach(function (g) { if (g.id && g.name) groupNames.set(normId(g.id), { name: g.name, insigniaId: g.insigniaId || '' }); });
       emitChange('avatar', id);

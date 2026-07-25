@@ -274,7 +274,7 @@ Tabs load their data only when you open them, so login stays quick and the bridg
 | Buddies + display names | Yes (`GetDisplayNames` cap) |
 | Buddy teleport offer / request | Yes (context menu) |
 | Remove friend | Yes (buddies menu + profile; asks first) |
-| Avatar profiles | Yes (`AgentProfile` cap + UDP; about, picks, classifieds, notes) - **own-profile groups list is incomplete**, see Limitations |
+| Avatar profiles | Yes (`AgentProfile` cap + UDP; about, picks, classifieds, notes, groups) |
 | Group profiles | Yes (charter, insignia, join / leave, activate, title picker + save, open group chat when a member) |
 | Avatar thumbnails in lists | Partial (buddies resolve photos; others show initials) |
 | Search - people | Yes (UDP directory + avatar cap; profile + IM from results) |
@@ -335,9 +335,10 @@ Open a resident or group profile from **Search**, **Buddies**, **Radar**, **IM**
 
 - Display name + username in the header; account level (membership tier) in the subtitle
 - Resident tab: photo, born date, partner, payment info, scrollable about text, groups list
-  - **Your own profile** should list every membership including hidden ones, with the active group in bold - **not fully working yet** (see Limitations)
-  - **Other residents:** profile-visible groups only
-- Places, Classifieds, Web, More (First Life), and Notes tabs when there's data
+  - Groups come from the `AgentProfile` cap and UDP `AvatarGroupsReply` combined (the union of both), sorted alphabetically
+  - **Your own profile** lists every membership, including groups hidden from search, with the active group in bold and a "[ Set active group to none ]" option on top
+  - **Other residents:** whatever their profile exposes
+- Places, Classifieds, Web, More (First Life), and Notes tabs when there's data (Notes work on your own profile too)
 - Pick / classified detail: resolved parcel + region, a map preview, and teleport (which closes the profile, like the Destination Guide does)
 - Actions: IM, Pay, Offer teleport, Request teleport, Add / Remove friend (with a confirm)
 
@@ -421,7 +422,7 @@ Closing the window while you're connected raises a **log-out-and-quit** confirma
 - **No RLV / RLVa** - no Restrained Love restrictions (`@getstatus`, folder locks, sit/touch blocks, etc.)
 - Buddy names may show as a UUID for a beat until `GetDisplayNames` comes back
 - Avatar about text needs the `AgentProfile` cap; without it you get only the UDP packet's ~512 bytes
-- **Own-profile groups list:** groups with **Show in profile** turned off should still appear on *your* profile (muted), with the active group bold. The plumbing exists (`getProfileGroupsForDisplay`, the inbound `AgentGroupDataUpdate` listener in the core, the `agentGroups` merge) but **end-to-end delivery still needs verifying** - for now you usually see only the cap-visible groups
+- **Parcel music formats:** streams are handed to the platform's audio decoder, so anything it can't decode (some exotic Icecast setups) won't play; the top bar says why. On Android, insecure `http://` streams are allowed through deliberately - see below
 - List thumbnails resolve photos for buddies only; radar/search/chat/IM show initials unless the image is already cached
 - Radar positions are the sim's coarse ~1 m grid
 - Land prim usage depends on UDP `ParcelProperties`; capacity may be estimated from area when the sim doesn't send counts
@@ -434,7 +435,7 @@ Simplified view of what's still open.
 - **MFA reliability** - investigate frequent "invalid" challenges (token, `mfa_hash`, clock skew).
 - **Group text moderation** - re-test in-world (`mute update` regression; client path matches Firestorm but reports persist).
 - De-dup IM/chat on a message/sequence id instead of the current content + time-window heuristic.
-- **Own profile groups** - show every membership including hidden ones; bold the active group.
+- **Parcel media (video)** - only the audio stream is played; parcel video/media URLs aren't rendered.
 - Avatar thumbnails beyond the buddies list (radar, search, chat).
 - Open group chat from search results.
 - Missing About Land tabs: **Covenant**, **Experiences**, **Environment**.
