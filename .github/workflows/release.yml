@@ -197,8 +197,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build iOS Application
-        run: npx tauri ios build
+      - name: Build iOS Application (Unsigned)
+        run: |
+          npx tauri ios build -- -- CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
 
       - name: Compress iOS Build Output
         if: github.event_name == 'release'
