@@ -165,7 +165,7 @@ jobs:
           fi
 
       - name: Upload APK to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         if: github.event_name == 'release'
         with:
           files: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
