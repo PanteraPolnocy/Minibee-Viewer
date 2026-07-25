@@ -68,7 +68,7 @@ jobs:
           # Upload to the release that triggered this run.
           releaseId: ${{ github.event.release.id }}
           args: ${{ matrix.args }}
-          assetNamePattern: '[platform]_[name]_[version]_[arch][_setup][ext]'
+          releaseAssetNamePattern: '[platform]_[name]_[version]_[arch][_setup][ext]'
 
   build-android:
     permissions:
