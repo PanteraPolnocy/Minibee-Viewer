@@ -26,7 +26,7 @@ tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt-multi-
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
 base64 = "0.23"
 md-5 = "0.11"
-quick-xml = "0.36"
+quick-xml = "0.41"
 roxmltree = "0.21"
 regex = "1"
 urlencoding = "2"
