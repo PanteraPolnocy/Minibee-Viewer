@@ -1,4 +1,4 @@
-// The parcel handler builds one big json! literal, and the default limit of 128 is too low to expand it.
+﻿// The parcel handler builds one big json! literal, and the default limit of 128 is too low to expand it.
 #![recursion_limit = "512"]
 
 pub mod bridge;
@@ -10,6 +10,23 @@ pub mod urlmatch;
 use bridge::state::{version_payload, AppState};
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager};
+
+/// Turn off the webview's own right-click menu, so the one the viewer draws is the only
+/// one there is.
+#[cfg(target_os = "windows")]
+fn silence_native_context_menu(window: &tauri::WebviewWindow) {
+    let _ = window.with_webview(|webview| unsafe {
+        if let Ok(core) = webview.controller().CoreWebView2() {
+            if let Ok(settings) = core.Settings() {
+                let _ = settings.SetAreDefaultContextMenusEnabled(false.into());
+            }
+        }
+    });
+}
+
+/// Elsewhere the webview has no equivalent switch, so frames keep the platform's menu.
+#[cfg(not(target_os = "windows"))]
+fn silence_native_context_menu(_window: &tauri::WebviewWindow) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,6 +52,7 @@ pub fn run() {
             let window_title = format!("Minibee Viewer {ver_str}");
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(&window_title);
+                silence_native_context_menu(&window);
             }
             app.manage(AppState::new(version, ua));
             Ok(())
@@ -45,7 +63,8 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<std::sync::Arc<AppState>>();
-                if state.close_guard.load(Ordering::SeqCst) {
+                let already_asked = state.close_pending.load(Ordering::SeqCst);
+                if state.close_guard.load(Ordering::SeqCst) && !already_asked {
                     state.close_pending.store(true, Ordering::SeqCst);
                     api.prevent_close();
                     let _ = window.emit("minibee-viewer://close-requested", ());
@@ -63,9 +82,11 @@ pub fn run() {
             commands::app_memory,
             commands::set_close_guard,
             commands::confirm_close,
+            commands::cancel_close,
             commands::bridge_login,
             commands::bridge_proxy,
             commands::bridge_destinations,
+            commands::bridge_feed,
             commands::bridge_map_tile,
             commands::bridge_map_region,
             commands::bridge_map_regions,
@@ -91,7 +112,24 @@ pub fn run() {
             commands::sl_teleport_to,
             commands::sl_teleport_home,
             commands::sl_teleport_cancel,
+            commands::sl_stand_up,
+            commands::sl_sit_ground,
+            commands::sl_set_flying,
+            commands::sl_avatar_state,
+            commands::sl_object_scan,
+            commands::sl_nearby_objects,
+            commands::sl_object_details,
+            commands::sl_object_touch,
+            commands::sl_object_sit,
+            commands::sl_object_select,
+            commands::sl_object_pay,
+            commands::sl_request_pay_price,
+            bridge::caps::sl_object_extra,
             commands::sl_resolve_names,
+            commands::sl_resolve_group_names,
+            commands::sl_request_mute_list,
+            commands::sl_block_agent,
+            commands::sl_unblock_agent,
             commands::sl_request_parcel,
             commands::sl_reply_script_dialog,
             commands::sl_logout,

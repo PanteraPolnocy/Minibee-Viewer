@@ -334,7 +334,6 @@ mod tests {
 
     #[test]
     fn bracket_label_masks_url() {
-        // Mirrors the reference viewer's LLUrlEntryHTTPLabel: [url  Label] shows "Label".
         let segs = linkify("click [http://www.example.org/x  Label text] now");
         let l = links(&segs);
         assert_eq!(l.len(), 1);

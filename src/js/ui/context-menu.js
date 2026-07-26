@@ -5,7 +5,6 @@ const FSContextMenu = (function () {
   'use strict';
 
   let menu = null;
-  let isDev = false;
 
   function isTextField(node) {
     if (!node || !node.tagName) return false;
@@ -161,16 +160,7 @@ const FSContextMenu = (function () {
     menu = document.getElementById('edit-context-menu');
     if (!menu) return;
 
-    if (typeof FSBridge !== 'undefined' && FSBridge.invoke) {
-      FSBridge.invoke('bridge_health').then(function (h) {
-        isDev = !!(h && h.dev);
-      }).catch(function () { /* assume release, which is the safer default */ });
-    }
-
     window.addEventListener('contextmenu', function (e) {
-      // Dev escape hatch: Shift + right-click gives back the native menu, so
-      // devtools stay reachable while working on the viewer.
-      if (isDev && e.shiftKey) return;
       // Something closer to the click already handled it - radar rows, for
       // instance, open their own entity menu - so stay out of the way.
       if (e.defaultPrevented) return;

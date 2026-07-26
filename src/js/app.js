@@ -98,11 +98,34 @@ const FSApp = (function () {
       confirmLabel: 'Log out & quit',
       danger: true
     });
-    if (!ok) return;
+    if (!ok) {
+      // Tell the core the question was answered with "no", so the next press of X asks
+      // again instead of being taken for a confirming second press.
+      if (typeof FSBridge !== 'undefined' && FSBridge.invoke) {
+        FSBridge.invoke('cancel_close').catch(function () {});
+      }
+      return;
+    }
     allowUnload = true;
     if (typeof FSBridge !== 'undefined' && FSBridge.invoke) {
       FSBridge.invoke('confirm_close').catch(function () {});
     }
+  }
+
+  // Optional convenience (off by default): sit on the ground shortly after login.
+  // The wait lets the arrival settle - the sim has only just finished seating us in
+  // the region - and we check we're still connected before asking.
+  const AUTO_SIT_DELAY = 2500;
+  function maybeAutoSit() {
+    if (typeof FSSettings === 'undefined' || !FSSettings.get('autoSitAfterLogin')) return;
+    window.setTimeout(function () {
+      const s = FSState.get();
+      if (!s.connected || s.sessionLost) return;
+      if (typeof FSBridge === 'undefined' || !FSBridge.invoke) return;
+      FSBridge.invoke('sl_sit_ground').then(function () {
+        if (typeof FSInteract !== 'undefined' && FSInteract.refreshState) FSInteract.refreshState();
+      }).catch(function () { /* nothing worth interrupting the user for */ });
+    }, AUTO_SIT_DELAY);
   }
 
   function bindTransport() {
@@ -132,6 +155,7 @@ const FSApp = (function () {
       if (typeof FSTransport.refreshParcel === 'function') FSTransport.refreshParcel();
       FSNavigation.switchTab('chat');
       FSUtils.showToast('Welcome, ' + payload.agent.displayName, 'success');
+      maybeAutoSit();
 
       // Show the login Message-of-the-Day as a system line (see renderMotdMessage).
       const motd = payload.motd ? String(payload.motd).trim() : '';
@@ -396,6 +420,7 @@ const FSApp = (function () {
   function init() {
     if (window.MINIBEE_BLOCKED) return;
     try {
+      setCloseGuard(false);
       if (typeof FSDiag !== 'undefined') FSDiag.init();
       installContextMenu();
       if (typeof FSSettings !== 'undefined') FSSettings.init();
@@ -417,6 +442,8 @@ const FSApp = (function () {
       FSAvatarThumb.init();
       FSProfile.init();
       FSSettingsUI.init();
+      FSNews.init();
+      FSInteract.init();
       FSSessionLost.init();
       FSCapsBanner.init();
       if (typeof FSParcelMusic !== 'undefined') FSParcelMusic.init();

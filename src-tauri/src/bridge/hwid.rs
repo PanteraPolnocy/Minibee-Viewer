@@ -184,10 +184,6 @@ fn linux_disk_uuid() -> Option<String> {
 
 // --- Mobile / other -------------------------------------------------------
 
-// The reference viewer has no mobile counterpart, so there's nothing to mirror here yet.
-// TODO(mobile): route Android Settings.Secure.ANDROID_ID / iOS
-// identifierForVendor through a platform plugin. Until that's in place, we derive a stable id
-// from the hostname so a device keeps the same id across launches.
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn compute() -> HwId {
     let seed = std::env::var("HOSTNAME")

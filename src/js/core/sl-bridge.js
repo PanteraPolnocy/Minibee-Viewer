@@ -38,6 +38,7 @@ const FSSLBridge = (function () {
     'money-balance', 'radar-update', 'map-blocks', 'map-agents', 'stats',
     'teleport-started', 'teleport-progress', 'teleport-finish', 'teleport-failed',
     'teleport-offer', 'teleport-request', 'teleport-accepted', 'teleport-declined',
+    'sit-state', 'object-properties', 'pay-price',
     'close-requested'
   ];
 
@@ -70,6 +71,17 @@ const FSSLBridge = (function () {
       (data && data.groups || []).forEach(function (g) {
         if (g && g.id && g.name) groupNames.set(normId(g.id), g.name);
       });
+    }));
+
+    pending.push(FSBridge.listen('minibee-viewer://group-names', function (data) {
+      let added = false;
+      (data && data.groups || []).forEach(function (g) {
+        if (g && g.id && g.name && !groupNames.has(normId(g.id))) {
+          groupNames.set(normId(g.id), g.name);
+          added = true;
+        }
+      });
+      if (added) FSTransport.emit('group-names', data);
     }));
 
     // Join/leave replies come back asynchronously as group-action: resolve the
@@ -631,6 +643,12 @@ const FSSLBridge = (function () {
     const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
     if (list.length) invoke('sl_resolve_display_names', { ids: list }).catch(function () {});
   }
+  function queueGroupNameResolve(ids) {
+    const list = (Array.isArray(ids) ? ids : [ids]).filter(function (id) {
+      return id && !groupNames.has(normId(id));
+    });
+    if (list.length) invoke('sl_resolve_group_names', { ids: list }).catch(function () {});
+  }
   function isBuddy(id) { return buddies.has(normId(id)); }
   function isAgentOnline(id, hints) {
     const key = normId(id);
@@ -661,6 +679,7 @@ const FSSLBridge = (function () {
     requestMapArea: requestMapArea, requestMapAgentCounts: requestMapAgentCounts,
     getMapServerUrl: getMapServerUrl, getMapTileUrl: getMapTileUrl,
     getCachedName: getCachedName, getCachedNameInfo: getCachedNameInfo, getGroupName: getGroupName,
-    queueNameResolve: queueNameResolve, isBuddy: isBuddy, isAgentOnline: isAgentOnline
+    queueNameResolve: queueNameResolve, queueGroupNameResolve: queueGroupNameResolve,
+    isBuddy: isBuddy, isAgentOnline: isAgentOnline
   };
 })();

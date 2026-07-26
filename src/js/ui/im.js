@@ -419,6 +419,7 @@ const FSIm = (function () {
     const profileBtn = document.getElementById('im-profile');
     const payBtn = document.getElementById('im-pay');
     const friendBtn = document.getElementById('im-friend');
+    const blockBtn = document.getElementById('im-block');
     const closeBtn = document.getElementById('im-close');
     const hasSession = !!sessionId;
     const session = hasSession ? FSState.get().imSessions[sessionId] : null;
@@ -470,6 +471,15 @@ const FSIm = (function () {
     if (friendBtn) {
       friendBtn.disabled = !p2p || isFriend;
       friendBtn.title = isFriend ? 'Already friends' : 'Offer friendship';
+    }
+    if (blockBtn) {
+      const blocked = !!(participantId && typeof FSBuddies !== 'undefined' &&
+        FSBuddies.isBlocked && FSBuddies.isBlocked(participantId));
+      blockBtn.disabled = !p2p;
+      blockBtn.classList.toggle('im-action-btn--active', blocked);
+      blockBtn.setAttribute('aria-pressed', blocked ? 'true' : 'false');
+      blockBtn.title = blocked ? 'Unblock resident' : 'Block resident';
+      blockBtn.setAttribute('aria-label', blockBtn.title);
     }
     if (membersBtn) membersBtn.hidden = !sessionChat;
     if (inviteBtn) {
@@ -791,6 +801,32 @@ const FSIm = (function () {
       if (!participant) return;
       openPayDialog(participant);
     });
+    FSTransport.on('mute-list', function () { syncImLayout(); });
+
+    const imBlockBtn = document.getElementById('im-block');
+    if (imBlockBtn) {
+      imBlockBtn.addEventListener('click', async function () {
+        const participant = getActiveParticipant();
+        if (!participant || !participant.id || typeof FSBuddies === 'undefined') return;
+        const names = nameLines(participant);
+        const label = names.title || participant.name || 'this resident';
+        if (FSBuddies.isBlocked && FSBuddies.isBlocked(participant.id)) {
+          await FSBuddies.unblock(participant.id, label);
+          syncImLayout();
+          return;
+        }
+        const ok = await FSUtils.confirm({
+          title: 'Block this resident?',
+          message: 'Block ' + label + '? You will stop seeing their chat and messages, ' +
+            'on this and any other viewer you use.',
+          confirmLabel: 'Block',
+          danger: true
+        });
+        if (!ok) return;
+        await FSBuddies.block(participant.id, label);
+        syncImLayout();
+      });
+    }
     document.getElementById('im-friend').addEventListener('click', async function () {
       const participant = getActiveParticipant();
       if (!participant || !participant.id) return;

@@ -46,6 +46,10 @@ pub enum Action {
     /// ChatSessionRequest cap, so the sim enrolls us and sends the roster plus any
     /// later messages. Skip it and the agent only ever sees a conference's first line.
     AcceptChatSession { session_id: String },
+    /// Ask the region for a 360-degree interest list, so object updates aren't culled to
+    /// a camera frustum we don't have. Sent on arrival, since each region decides this
+    /// for itself. See `caps::interest_list_360`.
+    InterestList360,
 }
 
 impl Action {
@@ -94,6 +98,25 @@ pub struct SessionState {
     /// AgentGroupDataUpdate messages, so these accumulate rather than replace;
     /// see merge_group_data.
     pub group_data: HashMap<String, Value>,
+    /// True while we're sitting on something, learned from AvatarSitResponse and
+    /// cleared when we stand. Teleports check this: the sim won't move a seated
+    /// avatar, so we have to stand up first.
+    pub sitting: bool,
+    /// The object we're sitting on, when we are.
+    pub sit_object: String,
+    /// Whether we've asked to fly. Unlike the one-shot sit/stand requests, the sim
+    /// expects AGENT_CONTROL_FLY on every AgentUpdate, so we have to remember it.
+    pub flying: bool,
+    /// Whether the Interactions tab has asked for the nearby list. Tracking itself is
+    /// always on - this only records that somebody is looking.
+    pub object_scan: bool,
+    pub objects: crate::bridge::objects::ObjectTable,
+    /// When we last asked the sim for object names, so a busy list can't turn into a
+    /// stream of requests. Nothing here is worth annoying Linden Lab over.
+    pub props_asked_ms: u64,
+    /// Where the last teleport was aimed, so `teleport-started` can tell the UI the
+    /// destination. TeleportStart itself only carries flags.
+    pub tp_target: Option<Value>,
     /// Wall-clock ms, refreshed by the IO layer before every route() call so that
     /// time-based dedup stays deterministic and testable.
     pub now_ms: u64,
@@ -102,6 +125,61 @@ pub struct SessionState {
     /// Per-IM-session roster, so the incremental ChatterBoxSessionAgentListUpdates
     /// deltas can be merged into a full snapshot (the UI replaces the list wholesale).
     pub im_rosters: HashMap<String, ImRoster>,
+    /// Inbound file transfers in progress, keyed by the id we chose when asking. The mute
+    /// list is the only thing we fetch this way.
+    pub xfers: HashMap<u64, XferIn>,
+    /// Counter feeding unique transfer ids.
+    pub xfer_seq: u32,
+    /// True once we've asked for the mute list, so `UseCachedMuteList` - which we can
+    /// never honour, having no disk cache - can't bounce us into asking forever.
+    pub mute_asked: bool,
+}
+
+/// A file the sim is sending us a packet at a time.
+#[derive(Debug, Clone, Default)]
+pub struct XferIn {
+    pub data: Vec<u8>,
+    /// The packet number we expect next; the sim numbers them from zero.
+    pub next: u32,
+    /// What to do with the bytes once they're all here.
+    pub kind: String,
+}
+
+/// The mute list is a few hundred lines at most. A cap keeps a confused or hostile sim
+/// from feeding us a file until we run out of memory.
+const MAX_XFER_BYTES: usize = 1 << 20;
+
+/// LLMute::EType. Only agents belong in a "blocked people" list.
+const MUTE_TYPE_BY_NAME: i64 = 0;
+const MUTE_TYPE_AGENT: i64 = 1;
+
+/// AgentUpdate has to carry it or the sim quietly lands us.
+pub const AGENT_CONTROL_FLY: u64 = 0x1 << 13;
+
+/// How much of the region around us we ask the sim to describe, in metres.
+pub const INTEREST_FAR: f64 = 128.0;
+
+/// Where to look from when we don't know yet: the middle of the region.
+const REGION_CENTRE: [f64; 3] = [128.0, 128.0, 25.0];
+
+/// Build an AgentUpdate body for the position we're standing at.
+pub fn build_agent_update(agent: &str, sess: &str, pos: [f64; 3], flags: u64) -> Value {
+    json!({
+        "AgentData": [{
+            "AgentID": agent, "SessionID": sess,
+            // Identity orientation: we have no body to aim and the sim doesn't mind.
+            "BodyRotation": [0.0, 0.0, 0.0, 1.0],
+            "HeadRotation": [0.0, 0.0, 0.0, 1.0],
+            "State": 0,
+            "CameraCenter": [pos[0], pos[1], pos[2]],
+            "CameraAtAxis": [1.0, 0.0, 0.0],
+            "CameraLeftAxis": [0.0, 1.0, 0.0],
+            "CameraUpAxis": [0.0, 0.0, 1.0],
+            "Far": INTEREST_FAR,
+            "ControlFlags": flags,
+            "Flags": 0,
+        }],
+    })
 }
 
 /// A chat session's live participant set, built up from delta updates.
@@ -177,8 +255,6 @@ fn as_i64(v: Option<&Value>) -> i64 {
     }
 }
 
-/// LLSD booleans usually arrive as a JSON bool, but some sims (OpenSim) send a
-/// 0/1 integer instead, so accept both, mirroring the reference viewer's LLSD::asBoolean.
 fn truthy(v: Option<&Value>) -> bool {
     match v {
         Some(Value::Bool(b)) => *b,
@@ -327,16 +403,6 @@ fn set_flag(flags: u32, bit: u32, on: bool) -> u32 {
     if on { flags | bit } else { flags & !bit }
 }
 
-/// Merge a batch of group rows into what we already know and hand back the full
-/// membership, sorted by name.
-///
-/// The sim is free to describe our groups over several AgentGroupDataUpdate
-/// messages (and sends single-group updates after a join or leave), so replacing
-/// the list wholesale would drop every group not mentioned in the latest
-/// message - which is exactly how groups went missing from the profile. The
-/// reference viewer merges per group too (llagent.cpp
-/// processAgentGroupDataUpdate). Membership ids and powers are refreshed here as
-/// well, since parcel edit-gating leans on them.
 fn merge_group_data(state: &mut SessionState, incoming: Vec<Value>) -> Vec<Value> {
     for g in incoming {
         let id = g.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -354,6 +420,20 @@ fn merge_group_data(state: &mut SessionState, incoming: Vec<Value>) -> Vec<Value
         state.group_data.insert(key, g);
     }
     group_list(state)
+}
+
+/// The name of a group we belong to, if we know it.
+fn group_name_of(state: &SessionState, group_id: &str) -> String {
+    if is_zero_uuid(group_id) {
+        return String::new();
+    }
+    state
+        .group_data
+        .get(&group_id.to_lowercase())
+        .and_then(|g| g.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Our membership as the UI wants it: every group we know of, sorted by name.
@@ -533,6 +613,137 @@ fn inst_i64(inst: &Value, name: &str) -> i64 {
     as_i64(inst.get(name))
 }
 
+/// Ask the sim for the block list. A zero CRC means "I have nothing cached, send it".
+pub(crate) fn mute_list_request(state: &SessionState) -> Action {
+    Action::send(
+        "MuteListRequest",
+        json!({
+            "AgentData": [{ "AgentID": state.agent_id, "SessionID": state.session_uuid }],
+            "MuteData": [{ "MuteCRC": 0 }],
+        }),
+        true,
+    )
+}
+
+fn confirm_xfer(id: u64, packet: u32) -> Action {
+    Action::send(
+        "ConfirmXferPacket",
+        json!({ "XferID": [{ "ID": id.to_string(), "Packet": packet }] }),
+        false,
+    )
+}
+
+/// Parse the sim's mute-list file.
+pub(crate) fn parse_mute_list(text: &str) -> Vec<Value> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        // type, then id, then the name up to a '|', then the flags.
+        let (kind, rest) = match line.split_once(char::is_whitespace) {
+            Some(p) => p,
+            None => continue,
+        };
+        let kind: i64 = match kind.trim().parse() {
+            Ok(k) => k,
+            Err(_) => continue,
+        };
+        let rest = rest.trim_start();
+        let (id, rest) = match rest.split_once(char::is_whitespace) {
+            Some(p) => p,
+            None => (rest, ""),
+        };
+        let (name, flags) = match rest.split_once('|') {
+            Some((n, f)) => (n.trim(), f.trim().parse::<i64>().unwrap_or(0)),
+            None => (rest.trim(), 0),
+        };
+        if kind != MUTE_TYPE_AGENT && kind != MUTE_TYPE_BY_NAME {
+            continue; // objects and groups aren't people
+        }
+        if is_zero_uuid(id) || id.len() < 36 {
+            continue; // a by-name entry has no profile to open
+        }
+        out.push(json!({ "id": id, "name": name, "type": kind, "flags": flags }));
+    }
+    out
+}
+
+/// You cannot arrive somewhere still sitting on the thing you left behind.
+fn stand_up_on_arrival(state: &mut SessionState) -> Vec<Action> {
+    if !state.sitting {
+        return Vec::new();
+    }
+    state.sitting = false;
+    state.sit_object.clear();
+    vec![Action::emit("sit-state", json!({ "sitting": false, "objectId": "" }))]
+}
+
+/// Fold our own avatar's ObjectUpdate into the session: where we are, and whether we're
+/// sitting on something.
+fn track_self(state: &mut SessionState, inst: &Value) -> Vec<Action> {
+    let mut actions = Vec::new();
+    let parent_id = inst_i64(inst, "ParentID") as u32;
+    let blob = B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default();
+
+    if let Some(local) = crate::bridge::objects::position_from_object_data(&blob) {
+        let region_pos = if parent_id == 0 {
+            Some(local)
+        } else {
+            state
+                .objects
+                .position_of(parent_id)
+                .map(|seat| [seat[0] + local[0], seat[1] + local[1], seat[2] + local[2]])
+        };
+        if let Some(p) = region_pos {
+            let moved = state
+                .last_pos
+                .map(|old| {
+                    (old[0] - p[0] as f64).abs() > 0.5
+                        || (old[1] - p[1] as f64).abs() > 0.5
+                        || (old[2] - p[2] as f64).abs() > 0.5
+                })
+                .unwrap_or(true);
+            state.last_pos = Some([p[0] as f64, p[1] as f64, p[2] as f64]);
+            if moved {
+                actions.push(Action::emit(
+                    "position",
+                    json!({
+                        "position": { "x": p[0], "y": p[1], "z": p[2] },
+                        "region": region_obj(state),
+                        "source": "object-update",
+                    }),
+                ));
+            }
+        }
+    }
+
+    let sitting = parent_id != 0;
+    if sitting != state.sitting {
+        state.sitting = sitting;
+        if !sitting {
+            state.sit_object.clear();
+        }
+        actions.push(Action::emit(
+            "sit-state",
+            json!({ "sitting": sitting, "objectId": state.sit_object.clone() }),
+        ));
+    }
+    actions
+}
+
+/// An object's CreationDate as seconds since the epoch, or 0 if the sim didn't say.
+fn creation_seconds(inst: &Value) -> i64 {
+    let raw = inst.get("CreationDate");
+    let micros = raw
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .or_else(|| raw.and_then(|v| v.as_i64()))
+        .unwrap_or(0);
+    if micros <= 0 { 0 } else { micros / 1_000_000 }
+}
+
 /// Route a single decoded packet into outbound sends and UI events, updating state as it goes.
 pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     let name = decoded.get("name").and_then(|v| v.as_str()).unwrap_or("");
@@ -666,6 +877,116 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
         }
 
+        // The block list. The sim doesn't send it inline - it writes a file and tells us
+        // the name, and we fetch it over the Xfer protocol
+        "MuteListUpdate" => {
+            let filename = field_text(decoded, "MuteData", "Filename").unwrap_or_default();
+            let filename = filename.trim().to_string();
+            if filename.is_empty() || state.agent_id.is_empty() {
+                return actions;
+            }
+            state.xfer_seq = state.xfer_seq.wrapping_add(1);
+            let id = (state.now_ms << 20) | (state.xfer_seq as u64 & 0xF_FFFF);
+            state.xfers.insert(id, XferIn { kind: "mute-list".into(), ..Default::default() });
+            crate::dlog!("mute list: fetching {filename} as xfer {id}");
+            actions.push(Action::send(
+                "RequestXfer",
+                json!({ "XferID": [{
+                    "ID": id.to_string(),
+                    "Filename": B64.encode(format!("{filename}\0").as_bytes()),
+                    // ELLPath::LL_PATH_CACHE, matching the reference's request.
+                    "FilePath": 5,
+                    "DeleteOnCompletion": true,
+                    "UseBigPackets": false,
+                    "VFileID": "00000000-0000-0000-0000-000000000000",
+                    "VFileType": -1,
+                }] }),
+                true,
+            ));
+        }
+
+        // "Use your cached copy" - which we haven't got, having no disk cache. Ask once
+        // more with a zero CRC, which is what makes the sim send the file itself.
+        "UseCachedMuteList" => {
+            if !state.mute_asked && !state.agent_id.is_empty() {
+                state.mute_asked = true;
+                actions.push(mute_list_request(state));
+            }
+        }
+
+        // One packet of a file we asked for.
+        "SendXferPacket" => {
+            let x = block0(decoded, "XferID").cloned().unwrap_or(Value::Null);
+            let id: u64 = inst_str(&x, "ID").parse().unwrap_or(0);
+            let packet = inst_i64(&x, "Packet") as u32;
+            let is_last = packet & 0x8000_0000 != 0;
+            let seq = packet & 0x7FFF_FFFF;
+            // Raw bytes, not text: a file arrives a chunk at a time and the usual text
+            // helper would trim a trailing NUL out of the middle of it.
+            let data = field(decoded, "DataPacket", "Data")
+                .and_then(|v| v.as_str())
+                .and_then(|s| B64.decode(s).ok())
+                .unwrap_or_default();
+
+            let done = match state.xfers.get_mut(&id) {
+                None => {
+                    // Not ours, or already finished. Still acknowledge it, or the sim
+                    // keeps resending.
+                    actions.push(confirm_xfer(id, seq));
+                    return actions;
+                }
+                Some(x) => {
+                    if seq == x.next {
+                        // The very first packet carries the total size in front of the
+                        // payload, big-endian (llxfermanager.cpp:581).
+                        let payload = if seq == 0 && data.len() >= 4 { &data[4..] } else { &data[..] };
+                        if x.data.len() + payload.len() <= MAX_XFER_BYTES {
+                            x.data.extend_from_slice(payload);
+                        }
+                        x.next += 1;
+                    }
+                    // A repeat of the packet before is a resend crossing our ack; confirm
+                    // it again and otherwise ignore it.
+                    is_last
+                }
+            };
+            actions.push(confirm_xfer(id, seq));
+            if done {
+                if let Some(x) = state.xfers.remove(&id) {
+                    if x.kind == "mute-list" {
+                        let text = String::from_utf8_lossy(&x.data).to_string();
+                        let people = parse_mute_list(&text);
+                        crate::dlog!("mute list: {} blocked person/people", people.len());
+                        let ids: Vec<String> = people
+                            .iter()
+                            .filter_map(|p| p.get("id").and_then(|v| v.as_str()))
+                            .filter(|id| !is_zero_uuid(id))
+                            .map(|s| s.to_string())
+                            .collect();
+                        actions.push(Action::emit("mute-list", json!({ "people": people })));
+                        if !ids.is_empty() {
+                            actions.push(Action::ResolveNames(ids));
+                        }
+                    }
+                }
+            }
+        }
+
+        // A group's name, for a group we aren't in.
+        "UUIDGroupNameReply" => {
+            let mut groups = Vec::new();
+            for inst in block_instances(decoded, "UUIDNameBlock") {
+                let id = inst_str(inst, "ID");
+                let name = inst_text(inst, "GroupName").trim().to_string();
+                if !id.is_empty() && !is_zero_uuid(&id) && !name.is_empty() {
+                    groups.push(json!({ "id": id, "name": name }));
+                }
+            }
+            if !groups.is_empty() {
+                actions.push(Action::emit("group-names", json!({ "groups": groups })));
+            }
+        }
+
         // A simulator alert, which we surface as a system chat line.
         // AgentAlertMessage carries the same AlertData.Message as AlertMessage
         // (agent-directed notices like "not allowed on this land").
@@ -786,9 +1107,6 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             let can_edit = if owner_id.is_empty() || same_uuid(&owner_id, GOVERNOR_LINDEN) {
                 false
             } else if is_group_owned {
-                // Group land needs the actual land power, not just membership - a
-                // plain member can't edit, so their fields have to stay disabled
-                // (this matches LLParcel / About Land in the reference viewer).
                 state
                     .group_powers
                     .get(&owner_id.to_lowercase())
@@ -1078,11 +1396,6 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "success": success,
                 }),
             ));
-            // Joining or leaving changes our membership, but the sim won't tell us
-            // unless we ask - so pull the group data again. Without this a group
-            // joined from search keeps showing its "Join" button until something
-            // else (like switching your active group) happens to refresh things.
-            // The reference viewer does exactly this in llgroupmgr.cpp.
             if success && !state.agent_id.is_empty() {
                 actions.push(Action::send(
                     "AgentDataUpdateRequest",
@@ -1118,6 +1431,215 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 .collect();
             let groups = merge_group_data(state, incoming);
             actions.push(Action::emit("group-membership", json!({ "groups": groups })));
+        }
+
+        // Nearby objects. Tracked from login onward rather than when the tab opens: the
+        // sim describes a region's contents on arrival and never again, so a list built
+        // on demand would find nothing. Listening costs the sim nothing - it sends these
+        // whether we read them or not - and only one region's worth is ever held.
+        "ObjectUpdateCompressed" => {
+            for inst in block_instances(decoded, "ObjectData") {
+                let blob = match B64.decode(inst_str(inst, "Data")) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+                if let Some(mut row) = crate::bridge::objects::decode_compressed(&blob) {
+                    // UpdateFlags rides on the message block, not inside the blob.
+                    row.flags = inst_i64(inst, "UpdateFlags") as u32;
+                    state.objects.upsert(row);
+                }
+            }
+        }
+
+        // The uncompressed form. Rarer than the compressed one, but a linkset's root
+        // often arrives this way - and it's the only place our OWN avatar is described.
+        "ObjectUpdate" => {
+            for inst in block_instances(decoded, "ObjectData") {
+                // Our own avatar first, before the prim filter throws it away.
+                if !state.agent_id.is_empty() && same_uuid(&inst_str(inst, "FullID"), &state.agent_id) {
+                    actions.extend(track_self(state, inst));
+                    continue;
+                }
+                if inst_i64(inst, "PCode") != 9 {
+                    continue; // 9 = primitive; avatars and the rest aren't listed
+                }
+                let blob = B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default();
+                let pos = match crate::bridge::objects::position_from_object_data(&blob) {
+                    Some(p) => p,
+                    None => continue, // a quantised update; a full one will follow
+                };
+                state.objects.upsert(crate::bridge::objects::ObjectRow {
+                    local_id: inst_i64(inst, "ID") as u32,
+                    full_id: crate::bridge::objects::id_bytes(&inst_str(inst, "FullID")),
+                    parent_id: inst_i64(inst, "ParentID") as u32,
+                    pos,
+                    flags: inst_i64(inst, "UpdateFlags") as u32,
+                    click_action: inst_i64(inst, "ClickAction") as u8,
+                    ..Default::default()
+                });
+            }
+        }
+
+        // The sim's shorthand on region entry: "object N, checksum C"
+        "ObjectUpdateCached" => {
+            // EVERY id the sim lists, not a slice of them.
+            const IDS_PER_REQUEST: usize = 200;
+            let unknown: Vec<u32> = block_instances(decoded, "ObjectData")
+                .iter()
+                .map(|inst| inst_i64(inst, "ID") as u32)
+                .filter(|id| *id != 0 && !state.objects.contains(*id))
+                .collect();
+            if !unknown.is_empty() && !state.agent_id.is_empty() {
+                for chunk in unknown.chunks(IDS_PER_REQUEST) {
+                    let data: Vec<Value> = chunk
+                        .iter()
+                        .map(|id| json!({ "CacheMissType": 0, "ID": id }))
+                        .collect();
+                    actions.push(Action::send(
+                        "RequestMultipleObjects",
+                        json!({
+                            "AgentData": [{ "AgentID": state.agent_id, "SessionID": state.session_uuid }],
+                            "ObjectData": data,
+                        }),
+                        true,
+                    ));
+                }
+            }
+        }
+
+        // Something was removed or moved out of range.
+        "KillObject" => {
+            for inst in block_instances(decoded, "ObjectData") {
+                state.objects.remove(inst_i64(inst, "ID") as u32);
+            }
+        }
+
+        // What an object would like to be paid.
+        "PayPriceReply" => {
+            const PAY_PRICE_HIDE: i64 = -1;
+            const PAY_PRICE_DEFAULT: i64 = -2;
+            const MAX_PAY_BUTTONS: usize = 4;
+            let d = block0(decoded, "ObjectData").cloned().unwrap_or(Value::Null);
+            let raw = inst_i64(&d, "DefaultPayPrice");
+            let hidden = raw == PAY_PRICE_HIDE;
+            let suggested_default = if hidden || raw == PAY_PRICE_DEFAULT { 0 } else { raw.abs() };
+            let buttons: Vec<i64> = block_instances(decoded, "ButtonData")
+                .iter()
+                .map(|b| inst_i64(b, "PayButton"))
+                .filter(|v| *v > 0)
+                .take(MAX_PAY_BUTTONS)
+                .collect();
+            actions.push(Action::emit(
+                "pay-price",
+                json!({
+                    "id": inst_str(&d, "ObjectID"),
+                    // 0 means "it didn't suggest one", not "free".
+                    "defaultPrice": suggested_default,
+                    "suggested": buttons,
+                    // Only PAY_PRICE_HIDE means "don't offer to pay this".
+                    "payable": !hidden,
+                    // Whenever payment is possible the amount box is shown, so a
+                    // custom amount is always allowed unless payment is hidden.
+                    "allowCustom": !hidden,
+                }),
+            ));
+        }
+
+        // The fuller reply. It arrives for anything currently selected
+        "ObjectProperties" => {
+            let mut creators: Vec<String> = Vec::new();
+            for d in block_instances(decoded, "ObjectData") {
+                let id = inst_str(d, "ObjectID");
+                if is_zero_uuid(&id) {
+                    continue;
+                }
+                let creator = inst_str(d, "CreatorID");
+                let owner = inst_str(d, "OwnerID");
+                if !creator.is_empty() && !is_zero_uuid(&creator) && !creators.contains(&creator) {
+                    creators.push(creator.clone());
+                }
+                state.objects.set_props(
+                    &id,
+                    &inst_text(d, "Name"),
+                    &owner,
+                    &creator,
+                    inst_i64(d, "SalePrice"),
+                    inst_i64(d, "SaleType") as u8,
+                );
+                actions.push(Action::emit(
+                    "object-properties",
+                    json!({
+                        "id": id,
+                        "creatorId": creator,
+                        "ownerId": owner,
+                        "groupId": inst_str(d, "GroupID"),
+                        "lastOwnerId": inst_str(d, "LastOwnerID"),
+                        "creationDate": creation_seconds(d),
+                        "name": inst_text(d, "Name"),
+                        "description": inst_text(d, "Description"),
+                        "touchName": inst_text(d, "TouchName"),
+                        "sitName": inst_text(d, "SitName"),
+                        "ownerMask": inst_i64(d, "OwnerMask"),
+                        "nextOwnerMask": inst_i64(d, "NextOwnerMask"),
+                        "groupMask": inst_i64(d, "GroupMask"),
+                        "everyoneMask": inst_i64(d, "EveryoneMask"),
+                        "baseMask": inst_i64(d, "BaseMask"),
+                        "salePrice": inst_i64(d, "SalePrice"),
+                        "saleType": inst_i64(d, "SaleType"),
+                        "source": "properties",
+                    }),
+                ));
+            }
+            if !creators.is_empty() {
+                actions.push(Action::ResolveNames(creators));
+            }
+        }
+
+        // The reply to our (throttled) name lookups.
+        "ObjectPropertiesFamily" => {
+            let d = block0(decoded, "ObjectData").cloned().unwrap_or(Value::Null);
+            state.objects.set_props(
+                &inst_str(&d, "ObjectID"),
+                &inst_text(&d, "Name"),
+                &inst_str(&d, "OwnerID"),
+                "", // the Family reply has no creator; only a selection produces one
+                inst_i64(&d, "SalePrice"),
+                inst_i64(&d, "SaleType") as u8,
+            );
+            // The detail view wants more than the list does, so pass the whole reply
+            // through as well; the UI matches it up by object id.
+            actions.push(Action::emit(
+                "object-properties",
+                json!({
+                    "id": inst_str(&d, "ObjectID"),
+                    "name": inst_text(&d, "Name"),
+                    "description": inst_text(&d, "Description"),
+                    "ownerId": inst_str(&d, "OwnerID"),
+                    "groupId": inst_str(&d, "GroupID"),
+                    "lastOwnerId": inst_str(&d, "LastOwnerID"),
+                    "ownerMask": inst_i64(&d, "OwnerMask"),
+                    "nextOwnerMask": inst_i64(&d, "NextOwnerMask"),
+                    "groupMask": inst_i64(&d, "GroupMask"),
+                    "everyoneMask": inst_i64(&d, "EveryoneMask"),
+                    "baseMask": inst_i64(&d, "BaseMask"),
+                    "salePrice": inst_i64(&d, "SalePrice"),
+                    "saleType": inst_i64(&d, "SaleType"),
+                    "ownershipCost": inst_i64(&d, "OwnershipCost"),
+                    "category": inst_i64(&d, "Category"),
+                }),
+            ));
+        }
+
+        // The sim seated us on something. Worth tracking because a seated avatar
+        // can't teleport - the teleport commands stand us up first.
+        "AvatarSitResponse" => {
+            let obj = inst_str(block0(decoded, "SitObject").unwrap_or(&Value::Null), "ID");
+            state.sitting = true;
+            state.sit_object = obj.clone();
+            actions.push(Action::emit(
+                "sit-state",
+                json!({ "sitting": true, "objectId": obj }),
+            ));
         }
 
         // We've left a group, or been ejected from one. Mostly arrives over the
@@ -1284,13 +1806,22 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         // The teleport has begun, confirmed by the sim.
         "TeleportStart" => {
             let flags = as_i64(field(decoded, "Info", "TeleportFlags"));
-            actions.push(Action::emit("teleport-started", json!({ "flags": flags })));
+            let mut started = json!({ "flags": flags });
+            if let Some(t) = state.tp_target.clone() {
+                if let (Some(dst), Some(obj)) = (started.as_object_mut(), t.as_object()) {
+                    for (k, v) in obj {
+                        dst.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            actions.push(Action::emit("teleport-started", started));
         }
 
         // A within-region teleport: it completes immediately, with no sim change.
         "TeleportLocal" => {
             let (px, py, pz) = vec3(field(decoded, "Info", "Position"));
             state.last_pos = Some([px, py, pz]);
+            actions.extend(stand_up_on_arrival(state));
             let pos = json!({ "x": px, "y": py, "z": pz });
             actions.push(Action::emit(
                 "position",
@@ -1323,6 +1854,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     actions.push(Action::RefreshCaps { seed_url: seed.clone(), sim_ip: sim_ip.clone() });
                 }
             }
+            state.objects.clear();
             actions.push(Action::emit(
                 "teleport-finish",
                 json!({ "url": seed, "simIp": sim_ip, "simPort": sim_port, "regionHandle": handle, "regionName": state.region_name }),
@@ -1365,11 +1897,8 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 "position",
                 json!({ "position": { "x": px, "y": py, "z": pz }, "region": region_obj(state), "source": "movement" }),
             ));
-            // Fetch the initial L$ balance. MoneyBalanceReply only comes back in
-            // response to a request - the reference viewer sends one at login with a
-            // null TransactionID (llstatusbar.cpp sendMoneyBalanceRequest, triggered
-            // from llstartup STATE_INVENTORY_SEND). Without it the balance never
-            // arrives and the UI stays stuck at "L$ -".
+            actions.push(Action::InterestList360);
+            actions.extend(stand_up_on_arrival(state));
             if !state.agent_id.is_empty() {
                 actions.push(Action::send(
                     "MoneyBalanceRequest",
@@ -1397,11 +1926,6 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     }),
                     true,
                 ));
-                // Ask the sim for our agent data (active group + title). It's NOT
-                // pushed proactively on login - the initial AgentDataUpdate carries an
-                // empty group - so without this the active-group tag stays blank until
-                // the user changes it. The reference viewer sends this right after the
-                // money-balance request at startup (llstartup.cpp).
                 actions.push(Action::send(
                     "AgentDataUpdateRequest",
                     json!({
@@ -1540,6 +2064,11 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "parcelId": inst_str(&d, "ParcelID"), "ownerId": inst_str(&d, "OwnerID"),
                     "name": inst_text(&d, "Name"), "desc": inst_text(&d, "Desc"), "description": inst_text(&d, "Desc"), "area": area,
                     "infoFlags": inst_i64(&d, "Flags"),
+                    "maturity": match inst_i64(&d, "Flags") {
+                        f if f & 0x2 != 0 => "Adult",
+                        f if f & 0x1 != 0 => "Moderate",
+                        _ => "General",
+                    },
                     "globalX": gx, "globalY": gy, "globalZ": gz,
                     "gridX": grid_x, "gridY": grid_y,
                     "x": lx, "y": ly, "z": lz,
@@ -1661,10 +2190,6 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             let people: Vec<Value> = block_instances(decoded, "QueryReplies")
                 .iter()
                 .filter_map(|r| {
-                    // The sim prepends a null-key status row when a query has no real
-                    // matches (e.g. punctuation-only queries like "////"), so skip those
-                    // placeholder rows to keep them from surfacing as a bogus "Resident"
-                    // result (this matches the reference viewer's behaviour).
                     let id = inst_str(r, "AgentID");
                     if id.is_empty() || is_zero_uuid(&id) { return None; }
                     let first = inst_text(r, "FirstName");
@@ -1673,9 +2198,6 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     Some(json!({
                         "id": id,
                         "name": name.clone(),
-                        // Directory search returns only the legacy name, so expose it as
-                        // userName to give the search row's second line and IM-from-search a
-                        // value (display names, if any, resolve later via GetDisplayNames).
                         "userName": name,
                         "firstName": first,
                         "lastName": last,
@@ -1753,10 +2275,6 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             actions.push(Action::emit("region", region));
             if !state.handshake_reply_sent {
                 state.handshake_reply_sent = true;
-                // These flags mirror the reference viewer's RegionHandshakeReply (llviewerregion.cpp):
-                // 0x4 SUPPORTS_SELF_APPEARANCE and 0x2 "cache file is empty" (we keep no
-                // object cache). We deliberately leave out 0x1 (VOCache culling / "send all
-                // cacheable objects") - a text client has no use for an object flood.
                 actions.push(Action::send(
                     "RegionHandshakeReply",
                     json!({
@@ -1870,6 +2388,7 @@ fn parcel_from_eq(state: &SessionState, body: &Value) -> Option<Action> {
             "ownerName": state.cached_name(&inst_str(pd, "OwnerID")).unwrap_or("").to_string(),
             "isGroupOwned": is_group_owned,
             "groupId": group_id,
+            "groupName": group_name_of(state, &group_id),
             "parcelFlags": flags,
             "access": access,
             "pushRestricted": has(pflag::RESTRICT_PUSH),
@@ -1942,12 +2461,9 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             state.cache_name(&from_id, &from_name);
             let display = state.cached_name(&from_id).unwrap_or(&from_name).to_string();
             actions.push(Action::ResolveNames(vec![from_id.clone()]));
-            // Enroll in the session (this mirrors the reference viewer's
-            // chatterBoxInvitationCoro "accept invitation"); without it the sim never
-            // sends the roster or any message past this first one.
             actions.push(Action::AcceptChatSession { session_id: session_id.clone() });
 
-            // Group vs conference is decided by session-id membership, like the reference viewer.
+            // Group vs conference is decided by session-id membership.
             let stype = if state.groups.contains(&session_id.to_lowercase()) { "group" } else { "conference" };
             let text = str_field(mp, &["message"]);
             if !text.is_empty() {
@@ -2099,8 +2615,10 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             if let Some((gx, gy)) = llsd_region_grid(info.get("RegionHandle")) {
                 state.region_grid_x = gx;
                 state.region_grid_y = gy;
+                state.objects.clear();
                 fin["gridX"] = json!(gx);
                 fin["gridY"] = json!(gy);
+                fin["region"] = json!({ "x": gx, "y": gy, "gridX": gx, "gridY": gy });
             }
             actions.push(Action::emit("teleport-finish", fin));
         }
@@ -2359,9 +2877,6 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     });
 
     if is_session && !session_im_id.is_empty() {
-        // The reference viewer decides group vs conference by membership of the
-        // session id, not the FromGroup flag (the sim often sends FromGroup=false on
-        // a group IM). Fall back to the flag for grids that aren't in our group set.
         let is_group = state.groups.contains(&session_im_id.to_lowercase()) || from_group;
         let stype = if is_group { "group" } else { "conference" };
         let default_title = if is_group { "Group chat" } else { "Conference" };
@@ -2383,6 +2898,19 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_update_looks_from_where_we_are() {
+        let body = build_agent_update("a", "s", [42.5, 200.0, 30.0], AGENT_CONTROL_FLY);
+        let data = &body["AgentData"][0];
+        assert_eq!(data["CameraCenter"], json!([42.5, 200.0, 30.0]));
+        assert_eq!(data["Far"], json!(INTEREST_FAR));
+        assert!(INTEREST_FAR > 0.0, "a zero draw distance asks the sim for nothing");
+        assert_eq!(data["ControlFlags"], json!(AGENT_CONTROL_FLY));
+        // The axes have to be a real frame or the sim can't work out where we're facing.
+        assert_eq!(data["CameraAtAxis"], json!([1.0, 0.0, 0.0]));
+        assert_eq!(data["CameraUpAxis"], json!([0.0, 0.0, 1.0]));
+    }
 
     #[test]
     fn ping_is_answered_with_same_id() {
@@ -2461,6 +2989,215 @@ mod tests {
             Action::Emit { event: e, payload } if e == event => Some(payload),
             _ => None,
         })
+    }
+
+    #[test]
+    fn every_cached_object_id_is_requested() {
+        let mut st = SessionState { agent_id: "me".into(), session_uuid: "s".into(), ..Default::default() };
+        let total = 512usize;
+        let data: Vec<Value> = (1..=total as u32)
+            .map(|id| json!({ "ID": id, "CRC": 0, "UpdateFlags": 0 }))
+            .collect();
+        let actions = route(&mut st, &json!({
+            "name": "ObjectUpdateCached",
+            "blocks": { "RegionData": [{ "RegionHandle": "0", "TimeDilation": 0 }], "ObjectData": data },
+        }));
+
+        let mut asked: Vec<u64> = Vec::new();
+        for a in &actions {
+            if let Action::Send { name, blocks, reliable } = a {
+                assert_eq!(name, "RequestMultipleObjects");
+                assert!(*reliable, "a dropped request is an object we never hear about again");
+                let ids = blocks["ObjectData"].as_array().expect("ObjectData");
+                assert!(ids.len() <= 200, "each message has to stay inside one datagram");
+                for entry in ids {
+                    assert_eq!(entry["CacheMissType"], 0);
+                    asked.push(entry["ID"].as_u64().expect("ID"));
+                }
+            }
+        }
+        asked.sort();
+        assert_eq!(asked.len(), total, "no id may be left out");
+        assert_eq!(asked, (1..=total as u64).collect::<Vec<u64>>());
+
+        // Ids we already hold aren't asked about twice.
+        st.objects.upsert(crate::bridge::objects::ObjectRow { local_id: 7, ..Default::default() });
+        let again = route(&mut st, &json!({
+            "name": "ObjectUpdateCached",
+            "blocks": { "ObjectData": [{ "ID": 7 }, { "ID": 8 }] },
+        }));
+        let sent: Vec<u64> = again
+            .iter()
+            .filter_map(|a| match a {
+                Action::Send { blocks, .. } => Some(blocks["ObjectData"].clone()),
+                _ => None,
+            })
+            .flat_map(|d| d.as_array().cloned().unwrap_or_default())
+            .filter_map(|e| e["ID"].as_u64())
+            .collect();
+        assert_eq!(sent, vec![8]);
+    }
+
+    /// A full ObjectUpdate blob with `pos` at the front, which is where the 60-byte
+    /// high-precision form keeps it.
+    fn self_blob(pos: [f32; 3]) -> String {
+        let mut b = Vec::with_capacity(60);
+        for v in pos {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.resize(60, 0);
+        B64.encode(b)
+    }
+
+    fn self_update(agent: &str, parent: u32, pos: [f32; 3]) -> Value {
+        json!({
+            "name": "ObjectUpdate",
+            "blocks": { "ObjectData": [{
+                "ID": 99u32, "FullID": agent, "PCode": 47, "ParentID": parent,
+                "ObjectData": self_blob(pos),
+            }] },
+        })
+    }
+
+    #[test]
+    fn our_own_object_update_says_where_we_are() {
+        let mut st = SessionState { agent_id: "me".into(), ..Default::default() };
+        let a = route(&mut st, &self_update("me", 0, [64.0, 192.0, 2013.5]));
+        assert_eq!(st.last_pos, Some([64.0, 192.0, 2013.5]));
+        let pos = &emit_of(&a, "position").expect("position")["position"];
+        assert_eq!(pos["z"], 2013.5);
+        // And it isn't mistaken for a listable object.
+        assert!(st.objects.is_empty(), "our own avatar is not a nearby object");
+    }
+
+    #[test]
+    fn sitting_position_is_relative_to_the_seat() {
+        let mut st = SessionState { agent_id: "me".into(), ..Default::default() };
+        st.objects.upsert(crate::bridge::objects::ObjectRow {
+            local_id: 4242,
+            pos: [100.0, 100.0, 2000.0],
+            ..Default::default()
+        });
+        let a = route(&mut st, &self_update("me", 4242, [0.5, -1.0, 0.75]));
+        assert_eq!(st.last_pos, Some([100.5, 99.0, 2000.75]));
+        assert!(st.sitting, "a parent means we're sitting on it");
+        assert_eq!(emit_of(&a, "sit-state").expect("sit-state")["sitting"], true);
+
+        // An untracked seat can't be resolved, so the last known position stands rather
+        // than being overwritten with a bare offset.
+        st.last_pos = Some([1.0, 2.0, 3.0]);
+        route(&mut st, &self_update("me", 777, [0.5, 0.5, 0.5]));
+        assert_eq!(st.last_pos, Some([1.0, 2.0, 3.0]));
+    }
+
+    #[test]
+    fn losing_the_parent_means_we_stood_up() {
+        let mut st = SessionState { agent_id: "me".into(), sitting: true, ..Default::default() };
+        st.sit_object = "sofa".into();
+        let a = route(&mut st, &self_update("me", 0, [10.0, 10.0, 25.0]));
+        assert!(!st.sitting);
+        assert!(st.sit_object.is_empty());
+        assert_eq!(emit_of(&a, "sit-state").expect("sit-state")["sitting"], false);
+    }
+
+    #[test]
+    fn a_teleport_stands_us_up() {
+        let mut st = SessionState { agent_id: "me".into(), sitting: true, ..Default::default() };
+        let a = route(&mut st, &json!({
+            "name": "TeleportLocal",
+            "blocks": { "Info": [{
+                "AgentID": "me", "LocationID": 1, "Position": [20.0, 30.0, 40.0],
+                "LookAt": [0.0, 0.0, 0.0], "TeleportFlags": 0,
+            }] },
+        }));
+        assert!(!st.sitting, "arriving anywhere means we're on our feet");
+        assert_eq!(emit_of(&a, "sit-state").expect("sit-state")["sitting"], false);
+    }
+
+    #[test]
+    fn mute_list_file_parses_to_people() {
+        let file = "\
+1 11111111-1111-1111-1111-111111111111 Ruth Resident|0
+2 22222222-2222-2222-2222-222222222222 Noisy Box|1
+3 33333333-3333-3333-3333-333333333333 Some Group|0
+1 44444444-4444-4444-4444-444444444444 Bob Linden|4
+0 00000000-0000-0000-0000-000000000000 Legacy Name|0
+
+";
+        let people = parse_mute_list(file);
+        assert_eq!(people.len(), 2, "objects, groups and by-name entries aren't people");
+        assert_eq!(people[0]["name"], "Ruth Resident");
+        assert_eq!(people[0]["id"], "11111111-1111-1111-1111-111111111111");
+        assert_eq!(people[1]["flags"], 4);
+        assert!(parse_mute_list("").is_empty());
+        assert!(parse_mute_list("nonsense").is_empty());
+    }
+
+    /// A file arrives a packet at a time: the first carries a big-endian size in front of
+    /// the payload, the last is flagged, and every packet has to be acknowledged or the
+    /// sim keeps resending it.
+    #[test]
+    fn an_xfer_is_reassembled_and_acknowledged() {
+        let mut st = SessionState { agent_id: "me".into(), now_ms: 1, ..Default::default() };
+        let id = 4242u64;
+        st.xfers.insert(id, XferIn { kind: "mute-list".into(), ..Default::default() });
+
+        let line = "1 55555555-5555-5555-5555-555555555555 Mute Me|0\n";
+        let (head, tail) = line.as_bytes().split_at(10);
+        let mut first = (line.len() as u32).to_be_bytes().to_vec();
+        first.extend_from_slice(head);
+
+        let packet = |id: u64, num: u32, data: &[u8]| {
+            json!({
+                "name": "SendXferPacket",
+                "blocks": {
+                    "XferID": [{ "ID": id.to_string(), "Packet": num }],
+                    "DataPacket": [{ "Data": B64.encode(data) }],
+                },
+            })
+        };
+        let a = route(&mut st, &packet(id, 0, &first));
+        assert!(
+            a.iter().any(|x| matches!(x, Action::Send { name, .. } if name == "ConfirmXferPacket")),
+            "every packet has to be confirmed"
+        );
+        assert_eq!(st.xfers[&id].data.len(), head.len(), "the size prefix isn't payload");
+
+        // Last packet: high bit set.
+        let a = route(&mut st, &packet(id, 1 | 0x8000_0000, tail));
+        assert!(!st.xfers.contains_key(&id), "a finished transfer is dropped");
+        let people = emit_of(&a, "mute-list").expect("mute-list")["people"].as_array().cloned().unwrap();
+        assert_eq!(people.len(), 1);
+        assert_eq!(people[0]["name"], "Mute Me");
+    }
+
+    #[test]
+    fn cached_mute_list_prompts_one_fresh_request() {
+        let mut st = SessionState { agent_id: "me".into(), ..Default::default() };
+        let pkt = json!({ "name": "UseCachedMuteList", "blocks": { "AgentData": [{ "AgentID": "me" }] } });
+        let first = route(&mut st, &pkt);
+        assert!(first.iter().any(|a| matches!(a, Action::Send { name, .. } if name == "MuteListRequest")));
+        let second = route(&mut st, &pkt);
+        assert!(second.is_empty(), "asking twice would never end");
+    }
+
+    #[test]
+    fn group_name_reply_is_surfaced() {
+        let mut st = SessionState::default();
+        let actions = route(&mut st, &json!({
+            "name": "UUIDGroupNameReply",
+            "blocks": { "UUIDNameBlock": [
+                { "ID": "cccccccc-0000-0000-0000-000000000001", "GroupName": B64.encode(b"Beekeepers\0") },
+                { "ID": "00000000-0000-0000-0000-000000000000", "GroupName": B64.encode(b"nobody\0") },
+            ] },
+        }));
+        let groups = emit_of(&actions, "group-names").expect("group-names")["groups"]
+            .as_array()
+            .cloned()
+            .unwrap();
+        assert_eq!(groups.len(), 1, "the null key isn't a group");
+        assert_eq!(groups[0]["name"], "Beekeepers");
+        assert_eq!(groups[0]["id"], "cccccccc-0000-0000-0000-000000000001");
     }
 
     #[test]
@@ -3296,6 +4033,65 @@ mod tests {
         assert_eq!(global_to_grid(256_128.0, 256_384.0, 25.0), (1000, 1001, 128, 128, 25));
         // No location -> grid 0,0, which the UI treats as "no location set".
         assert_eq!(global_to_grid(0.0, 0.0, 0.0), (0, 0, 0, 0, 0));
+    }
+
+    #[test]
+    fn pay_price_reply_follows_the_reference_sentinels() {
+        let mut st = SessionState::default();
+        let reply = |price: i64, buttons: Vec<i64>| {
+            let blocks = json!({
+                "ObjectData": [{ "ObjectID": "0b000000-0000-0000-0000-00000000000a", "DefaultPayPrice": price }],
+                "ButtonData": buttons.iter().map(|b| json!({ "PayButton": b })).collect::<Vec<_>>(),
+            });
+            json!({ "name": "PayPriceReply", "blocks": blocks })
+        };
+        // PAY_PRICE_HIDE (-1): the object takes no payment.
+        let a = route(&mut st, &reply(-1, vec![]));
+        let p = emit_of(&a, "pay-price").unwrap();
+        assert_eq!(p["payable"], false);
+        assert_eq!(p["allowCustom"], false);
+
+        // PAY_PRICE_DEFAULT (-2): payable, but it suggests nothing - this must NOT be
+        // mistaken for "not payable", or tip jars become unusable.
+        let b = route(&mut st, &reply(-2, vec![]));
+        let p = emit_of(&b, "pay-price").unwrap();
+        assert_eq!(p["payable"], true);
+        assert_eq!(p["defaultPrice"], 0);
+        assert_eq!(p["allowCustom"], true);
+
+        // A negative non-sentinel is a real amount; the reference takes abs().
+        let c = route(&mut st, &reply(-250, vec![]));
+        assert_eq!(emit_of(&c, "pay-price").unwrap()["defaultPrice"], 250);
+
+        // Buttons: positives only, capped at four.
+        let d = route(&mut st, &reply(10, vec![5, 0, -3, 20, 30, 40, 50]));
+        let p = emit_of(&d, "pay-price").unwrap();
+        assert_eq!(p["defaultPrice"], 10);
+        assert_eq!(p["suggested"], json!([5, 20, 30, 40]));
+    }
+
+    #[test]
+    fn avatar_sit_response_marks_us_seated() {
+        // Teleports rely on this flag to know they must stand us up first.
+        let mut st = SessionState::default();
+        assert!(!st.sitting);
+        let a = route(&mut st, &json!({
+            "name": "AvatarSitResponse",
+            "blocks": {
+                "SitObject": [{ "ID": "0bbe1f2c-0000-0000-0000-0000000000ff" }],
+                "SitTransform": [{
+                    "AutoPilot": false, "SitPosition": [0.0, 0.0, 0.5],
+                    "SitRotation": [0.0, 0.0, 0.0, 1.0],
+                    "CameraEyeOffset": [0.0, 0.0, 0.0], "CameraAtOffset": [0.0, 0.0, 0.0],
+                    "ForceMouselook": false,
+                }]
+            }
+        }));
+        assert!(st.sitting);
+        assert_eq!(st.sit_object, "0bbe1f2c-0000-0000-0000-0000000000ff");
+        let ev = emit_of(&a, "sit-state").unwrap();
+        assert_eq!(ev["sitting"], true);
+        assert_eq!(ev["objectId"], "0bbe1f2c-0000-0000-0000-0000000000ff");
     }
 
     #[test]

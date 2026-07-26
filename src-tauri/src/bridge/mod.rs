@@ -4,9 +4,11 @@
 pub mod caps;
 pub mod circuit;
 pub mod eventqueue;
+pub mod feeds;
 pub mod hwid;
 pub mod login;
 pub mod map;
+pub mod objects;
 pub mod proxy;
 pub mod session;
 pub mod state;

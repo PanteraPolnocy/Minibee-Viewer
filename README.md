@@ -1,4 +1,4 @@
-# Minibee Viewer
+﻿# Minibee Viewer
 
 ![Minibee logo](/src-tauri/icons/128x128.png)
 
@@ -29,9 +29,12 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 - [Profiles](#profiles)
 - [Search](#search)
 - [Map and teleport](#map-and-teleport)
+- [People (friends and the block list)](#people-friends-and-the-block-list)
 - [Radar](#radar)
+- [Interact (nearby objects, avatar actions)](#interact-nearby-objects-avatar-actions)
 - [Land](#land)
 - [Destination Guide](#destination-guide)
+- [News](#news)
 - [When the connection drops](#when-the-connection-drops)
 - [Limitations (a.k.a. things it honestly can't do)](#limitations-aka-things-it-honestly-cant-do)
 - [Roadmap](#roadmap)
@@ -239,7 +242,7 @@ You'll find it at `%TEMP%/minibee-viewer/minibee-viewer.log` on Windows (the OS 
 
 Tabs load their data only when you open them, so login stays quick and the bridge isn't doing busywork:
 
-- **Chat / IM / Events / Buddies / Radar** - render on first visit; UDP keeps flowing in the background once you're connected
+- **Chat / IM / Events / People / Radar** - render on first visit; UDP keeps flowing in the background once you're connected
 - **Search** - queries run when you submit one
 - **Map** - tiles and region names load when the tab is active
 - **Land** - parcel refresh + land caps run when you open the tab
@@ -271,7 +274,8 @@ Tabs load their data only when you open them, so login stays quick and the bridg
 | Typing indicators | Yes (1:1; `IM_TYPING_START/STOP`) |
 | IM pay resident | Yes (L$ transfer dialog) |
 | Close / leave / dismiss conversation | Yes (P2P dismiss keeps history; group/conference leave server-side) |
-| Buddies + display names | Yes (`GetDisplayNames` cap) |
+| Friends list + display names | Yes (`GetDisplayNames` cap) |
+| Block list | Yes (sim's mute list over Xfer; block/unblock from profile, IM, or People → Blocked) |
 | Buddy teleport offer / request | Yes (context menu) |
 | Remove friend | Yes (buddies menu + profile; asks first) |
 | Avatar profiles | Yes (`AgentProfile` cap + UDP; about, picks, classifieds, notes, groups) |
@@ -294,11 +298,14 @@ Tabs load their data only when you open them, so login stays quick and the bridg
 | Unread badges | Yes (chat, IM, events counts; radar/land/debug indicators) |
 | Land parcel view/edit | Partial (owner + group-member parcels; HTTP + UDP data) |
 | Teleport offers / requests | Partial (IM accept/decline prompts; buddy send) |
+| Nearby objects | Yes (Interact tab: configurable radius, name/creator filter, sortable, details on demand) |
+| Object touch / sit / pay | Yes (gated on the sim's own object flags, as the reference gates them) |
+| Avatar actions | Yes (sit on ground, stand, fly, stop flying) |
 | 3D world / inventory / attachments | No (and not pretending to) |
 
 ## Getting around
 
-- **Side navigation** - Chat, IM, Events, Buddies, Search, Radar, Map, Land, Guide, and Debug down the left edge.
+- **Side navigation** - Chat, IM, Interact, Events, People, Search, Radar, Map, Land, Guide, News, Settings down the left edge.
 - **Top bar** - connection dot next to your name; your name (click to open your own profile when connected); your **active group title** underneath (or "No active group title" - the group *name* isn't shown here, just the title); parcel name + region; a **parcel-music** play/volume control that only appears when the parcel streams music; L$ balance; SLT clock; sim FPS; theme toggle; logout.
 - **Unread badges** - numbers on Chat, IM, and Events; dots on Radar (someone new in range), Land (parcel updated), and Debug (new errors). A new IM bumps the IM badge but doesn't yank you to the tab - you read when you're ready.
 
@@ -380,9 +387,51 @@ People hits get enriched with `GetDisplayNames` when the cap is around, and your
 | **Lure offer** (IM) | You accept or decline; accepting sends `TeleportLureRequest`. Never auto-teleports. |
 | **Force / god / sim-initiated** | A `TeleportStart` from the sim with non-lure flags (godlike, 911, force-redirect, home…) is followed automatically. |
 
+## People (friends and the block list)
+
+Two sub-tabs. **Friends** is the buddy list (search by name or private note, online-only toggle, right-click for profile / IM / teleport / remove). **Blocked** is the sim's own mute list.
+
+Getting that list is the interesting part: the sim doesn't send it inline. `MuteListRequest` (with a zero CRC, meaning "I have nothing cached") makes it write a file and reply with `MuteListUpdate` carrying the filename; the file itself comes back over the **Xfer** protocol - `RequestXfer`, then `SendXferPacket` chunks that each need a `ConfirmXferPacket` or the sim keeps resending. The first chunk carries the total size big-endian in front of the payload, and the last has `0x80000000` set on its packet number. `UseCachedMuteList` can't be honoured (there's no disk cache), so it triggers exactly one fresh request - once, or it would loop.
+
+The file format is `type id name|flags` per line, read the way `LLMuteList::loadFromFile` reads it. Only agents are listed: objects and groups are muted *things*, and a by-name entry has no key to open a profile with.
+
+**Block / Unblock** sit on a resident's profile and in the IM header (one button, label flips), and unblock also appears on each row of the Blocked tab. They're `UpdateMuteListEntry` / `RemoveMuteListEntry` - writes to the sim's list, so they hold grid-wide in every viewer, which is why blocking confirms first. Names come from the usual cache rather than the file, since the sim's copy keeps account names and can be stale.
+
 ## Radar
 
 Coarse avatar positions from `CoarseLocationUpdate`. Filter by name, set the range slider (avatars past it are dimmed, not hidden), and optionally turn on **Alerts** to get a toast when someone new wanders into range. When the sim doesn't report an avatar's altitude, Minibee falls back to horizontal distance instead of parking them a fictional kilometre away.
+
+## Interact (nearby objects, avatar actions)
+
+The **Interact** tab is an area-search-lite plus the handful of things a bodiless avatar can still be told to do. A compact strip along the top reports what you're doing and offers **Sit on ground / Stand up / Fly / Stop flying**; each is a one-shot `AgentUpdate` control flag, repeated a few times a few hundred ms apart because the reference sends one every frame and a lone packet was getting missed.
+
+Object tracking runs in the core **from login onward**, not when the tab opens: a sim describes a region's contents on *arrival* and never again, so a list built on demand finds nothing. The table is keyed by LocalID (no duplicates), holds root prims only (a linkset appears once), stores UUIDs as raw 16 bytes rather than 36-char strings, and drops itself when you teleport to a different region - keeping the LocalIDs so a *failed* teleport can re-request them, since the sim won't volunteer the region twice.
+
+Two capability/protocol details taken from `fsareasearch.cpp` matter for completeness:
+
+- **`InterestList` cap, `{"mode": "360"}`**, posted on every region arrival. By default a sim culls object updates to the camera frustum; we have no camera, so the list was missing most of the region. Area search flips the same switch while its floater is open.
+- **`AgentUpdate` carries the real `CameraCenter` and a 128m `Far`**, sent at least once a second (the reference's `MIN_AGENT_UPDATES_PER_SECOND` keep-alive rate). Those two fields are what the sim's interest list culls against - with a camera parked at the region corner it correctly sent us nothing.
+
+The list itself:
+
+| Control | Behaviour |
+|---------|-----------|
+| **Load** | The only thing that reads the table. No timers, no auto-refresh. Also re-arms retries for objects the sim never described. |
+| **Distance** | 16 / 32 / 48 / 64 / 96 / 128 m, default 32, remembered. Everything inside it is listed - no row cap. 128 is the ceiling because that's the `Far` we ask for. |
+| **Filter** | Matches the visible columns - object **name** and **owner** (display name *or* username, or a pasted key). Not creator: it isn't a column, so a row matching on it would show nothing resembling the query. Local; sends nothing. |
+| **Sort** | Distance / Name / Owner headings; re-tap to reverse. |
+
+Names, owners and creators come from **full `ObjectProperties`**, which a sim only sends for *selected* objects - so the core selects and immediately deselects in batches, exactly as `FSAreaSearch::requestObjectProperties` does. Every object in range is covered (each asked once, nearest first), paced at 64 ids per message with a gap between messages; the reference allows 255 per packet, so this is deliberately gentler.
+
+Owner and creator keys then resolve through `FSTransport.queueNameResolve`, the same path every other list uses - the `GetDisplayNames` cap first, `UUIDNameRequest` as the core's fallback - so the column reads **"Display Name (username)"** rather than a bare username. Owner, creator and group are clickable in the details dialog, and the row menu offers **Owner profile** / **Creator profile**.
+
+Row actions are gated on what the sim says the object can do, from `UpdateFlags` (`object_flags.h`) on the update itself:
+
+- **Touch** - only with `FLAGS_HANDLE_TOUCH`, mirroring `flagHandleTouch()`. Sent as `ObjectGrab` + `ObjectDeGrab` with the one `SurfaceInfo` block `lltoolgrab.cpp` always writes (default pick: UV/ST `-1`, face `-1`). Most scenery has no touch handler, so most rows won't offer it - that's correct, not a bug.
+- **Pay** - only with `FLAGS_TAKES_MONEY`, which is all `enable_pay_object()` checks, and withdrawn again if `PayPriceReply` says the object takes nothing. Amounts come from the object; `TRANS_PAY_OBJECT` (5008), `PAY_PRICE_HIDE`/`PAY_PRICE_DEFAULT` sentinels handled as in `lllslconstants.h`. Every payment confirms the object and amount first.
+- **Sit on** - always available except on the object you're already sitting on ("by default, we can sit on anything", `llinspectobject.cpp`).
+
+**Show details** opens a dialog with position, distance, owner, group, creator, creation date (the sim sends *microseconds*; divided down as `llfloaterinspect.cpp` does), permissions, land impact and physics cost (`GetObjectCost` cap), and any media-on-prim URLs (`ObjectMedia` cap). The caps are called **once, on open** - the list never triggers them, and nothing in the dialog polls.
 
 ## Land
 
@@ -407,6 +456,21 @@ The **Guide** tab pulls curated destinations from Linden Lab's public API (`worl
 | `events` | Events |
 
 Each entry shows a name, description, maturity rating, and thumbnail. **Map** or **Teleport** straight from it, or follow its SLURL. Teleport progress works the same as on the map.
+
+## News
+
+Four sub-tabs: **Linden News**, **SL Calendar**, **Grid Status**, **Bloggers**.
+
+Three of them are RSS, fetched and parsed **in the core** (`bridge/feeds.rs`) so the WebView never touches XML - each item arrives as plain text plus a link, which keeps rendering cheap and means no feed markup is ever injected into the page. Cards start collapsed; only the opened one renders its full text. `bridge_feed` takes a **feed name, never a URL**, and the name resolves through a hard-coded allowlist - it is not a general-purpose proxy.
+
+| Sub-tab | Source |
+|---------|--------|
+| Linden News | `community.secondlife.com/rss/1-blog-rss.xml` |
+| Grid Status | `status.secondlifegrid.net/history.rss` |
+| Bloggers | the Inoreader "Second Life Bloggers" stream, read as RSS |
+| SL Calendar | framed Google Calendar embed (`frame-src` allows that host only) |
+
+The calendar is the one framed page, and framing has a real limit worth recording: **a link inside a cross-origin frame is that frame's own navigation**, which our CSP won't allow off its host, and a `target=_blank` in there has no window to open. Nothing of ours can see those clicks either - no script of ours runs in someone else's origin. The blogger tab was framed at first and every post click silently did nothing for exactly that reason; it's an RSS stream underneath, so it's read as one and its links are ordinary anchors that go to the OS browser. Framed tabs keep an **Open in browser** button and a visible fallback for sites that refuse framing outright.
 
 ## When the connection drops
 

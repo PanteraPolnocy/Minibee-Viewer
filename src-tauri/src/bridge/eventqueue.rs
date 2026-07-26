@@ -153,17 +153,34 @@ pub fn spawn(
                 }
             }
         }
-        // Repeated poll failures on the region's EventQueue mean the region is
-        // lost, so we force a disconnect. (A plain 404/cap-rotation break doesn't
-        // set this - the region-cross path respawns the poll in that case.)
-        if gave_up {
-            crate::dlog!("eventqueue: gave up after repeated errors -> session-lost");
+        // Repeated poll failures mean this EventQueue is finished. Whether that's worth
+        // telling the user they're disconnected is a separate question, and we were
+        // getting it wrong: the answer used to be an unconditional yes, so a broken poll
+        // put up "connection lost" while the UDP circuit was perfectly alive and chat,
+        // IMs and teleports all still worked.
+        //
+        // is this poll for the region the agent is actually in, and is it the main region
+        // rather than a neighbour? A stale poll just stops, quietly.
+        //
+        // We check the first - a poll whose cap is no longer the session's is a leftover
+        // from a region we've left - and then diverge deliberately on the second. The
+        // reference reasons that "things won't get better until they relog" because for it
+        // a dead EventQueue takes IMs, teleports and land with it. Ours run over UDP, so a
+        // dead poll costs us ChatterBox sessions and live updates, not the session. If the
+        // circuit is still answering, that's a degraded-features banner, not a disconnect.
+        if !gave_up {
+            crate::dlog!("eventqueue: stopped");
+        } else if !session.is_current_eq(&cap_url) {
+            crate::dlog!("eventqueue: gave up on a stale cap, leaving the session alone");
+        } else if session.circuit_alive() {
+            crate::dlog!("eventqueue: gave up, but the circuit is alive - degraded, not lost");
+            crate::bridge::caps::emit_caps_status(&app, None, "eventqueue");
+        } else {
+            crate::dlog!("eventqueue: gave up and the circuit is silent -> session-lost");
             let _ = app.emit(
                 "minibee-viewer://session-lost",
                 serde_json::json!({ "reason": "Lost connection to the region." }),
             );
-        } else {
-            crate::dlog!("eventqueue: stopped");
         }
     })
 }

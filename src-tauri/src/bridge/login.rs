@@ -38,10 +38,6 @@ fn md5_hex(input: &str) -> String {
 }
 
 fn sl_login_passwd(p: &Value) -> String {
-    // Follow the reference viewer (llpanellogin.cpp): MD5 the whole password, and
-    // never trim or truncate it. That old 16-char SL limit was only a UI cap, not
-    // part of the wire hash - truncating here would break login for any longer
-    // password set through another viewer, and OpenSim allows up to 255 chars.
     let plain = gs(p, "passwd");
     if gs(p, "auth_type") == "account" {
         plain
@@ -390,13 +386,34 @@ fn trim_login_for_client(login: &Map<String, Value>) -> Value {
     Value::Object(out)
 }
 
+/// Caps we can't do without, and the fallback list for a grid that refuses the full one.
+///
+/// A seed grant only hands back the caps you ASK for, so anything missing here is a
+/// feature that silently does nothing - there's no error, the lookup just comes back
+/// empty. `InterestList` is the cautionary tale: without it the sim keeps culling object
+/// updates to a camera frustum we don't have, which is barely noticeable standing on the
+/// ground and leaves a skybox at altitude looking empty.
 fn seed_bootstrap_cap_names() -> Vec<&'static str> {
     vec![
         "EventQueueGet", "GetDisplayNames", "AgentPreferences", "ChatSessionRequest",
         "RemoteParcelRequest", "LandResources", "ParcelPropertiesUpdate", "ViewerBenefits",
-        "AgentProfile",
+        "AgentProfile", "InterestList",
     ]
 }
+
+/// Every capability the core ever looks up by name. Kept beside the request lists so the
+/// two can be checked against each other - see `every_cap_we_use_is_requested`.
+#[cfg(test)]
+const CAPS_WE_USE: &[&str] = &[
+    "AgentProfile",
+    "ChatSessionRequest",
+    "EventQueueGet",
+    "GetDisplayNames",
+    "GetObjectCost",
+    "InterestList",
+    "ObjectMedia",
+    "RemoteParcelRequest",
+];
 
 /// Re-fetch a region's capability map from its seed URL (we do this on teleport and
 /// region cross). Returns the `name -> url` map, or None if the fetch failed or came
@@ -440,13 +457,10 @@ async fn fetch_login_seed_caps(
         "AgentState", "AvatarPickerSearch", "HomeLocation", "ReadOfflineMsgs", "UserInfo",
         "GetMetadata", "GetMesh", "GetMesh2", "GetTexture", "FetchInventory2",
         "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
-        "SimulatorFeatures",
+        "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
     ]);
     // Ask for the FULL cap set first, in a single POST - the seed grant only hands
-    // back the caps you request (the reference viewer posts its whole list at once), so
-    // asking for just the bootstrap names would leave inventory/texture/mesh/asset/
-    // SimulatorFeatures/etc ungranted, here and on every region entered later.
-    // The bootstrap-only list is kept purely as a fallback for a picky grid.
+    // back the caps you request.
     let lists = [full, seed_bootstrap_cap_names()];
 
     let session_id = trim_quotes(session_id);
@@ -529,6 +543,29 @@ mod tests {
         assert_eq!(md5_hex("password"), "5f4dcc3b5aa765d61d8327deb882cf99");
     }
 
+    #[test]
+    fn every_cap_we_use_is_requested() {
+        // Mirrors the list built in fetch_login_seed_caps.
+        let mut requested = seed_bootstrap_cap_names();
+        requested.extend_from_slice(&[
+            "AgentState", "AvatarPickerSearch", "HomeLocation", "ReadOfflineMsgs", "UserInfo",
+            "GetMetadata", "GetMesh", "GetMesh2", "GetTexture", "FetchInventory2",
+            "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
+            "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
+        ]);
+        let missing: Vec<&&str> =
+            CAPS_WE_USE.iter().filter(|c| !requested.contains(c)).collect();
+        assert!(missing.is_empty(), "caps used but never requested: {missing:?}");
+    }
+
+    #[test]
+    fn the_fallback_cap_list_keeps_the_essentials() {
+        let boot = seed_bootstrap_cap_names();
+        for needed in ["EventQueueGet", "GetDisplayNames", "RemoteParcelRequest", "InterestList"] {
+            assert!(boot.contains(&needed), "{needed} missing from the fallback list");
+        }
+    }
+
     fn obj(v: Value) -> Map<String, Value> {
         v.as_object().unwrap().clone()
     }
@@ -586,7 +623,6 @@ mod tests {
         // "password" becomes "$1$" + md5("password").
         let p = json!({ "passwd": "password" });
         assert_eq!(sl_login_passwd(&p), "$1$5f4dcc3b5aa765d61d8327deb882cf99");
-        // The full password is hashed, never truncated - just like the reference viewer.
         let a = sl_login_passwd(&json!({ "passwd": "0123456789abcdefEXTRA" }));
         let b = sl_login_passwd(&json!({ "passwd": "0123456789abcdef" }));
         assert_ne!(a, b);

@@ -51,10 +51,6 @@ pub fn zerocode_encode(buf: &[u8], start: usize, end: usize) -> Vec<u8> {
 /// Expand a zerocoded UDP payload; the first 6 header bytes are copied through verbatim.
 pub fn zerocode_expand(input: &[u8]) -> Vec<u8> {
     const HDR: usize = 6;
-    // Cap the expanded size at the reference viewer's NET_BUFFER_SIZE (0x2000). A well-formed
-    // SL message never grows past this, but an all-zero zerocoded datagram amplifies
-    // roughly 256x, so without the cap a ~64KB malicious packet would balloon to ~16MB - a
-    // remote memory/CPU DoS, and nastier still on the memory-constrained Android target.
     const MAX_EXPANDED: usize = 0x2000;
     let n = input.len();
     let mut out = Vec::with_capacity((n * 2 + HDR).min(MAX_EXPANDED));
@@ -287,9 +283,6 @@ pub fn decode(reg: &Registry, bytes: &[u8]) -> Option<Value> {
         let ack_count = bytes[receive_size - 1] as usize;
         receive_size -= 1;
         if ack_count > 0 {
-            // A bogus ack count that won't fit (leaving no room for the 6-byte
-            // header) means the packet is malformed; drop it rather than decode the
-            // mangled remainder, matching the reference viewer's valid_packet=false path.
             if receive_size < ack_count * 4 + 6 {
                 return None;
             }
@@ -496,10 +489,6 @@ fn encode_field(ty: FieldType, v: Option<&Value>, out: &mut Vec<u8>) {
             match k {
                 2 => out.extend_from_slice(&(b.len() as u16).to_le_bytes()),
                 4 => out.extend_from_slice(&(b.len() as u32).to_le_bytes()),
-                // A Variable-1 length is a single byte, so clamp and truncate to 255 to
-                // keep the prefix and payload in step (as the reference viewer's addData does). Writing a
-                // wrapped length while still emitting the full slice would misalign every
-                // later field on the wire.
                 _ => {
                     b.truncate(255);
                     out.push(b.len() as u8);
@@ -746,5 +735,40 @@ mod tests {
         let msg_b64 = decoded["blocks"]["ChatData"][0]["Message"].as_str().unwrap();
         assert_eq!(B64.decode(msg_b64).unwrap(), b"hello\0");
         assert_eq!(decoded["blocks"]["ChatData"][0]["Channel"], 0);
+    }
+
+    #[test]
+    fn object_grab_carries_a_surface_info_block() {
+        let reg = template::build_registry();
+        let surface = json!([{
+            "UVCoord": [-1.0, -1.0, 0.0],
+            "STCoord": [-1.0, -1.0, 0.0],
+            "FaceIndex": -1,
+            "Position": [0.0, 0.0, 0.0],
+            "Normal": [0.0, 0.0, 0.0],
+            "Binormal": [0.0, 0.0, 0.0],
+        }]);
+        let blocks = json!({
+            "AgentData": [{
+                "AgentID": "11111111-1111-1111-1111-111111111111",
+                "SessionID": "22222222-2222-2222-2222-222222222222",
+            }],
+            "ObjectData": [{ "LocalID": 987654, "GrabOffset": [0.0, 0.0, 0.0] }],
+            "SurfaceInfo": surface,
+        });
+        for name in ["ObjectGrab", "ObjectDeGrab"] {
+            let packet = encode(&reg, name, &blocks, 3, FLAG_RELIABLE).expect("encode");
+            let decoded = decode(&reg, &packet).expect("decode");
+            assert_eq!(decoded["name"], name);
+            let si = &decoded["blocks"]["SurfaceInfo"];
+            assert_eq!(si.as_array().map(|a| a.len()), Some(1), "{name} needs exactly one SurfaceInfo");
+            assert_eq!(si[0]["FaceIndex"], -1, "a touch with no click point has no face");
+            assert_eq!(si[0]["UVCoord"][0], -1.0);
+        }
+        // ObjectGrab addresses the object by LocalID, not by key - a mismatch here is
+        // why a touch would reach nothing at all.
+        let packet = encode(&reg, "ObjectGrab", &blocks, 3, FLAG_RELIABLE).expect("encode");
+        let decoded = decode(&reg, &packet).expect("decode");
+        assert_eq!(decoded["blocks"]["ObjectData"][0]["LocalID"], 987654);
     }
 }

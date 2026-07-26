@@ -716,12 +716,55 @@ html.require-http #app {
   max-width: 100%;
 }
 
+.top-bar__identity--interactive { cursor: pointer; }
+.top-bar__identity--interactive:hover .top-bar__name { color: var(--accent); }
+
 .top-bar__name--interactive:not(:disabled) {
   cursor: pointer;
 }
 
 .top-bar__name--interactive:not(:disabled):hover {
   color: var(--accent);
+}
+
+.top-bar__bee { display: none; }
+
+.bee-menu {
+  position: absolute;
+  top: calc(var(--top-bar-h) + 4px);
+  right: 8px;
+  z-index: 70;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.bee-menu[hidden] { display: none; }
+
+.bee-menu__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 0.82rem;
+}
+
+.bee-menu__label { color: var(--text-muted); }
+
+.bee-menu__value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bee-menu__logout {
+  margin-top: 4px;
+  width: 100%;
 }
 
 .top-bar__center {
@@ -2742,6 +2785,366 @@ html.require-http #app {
   font-size: 0.8rem;
 }
 
+#panel-interact.panel--active {
+  display: flex;
+  flex-direction: column;
+}
+
+.interact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.interact-actions[hidden] { display: none; }
+
+.field[hidden],
+.login-challenge__mfa[hidden],
+.top-bar__stats[hidden],
+.im-action-btn[hidden],
+.message-list[hidden] { display: none; }
+
+.interact-actions .btn { flex: 1 1 auto; min-width: 130px; }
+
+.objects-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.objects-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.objects-row:last-child { border-bottom: none; }
+
+.objects-row--head {
+  background: var(--bg-deep);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.objects-sort {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 8px 4px;
+  cursor: pointer;
+}
+
+.objects-sort--active { color: var(--accent); }
+
+.objects-row--item { cursor: pointer; font-size: 0.84rem; }
+.objects-row--item:hover { background: var(--bg-elevated); }
+
+.objects-cell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.objects-cell--num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.objects-sort.objects-cell--num { text-align: right; }
+
+.objects-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.objects-count {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.objects-range {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.objects-filter {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-deep);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.84rem;
+}
+
+.objects-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.objects-dialog {
+  width: min(30rem, calc(100vw - 32px));
+  max-height: 88vh;
+  max-height: 88dvh;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.objects-dialog::backdrop { background: var(--overlay); }
+
+.objects-dialog__body {
+  padding: 14px 16px 16px;
+  max-height: 88vh;
+  max-height: 88dvh;
+  overflow-y: auto;
+}
+
+.objects-detail__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.objects-detail__desc {
+  margin: 0 0 12px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.objects-detail__fields .profile-field {
+  gap: 2px;
+  padding: 8px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.objects-detail__fields .profile-field:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.objects-detail__fields .profile-field > span:last-child { word-break: break-word; }
+
+.objects-detail__actions {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.objects-detail__actions .btn { flex: 0 1 auto; min-width: 92px; }
+
+@media (max-width: 640px) {
+  .objects-filter { flex: 1 1 100%; }
+  .objects-range { flex: 1 1 auto; }
+  .objects-toolbar .btn { flex: 0 0 auto; }
+
+  .objects-row {
+    grid-template-columns: 58px minmax(0, 1.5fr) minmax(0, 0.9fr);
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .objects-row--item { font-size: 0.8rem; }
+  .objects-row--head { font-size: 0.66rem; }
+  .objects-sort { padding: 8px 2px; }
+
+  .interact-avatar-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .interact-avatar-bar__actions {
+    margin-left: 0;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  /* Grid tracks already share the width, so let the buttons fill their cell. */
+  .interact-avatar-bar__actions .btn { width: 100%; min-width: 0; }
+
+  /* Full-width dialog with room for a thumb, and buttons that don't wrap oddly. */
+  .objects-dialog { width: calc(100vw - 20px); max-height: 92dvh; }
+  .objects-dialog__body { padding: 12px 12px 14px; max-height: 92dvh; }
+  .objects-detail__actions .btn { flex: 1 1 calc(50% - 4px); }
+}
+
+/* The custom-amount row sits under the buttons, so it needs its own gap. */
+#objects-pay-row { margin-top: 10px; }
+
+/* Avatar actions: one strip above the list instead of a tab of their own. */
+.interact-avatar-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.interact-avatar-bar__state {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.interact-avatar-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+#panel-news.panel--active {
+  display: flex;
+  flex-direction: column;
+}
+
+.news-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.news-empty {
+  margin: 0;
+  padding: 12px 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.news-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.news-item--open { border-color: var(--accent); }
+
+/* The whole header is the toggle, so it needs to look like a row, not a button. */
+.news-item__head {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.news-item__head:hover .news-item__title { color: var(--accent); }
+
+.news-item__thumb {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg-input);
+}
+
+.news-item__headings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.news-item__title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.25;
+}
+
+.news-item__meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.news-item__summary {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.news-item__body {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.news-item__body[hidden] { display: none; }
+
+.news-item__para {
+  margin: 10px 0 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.news-item__actions { margin-top: 14px; }
+
+/* Framed pages fill the pane; the pane itself must not scroll them away. */
+.news-frame-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.news-frame-pane[hidden] { display: none !important; }
+
+.news-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.news-frame__iframe {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.news-frame__note { flex: 0 0 auto; }
+
 /* Settings panel - subtabs, preference controls, the about card, and the doc viewer. */
 #panel-settings.panel--active {
   display: flex;
@@ -4349,15 +4752,15 @@ html.require-http #app {
   .top-bar__parcel { display: none; }
   #fps-badge { display: none; }
   .parcel-music-bar__volume { display: none; }
-  /* Keep the balance and SLT clock, but stack them so they don't grow the bar. */
-  .top-bar__stats {
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 0;
-    line-height: 1.15;
-  }
-  #balance-badge { font-size: 0.72rem; }
-  #slt-clock { font-size: 0.6rem; padding: 0; background: none; }
+  /* Screen space is precious here, so the balance/clock chips, the theme toggle
+     and the logout button all move into the bee popup. The parcel-music note
+     stays on the bar - it's a one-tap control people reach for constantly. */
+  .top-bar__stats { display: none; }
+  #btn-theme { display: none; }
+  #btn-logout { display: none; }
+  .top-bar__bee { display: inline-flex; }
+  /* Give the whole name block a comfortable tap target. */
+  .top-bar__identity { padding: 4px 8px 4px 0; }
 
   /* Group title: on narrow screens, stack the Save button below the dropdown.
      Reset the select's flex so its 180px basis isn't read as a huge height once

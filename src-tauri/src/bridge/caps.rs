@@ -232,6 +232,46 @@ fn chat_session_body(method: &str, session_id: &str, params: &[String], mute: Op
     format!("<?xml version=\"1.0\"?><llsd><map>{inner}</map></llsd>")
 }
 
+/// Ask the sim for a 360-degree interest list
+pub(crate) async fn interest_list_360(state: &Arc<AppState>, session: &Arc<crate::bridge::circuit::Session>) {
+    let url = match session.cap("InterestList") {
+        Some(u) => u,
+        None => {
+            crate::dlog!(
+                "InterestList cap NOT GRANTED - object updates stay culled to a camera frustum, \
+                 so the nearby list will be incomplete (worst at altitude)"
+            );
+            return;
+        }
+    };
+    let body = "<?xml version=\"1.0\"?><llsd><map><key>mode</key><string>360</string></map></llsd>";
+    let (pin, _) = proxy::simhost_pin(&url, "").await;
+    match proxy::exchange(
+        &state.ua,
+        "POST",
+        &url,
+        body,
+        "application/llsd+xml",
+        &[],
+        pin,
+        Duration::from_secs(15),
+        true,
+    )
+    .await
+    {
+        Ok(ex) if (200..300).contains(&ex.status) => {
+            crate::dlog!("interest list set to 360 (HTTP {})", ex.status);
+        }
+        Ok(ex) => crate::dlog!(
+            "InterestList POST refused: HTTP {} body={:.200} url={}",
+            ex.status,
+            ex.body,
+            url
+        ),
+        Err(e) => crate::dlog!("InterestList POST failed: {e} url={url}"),
+    }
+}
+
 pub(crate) async fn chat_session_post(
     state: &Arc<AppState>,
     method: &str,
@@ -296,6 +336,87 @@ pub async fn sl_chat_session_moderate(
 
 /// RemoteParcelRequest: turn a region location into a parcel id, then fire off a
 /// ParcelInfoRequest so a `parcel-info` event follows (the about-land flow).
+#[tauri::command]
+/// Extra detail for one object, gathered only when the user opens the detail view.
+pub async fn sl_object_extra(state: State<'_, Arc<AppState>>, object_id: String) -> Cmd {
+    let session = state.active().ok_or("No active session")?;
+    if object_id.is_empty() {
+        return Err("No object".into());
+    }
+    let mut out = json!({ "ok": true, "id": object_id });
+
+    if let Some(cap) = session.cap("GetObjectCost") {
+        let body = format!(
+            "<?xml version=\"1.0\"?><llsd><map><key>object_ids</key><array><uuid>{object_id}</uuid></array></map></llsd>"
+        );
+        let (pin, _) = proxy::simhost_pin(&cap, "").await;
+        if let Ok(ex) = proxy::exchange(
+            &state.ua, "POST", &cap, &body, "application/llsd+xml", &[], pin,
+            Duration::from_secs(20), true,
+        )
+        .await
+        {
+            let parsed = codec::llsd::parse(&ex.body, &ex.content_type).unwrap_or(Value::Null);
+            if let Some(row) = parsed.get(&object_id).or_else(|| {
+                // Some sims echo the id in a different case than we sent.
+                parsed.as_object().and_then(|m| {
+                    m.iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case(&object_id))
+                        .map(|(_, v)| v)
+                })
+            }) {
+                let num = |k: &str| row.get(k).and_then(|v| v.as_f64());
+                if let Some(o) = out.as_object_mut() {
+                    if let Some(v) = num("linked_set_resource_cost") {
+                        o.insert("landImpact".into(), json!(v.round()));
+                    }
+                    if let Some(v) = num("resource_cost") {
+                        o.insert("objectCost".into(), json!(v.round()));
+                    }
+                    if let Some(v) = num("linked_set_physics_cost") {
+                        o.insert("physicsCost".into(), json!((v * 10.0).round() / 10.0));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(cap) = session.cap("ObjectMedia") {
+        let body = format!(
+            "<?xml version=\"1.0\"?><llsd><map><key>verb</key><string>GET</string><key>object_id</key><uuid>{object_id}</uuid></map></llsd>"
+        );
+        let (pin, _) = proxy::simhost_pin(&cap, "").await;
+        if let Ok(ex) = proxy::exchange(
+            &state.ua, "POST", &cap, &body, "application/llsd+xml", &[], pin,
+            Duration::from_secs(20), true,
+        )
+        .await
+        {
+            let parsed = codec::llsd::parse(&ex.body, &ex.content_type).unwrap_or(Value::Null);
+            let mut urls: Vec<String> = Vec::new();
+            if let Some(faces) = parsed.get("object_media_data").and_then(|v| v.as_array()) {
+                for (face, entry) in faces.iter().enumerate() {
+                    for key in ["current_url", "home_url"] {
+                        let url = entry.get(key).and_then(|v| v.as_str()).unwrap_or("").trim();
+                        if url.is_empty() {
+                            continue;
+                        }
+                        let label = format!("{face}|{url}");
+                        if !urls.iter().any(|u| u.ends_with(url)) {
+                            urls.push(label);
+                        }
+                        break;
+                    }
+                }
+            }
+            if let Some(o) = out.as_object_mut() {
+                o.insert("media".into(), json!(urls));
+            }
+        }
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn sl_remote_parcel(
     state: State<'_, Arc<AppState>>,

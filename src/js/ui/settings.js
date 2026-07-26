@@ -29,6 +29,9 @@ const FSSettingsUI = (function () {
     { section: 'Connection', items: [
       { key: 'autoReconnect', label: 'Auto-reconnect after disconnect', kind: 'toggle' }
     ] },
+    { section: 'Avatar', items: [
+      { key: 'autoSitAfterLogin', label: 'Sit on the ground after logging in', kind: 'toggle' }
+    ] },
     { section: 'Radar', items: [
       { key: 'radarRange', label: 'Range', kind: 'range', unit: 'm' },
       { key: 'radarAlerts', label: 'Proximity alerts', kind: 'toggle' }

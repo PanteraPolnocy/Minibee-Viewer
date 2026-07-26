@@ -1,4 +1,4 @@
-//! Tauri IPC command handlers: bridge helpers plus UDP circuit control.
+﻿//! Tauri IPC command handlers: bridge helpers plus UDP circuit control.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -180,6 +180,19 @@ pub fn set_close_guard(state: State<'_, Arc<AppState>>, guard: bool) {
     state
         .close_guard
         .store(guard, std::sync::atomic::Ordering::SeqCst);
+    if !guard {
+        state
+            .close_pending
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// The user said no to the close confirmation.
+#[tauri::command]
+pub fn cancel_close(state: State<'_, Arc<AppState>>) {
+    state
+        .close_pending
+        .store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// Quit the app once the user confirms the close in the logout dialog. It only
@@ -325,6 +338,12 @@ pub async fn bridge_proxy(state: State<'_, Arc<AppState>>, params: Value) -> Cmd
 pub async fn bridge_destinations(state: State<'_, Arc<AppState>>, feed: String) -> Cmd {
     let f = feed.trim().to_ascii_lowercase();
     Ok(map::fetch_destinations_feed(state.inner(), &f).await)
+}
+
+#[tauri::command]
+pub async fn bridge_feed(state: State<'_, Arc<AppState>>, feed: String) -> Cmd {
+    let f = feed.trim().to_ascii_lowercase();
+    Ok(crate::bridge::feeds::fetch(state.inner(), &f).await)
 }
 
 #[tauri::command]
@@ -724,6 +743,433 @@ pub async fn sl_pay(state: State<'_, Arc<AppState>>, dest_id: String, amount: i6
     Ok(json!({ "ok": true }))
 }
 
+// Agent control flags (indra_constants.h). STAND_UP and SIT_ON_GROUND are one-shot
+// requests; FLY is a state the viewer keeps re-sending, which is why we track it.
+use crate::bridge::session::AGENT_CONTROL_FLY; // 0x1 << 13
+const AGENT_CONTROL_STAND_UP: u64 = 0x1 << 16; // 0x00010000
+const AGENT_CONTROL_SIT_ON_GROUND: u64 = 0x1 << 17; // 0x00020000
+
+async fn send_agent_update(
+    s: &Arc<crate::bridge::circuit::Session>,
+    agent: &str,
+    sess: &str,
+    one_shot: u64,
+) {
+    let flags = one_shot | if s.is_flying() { AGENT_CONTROL_FLY } else { 0 };
+    let repeats = if one_shot != 0 { 3 } else { 2 };
+    for i in 0..repeats {
+        if i > 0 {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+        send_one_agent_update(s, agent, sess, flags).await;
+    }
+}
+
+async fn send_one_agent_update(
+    s: &Arc<crate::bridge::circuit::Session>,
+    agent: &str,
+    sess: &str,
+    flags: u64,
+) {
+    let pos = s.last_position().unwrap_or([128.0, 128.0, 25.0]);
+    let body = crate::bridge::session::build_agent_update(agent, sess, pos, flags);
+    s.send_encoded("AgentUpdate", &body, true).await;
+}
+
+/// Stand the avatar up, as LLAgent::standUp does. Harmless when we aren't sitting -
+/// the sim just ignores it.
+async fn send_stand_up(s: &Arc<crate::bridge::circuit::Session>, agent: &str, sess: &str) {
+    send_agent_update(s, agent, sess, AGENT_CONTROL_STAND_UP).await;
+    s.set_sitting(false);
+}
+
+/// A seated avatar can't be teleported, so stand up first and give the sim a
+/// moment to actually do it before asking to move. Every teleport path calls
+/// this, so it doesn't matter which button the user pressed.
+async fn stand_before_teleport(s: &Arc<crate::bridge::circuit::Session>, agent: &str, sess: &str) {
+    if !s.is_sitting() {
+        return;
+    }
+    crate::dlog!("teleport: standing up first (we're seated)");
+    send_stand_up(s, agent, sess).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+}
+
+/// Stand the avatar up on request (Interactions -> avatar actions).
+#[tauri::command]
+pub async fn sl_stand_up(state: State<'_, Arc<AppState>>) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    send_stand_up(&s, &agent, &sess).await;
+    Ok(json!({ "ok": true, "sitting": false, "flying": s.is_flying() }))
+}
+
+/// Sit on the ground (LLAgent::sitDown). Flying and sitting are mutually exclusive,
+/// so this drops us out of flight as the sim does.
+#[tauri::command]
+pub async fn sl_sit_ground(state: State<'_, Arc<AppState>>) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    // Coming out of flight first: tell the sim to stop flying, let it land us, and
+    // only then ask to sit. Bundling both into one message meant the sit was often
+    // ignored because we were still airborne.
+    if s.is_flying() {
+        s.set_flying(false);
+        send_agent_update(&s, &agent, &sess, 0).await;
+        tokio::time::sleep(Duration::from_millis(800)).await;
+    }
+    s.set_flying(false);
+    send_agent_update(&s, &agent, &sess, AGENT_CONTROL_SIT_ON_GROUND).await;
+    // The sim only sends AvatarSitResponse for sitting on an object, so record the
+    // ground sit ourselves - teleports need to know we have to stand up first.
+    s.set_sitting(true);
+    Ok(json!({ "ok": true, "sitting": true, "flying": false }))
+}
+
+/// Start or stop flying. Sitting first? Stand up in the same breath, since the sim
+/// won't fly a seated avatar.
+#[tauri::command]
+pub async fn sl_set_flying(state: State<'_, Arc<AppState>>, flying: bool) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    let one_shot = if flying && s.is_sitting() {
+        s.set_sitting(false);
+        AGENT_CONTROL_STAND_UP
+    } else {
+        0
+    };
+    s.set_flying(flying);
+    send_agent_update(&s, &agent, &sess, one_shot).await;
+    Ok(json!({ "ok": true, "sitting": s.is_sitting(), "flying": flying }))
+}
+
+/// Ask the sim for one object's properties (name, owner, permissions, sale price).
+async fn request_object_props(
+    s: &Arc<crate::bridge::circuit::Session>,
+    agent: &str,
+    sess: &str,
+    object_id: &str,
+) {
+    s.send_encoded(
+        "RequestObjectPropertiesFamily",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ObjectData": [{ "RequestFlags": 0, "ObjectID": object_id }],
+        }),
+        true,
+    )
+    .await;
+}
+
+/// Ask the sim to describe objects we already know the ids of. Same call the
+/// cached-update path uses, and the same 200-per-message ceiling.
+async fn request_objects_again(
+    s: &Arc<crate::bridge::circuit::Session>,
+    agent: &str,
+    sess: &str,
+    ids: &[u32],
+) {
+    for chunk in ids.chunks(200) {
+        let data: Vec<Value> =
+            chunk.iter().map(|id| json!({ "CacheMissType": 0, "ID": id })).collect();
+        s.send_encoded(
+            "RequestMultipleObjects",
+            &json!({
+                "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+                "ObjectData": data,
+            }),
+            true,
+        )
+        .await;
+    }
+}
+
+/// Ask the sim to describe a batch of objects properly - name, owner, creator, sale and
+/// permissions - by selecting them and letting go again.
+///
+/// This is exactly how the reference's area search fills its columns
+/// (`FSAreaSearch::requestObjectProperties`): ObjectSelect for the batch, then
+/// ObjectDeselect for the same batch. Selecting is what makes the sim send the full
+/// ObjectProperties rather than the cut-down Family reply, and the full one is the only
+/// place a creator appears - which is what the creator filter needs.
+///
+/// The reference packs up to 255 ids per message; we chunk at 64 and the caller limits
+/// how many objects a single press of Load will ask about.
+async fn request_object_batch(
+    s: &Arc<crate::bridge::circuit::Session>,
+    agent: &str,
+    sess: &str,
+    local_ids: &[u32],
+) {
+    for chunk in local_ids.chunks(64) {
+        let data: Vec<Value> = chunk.iter().map(|id| json!({ "ObjectLocalID": id })).collect();
+        let body = json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ObjectData": data,
+        });
+        s.send_encoded("ObjectSelect", &body, true).await;
+        s.send_encoded("ObjectDeselect", &body, true).await;
+    }
+}
+
+/// Let the list know we want the objects. Tracking itself runs from login onward,
+/// because the sim only describes a region when you arrive - this just says the tab
+/// is open and the nearby list is worth answering.
+#[tauri::command]
+pub async fn sl_object_scan(state: State<'_, Arc<AppState>>, enable: bool) -> Cmd {
+    let s = state.active().ok_or("No active session")?;
+    s.set_object_scan(enable);
+    crate::dlog!("object scan {}", if enable { "on" } else { "off" });
+    Ok(json!({ "ok": true, "scanning": enable }))
+}
+
+/// Work through every in-range object that still has no properties, a batch at a time.
+///
+/// Nothing is left out: the loop ends when each one has been asked about exactly once
+/// (`take_needing_props` marks them as it goes), so a busy region takes longer rather
+/// than getting truncated. It runs in the background because a wide radius means several
+/// seconds of paced requests, and Load shouldn't sit there waiting for them.
+///
+/// The pacing is the polite part - `PROPS_GAP_MS` between messages, nearest objects
+/// first, so the rows the user is actually looking at fill in immediately and the rest
+/// trickle in. The reference's area search does the same job from its idle callback, with
+/// a per-region cap per pass and larger packets than these.
+fn spawn_props_drain(
+    s: Arc<crate::bridge::circuit::Session>,
+    agent: String,
+    sess: String,
+    range: f32,
+) {
+    /// Ids per ObjectSelect. The reference allows 255; this keeps each packet small.
+    const PROPS_PER_MESSAGE: usize = 64;
+    /// Breathing room between messages.
+    const PROPS_GAP_MS: u64 = 400;
+
+    if !s.start_props_drain() {
+        return; // one is already running, and it covers the same set
+    }
+    tokio::spawn(async move {
+        let mut asked = 0usize;
+        loop {
+            let ids = s.next_props_batch(range, PROPS_PER_MESSAGE);
+            if ids.is_empty() {
+                break;
+            }
+            asked += ids.len();
+            request_object_batch(&s, &agent, &sess, &ids).await;
+            tokio::time::sleep(Duration::from_millis(PROPS_GAP_MS)).await;
+        }
+        if asked > 0 {
+            crate::dlog!("object properties: asked about {asked} object(s) within {range}m");
+        }
+        s.end_props_drain();
+    });
+}
+
+/// The nearby list: everything within the chosen radius, with no ceiling on how many.
+/// Pressing Load also kicks off the properties drain for anything still unnamed.
+#[tauri::command]
+pub async fn sl_nearby_objects(state: State<'_, Arc<AppState>>, range: Option<f64>) -> Cmd {
+    // No gate on the scan flag. Reading a table we maintain anyway costs nothing, and a
+    // flag that hadn't been set yet used to mean Load answered with an empty list and no
+    // explanation.
+    let (s, agent, sess) = active_ids(&state)?;
+    const RECOVER_PER_LOAD: usize = 400;
+    // 128m is as far as the interest list reaches (session::INTEREST_FAR), so asking for
+    // more than that would promise objects the sim never sends.
+    let range = range.unwrap_or(32.0).clamp(8.0, 128.0) as f32;
+    // A teleport that never arrived leaves us standing in the old region with an empty
+    // table, and a sim describes its contents only once, on arrival. Ask again for what
+    // we dropped on the way out - a couple of packets per press of Load, not one blast.
+    let recover = s.objects_to_recover(RECOVER_PER_LOAD);
+    if !recover.is_empty() {
+        crate::dlog!("re-requesting {} object(s) after a teleport that didn't happen", recover.len());
+        request_objects_again(&s, &agent, &sess, &recover).await;
+    }
+    // Pressing Load is also the retry: anything the sim never answered about becomes
+    // askable again.
+    s.allow_props_retry();
+    let (rows, pending) = s.nearby_objects(range);
+    crate::dlog!("nearby objects: {} row(s) within {}m, {} awaiting properties", rows.len(), range, pending);
+    if pending > 0 {
+        spawn_props_drain(s.clone(), agent, sess, range);
+    }
+    Ok(json!({ "ok": true, "scanning": true, "objects": rows, "pending": pending }))
+}
+
+/// Full details for one object, fetched on demand when the user opens the detail
+/// view. Never polled - the reply arrives as an `object-properties` event.
+#[tauri::command]
+pub async fn sl_object_details(state: State<'_, Arc<AppState>>, object_id: String) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if object_id.is_empty() || object_id == ZERO_UUID {
+        return Err("No object".into());
+    }
+    request_object_props(&s, &agent, &sess, &object_id).await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Pay an object (not a resident).
+///
+/// Same MoneyTransferRequest as paying a person, with two differences taken from the
+/// reference (llfloaterpay.cpp + give_money in llviewermessage.cpp): the transaction
+/// type is TRANS_PAY_OBJECT rather than TRANS_GIFT, and the description carries the
+/// object's name. DestID is the object's id; SourceID is us; Flags is 0 because
+/// neither side is a group, and both aggregate-permission bytes are AP_EMPTY.
+#[tauri::command]
+pub async fn sl_object_pay(
+    state: State<'_, Arc<AppState>>,
+    object_id: String,
+    amount: i64,
+    object_name: Option<String>,
+) -> Cmd {
+    const TRANS_PAY_OBJECT: i64 = 5008;
+    let (s, agent, sess) = active_ids(&state)?;
+    if object_id.is_empty() || object_id == ZERO_UUID {
+        return Err("No object".into());
+    }
+    // The reference refuses a zero amount outright and pays the absolute value.
+    let amount = amount.abs();
+    if amount < 1 {
+        return Err("amount must be >= 1".into());
+    }
+    crate::dlog!("paying object {} L${}", object_id, amount);
+    s.send_encoded(
+        "MoneyTransferRequest",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "MoneyData": [{
+                "SourceID": agent, "DestID": object_id, "Flags": 0, "Amount": amount,
+                "AggregatePermNextOwner": 0, "AggregatePermInventory": 0,
+                "TransactionType": TRANS_PAY_OBJECT,
+                "Description": vstr(&object_name.unwrap_or_default()),
+            }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true, "amount": amount }))
+}
+
+/// Ask an object what it would like to be paid. The sim answers with PayPriceReply,
+/// which carries a default price and up to four suggested amounts.
+#[tauri::command]
+pub async fn sl_request_pay_price(state: State<'_, Arc<AppState>>, object_id: String) -> Cmd {
+    let (s, _agent, _sess) = active_ids(&state)?;
+    if object_id.is_empty() || object_id == ZERO_UUID {
+        return Err("No object".into());
+    }
+    s.send_encoded(
+        "RequestPayPrice",
+        &json!({ "ObjectData": [{ "ObjectID": object_id }] }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Briefly select an object so the sim sends the full `ObjectProperties` reply, which
+/// is the only place creator and creation date appear, then deselect immediately.
+/// Detail view only - selecting every row of a list would be rude to the simhost.
+#[tauri::command]
+pub async fn sl_object_select(state: State<'_, Arc<AppState>>, local_id: u32) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if local_id == 0 {
+        return Err("No object".into());
+    }
+    s.send_encoded(
+        "ObjectSelect",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ObjectData": [{ "ObjectLocalID": local_id }],
+        }),
+        true,
+    )
+    .await;
+    s.send_encoded(
+        "ObjectDeselect",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ObjectData": [{ "ObjectLocalID": local_id }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Touch an object, as clicking it in-world would (grab then immediately let go).
+#[tauri::command]
+pub async fn sl_object_touch(state: State<'_, Arc<AppState>>, local_id: u32) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    // The reference always sends one SurfaceInfo block, filled from the mouse pick
+    // (lltoolgrab.cpp). Area search touches with a default-constructed LLPickInfo, whose
+    // UV and ST coordinates are -1 and whose face index is -1, so that's what a touch
+    // with no click point looks like on the wire. We were sending no block at all.
+    let surface = json!([{
+        "UVCoord": [-1.0, -1.0, 0.0],
+        "STCoord": [-1.0, -1.0, 0.0],
+        "FaceIndex": -1,
+        "Position": [0.0, 0.0, 0.0],
+        "Normal": [0.0, 0.0, 0.0],
+        "Binormal": [0.0, 0.0, 0.0],
+    }]);
+    s.send_encoded(
+        "ObjectGrab",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ObjectData": [{ "LocalID": local_id, "GrabOffset": [0.0, 0.0, 0.0] }],
+            "SurfaceInfo": surface,
+        }),
+        true,
+    )
+    .await;
+    s.send_encoded(
+        "ObjectDeGrab",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ObjectData": [{ "LocalID": local_id }],
+            "SurfaceInfo": surface,
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Sit on an object. The sim answers with AvatarSitResponse, which is what tells us
+/// we're seated (and therefore that a teleport has to stand us up first).
+#[tauri::command]
+pub async fn sl_object_sit(state: State<'_, Arc<AppState>>, object_id: String) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if object_id.is_empty() || object_id == ZERO_UUID {
+        return Err("No object".into());
+    }
+    s.send_encoded(
+        "AgentRequestSit",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "TargetObject": [{ "TargetID": object_id, "Offset": [0.0, 0.0, 0.0] }],
+        }),
+        true,
+    )
+    .await;
+    s.send_encoded(
+        "AgentSit",
+        &json!({ "AgentData": [{ "AgentID": agent, "SessionID": sess }] }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Current sit/fly state, so the UI can show the right buttons after a tab switch.
+#[tauri::command]
+pub fn sl_avatar_state(state: State<'_, Arc<AppState>>) -> Cmd {
+    let s = match state.active() {
+        Some(s) => s,
+        None => return Ok(json!({ "ok": false, "sitting": false, "flying": false })),
+    };
+    Ok(json!({ "ok": true, "sitting": s.is_sitting(), "flying": s.is_flying() }))
+}
+
 #[tauri::command]
 pub async fn sl_teleport_to(
     state: State<'_, Arc<AppState>>,
@@ -734,6 +1180,15 @@ pub async fn sl_teleport_to(
     z: f64,
 ) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
+    stand_before_teleport(&s, &agent, &sess).await;
+    // Free the tracked objects before we go, if this is a different region - they
+    // belong to where we're standing now and would be dead weight in transit.
+    s.clear_objects_for_teleport(grid_x, grid_y);
+    // Remember the destination so the TeleportStart event can carry it (see the
+    // teleport-started emit); the sim's own message has no coordinates.
+    s.set_tp_target(Some(json!({
+        "gridX": grid_x, "gridY": grid_y, "x": x, "y": y, "z": z
+    })));
     let handle = region_handle(grid_x, grid_y);
     s.send_encoded(
         "TeleportLocationRequest",
@@ -752,6 +1207,7 @@ pub async fn sl_teleport_to(
 #[tauri::command]
 pub async fn sl_teleport_home(state: State<'_, Arc<AppState>>) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
+    stand_before_teleport(&s, &agent, &sess).await;
     s.send_encoded(
         "TeleportLandmarkRequest",
         &json!({ "Info": [{ "AgentID": agent, "SessionID": sess, "LandmarkID": ZERO_UUID }] }),
@@ -778,6 +1234,108 @@ pub async fn sl_resolve_names(state: State<'_, Arc<AppState>>, ids: Vec<String>)
     let (s, _a, _sess) = active_ids(&state)?;
     let blocks = json!({ "UUIDNameBlock": ids.iter().take(40).map(|id| json!({ "ID": id })).collect::<Vec<_>>() });
     s.send_encoded("UUIDNameRequest", &blocks, false).await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Ask the sim for the block list.
+///
+/// The reply doesn't come back inline: the sim writes a file, tells us its name in
+/// `MuteListUpdate`, and we fetch it over Xfer - so the list arrives later, as a
+/// `mute-list` event. A zero CRC is what says "send it, I have nothing cached".
+#[tauri::command]
+pub async fn sl_request_mute_list(state: State<'_, Arc<AppState>>) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    s.send_encoded(
+        "MuteListRequest",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "MuteData": [{ "MuteCRC": 0 }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Block a resident, grid-wide. The sim owns the list, so this is a write to it rather
+/// than something we keep to ourselves.
+///
+/// MuteType 1 is LLMute::AGENT, and flags 0 means "everything" - the reference treats an
+/// all-zero flag set as a total block (llmutelist.h), which is what a person expects from
+/// a Block button.
+#[tauri::command]
+pub async fn sl_block_agent(
+    state: State<'_, Arc<AppState>>,
+    agent_id: String,
+    name: Option<String>,
+) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if agent_id.is_empty() || agent_id == ZERO_UUID {
+        return Err("No resident".into());
+    }
+    if agent_id.eq_ignore_ascii_case(&agent) {
+        return Err("You cannot block yourself".into());
+    }
+    let label = name.unwrap_or_default();
+    s.send_encoded(
+        "UpdateMuteListEntry",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "MuteData": [{
+                "MuteID": agent_id,
+                "MuteName": vstr(&label),
+                "MuteType": 1,
+                "MuteFlags": 0,
+            }],
+        }),
+        true,
+    )
+    .await;
+    crate::dlog!("blocked {}", agent_id);
+    Ok(json!({ "ok": true }))
+}
+
+#[tauri::command]
+pub async fn sl_unblock_agent(
+    state: State<'_, Arc<AppState>>,
+    agent_id: String,
+    name: Option<String>,
+) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if agent_id.is_empty() || agent_id == ZERO_UUID {
+        return Err("No resident".into());
+    }
+    s.send_encoded(
+        "RemoveMuteListEntry",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "MuteData": [{ "MuteID": agent_id, "MuteName": vstr(&name.unwrap_or_default()) }],
+        }),
+        true,
+    )
+    .await;
+    crate::dlog!("unblocked {}", agent_id);
+    Ok(json!({ "ok": true }))
+}
+
+/// Ask the sim for group names by key.
+///
+/// Group membership only describes our own groups, so anything else - an object's group,
+/// a group-owned parcel - needs asking about. The reference does the same through
+/// gCacheName; the reply arrives as `UUIDGroupNameReply` and reaches the UI as
+/// `group-names`.
+#[tauri::command]
+pub async fn sl_resolve_group_names(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Cmd {
+    let s = state.active().ok_or("No active session")?;
+    if ids.is_empty() {
+        return Ok(json!({ "ok": true }));
+    }
+    for chunk in ids.chunks(40) {
+        let blocks = json!({
+            "UUIDNameBlock": chunk.iter().map(|id| json!({ "ID": id })).collect::<Vec<_>>()
+        });
+        s.send_encoded("UUIDGroupNameRequest", &blocks, false).await;
+    }
     Ok(json!({ "ok": true }))
 }
 
@@ -851,6 +1409,7 @@ pub async fn sl_accept_teleport_offer(state: State<'_, Arc<AppState>>, lure_id: 
     } else {
         TP_VIA_LURE
     };
+    stand_before_teleport(&s, &agent, &sess).await;
     s.send_encoded(
         "TeleportLureRequest",
         &json!({ "Info": [{ "AgentID": agent, "SessionID": sess, "LureID": lure_id, "TeleportFlags": flags }] }),
@@ -1324,3 +1883,4 @@ pub async fn sl_send_raw(
     };
     Ok(json!({ "sent": sent > 0, "bytesSent": sent }))
 }
+

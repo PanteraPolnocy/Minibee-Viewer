@@ -428,7 +428,7 @@ const FSProfile = (function () {
   function profileDetailLocation(detail) {
     if (!detail) return null;
     let regionName = String(detail.regionName || detail.simName || '').trim();
-    const parcel = String(detail.originalName || detail.parcelName || '').trim();
+    const parcel = String(detail.resolvedParcelName || detail.parcelName || '').trim();
     // If the region name just echoes the parcel name, it isn't a real sim name.
     if (parcel && regionName.toLowerCase() === parcel.toLowerCase()) regionName = '';
     if (detail.x !== undefined && detail.y !== undefined && detail.z !== undefined &&
@@ -590,8 +590,6 @@ const FSProfile = (function () {
     return AVATAR_TABS.filter(function (tab) {
       if (tab.id === 'web') return !!profileWebUrl(profile);
       if (tab.id === 'more') return !!(profile.flAbout || (profile.flImageId && profile.flImageId !== ZERO_UUID));
-      // Notes appear on everyone's profile, your own included (Firestorm lets you
-      // keep notes on yourself too).
       return true;
     });
   }
@@ -1040,6 +1038,28 @@ const FSProfile = (function () {
         FSTransport.offerFriendship(agentId).then(function (result) {
           if (result && result.sent) FSUtils.showToast('Friendship offer sent.', 'success');
         });
+      });
+
+      const blockedNow = typeof FSBuddies !== 'undefined' && FSBuddies.isBlocked
+        ? FSBuddies.isBlocked(agentId)
+        : false;
+      addAction(blockedNow ? 'Unblock' : 'Block', async function () {
+        const name = profileTitleText(profile) || 'this resident';
+        if (blockedNow) {
+          await FSBuddies.unblock(agentId, name);
+          renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
+          return;
+        }
+        const ok = await FSUtils.confirm({
+          title: 'Block this resident?',
+          message: 'Block ' + name + '? You will stop seeing their chat and messages, ' +
+            'on this and any other viewer you use.',
+          confirmLabel: 'Block',
+          danger: true
+        });
+        if (!ok) return;
+        await FSBuddies.block(agentId, name);
+        renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
       });
     }
   }

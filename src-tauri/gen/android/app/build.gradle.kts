@@ -13,6 +13,31 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// The version lives in one place: src-tauri/Cargo.toml. `tauri android build`
+// writes tauri.properties for us, but a plain Gradle build (Android Studio, or
+// gradlew straight from gen/android) has no such file and used to fall back to
+// "1.0" - which is what Android then showed in the app info screen. So read the
+// crate version directly as the fallback and keep the two in step.
+val cargoVersion: String by lazy {
+    val cargoToml = file("../../../Cargo.toml")
+    val line = if (cargoToml.exists()) {
+        cargoToml.readLines().firstOrNull { it.trimStart().startsWith("version") }
+    } else {
+        null
+    }
+    line?.substringAfter('"')?.substringBefore('"') ?: "0.0.0"
+}
+
+// Android wants a monotonically increasing integer. Derive it from the semver so
+// 0.8.0 -> 800, 1.2.13 -> 10213, and releases always sort correctly.
+val cargoVersionCode: Int by lazy {
+    val parts = cargoVersion.split('.', '-')
+    val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+    val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+    ((major * 10000) + (minor * 100) + patch).coerceAtLeast(1)
+}
+
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
@@ -28,8 +53,8 @@ android {
         applicationId = "com.pantera.minibee_viewer"
         minSdk = 24
         targetSdk = 36
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = tauriProperties.getProperty("tauri.android.versionCode", cargoVersionCode.toString()).toInt()
+        versionName = tauriProperties.getProperty("tauri.android.versionName", cargoVersion)
     }
     signingConfigs {
         if (keystorePropertiesFile.exists()) {

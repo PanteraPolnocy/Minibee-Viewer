@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
@@ -260,6 +260,14 @@
             <span id="balance-badge" class="status-chip status-chip--balance" title="Linden dollar balance">L$ -</span>
             <span id="slt-clock" class="status-chip status-chip--time" title="Second Life Time (US Pacific)">--:-- SLT</span>
           </div>
+          <button type="button" id="btn-bee-menu" class="icon-btn top-bar__bee" title="Session" aria-label="Session menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <path fill="currentColor" opacity="0.5" d="M9 8C7.3 6.1 4.9 5.9 3.9 6.8c-1 1-.4 3.3 1.5 4.6.9.6 1.9 1 2.6 1 .2-1.6.5-3.1 1-4.4z"/>
+              <path fill="currentColor" opacity="0.5" d="M15 8c1.7-1.9 4.1-2.1 5.1-1.2 1 1 .4 3.3-1.5 4.6-.9.6-1.9 1-2.6 1-.2-1.6-.5-3.1-1-4.4z"/>
+              <path fill="currentColor" fill-rule="evenodd" d="M12 8a4.2 6 0 0 1 0 12 4.2 6 0 0 1 0-12Zm-3.9 4.6h7.8v1.2H8.1Zm.6 2.8h6.6v1.2H8.7Z"/>
+              <path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M10.2 6.4 8.9 4.1M13.8 6.4 15.1 4.1"/>
+            </svg>
+          </button>
           <button type="button" id="btn-theme" class="icon-btn" title="Switch to light mode" aria-label="Toggle light/dark theme">
             <svg id="theme-icon-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8A9.084 9.084 0 0 0 12 3z"/></svg>
             <svg id="theme-icon-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" hidden><path fill="currentColor" d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5 1.09 2.26L16 3.27l.73 2.41L19 6.18l-.36 2.45L21 9.5l-2.36 1.12.36 2.45-2.27.5-1.09 2.26L12 14.77l-1.64 1.06-1.09-2.26-2.27-.5.36-2.45L3 9.5l2.27-.87-.36-2.45 2.27-.5L8 3.27l2.91.73L12 2z"/></svg>
@@ -270,6 +278,23 @@
           </button>
         </div>
       </header>
+
+      <!-- Session popup behind the top-bar bee (narrow screens). -->
+      <div id="bee-menu" class="bee-menu" hidden role="dialog" aria-label="Session">
+        <div class="bee-menu__row">
+          <span class="bee-menu__label">Balance</span>
+          <span id="bee-menu-balance" class="bee-menu__value">L$ &mdash;</span>
+        </div>
+        <div class="bee-menu__row">
+          <span class="bee-menu__label">SL time</span>
+          <span id="bee-menu-slt" class="bee-menu__value">--:-- SLT</span>
+        </div>
+        <div class="bee-menu__row">
+          <span class="bee-menu__label">Sim FPS</span>
+          <span id="bee-menu-fps" class="bee-menu__value">--</span>
+        </div>
+        <button type="button" id="bee-menu-logout" class="btn btn--secondary btn--sm bee-menu__logout">Log out</button>
+      </div>
 
       <div class="main-body">
         <aside class="app-sidebar" aria-label="Navigation">
@@ -284,6 +309,10 @@
               <span>IM</span>
               <span id="badge-im" class="nav-badge" hidden></span>
             </button>
+            <button type="button" class="bottom-nav__item" data-tab="interact" role="tab" aria-selected="false" aria-controls="panel-interact" title="Nearby objects and avatar actions">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9 11.24V7.5a2.5 2.5 0 0 1 5 0v3.74c1.21-.81 2-2.18 2-3.74a4.5 4.5 0 1 0-9 0c0 1.56.79 2.93 2 3.74zm9.84 4.63-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6a1.5 1.5 0 0 0-3 0v10.74l-3.44-.72a1 1 0 0 0-1.04 1.6l3.05 3.4c.38.42.92.66 1.49.66h6.28c.99 0 1.79-.71 1.95-1.68l.6-3.58a1.5 1.5 0 0 0-.8-1.63z"/></svg>
+              <span>Interact</span>
+            </button>
             <button type="button" class="bottom-nav__item" data-tab="events" role="tab" aria-selected="false" aria-controls="panel-events">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>
               <span>Events</span>
@@ -291,7 +320,7 @@
             </button>
             <button type="button" class="bottom-nav__item" data-tab="buddies" role="tab" aria-selected="false" aria-controls="panel-buddies">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-              <span>Buddies</span>
+              <span>People</span>
             </button>
             <button type="button" class="bottom-nav__item" data-tab="search" role="tab" aria-selected="false" aria-controls="panel-search">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
@@ -315,6 +344,10 @@
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/></svg>
               <span>Guide</span>
             </button>
+            <button type="button" class="bottom-nav__item" data-tab="news" role="tab" aria-selected="false" aria-controls="panel-news" title="News, calendar, grid status and blogs">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M20 3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H4V5h16v14zM6 7h6v6H6V7zm7 0h5v2h-5V7zm0 3h5v2h-5v-2zM6 14h12v2H6v-2z"/></svg>
+              <span>News</span>
+            </button>
             <button type="button" class="bottom-nav__item" data-tab="settings" role="tab" aria-selected="false" aria-controls="panel-settings">
               <svg class="nav-bee" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
                 <path fill="currentColor" opacity="0.5" d="M9 8C7.3 6.1 4.9 5.9 3.9 6.8c-1 1-.4 3.3 1.5 4.6.9.6 1.9 1 2.6 1 .2-1.6.5-3.1 1-4.4z"/>
@@ -322,7 +355,7 @@
                 <path fill="currentColor" fill-rule="evenodd" d="M12 8a4.2 6 0 0 1 0 12 4.2 6 0 0 1 0-12Zm-3.9 4.6h7.8v1.2H8.1Zm.6 2.8h6.6v1.2H8.7Z"/>
                 <path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M10.2 6.4 8.9 4.1M13.8 6.4 15.1 4.1"/>
               </svg>
-              <span>Settings</span>
+              <span>Bee</span>
             </button>
           </nav>
         </aside>
@@ -411,11 +444,14 @@
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2a2 2 0 0 1 4 0c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg>
                     <span class="im-action-btn__label">TP?</span>
                   </button>
+                  <button type="button" id="im-block" class="icon-btn im-action-btn" title="Block resident" aria-label="Block resident" disabled>
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 2c1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.9 7.9 0 0 1 4 12c0-4.42 3.58-8 8-8zm0 16c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.9 7.9 0 0 1 20 12c0 4.42-3.58 8-8 8z"/></svg>
+                  </button>
                 </div>
               </header>
               <div id="im-empty" class="im-thread__empty">
                 <p>Select a conversation or start a new IM from
-                  <button type="button" class="im-tab-link" data-tab-link="buddies">Buddies</button>
+                  <button type="button" class="im-tab-link" data-tab-link="buddies">People</button>
                   or
                   <button type="button" class="im-tab-link" data-tab-link="radar">Radar</button>.
                 </p>
@@ -448,16 +484,31 @@
           <p id="events-empty" class="events-empty">Script dialogs, payment notices, and other prompts appear here.</p>
         </div>
 
-        <!-- Buddies list -->
-        <div id="panel-buddies" class="panel" data-panel="buddies" role="tabpanel" aria-label="Buddies" hidden>
-          <div class="panel-toolbar">
-            <input type="search" id="buddies-search" class="toolbar-search" placeholder="Search buddies..." autocomplete="off">
-            <label class="toggle">
-              <input type="checkbox" id="buddies-online-only">
-              <span>Online only</span>
-            </label>
+        <!-- People: friends, and the block list -->
+        <div id="panel-buddies" class="panel" data-panel="buddies" role="tabpanel" aria-label="People" hidden>
+          <div class="settings-tabs" role="tablist" aria-label="People sections">
+            <button type="button" class="settings-tab settings-tab--active" data-people-tab="friends" role="tab" aria-selected="true">Friends</button>
+            <button type="button" class="settings-tab" data-people-tab="blocked" role="tab" aria-selected="false">Blocked</button>
           </div>
-          <ul id="buddies-list" class="entity-list" role="list"></ul>
+
+          <div id="people-pane-friends" class="settings-pane" role="region" aria-label="Friends">
+            <div class="panel-toolbar">
+              <input type="search" id="buddies-search" class="toolbar-search" placeholder="Search friends..." autocomplete="off">
+              <label class="toggle">
+                <input type="checkbox" id="buddies-online-only">
+                <span>Online only</span>
+              </label>
+            </div>
+            <ul id="buddies-list" class="entity-list" role="list"></ul>
+          </div>
+
+          <div id="people-pane-blocked" class="settings-pane" role="region" aria-label="Blocked" hidden>
+            <div class="panel-toolbar">
+              <input type="search" id="blocked-search" class="toolbar-search" placeholder="Search blocked people..." autocomplete="off">
+              <button type="button" id="blocked-refresh" class="btn btn--secondary btn--sm">Refresh</button>
+            </div>
+            <ul id="blocked-list" class="entity-list" role="list"></ul>
+          </div>
         </div>
 
         <!-- Search (people, places, groups) -->
@@ -727,6 +778,88 @@
           <div id="dest-content" class="dest-content"></div>
         </div>
 
+        <!-- Interactions: what's around you, and what your avatar can do. -->
+        <div id="panel-interact" class="panel" data-panel="interact" role="tabpanel" aria-label="Interactions" hidden>
+          <div class="interact-avatar-bar">
+            <span class="interact-avatar-bar__state">Currently
+              <strong id="interact-state">standing</strong></span>
+            <div class="interact-avatar-bar__actions">
+              <button type="button" class="btn btn--secondary btn--sm" id="interact-sit-ground">Sit on ground</button>
+              <button type="button" class="btn btn--secondary btn--sm" id="interact-stand">Stand up</button>
+              <button type="button" class="btn btn--secondary btn--sm" id="interact-fly">Fly</button>
+              <button type="button" class="btn btn--secondary btn--sm" id="interact-stop-fly">Stop flying</button>
+            </div>
+          </div>
+
+          <div id="interact-pane-objects" class="settings-pane" role="region" aria-label="Objects nearby">
+            <div class="objects-toolbar">
+              <input type="search" id="objects-filter" class="objects-filter"
+                placeholder="Filter by name or owner" aria-label="Filter objects by name or owner">
+              <select id="objects-range" class="objects-range" aria-label="How far to look">
+                <option value="16">16 m</option>
+                <option value="32" selected>32 m</option>
+                <option value="48">48 m</option>
+                <option value="64">64 m</option>
+                <option value="96">96 m</option>
+                <option value="128">128 m</option>
+              </select>
+              <button type="button" id="objects-refresh" class="btn btn--secondary btn--sm">Load</button>
+            </div>
+            <p class="objects-count" id="objects-title">Nearby objects</p>
+            <div class="objects-table" role="table" aria-label="Nearby objects">
+              <div class="objects-row objects-row--head" role="row">
+                <button type="button" class="objects-cell objects-sort objects-cell--num objects-sort--active" data-objects-sort="distance" role="columnheader">Distance</button>
+                <button type="button" class="objects-cell objects-sort" data-objects-sort="name" role="columnheader">Name</button>
+                <button type="button" class="objects-cell objects-sort" data-objects-sort="owner" role="columnheader">Owner</button>
+              </div>
+              <div id="objects-rows"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- News. -->
+        <div id="panel-news" class="panel" data-panel="news" role="tabpanel" aria-label="News" hidden>
+          <div class="settings-tabs" role="tablist" aria-label="News sections">
+            <button type="button" class="settings-tab settings-tab--active" data-news-tab="linden" role="tab" aria-selected="true">Linden News</button>
+            <button type="button" class="settings-tab" data-news-tab="calendar" role="tab" aria-selected="false">Calendar</button>
+            <button type="button" class="settings-tab" data-news-tab="status" role="tab" aria-selected="false">Grid Status</button>
+            <button type="button" class="settings-tab" data-news-tab="blogs" role="tab" aria-selected="false">Blogger Network</button>
+          </div>
+
+          <div id="news-pane-linden" class="settings-pane news-pane" role="tabpanel" aria-label="Linden News">
+            <div class="panel-toolbar">
+              <span class="badge">Second Life blog</span>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-refresh="linden">Refresh</button>
+            </div>
+            <div id="news-list-linden" class="news-list"></div>
+          </div>
+
+          <div id="news-pane-calendar" class="settings-pane news-frame-pane" role="tabpanel" aria-label="Calendar" hidden>
+            <div class="panel-toolbar">
+              <span class="badge">Second Life calendar</span>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-open="https://calendar.google.com/calendar/u/0/newembed?src=c_kphtklo9degke40dpk7nr6cclc@group.calendar.google.com">Open in browser</button>
+            </div>
+            <div id="news-frame-calendar" class="news-frame"></div>
+          </div>
+
+          <div id="news-pane-status" class="settings-pane news-pane" role="tabpanel" aria-label="Grid Status" hidden>
+            <div class="panel-toolbar">
+              <span class="badge">Grid status history</span>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-refresh="status">Refresh</button>
+            </div>
+            <div id="news-list-status" class="news-list"></div>
+          </div>
+
+          <div id="news-pane-blogs" class="settings-pane news-pane" role="tabpanel" aria-label="Blogger Network" hidden>
+            <div class="panel-toolbar">
+              <span class="badge">Blogger network</span>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-refresh="blogs">Refresh</button>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-open="https://www.inoreader.com/stream/user/1003852272/tag/Second%20Life%20Bloggers/view/html?cs=m">Open in browser</button>
+            </div>
+            <div id="news-list-blogs" class="news-list"></div>
+          </div>
+        </div>
+
         <!-- Settings (preferences, about, help, readme, license) -->
         <div id="panel-settings" class="panel" data-panel="settings" role="tabpanel" aria-label="Settings" hidden>
           <div class="settings-tabs" role="tablist" aria-label="Settings sections">
@@ -944,6 +1077,10 @@
       </form>
     </dialog>
 
+    <dialog id="objects-detail" class="objects-dialog">
+      <div id="objects-detail-body" class="objects-dialog__body"></div>
+    </dialog>
+
     <!-- Right-click context menu -->
     <menu id="context-menu" class="context-menu" hidden></menu>
     <menu id="edit-context-menu" class="context-menu" hidden></menu>
@@ -978,6 +1115,8 @@
   <script src="js/ui/avatar-thumb.js"></script>
   <script src="js/ui/profile.js"></script>
   <script src="js/ui/settings.js"></script>
+  <script src="js/ui/news.js"></script>
+  <script src="js/ui/interact.js"></script>
   <script src="js/ui/context-menu.js"></script>
   <script src="js/ui/session-lost.js"></script>
   <script src="js/ui/caps-banner.js"></script>

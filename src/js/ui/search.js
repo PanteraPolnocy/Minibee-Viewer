@@ -77,7 +77,7 @@ const FSSearch = (function () {
   }
 
   function placeSaleLabel(row) {
-    if (!row || row.kind !== 'place' || !row.detailLoaded) return '';
+    if (!row || (row.kind || 'place') !== 'place' || !row.detailLoaded) return '';
     if (row.auction) return 'Auction';
     if (row.forSale) return 'For sale';
     return '';

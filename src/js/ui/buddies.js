@@ -40,8 +40,8 @@ const FSBuddies = (function () {
     li.className = 'entity-item';
     li.dataset.id = buddy.id;
     const names = nameLines(buddy);
-    const status = buddy.online ? (buddy.region || 'Online') : 'Offline';
-    const notes = buddy.notes ? ' - ' + buddy.notes : '';
+    const status = buddy.online ? 'Online' : 'Offline';
+    const notes = notesFor(buddy) ? ' - ' + notesFor(buddy) : '';
 
     li.innerHTML =
       '<div class="entity-item__avatar' + (buddy.online ? ' entity-item__avatar--online' : '') +
@@ -87,6 +87,14 @@ const FSBuddies = (function () {
     });
 
     return li;
+  }
+
+  function notesFor(buddy) {
+    if (!buddy) return '';
+    if (buddy.notes) return buddy.notes;
+    if (typeof FSProfiles === 'undefined' || !FSProfiles.getAvatarProfile) return '';
+    const p = FSProfiles.getAvatarProfile(buddy.id);
+    return (p && p.notes) || '';
   }
 
   function showContextMenu(e, buddy) {
@@ -163,13 +171,17 @@ const FSBuddies = (function () {
         const names = nameLines(b);
         return names.title.toLowerCase().indexOf(q) !== -1 ||
           (names.subtitle && names.subtitle.toLowerCase().indexOf(q) !== -1) ||
-          (b.notes && b.notes.toLowerCase().indexOf(q) !== -1);
+          (notesFor(b) && notesFor(b).toLowerCase().indexOf(q) !== -1);
       });
     }
 
+    const sortKey = function (b) {
+      const names = nameLines(b);
+      return String(names.title || b.name || b.id || '').toLowerCase();
+    };
     buddies.sort(function (a, b) {
-      if (a.online !== b.online) return a.online ? -1 : 1;
-      return a.name.localeCompare(b.name);
+      if (!a.online !== !b.online) return a.online ? -1 : 1;
+      return sortKey(a).localeCompare(sortKey(b));
     });
 
     if (!buddies.length) {
@@ -189,12 +201,141 @@ const FSBuddies = (function () {
     });
   }
 
+  // --- Blocked ---------------------------------------------------------------
+
+  let blocked = [];
+  let blockedFilter = '';
+  let blockedAsked = false;
+
+  function requestBlocked(force) {
+    if (blockedAsked && !force) return;
+    if (!FSState.gridOnline()) return;
+    blockedAsked = true;
+    if (typeof FSBridge !== 'undefined' && FSBridge.invoke) {
+      FSBridge.invoke('sl_request_mute_list').catch(function () { blockedAsked = false; });
+    }
+  }
+
+  function renderBlocked() {
+    const list = document.getElementById('blocked-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    let people = blocked.slice();
+    if (blockedFilter) {
+      const q = blockedFilter.toLowerCase();
+      people = people.filter(function (p) {
+        return labelFor(p).toLowerCase().indexOf(q) !== -1;
+      });
+    }
+    people.sort(function (a, b) {
+      return labelFor(a).toLowerCase().localeCompare(labelFor(b).toLowerCase());
+    });
+
+    if (!people.length) {
+      const empty = document.createElement('li');
+      empty.className = 'entity-item';
+      empty.style.cursor = 'default';
+      empty.innerHTML = '<div class="entity-item__sub">' +
+        (blockedFilter ? 'Nobody blocked matches your filter.'
+          : blockedAsked ? 'You have not blocked anyone.'
+            : 'Press Refresh to load your block list.') + '</div>';
+      list.appendChild(empty);
+      return;
+    }
+
+    people.forEach(function (person) {
+      const li = document.createElement('li');
+      li.className = 'entity-item';
+      li.dataset.id = person.id;
+      li.innerHTML =
+        '<div class="entity-item__body">' +
+          '<div class="entity-item__name">' + FSUtils.escapeHtml(labelFor(person)) + '</div>' +
+          '<div class="entity-item__sub">Blocked</div>' +
+        '</div>';
+      const actions = document.createElement('div');
+      actions.className = 'entity-item__actions';
+      const profile = document.createElement('button');
+      profile.type = 'button';
+      profile.className = 'btn btn--ghost btn--sm';
+      profile.textContent = 'Profile';
+      profile.addEventListener('click', function (e) {
+        e.stopPropagation();
+        FSProfile.openAvatar(person.id);
+      });
+      const unblock = document.createElement('button');
+      unblock.type = 'button';
+      unblock.className = 'btn btn--secondary btn--sm';
+      unblock.textContent = 'Unblock';
+      unblock.addEventListener('click', function (e) {
+        e.stopPropagation();
+        unblock(person.id, labelFor(person));
+      });
+      actions.appendChild(profile);
+      actions.appendChild(unblock);
+      li.appendChild(actions);
+      list.appendChild(li);
+    });
+  }
+
+  // The sim's copy of the list keeps account names, not display names, and can be stale -
+  // so prefer whatever the name cache knows.
+  function labelFor(person) {
+    const cached = FSTransport.getCachedName ? FSTransport.getCachedName(person.id) : '';
+    return cached || person.name || person.id;
+  }
+
+  function setTab(tab) {
+    const which = tab === 'blocked' ? 'blocked' : 'friends';
+    document.querySelectorAll('[data-people-tab]').forEach(function (btn) {
+      const on = btn.dataset.peopleTab === which;
+      btn.classList.toggle('settings-tab--active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    const friends = document.getElementById('people-pane-friends');
+    const blockedPane = document.getElementById('people-pane-blocked');
+    if (friends) friends.hidden = which !== 'friends';
+    if (blockedPane) blockedPane.hidden = which !== 'blocked';
+    if (which === 'blocked') {
+      requestBlocked(false);
+      renderBlocked();
+    } else {
+      render();
+    }
+  }
+
   function init() {
     if (typeof FSSettings !== 'undefined') {
       onlineOnly = !!FSSettings.get('buddiesOnlineOnly');
       const onlineEl = document.getElementById('buddies-online-only');
       if (onlineEl) onlineEl.checked = onlineOnly;
     }
+
+    document.querySelectorAll('[data-people-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () { setTab(btn.dataset.peopleTab); });
+    });
+    const blockedSearch = document.getElementById('blocked-search');
+    if (blockedSearch) {
+      blockedSearch.addEventListener('input', FSUtils.debounce(function () {
+        blockedFilter = blockedSearch.value.trim();
+        renderBlocked();
+      }, 200));
+    }
+    const blockedBtn = document.getElementById('blocked-refresh');
+    if (blockedBtn) blockedBtn.addEventListener('click', function () { requestBlocked(true); });
+
+    FSTransport.on('mute-list', function (data) {
+      blocked = (data && data.people) || [];
+      blockedAsked = true;
+      renderBlocked();
+    });
+
+    FSState.on('change', function (partial) {
+      if (partial.connected === true) {
+        blockedAsked = false;
+        requestBlocked(true);
+      }
+    });
 
     document.getElementById('buddies-search').addEventListener('input', FSUtils.debounce(function (e) {
       filter = e.target.value.trim();
@@ -221,7 +362,10 @@ const FSBuddies = (function () {
     // Names land asynchronously, after the list has first rendered, so repaint
     // to swap the UUID placeholder out for the real names on each row.
     FSTransport.on('names-updated', function () {
-      if (FSNavigation.isTabActive('buddies')) render();
+      if (FSNavigation.isTabActive('buddies')) {
+        render();
+        renderBlocked();
+      }
     });
 
     FSState.on('reset', function () {
@@ -229,9 +373,56 @@ const FSBuddies = (function () {
       onlineOnly = typeof FSSettings !== 'undefined' ? !!FSSettings.get('buddiesOnlineOnly') : false;
       document.getElementById('buddies-search').value = '';
       document.getElementById('buddies-online-only').checked = onlineOnly;
-      render();
+      blocked = [];
+      blockedFilter = '';
+      blockedAsked = false;
+      const bs = document.getElementById('blocked-search');
+      if (bs) bs.value = '';
+      setTab('friends');
     });
   }
 
-  return { init: init, render: render };
+  function block(id, name) {
+    if (!id || typeof FSBridge === 'undefined') return Promise.resolve(false);
+    return FSBridge.invoke('sl_block_agent', { agentId: id, name: name || '' })
+      .then(function () {
+        FSUtils.showToast('Blocked ' + (name || 'resident') + '.', 'success');
+        requestBlocked(true);
+        return true;
+      })
+      .catch(function (err) {
+        FSUtils.showToast((err && err.message) || 'Could not block that resident.', 'warning');
+        return false;
+      });
+  }
+
+  function unblock(id, name) {
+    if (!id || typeof FSBridge === 'undefined') return Promise.resolve(false);
+    return FSBridge.invoke('sl_unblock_agent', { agentId: id, name: name || '' })
+      .then(function () {
+        FSUtils.showToast('Unblocked ' + (name || 'resident') + '.', 'success');
+        blocked = blocked.filter(function (p) {
+          return String(p.id).toLowerCase() !== String(id).toLowerCase();
+        });
+        renderBlocked();
+        requestBlocked(true);
+        return true;
+      })
+      .catch(function (err) {
+        FSUtils.showToast((err && err.message) || 'Could not unblock that resident.', 'warning');
+        return false;
+      });
+  }
+
+  function isBlocked(id) {
+    if (!id) return false;
+    const key = String(id).toLowerCase();
+    return blocked.some(function (p) { return String(p.id).toLowerCase() === key; });
+  }
+
+  return {
+    init: init, render: render, setTab: setTab,
+    block: block, unblock: unblock, isBlocked: isBlocked,
+    requestBlocked: requestBlocked
+  };
 })();

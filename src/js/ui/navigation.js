@@ -4,7 +4,7 @@
 const FSNavigation = (function () {
   'use strict';
 
-  const TABS = ['chat', 'im', 'events', 'buddies', 'search', 'radar', 'map', 'land', 'destinations', 'settings'];
+  const TABS = ['chat', 'im', 'interact', 'events', 'buddies', 'search', 'radar', 'map', 'land', 'destinations', 'news', 'settings'];
   const radarKnownIds = new Set();
   const SLT_TICK_MS = 60000;
   let sltTimer = null;
@@ -128,6 +128,16 @@ const FSNavigation = (function () {
       case 'destinations':
         if (typeof FSDestinations.loadFeed === 'function') {
           FSDestinations.loadFeed(null, false);
+        }
+        break;
+      case 'interact':
+        if (typeof FSInteract !== 'undefined' && typeof FSInteract.activate === 'function') {
+          FSInteract.activate();
+        }
+        break;
+      case 'news':
+        if (typeof FSNews !== 'undefined' && typeof FSNews.activate === 'function') {
+          FSNews.activate();
         }
         break;
       case 'settings':
@@ -287,6 +297,11 @@ const FSNavigation = (function () {
       name.classList.toggle('top-bar__name--interactive', canOpenProfile);
       name.title = canOpenProfile ? 'View your profile' : '';
       if (name.tagName === 'BUTTON') name.disabled = !canOpenProfile;
+      const identity = document.querySelector('.top-bar__identity');
+      if (identity) {
+        identity.classList.toggle('top-bar__identity--interactive', canOpenProfile);
+        identity.title = canOpenProfile ? 'View your profile' : '';
+      }
     }
     if (region) {
       region.textContent = s.sessionLost ? 'Disconnected' : (s.region ? s.region.name : 'Offline');
@@ -306,6 +321,55 @@ const FSNavigation = (function () {
     if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '-- FPS';
     updateActiveGroupLines();
     updateSltClock();
+    updateBeeMenu();
+  }
+
+  function updateBeeMenu() {
+    const s = FSState.get();
+    const balance = document.getElementById('bee-menu-balance');
+    const fps = document.getElementById('bee-menu-fps');
+    if (balance) balance.textContent = FSUtils.formatLindenBalance(s.lindenBalance);
+    if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '--';
+    const slt = document.getElementById('bee-menu-slt');
+    if (slt) {
+      slt.textContent = (!s.connected || s.sessionLost)
+        ? '--:-- SLT'
+        : FSUtils.formatSltTime(new Date());
+    }
+  }
+
+  function setBeeMenuOpen(open) {
+    const menu = document.getElementById('bee-menu');
+    const btn = document.getElementById('btn-bee-menu');
+    if (!menu) return;
+    menu.hidden = !open;
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) updateBeeMenu();
+  }
+
+  function bindBeeMenu() {
+    const btn = document.getElementById('btn-bee-menu');
+    const menu = document.getElementById('bee-menu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      setBeeMenuOpen(menu.hidden);
+    });
+    const logout = document.getElementById('bee-menu-logout');
+    if (logout) {
+      logout.addEventListener('click', function () {
+        setBeeMenuOpen(false);
+        if (window.FSApp) window.FSApp.logout();
+      });
+    }
+    // Tapping anywhere else, or pressing Escape, puts it away.
+    document.addEventListener('click', function (e) {
+      if (menu.hidden) return;
+      if (!menu.contains(e.target) && e.target !== btn) setBeeMenuOpen(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') setBeeMenuOpen(false);
+    });
   }
 
   function init() {
@@ -326,9 +390,11 @@ const FSNavigation = (function () {
       });
     }
 
-    const agentName = document.getElementById('agent-name');
-    if (agentName) {
-      agentName.addEventListener('click', function () {
+    bindBeeMenu();
+
+    const identity = document.querySelector('.top-bar__identity');
+    if (identity) {
+      identity.addEventListener('click', function () {
         const s = FSState.get();
         if (!s.connected || s.sessionLost || !s.agent || !s.agent.id) return;
         if (typeof FSProfile !== 'undefined' && typeof FSProfile.openAvatar === 'function') {

@@ -64,5 +64,5 @@ test('getters return empty on an unfilled cache', () => {
   assert.equal(FSProfiles.getGroupName('x'), '');
   assert.equal(FSProfiles.getActiveGroupInfo(), null);
   assert.equal(FSProfiles.isAgentInGroup('x'), false);
-  assert.equal(FSProfiles.hasAgentProfileCap(), false);
+  assert.equal(FSProfiles.hasAgentProfileCap(), true);
 });

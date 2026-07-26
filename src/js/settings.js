@@ -14,6 +14,8 @@ const FSSettings = (function () {
     // Reconnect on an unexpected disconnect (off by default). The Rust core
     // keeps the credentials (obfuscated) and replays the login when asked.
     autoReconnect: { type: 'boolean', default: false },
+    // Sit on the ground a couple of seconds after logging in (off by default).
+    autoSitAfterLogin: { type: 'boolean', default: false },
     // When off (the default), info/warn diagnostics aren't kept in the in-memory
     // log - hard errors still are. (File logging lives separately, in Rust.)
     debugLogDiagnostics: { type: 'boolean', default: false },

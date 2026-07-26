@@ -2126,7 +2126,7 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "minibee-viewer"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "base64 0.23.0",
  "futures",
@@ -2146,6 +2146,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tokio",
  "urlencoding",
+ "webview2-com",
  "wmi",
 ]
 

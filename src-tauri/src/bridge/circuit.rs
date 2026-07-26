@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -67,6 +67,9 @@ pub struct Session {
     /// How many EventQueue recovery attempts we've made since the last healthy poll,
     /// bounded so a region whose EQ never comes back doesn't retry forever.
     eq_recover: AtomicU32,
+    /// True while the object-properties drain is working through the in-range set, so
+    /// pressing Load repeatedly can't stack request loops on top of each other.
+    props_draining: AtomicBool,
 }
 
 impl Session {
@@ -132,6 +135,161 @@ impl Session {
 
     pub fn last_position(&self) -> Option<[f64; 3]> {
         self.engine.lock().unwrap().as_ref().and_then(|s| s.last_pos)
+    }
+
+    pub fn clear_objects_for_teleport(&self, grid_x: i64, grid_y: i64) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            if st.region_grid_x != grid_x || st.region_grid_y != grid_y {
+                let here = (st.region_grid_x, st.region_grid_y);
+                st.objects.clear_for_teleport(here);
+            }
+        }
+    }
+
+    pub fn is_current_eq(&self, cap_url: &str) -> bool {
+        match self.engine.lock().unwrap().as_ref() {
+            Some(st) => st.caps.get("EventQueueGet").map(|u| u == cap_url).unwrap_or(false),
+            None => false,
+        }
+    }
+
+    pub fn circuit_alive(&self) -> bool {
+        const RECENTLY_MS: u64 = 60_000;
+        mono_ms().saturating_sub(self.last_inbound.load(Ordering::Relaxed)) < RECENTLY_MS
+    }
+
+    pub fn agent_update_keepalive(&self) -> Option<Value> {
+        let guard = self.engine.lock().unwrap();
+        let st = guard.as_ref()?;
+        if st.agent_id.is_empty() || !st.handshake_reply_sent {
+            return None;
+        }
+        let flags = if st.flying { session::AGENT_CONTROL_FLY } else { 0 };
+        Some(session::build_agent_update(
+            &st.agent_id,
+            &st.session_uuid,
+            st.last_pos.unwrap_or([128.0, 128.0, 25.0]),
+            flags,
+        ))
+    }
+
+    pub fn objects_to_recover(&self, limit: usize) -> Vec<u32> {
+        match self.engine.lock().unwrap().as_mut() {
+            Some(st) if st.objects.is_empty() => {
+                let here = (st.region_grid_x, st.region_grid_y);
+                st.objects.take_dropped(here, limit)
+            }
+            Some(st) => {
+                st.objects.forget_dropped();
+                Vec::new()
+            }
+            None => Vec::new(),
+        }
+    }
+
+    pub fn set_tp_target(&self, target: Option<serde_json::Value>) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.tp_target = target;
+        }
+    }
+
+    pub fn is_sitting(&self) -> bool {
+        self.engine.lock().unwrap().as_ref().map(|s| s.sitting).unwrap_or(false)
+    }
+
+    pub fn set_sitting(&self, sitting: bool) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.sitting = sitting;
+            if !sitting {
+                st.sit_object.clear();
+            }
+        }
+    }
+
+    pub fn is_flying(&self) -> bool {
+        self.engine.lock().unwrap().as_ref().map(|s| s.flying).unwrap_or(false)
+    }
+
+    pub fn set_flying(&self, flying: bool) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.flying = flying;
+        }
+    }
+
+    pub fn object_scan(&self) -> bool {
+        self.engine.lock().unwrap().as_ref().map(|s| s.object_scan).unwrap_or(false)
+    }
+
+    pub fn set_object_scan(&self, on: bool) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.object_scan = on;
+            if !on {
+                st.objects.clear();
+                st.props_asked_ms = 0;
+            }
+        }
+    }
+
+    pub fn nearby_objects(&self, range: f32) -> (Vec<serde_json::Value>, usize) {
+        let guard = self.engine.lock().unwrap();
+        let st = match guard.as_ref() {
+            Some(s) => s,
+            None => return (Vec::new(), 0),
+        };
+        let from = agent_eye(st);
+        let rows: Vec<serde_json::Value> = st
+            .objects
+            .nearby(from, range)
+            .into_iter()
+            .map(|r| crate::bridge::objects::row_json(r, from))
+            .collect();
+        let (tracked, roots, nearest) = st.objects.census(from);
+        crate::dlog!(
+            "nearby: from=({:.0},{:.0},{:.0}) range={}m tracked={} roots={} nearest={:.1}m -> {} row(s)",
+            from[0],
+            from[1],
+            from[2],
+            range,
+            tracked,
+            roots,
+            nearest,
+            rows.len()
+        );
+        (rows, st.objects.pending_props(from, range))
+    }
+
+    pub fn allow_props_retry(&self) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.objects.allow_props_retry();
+        }
+    }
+
+    pub fn next_props_batch(&self, range: f32, limit: usize) -> Vec<u32> {
+        match self.engine.lock().unwrap().as_mut() {
+            Some(st) => {
+                let from = agent_eye(st);
+                st.objects.take_needing_props(from, range, limit)
+            }
+            None => Vec::new(),
+        }
+    }
+
+    pub fn start_props_drain(&self) -> bool {
+        !self.props_draining.swap(true, Ordering::SeqCst)
+    }
+
+    pub fn end_props_drain(&self) {
+        self.props_draining.store(false, Ordering::SeqCst);
+    }
+
+    pub fn object_full_id(&self, local_id: u32) -> Option<String> {
+        let guard = self.engine.lock().unwrap();
+        let st = guard.as_ref()?;
+        st.objects
+            .nearby([0.0, 0.0, 0.0], f32::MAX)
+            .into_iter()
+            .find(|r| r.local_id == local_id)
+            .map(|r| crate::bridge::objects::id_string(&r.full_id))
     }
 
     /// Swap in a fresh capability map for the engine, e.g. after a region change.
@@ -388,18 +546,31 @@ impl Session {
                 self.start_handshake(&agent_id, &session_uuid, circuit_code).await;
             }
             Action::RefreshCaps { seed_url, sim_ip } => {
-                self.refresh_region_caps(app, &seed_url, &sim_ip).await;
+                let me = self.clone();
+                let app = app.clone();
+                tokio::spawn(async move {
+                    me.refresh_region_caps(&app, &seed_url, &sim_ip).await;
+                });
+            }
+            Action::InterestList360 => {
+                let state = app.state::<Arc<crate::bridge::state::AppState>>().inner().clone();
+                let me = self.clone();
+                tokio::spawn(async move {
+                    crate::bridge::caps::interest_list_360(&state, &me).await;
+                });
             }
             Action::AcceptChatSession { session_id } => {
                 let state = app.state::<Arc<crate::bridge::state::AppState>>().inner().clone();
-                let _ = crate::bridge::caps::chat_session_post(
-                    &state,
-                    "accept invitation",
-                    &session_id,
-                    &[],
-                    None,
-                )
-                .await;
+                tokio::spawn(async move {
+                    let _ = crate::bridge::caps::chat_session_post(
+                        &state,
+                        "accept invitation",
+                        &session_id,
+                        &[],
+                        None,
+                    )
+                    .await;
+                });
             }
         }
     }
@@ -429,6 +600,7 @@ impl Session {
         // region is healthy, raise it again if it isn't.
         crate::bridge::caps::emit_caps_status(app, Some(&caps), "region-cross");
         self.set_caps(caps);
+        crate::bridge::caps::interest_list_360(&state, self).await;
         if !eq_url.is_empty() {
             let handle = crate::bridge::eventqueue::spawn(
                 app.clone(),
@@ -602,6 +774,8 @@ const IGNORED_HIGH_FREQ: &[u8] = &[
 /// at offset 6-7). These spike too when lots of avatars are around (gesture/typing
 /// beams, object property pushes, attached sounds). We keep CoarseLocationUpdate
 /// (6, radar) and CrossedRegion/ConfirmEnableSimulator (7/8, teleport).
+const OBJECT_HIGH_FREQ: &[u8] = &[12, 13, 14, 16];
+
 const IGNORED_MEDIUM_FREQ: &[u8] = &[
     9,  // ObjectProperties
     10, // ObjectPropertiesFamily
@@ -656,6 +830,7 @@ pub async fn open(
         last_inbound: AtomicU64::new(mono_ms()),
         last_seed: Mutex::new(None),
         eq_recover: AtomicU32::new(0),
+        props_draining: AtomicBool::new(false),
     });
     let session_id = now_id();
 
@@ -669,6 +844,7 @@ pub async fn open(
         if engine_mode {
             tasks.push(spawn_resender(session.clone()));
             tasks.push(spawn_watchdog(watchdog_app, session.clone()));
+            tasks.push(spawn_agent_update(session.clone()));
         }
     }
 
@@ -683,6 +859,18 @@ fn spawn_resender(session: Arc<Session>) -> JoinHandle<()> {
         loop {
             tokio::time::sleep(Duration::from_millis(1000)).await;
             session.resend_unacked().await;
+        }
+    })
+}
+
+/// Tell the sim where we're standing, once a second.
+fn spawn_agent_update(session: Arc<Session>) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            if let Some(body) = session.agent_update_keepalive() {
+                session.send_encoded("AgentUpdate", &body, false).await;
+            }
         }
     })
 }
@@ -739,12 +927,14 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
             {
                 let b6 = datagram[6];
                 if b6 != 0xFF {
-                    if IGNORED_HIGH_FREQ.contains(&b6) {
+                    if IGNORED_HIGH_FREQ.contains(&b6) && !OBJECT_HIGH_FREQ.contains(&b6) {
                         continue;
                     }
                 } else if datagram.len() >= 8
                     && datagram[7] != 0xFF
                     && IGNORED_MEDIUM_FREQ.contains(&datagram[7])
+                    // 9 = ObjectProperties (detail view), 10 = ObjectPropertiesFamily (list names)
+                    && !(datagram[7] == 9 || datagram[7] == 10)
                 {
                     continue;
                 }
@@ -763,6 +953,14 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
             }
         }
     })
+}
+
+/// Where distances are measured from: the avatar, or the middle of the region until the
+/// sim has told us where we are.
+fn agent_eye(st: &SessionState) -> [f32; 3] {
+    st.last_pos
+        .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32])
+        .unwrap_or([128.0, 128.0, 25.0])
 }
 
 static HTTP_MSG_PATH: Lazy<Regex> =

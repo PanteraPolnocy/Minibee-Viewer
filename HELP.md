@@ -23,13 +23,15 @@ Down the side (or along the bottom on a phone) are the main tabs:
 
 - **Chat** - local/nearby chat. Type in the box at the bottom and press Enter.
 - **IM** - private conversations, group chats, and conference (multi-person) chats.
+- **Interact** - the objects around you, and what your own avatar can do.
 - **Events** - pop-ups from the world: script dialogs, permission requests, payments, teleport offers. Nothing here ever answers for you - you decide.
-- **Buddies** - your friends list. Tap a friend for options (profile, IM, teleport).
+- **People** - two tabs: **Friends** (your friends list - tap someone for options: profile, IM, teleport) and **Blocked** (everyone you've blocked, with an Unblock button).
 - **Search** - find people, places, and groups.
 - **Radar** - who's near you, how far, and how long their account has existed.
 - **Map** - the world map; search a region, click to pick a spot, and teleport.
 - **Land** - details about the parcel you're standing on.
 - **Guide** - the Destination Guide: featured places you can teleport to.
+- **News** - the Linden blog, the Second Life events calendar, grid status, and the blogger network.
 - **Settings** - preferences and info about the viewer (that's this screen).
 
 A dot or number on a tab means there's something new there.
@@ -53,6 +55,7 @@ Right-clicking gives you a small menu with Cut, Copy, Paste and Select all in te
 - **Groups**: your own profile lists all your groups. Open a group to read its charter, **set your active title**, or **make it your active group** (the Activate button, top of the group profile).
 - **Picks**: a profile's favourite places. Open one to see where it is, then **Show on map** or **Teleport** straight there.
 - **Private notes**: the Notes tab keeps private notes about someone that only you can see - you can even keep notes on your own profile.
+- **Blocking**: there's a **Block** button on a resident's profile and in the IM window, and the same button unblocks them again. Second Life keeps the block list for you, so blocking here applies in every viewer you use - which is why it asks you to confirm first. See who you've blocked under **People → Blocked**.
 
 ---
 
@@ -67,9 +70,43 @@ If a teleport is in progress you'll see a short progress note.
 
 ---
 
+## What's around you (Interact tab)
+
+At the top is a strip showing what your avatar is doing, with buttons to **sit on the ground**, **stand up**, **fly** and **stop flying**. Only the ones that make sense are enabled.
+
+Below that is the list of objects near you. It doesn't load or refresh by itself - press **Load** when you want to see what's there:
+
+- **How far to look** - pick 16, 32, 48, 64, 96 or 128 metres. 32m to start with, and your choice is remembered. Everything inside that distance is listed, however many there are.
+- **Filter** - type in the box to narrow the list by what's on the row: the object's **name** or its **owner**. People match on either their display name or their username, and pasting someone's key works too.
+- **Sorting** - tap the **Distance**, **Name** or **Owner** heading. Tapping the same one again reverses it.
+- Names and owners arrive from the region a moment after the list does, so a busy area fills itself in over a few seconds. Nothing is left out - press Load again if something still looks unnamed.
+
+Tap (or right-click) a row for its menu:
+
+- **Show details** opens a window with position, distance, owner, group, creator, when it was made, permissions, land impact and any web media on it. Owner, creator and group names are clickable - they open the profile. Media links open in your browser.
+- **Owner profile** / **Creator profile** open those profiles straight from the menu.
+- **Touch** appears only for objects that actually respond to being touched. Most scenery doesn't, so most rows won't offer it.
+- **Sit on** works on almost anything.
+- **Pay** appears only for objects set up to take money. When it does, the amounts offered are the ones the object itself asks for, and paying always asks you to confirm the object and the amount first.
+
+---
+
 ## Money and status
 
 The top bar shows your **name**, the **region** you're in, your **L$ balance**, and the local **Second Life time**. Payments you make or receive appear in the **Events** tab.
+
+---
+
+## News
+
+Four things worth keeping an eye on, each on its own sub-tab:
+
+- **Linden News** - the official blog.
+- **SL Calendar** - the events calendar, shown as the page itself.
+- **Grid Status** - outages and maintenance.
+- **Bloggers** - a roundup of Second Life blogs.
+
+The three lists start as short cards; tap one to read the whole thing, and **Read on the web** opens it in your browser. **Refresh** re-fetches. Nothing here loads until you open the tab.
 
 ---
 
