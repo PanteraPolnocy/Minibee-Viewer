@@ -79,7 +79,7 @@ updates:
       - "android"
 
   # iOS Build System
-  - package-ecosystem: "cocoapods"
+  - package-ecosystem: "swift"
     directory: "/src-tauri/gen/apple"
     schedule:
       interval: "weekly"
