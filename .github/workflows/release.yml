@@ -26,6 +26,8 @@ on:
 jobs:
   plan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       desktop_matrix: ${{ steps.plan.outputs.desktop_matrix }}
       run_android: ${{ steps.plan.outputs.run_android }}
