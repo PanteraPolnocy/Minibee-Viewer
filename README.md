@@ -134,8 +134,10 @@ Pick a grid (Agni, Aditi, or a local OpenSim), enter your credentials, and log i
 The app icon is set once in `tauri.conf.json` (`bundle.icon`) and applies everywhere - the Windows exe, the macOS `.app`/DMG (`icon.icns`), and Linux `.deb`/`.rpm`/AppImage (PNGs). The source assets live in `src-tauri/icons/`: `32x32.png`, `64x64.png`, `128x128.png`, `128x128@2x.png`, `icon.png`, `icon.icns`, `icon.ico` (plus `android/` and `ios/` sets for a future mobile life).
 
 - NSIS setup `.exe` icon comes from `bundle.windows.nsis.installerIcon` → `icons/icon.ico`.
-- The `.msi` file's own icon is fixed by Windows Installer and can't be changed; its Add/Remove Programs entry uses the app icon.
-- NSIS header/sidebar and WiX banner graphics need `.bmp` files (none shipped), so those stay at Tauri's defaults.
+- NSIS wizard art lives in `src-tauri/icons/nsis/` (`header.bmp`, `sidebar.bmp`, `uninstall-header.bmp`).
+- WiX MSI art lives in `src-tauri/icons/wix/` (`banner.bmp` 493×58, `dialog.bmp` 493×312 for Welcome/Finish).
+- Regenerate all installer bitmaps with `powershell -ExecutionPolicy Bypass -File scripts/generate-nsis-bmp.ps1`, or drop your own 24-bit BMPs at those paths.
+- The `.msi` file's own icon is fixed by Windows Installer; its Add/Remove Programs entry uses the app icon.
 
 ## Tests
 
