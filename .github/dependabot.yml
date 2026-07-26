@@ -76,9 +76,16 @@ updates:
     cooldown:
       default-days: 5
     groups:
-      ci-actions:
+      androidx-libraries:
         patterns:
-          - "*"
+          - "androidx*"
+          - "com.google.android.material*"
+          - "junit*"
+    ignore:
+      - dependency-name: "gradle-wrapper"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "com.android.tools.build:gradle"
+      - dependency-name: "org.jetbrains.kotlin:kotlin-gradle-plugin"
     commit-message:
       prefix: "chore(deps-android)"
     labels:
