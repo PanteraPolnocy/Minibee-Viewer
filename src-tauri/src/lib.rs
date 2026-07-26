@@ -29,7 +29,7 @@ fn silence_native_context_menu(window: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "windows"))]
 fn silence_native_context_menu(_window: &tauri::WebviewWindow) {}
 
-#[cfg(desktop)]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn register_desktop_plugins(
     builder: tauri::Builder<tauri::Wry>,
 ) -> tauri::Builder<tauri::Wry> {
@@ -41,7 +41,7 @@ fn register_desktop_plugins(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
-    #[cfg(desktop)]
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
     let builder = register_desktop_plugins(builder);
     builder
         .setup(|app| {
@@ -67,7 +67,7 @@ pub fn run() {
                 silence_native_context_menu(&window);
             }
             app.manage(AppState::new(version, ua));
-            #[cfg(desktop)]
+            #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
             app.manage(updater::PendingUpdate::default());
             Ok(())
         })

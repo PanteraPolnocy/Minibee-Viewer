@@ -21,12 +21,11 @@ pub fn format_check_error(raw: &str) -> String {
     format!("Could not check for updates: {raw}")
 }
 
-#[cfg(desktop)]
-mod desktop {
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+mod imp {
     use std::sync::Mutex;
 
     use tauri::{AppHandle, State};
-    use tauri_plugin_process::ProcessExt;
     use tauri_plugin_updater::UpdaterExt;
 
     use super::{format_check_error, UpdateCheckResponse};
@@ -64,24 +63,24 @@ mod desktop {
     pub async fn app_check_update(
         app: AppHandle,
         pending: State<'_, PendingUpdate>,
-    ) -> UpdateCheckResponse {
+    ) -> Result<UpdateCheckResponse, String> {
         let updater = match build_updater(&app) {
             Ok(updater) => updater,
-            Err(_) => return UpdateCheckResponse::Unavailable,
+            Err(_) => return Ok(UpdateCheckResponse::Unavailable),
         };
 
-        match updater.check().await {
+        Ok(match updater.check().await {
             Ok(Some(update)) => {
                 let version = update.version.to_string();
                 let notes = update.body.clone().unwrap_or_default();
-                *pending.0.lock().unwrap() = Some(update);
+                *pending.0.lock().map_err(|_| "Update state lock poisoned.".to_string())? = Some(update);
                 UpdateCheckResponse::Available { version, notes }
             }
             Ok(None) => UpdateCheckResponse::UpToDate,
             Err(err) => UpdateCheckResponse::Error {
                 message: format_check_error(&err.to_string()),
             },
-        }
+        })
     }
 
     #[tauri::command]
@@ -92,7 +91,7 @@ mod desktop {
         let update = pending
             .0
             .lock()
-            .unwrap()
+            .map_err(|_| "Update state lock poisoned.".to_string())?
             .take()
             .ok_or_else(|| "No pending update.".to_string())?;
 
@@ -101,13 +100,12 @@ mod desktop {
             .await
             .map_err(|err| err.to_string())?;
 
-        app.process().restart();
-        Ok(())
+        app.restart();
     }
 }
 
-#[cfg(not(desktop))]
-mod desktop {
+#[cfg(any(target_os = "android", target_os = "ios"))]
+mod imp {
     use super::UpdateCheckResponse;
 
     #[tauri::command]
@@ -116,8 +114,8 @@ mod desktop {
     }
 
     #[tauri::command]
-    pub async fn app_check_update() -> UpdateCheckResponse {
-        UpdateCheckResponse::Unavailable
+    pub async fn app_check_update() -> Result<UpdateCheckResponse, String> {
+        Ok(UpdateCheckResponse::Unavailable)
     }
 
     #[tauri::command]
@@ -126,10 +124,10 @@ mod desktop {
     }
 }
 
-pub use desktop::{app_check_update, app_install_update, app_updater_available};
+pub use imp::{app_check_update, app_install_update, app_updater_available};
 
-#[cfg(desktop)]
-pub use desktop::PendingUpdate;
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+pub use imp::PendingUpdate;
 
 #[cfg(test)]
 mod tests {
