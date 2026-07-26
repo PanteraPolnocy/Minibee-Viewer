@@ -25,7 +25,7 @@ val cargoVersion: String by lazy {
 }
 
 // Android wants a monotonically increasing integer. Derive it from the semver so
-// 0.8.3 -> 803, 1.2.13 -> 10213 (derived from Cargo.toml at build time).
+// 0.0.0 -> 0 (min 1), 1.2.13 -> 10213 (derived from Cargo.toml at build time).
 val cargoVersionCode: Int by lazy {
     val parts = cargoVersion.split('.', '-')
     val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
