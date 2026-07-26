@@ -1,36 +1,76 @@
 name: Release (build + attach installers)
 
-# Builds native bundles for Windows, macOS (universal), Linux, and Android whenever a
-# GitHub Release is published, and attaches the artifacts to that release.
+# Publish a release -> full chain (desktop matrix + Android + release notes + upload).
 #
-# Flow: create/publish a Release in the GitHub UI (tag e.g. v0.5.1) -> this
-# workflow builds on all three OSes and uploads the installers to it.
-# `workflow_dispatch` is also allowed for a manual dry run (no upload unless a
-# matching release exists).
+# Manual run (Actions -> this workflow -> Run workflow): compile check for ONE
+# platform only. Nothing is uploaded or attached.
 #
 # Updater note: desktop clients fetch .../releases/latest/download/latest.json.
-# GitHub only resolves /releases/latest for non-prerelease releases. Uncheck
-# "Set as a pre-release" when publishing, or the updater feed 404s.
+# GitHub only resolves /releases/latest for non-prerelease releases.
 
 on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Compile check (one platform; no upload)
+        type: choice
+        required: true
+        options:
+          - windows
+          - linux
+          - macos
+          - android
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      desktop_matrix: ${{ steps.plan.outputs.desktop_matrix }}
+      run_android: ${{ steps.plan.outputs.run_android }}
+    steps:
+      - id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          set -euo pipefail
+          desktop_matrix='[]'
+          run_android=false
+
+          if [ "$EVENT_NAME" = "release" ]; then
+            desktop_matrix='[{"platform":"macos-latest","args":"--target universal-apple-darwin"},{"platform":"ubuntu-latest","args":""},{"platform":"windows-latest","args":""}]'
+            run_android=true
+          else
+            case "$PLATFORM" in
+              windows)
+                desktop_matrix='[{"platform":"windows-latest","args":""}]'
+                ;;
+              linux)
+                desktop_matrix='[{"platform":"ubuntu-latest","args":""}]'
+                ;;
+              macos)
+                desktop_matrix='[{"platform":"macos-latest","args":"--target universal-apple-darwin"}]'
+                ;;
+              android)
+                run_android=true
+                ;;
+            esac
+          fi
+
+          echo "desktop_matrix=${desktop_matrix}" >> "$GITHUB_OUTPUT"
+          echo "run_android=${run_android}" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: plan
+    if: needs.plan.outputs.desktop_matrix != '[]'
     permissions:
-      contents: write # required to upload assets to the release
+      contents: write
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: macos-latest      # produces a universal (arm64 + x86_64) .app/.dmg
-            args: "--target universal-apple-darwin"
-          - platform: ubuntu-latest      # .deb / .rpm / .AppImage
-            args: ""
-          - platform: windows-latest    # NSIS .exe + MSI
-            args: ""
+        include: ${{ fromJSON(needs.plan.outputs.desktop_matrix) }}
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -65,13 +105,13 @@ jobs:
         run: npm ci
 
       - name: Build and upload to the release
+        if: github.event_name == 'release'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # Upload to the release that triggered this run.
           releaseId: ${{ github.event.release.id }}
           args: ${{ matrix.args }}
           releaseAssetNamePattern: '[platform]_[name]_[version]_[arch][_setup][ext]'
@@ -79,7 +119,16 @@ jobs:
           uploadUpdaterSignatures: true
           updaterJsonPreferNsis: true
 
+      - name: Compile check
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- ${{ matrix.args }}
+
   build-android:
+    needs: plan
+    if: needs.plan.outputs.run_android == 'true'
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -134,16 +183,13 @@ jobs:
           exit "$missing"
 
       - name: Configure Android release signing
+        if: github.event_name == 'release'
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "Android signing secrets not set; release APK will be unsigned."
-            exit 0
-          fi
           KEY_PASS="${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > src-tauri/gen/android/upload-keystore.jks
           {
@@ -183,7 +229,7 @@ jobs:
 
   update-release-notes:
     name: Patch release notes (changelog + downloads + footer)
-    needs: [build, build-android]
+    needs: [plan, build, build-android]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
