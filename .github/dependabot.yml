@@ -65,3 +65,22 @@ updates:
     labels:
       - "dependencies"
       - "github_actions"
+
+  # Android Build System
+  - package-ecosystem: "gradle"
+    directory: "/src-tauri/gen/android"
+    schedule:
+      interval: "monthly"
+      day: "saturday"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 5
+    groups:
+      ci-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps-android)"
+    labels:
+      - "dependencies"
+      - "android"

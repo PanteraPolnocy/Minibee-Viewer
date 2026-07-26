@@ -43,7 +43,7 @@ if (entryPoints.length > 0) {
     outbase: 'src',
     minify: true,
     sourcemap: false,
-    target: 'es2022',
+    target: 'es2024',
     drop: ['console', 'debugger'],
   });
 }
