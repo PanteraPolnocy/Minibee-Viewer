@@ -22,7 +22,7 @@ pub fn format_check_error(raw: &str) -> String {
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-mod imp {
+pub mod imp {
     use std::sync::Mutex;
 
     use tauri::{AppHandle, State};
@@ -105,7 +105,7 @@ mod imp {
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
-mod imp {
+pub mod imp {
     use super::UpdateCheckResponse;
 
     #[tauri::command]
@@ -123,8 +123,6 @@ mod imp {
         Err("Updater is not available on this platform.".into())
     }
 }
-
-pub use imp::{app_check_update, app_install_update, app_updater_available};
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 pub use imp::PendingUpdate;
