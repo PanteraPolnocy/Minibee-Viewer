@@ -39,7 +39,7 @@ mac_address = "1.1"
 wmi = "0.18"
 # Reaching the WebView2 settings directly, to turn off its own right-click menu.
 # Same version wry already pulls in, so this costs nothing extra to build.
-webview2-com = "0.39"
+webview2-com = "0.38"
 
 [profile.release]
 opt-level = 3

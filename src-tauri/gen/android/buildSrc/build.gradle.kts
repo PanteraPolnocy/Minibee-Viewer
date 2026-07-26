@@ -4,9 +4,9 @@ plugins {
 
 gradlePlugin {
     plugins {
-        create("rust") {
+        create("pluginsForCoolKids") {
             id = "rust"
-            implementationClass = "com.pantera.minibee_viewer.kotlin.RustPlugin"
+            implementationClass = "RustPlugin"
         }
     }
 }
@@ -18,6 +18,6 @@ repositories {
 
 dependencies {
     compileOnly(gradleApi())
-    implementation("com.android.tools.build:gradle:9.3.1")
+    implementation("com.android.tools.build:gradle:8.11.0")
 }
 

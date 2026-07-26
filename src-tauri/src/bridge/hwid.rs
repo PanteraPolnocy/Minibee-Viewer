@@ -28,7 +28,6 @@ pub fn hwid() -> &'static HwId {
     &HWID
 }
 
-#[allow(dead_code)]
 const ZERO_ID: &str = "00000000000000000000000000000000";
 
 fn hex_md5(bytes: &[u8]) -> String {

@@ -51,7 +51,7 @@ jobs:
 
       - name: Setup Android SDK + NDK
         if: inputs.platform != 'ios'
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
 
       - name: Install NDK
         if: inputs.platform != 'ios'
