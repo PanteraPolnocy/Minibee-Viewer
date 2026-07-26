@@ -3,7 +3,8 @@
   "productName": "Minibee-Viewer",
   "identifier": "com.pantera.minibee-viewer",
   "build": {
-    "frontendDist": "../src"
+    "beforeBuildCommand": "npm run assetscompress",
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": true,
