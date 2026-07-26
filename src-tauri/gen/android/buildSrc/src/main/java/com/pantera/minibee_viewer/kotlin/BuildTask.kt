@@ -1,12 +1,20 @@
+package com.pantera.minibee_viewer.kotlin
+
 import java.io.File
+import javax.inject.Inject
 import org.apache.tools.ant.taskdefs.condition.Os
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.logging.LogLevel
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecOperations
 
-open class BuildTask : DefaultTask() {
+abstract class BuildTask : DefaultTask() {
+
+    @get:Inject
+    abstract val execOperations: ExecOperations
+
     @Input
     var rootDirRel: String? = null
     @Input
@@ -16,7 +24,7 @@ open class BuildTask : DefaultTask() {
 
     @TaskAction
     fun assemble() {
-        val executable = """npm""";
+        val executable = "npm"
         try {
             runTauriCli(executable)
         } catch (e: Exception) {
@@ -39,7 +47,7 @@ open class BuildTask : DefaultTask() {
                 }
                 throw lastException
             } else {
-                throw e;
+                throw e
             }
         }
     }
@@ -48,21 +56,22 @@ open class BuildTask : DefaultTask() {
         val rootDirRel = rootDirRel ?: throw GradleException("rootDirRel cannot be null")
         val target = target ?: throw GradleException("target cannot be null")
         val release = release ?: throw GradleException("release cannot be null")
-        val args = listOf("run", "--", "tauri", "android", "android-studio-script");
 
-        project.exec {
-            workingDir(File(project.projectDir, rootDirRel))
-            executable(executable)
-            args(args)
-            if (project.logger.isEnabled(LogLevel.DEBUG)) {
-                args("-vv")
-            } else if (project.logger.isEnabled(LogLevel.INFO)) {
-                args("-v")
-            }
-            if (release) {
-                args("--release")
-            }
-            args(listOf("--target", target))
+        val cliArgs = mutableListOf("run", "--", "tauri", "android", "android-studio-script")
+        if (project.logger.isEnabled(LogLevel.DEBUG)) {
+            cliArgs.add("-vv")
+        } else if (project.logger.isEnabled(LogLevel.INFO)) {
+            cliArgs.add("-v")
+        }
+        if (release) {
+            cliArgs.add("--release")
+        }
+        cliArgs.addAll(listOf("--target", target))
+
+        execOperations.exec { spec ->
+            spec.workingDir = File(project.projectDir, rootDirRel)
+            spec.executable = executable
+            spec.args = cliArgs
         }.assertNormalExitValue()
     }
 }
