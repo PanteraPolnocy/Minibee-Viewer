@@ -64,7 +64,7 @@ updates:
       prefix: "ci(actions)"
     labels:
       - "dependencies"
-      - "github-actions"
+      - "github_actions"
 
   # Android Build System
   - package-ecosystem: "gradle"
