@@ -52,7 +52,7 @@ abstract class BuildTask : DefaultTask() {
         }
     }
 
-    fun runTauriCli(executable: String) {
+    fun runTauriCli(execPath: String) {
         val rootDirRel = rootDirRel ?: throw GradleException("rootDirRel cannot be null")
         val target = target ?: throw GradleException("target cannot be null")
         val release = release ?: throw GradleException("release cannot be null")
@@ -68,10 +68,10 @@ abstract class BuildTask : DefaultTask() {
         }
         cliArgs.addAll(listOf("--target", target))
 
-        execOperations.exec { spec ->
-            spec.workingDir = File(project.projectDir, rootDirRel)
-            spec.executable = executable
-            spec.args = cliArgs
+        execOperations.exec {
+            workingDir = File(project.projectDir, rootDirRel)
+            executable = execPath
+            setArgs(cliArgs)
         }.assertNormalExitValue()
     }
 }
