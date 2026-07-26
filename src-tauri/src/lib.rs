@@ -28,10 +28,21 @@ fn silence_native_context_menu(window: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "windows"))]
 fn silence_native_context_menu(_window: &tauri::WebviewWindow) {}
 
+#[cfg(desktop)]
+fn register_desktop_plugins(
+    builder: tauri::Builder<tauri::Wry>,
+) -> tauri::Builder<tauri::Wry> {
+    builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    #[cfg(desktop)]
+    let builder = register_desktop_plugins(builder);
+    builder
         .setup(|app| {
             diaglog::init();
             // Log the viewer, build, and system details right under the "diaglog started" line.

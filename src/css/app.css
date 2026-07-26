@@ -3310,6 +3310,7 @@ html.require-http #app {
 
 .about-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-top: 22px;

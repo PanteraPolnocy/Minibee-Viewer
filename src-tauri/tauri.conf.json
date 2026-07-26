@@ -17,7 +17,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: http: https:; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src https://calendar.google.com; form-action 'none'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: http: https:; connect-src 'self' ipc: http://ipc.localhost https://github.com https://api.github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src https://calendar.google.com; form-action 'none'"
     }
   },
   "bundle": {
@@ -27,6 +27,7 @@
     "longDescription": "A lightweight buzz into the infinite grid.",
     "category": "SocialNetworking",
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "licenseFile": "../LICENSE",
     "resources": {
@@ -46,6 +47,17 @@
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFBOUVCNzIwMUJGRjA4QjAKUldTd0NQOGJJTGVlcW5EUDJiS0dOYzBnMDVQNURVaWovQVQxYUNmNnF6dFVWZ2RRZGlIbUpaeFcK",
+      "endpoints": [
+        "https://github.com/PanteraPolnocy/Minibee-Viewer/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

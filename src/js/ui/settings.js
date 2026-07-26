@@ -287,6 +287,14 @@ const FSSettingsUI = (function () {
         }
       }
       const b = data.build || {};
+      if (typeof FSUpdater !== 'undefined' && FSUpdater.setBuildTarget) {
+        FSUpdater.setBuildTarget(b.target || '');
+      }
+      const updateBtn = document.getElementById('about-check-update');
+      if (updateBtn) {
+        const canUpdate = typeof FSUpdater !== 'undefined' && FSUpdater.available && FSUpdater.available();
+        updateBtn.hidden = !canUpdate;
+      }
       const buildDl = document.getElementById('about-build');
       if (buildDl) {
         buildDl.innerHTML = '';
@@ -424,6 +432,13 @@ const FSSettingsUI = (function () {
     });
     const copyBtn = document.getElementById('about-copy');
     if (copyBtn) copyBtn.addEventListener('click', copyAbout);
+    const updateBtn = document.getElementById('about-check-update');
+    if (updateBtn) {
+      updateBtn.addEventListener('click', function () {
+        if (typeof FSUpdater === 'undefined' || !FSUpdater.checkManual) return;
+        FSUpdater.checkManual(document.getElementById('about-update-status'));
+      });
+    }
     buildControls();
     if (typeof FSSettings !== 'undefined' && typeof FSSettings.onChange === 'function') {
       FSSettings.onChange(function (key) {

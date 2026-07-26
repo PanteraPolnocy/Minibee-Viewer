@@ -447,6 +447,9 @@ const FSApp = (function () {
       FSSessionLost.init();
       FSCapsBanner.init();
       if (typeof FSParcelMusic !== 'undefined') FSParcelMusic.init();
+      if (typeof FSUpdater !== 'undefined' && FSUpdater.checkStartup) {
+        window.setTimeout(function () { FSUpdater.checkStartup(); }, 2500);
+      }
     } catch (err) {
       console.error('Minibee init failed:', err);
       const el = document.getElementById('login-error');

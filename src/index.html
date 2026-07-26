@@ -909,7 +909,9 @@
               <hr class="about-hr">
               <dl class="about-meta about-meta--mono" id="about-system"></dl>
               <div class="about-actions">
+                <button type="button" id="about-check-update" class="btn btn--ghost btn--sm" hidden>Check for updates</button>
                 <button type="button" id="about-copy" class="btn btn--ghost btn--sm">Copy all</button>
+                <span id="about-update-status" class="about-copy-status" role="status" aria-live="polite"></span>
                 <span id="about-copy-status" class="about-copy-status" role="status" aria-live="polite"></span>
               </div>
             </div>
@@ -1094,6 +1096,7 @@
   <script src="js/core/sl-slurl.js"></script>
   <script src="js/core/transport.js"></script>
   <script src="js/core/bridge.js"></script>
+  <script src="js/core/updater.js"></script>
   <script src="js/diaglog.js"></script>
   <script src="js/core/sl-profiles.js"></script>
   <script src="js/core/sl-bridge.js"></script>

@@ -28,6 +28,7 @@ pub fn hwid() -> &'static HwId {
     &HWID
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 const ZERO_ID: &str = "00000000000000000000000000000000";
 
 fn hex_md5(bytes: &[u8]) -> String {
@@ -42,6 +43,12 @@ fn hex_md5(bytes: &[u8]) -> String {
 
 /// Fold a serial string down into 6 bytes exactly as `llmachineid.cpp` does:
 /// `byte[k % 6] += ascii[k]` with wrapping, stopping at the first NUL.
+#[cfg(any(
+    target_os = "windows",
+    target_os = "macos",
+    not(any(target_os = "windows", target_os = "macos", target_os = "linux")),
+    test
+))]
 fn fold6(s: &[u8]) -> [u8; 6] {
     let mut id = [0u8; 6];
     for (k, &b) in s.iter().enumerate() {
