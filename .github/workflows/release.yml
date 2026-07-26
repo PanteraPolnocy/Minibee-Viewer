@@ -182,45 +182,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   update-release-notes:
-    name: Append Readme and License to Release
+    name: Patch release notes (downloads + footer)
     needs: [build, build-android]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Update Release Notes
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Insert download table and README/LICENSE footer
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_ID: ${{ github.event.release.id }}
-          TAG: ${{ github.event.release.tag_name }}
-          REPO: ${{ github.repository }}
-          OLD_BODY: ${{ github.event.release.body }}
-        run: |
-          # Define standard URLs
-          README_URL="https://github.com/${REPO}/blob/${TAG}/README.md"
-          LICENSE_URL="https://github.com/${REPO}/blob/${TAG}/LICENSE"
-
-          # Pool of 5 random flavor texts
-          MESSAGES=(
-            "*Forgot how this magic works?* Check out the [README](${README_URL})! *(And remember to respect the [LICENSE](${LICENSE_URL}) so no dragons get involved! 🐉)*"
-            "*RTFM time!* Dive into the [README](${README_URL}) before things explode, and peek at the [LICENSE](${LICENSE_URL}) to keep the legal team sleeping soundly."
-            "*Lost in the source code wilderness?* Here is your survival map: [README](${README_URL}). Playground rules apply: see [LICENSE](${LICENSE_URL})."
-            "*Pro tip:* Reading the [README](${README_URL}) grants +10 code stability. Terms & conditions apply ([LICENSE](${LICENSE_URL}))."
-            "*Before you smash that run button:* Get the full lore in the [README](${README_URL}) and inspect the fine print in the [LICENSE](${LICENSE_URL})."
-          )
-
-          # Pick a random message from the list (0 to 4)
-          RAND_INDEX=$(( RANDOM % ${#MESSAGES[@]} ))
-          SELECTED_MSG="${MESSAGES[$RAND_INDEX]}"
-
-          # Construct new release notes. printf keeps the divider/message flush
-          # left so they don't render as an indented code block in Markdown.
-          NEW_BODY=$(printf '%s\n\n---\n%s' "${OLD_BODY}" "${SELECTED_MSG}")
-
-          # Patch the release notes via GitHub CLI
-          gh api \
-            --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/${REPO}/releases/${RELEASE_ID}" \
-            -f body="${NEW_BODY}"
+        run: node scripts/update-release-notes.mjs --release-id "${RELEASE_ID}"

@@ -7,7 +7,8 @@
     "assetscompress": "node assetscompress.mjs",
     "tauri": "tauri",
     "test": "node --test",
-    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "release:notes": "node scripts/update-release-notes.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
