@@ -78,6 +78,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Sync version from Cargo.toml
+        run: node scripts/sync-version.mjs
+
       - name: Install Linux build dependencies
         if: matrix.platform == 'ubuntu-latest'
         run: |
@@ -136,6 +139,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Sync version from Cargo.toml
+        run: node scripts/sync-version.mjs
 
       - name: Set up Java JDK 17
         uses: actions/setup-java@v5

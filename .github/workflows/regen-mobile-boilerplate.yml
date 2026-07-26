@@ -88,7 +88,9 @@ jobs:
           for f in \
             "src-tauri/gen/android/app/src/main/java/com/pantera/minibee_viewer/MainActivity.kt" \
             "src-tauri/gen/android/app/src/main/java/com/pantera/minibee_viewer/ConnectionService.kt" \
-            "src-tauri/gen/android/app/build.gradle.kts" ; do
+            "src-tauri/gen/android/app/build.gradle.kts" \
+            "src-tauri/gen/apple/project.yml" \
+            "src-tauri/gen/apple/minibee-viewer_iOS/Info.plist" ; do
             before="/tmp/gen-before/${f#src-tauri/}"
             before="/tmp/gen-before/gen/${f#src-tauri/gen/}"
             if [ -f "$before" ] && [ -f "$f" ]; then
@@ -131,5 +133,6 @@ jobs:
           BRANCH: ${{ inputs.branch || 'chore/regen-mobile-boilerplate' }}
         run: |
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "After re-applying hand edits, bump version only in \`src-tauri/Cargo.toml\` (sync runs automatically on build)." >> "$GITHUB_STEP_SUMMARY"
           echo "Pushed to \`$BRANCH\`. Compare / open a PR:" >> "$GITHUB_STEP_SUMMARY"
           echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$BRANCH?expand=1" >> "$GITHUB_STEP_SUMMARY"

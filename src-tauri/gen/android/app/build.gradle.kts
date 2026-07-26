@@ -13,11 +13,7 @@ val tauriProperties = Properties().apply {
     }
 }
 
-// The version lives in one place: src-tauri/Cargo.toml. `tauri android build`
-// writes tauri.properties for us, but a plain Gradle build (Android Studio, or
-// gradlew straight from gen/android) has no such file and used to fall back to
-// "1.0" - which is what Android then showed in the app info screen. So read the
-// crate version directly as the fallback and keep the two in step.
+// Version: src-tauri/Cargo.toml (synced into npm/iOS before each build; Android reads Cargo below).
 val cargoVersion: String by lazy {
     val cargoToml = file("../../../Cargo.toml")
     val line = if (cargoToml.exists()) {
@@ -29,7 +25,7 @@ val cargoVersion: String by lazy {
 }
 
 // Android wants a monotonically increasing integer. Derive it from the semver so
-// 0.8.2 -> 802, 1.2.13 -> 10213, and releases always sort correctly.
+// 0.8.3 -> 803, 1.2.13 -> 10213 (derived from Cargo.toml at build time).
 val cargoVersionCode: Int by lazy {
     val parts = cargoVersion.split('.', '-')
     val major = parts.getOrNull(0)?.toIntOrNull() ?: 0

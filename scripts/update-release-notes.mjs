@@ -6,7 +6,7 @@
  *
  * Usage:
  *   node scripts/update-release-notes.mjs --release-id 12345
- *   node scripts/update-release-notes.mjs --tag 0.8.2 --dry-run
+ *   node scripts/update-release-notes.mjs --tag 0.8.3 --dry-run
  */
 
 import path from 'node:path';

@@ -3,7 +3,7 @@
   "productName": "Minibee-Viewer",
   "identifier": "com.pantera.minibee-viewer",
   "build": {
-    "beforeBuildCommand": "npm run assetscompress",
+    "beforeBuildCommand": "npm run version:sync && npm run assetscompress",
     "frontendDist": "../dist"
   },
   "app": {

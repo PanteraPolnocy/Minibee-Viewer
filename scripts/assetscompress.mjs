@@ -1,8 +1,12 @@
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-// Helper to recursively find all JS and CSS files across any folder depth
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SRC = path.join(ROOT, 'src');
+const DIST = path.join(ROOT, 'dist');
+
 function findFiles(dir, extensions) {
   let results = [];
   if (!fs.existsSync(dir)) return results;
@@ -20,27 +24,23 @@ function findFiles(dir, extensions) {
   return results;
 }
 
-// Clean previous build artifacts and recreate dist folder
-if (fs.existsSync('dist')) {
-  fs.rmSync('dist', { recursive: true, force: true });
+if (fs.existsSync(DIST)) {
+  fs.rmSync(DIST, { recursive: true, force: true });
 }
-fs.mkdirSync('dist', { recursive: true });
+fs.mkdirSync(DIST, { recursive: true });
 
-// Copy static assets (HTML, icons, fonts, etc.) preserving exact folder structure
-fs.cpSync('src', 'dist', {
+fs.cpSync(SRC, DIST, {
   recursive: true,
   filter: (file) => !file.endsWith('.js') && !file.endsWith('.css'),
 });
 
-// Collect all JS and CSS files (including deep subfolders like src/js/audio/*.js)
-const entryPoints = findFiles('src', ['.js', '.css']);
+const entryPoints = findFiles(SRC, ['.js', '.css']);
 
-// Minify files directly into dist/ while preserving relative folder hierarchy
 if (entryPoints.length > 0) {
   await esbuild.build({
     entryPoints,
-    outdir: 'dist',
-    outbase: 'src',
+    outdir: DIST,
+    outbase: SRC,
     minify: true,
     sourcemap: false,
     target: 'es2024',
