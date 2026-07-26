@@ -4,18 +4,88 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     schedule:
-      interval: "quarterly"
+      interval: "weekly"
+      day: "saturday"
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 3
+      semver-minor-days: 3
+      semver-patch-days: 2
+    groups:
+      tauri-core:
+        patterns:
+          - "tauri*"
+      async-networking:
+        patterns:
+          - "tokio*"
+          - "reqwest*"
+          - "serde*"
+    commit-message:
+      prefix: "chore(deps-cargo)"
+    labels:
+      - "dependencies"
+      - "rust"
 
   # JavaScript / Frontend dependencies
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "quarterly"
+      interval: "weekly"
+      day: "saturday"
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 3
+      semver-minor-days: 3
+      semver-patch-days: 2
+    groups:
+      frontend-tooling:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps-npm)"
+    labels:
+      - "dependencies"
+      - "javascript"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "quarterly"
+      interval: "weekly"
+      day: "saturday"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 5
+    groups:
+      ci-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "ci(actions)"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # Android Build System
+  - package-ecosystem: "gradle"
+    directory: "/src-tauri/gen/android"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps-android)"
+    labels:
+      - "dependencies"
+      - "android"
+
+  # iOS Build System
+  - package-ecosystem: "cocoapods"
+    directory: "/src-tauri/gen/apple"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps-ios)"
+    labels:
+      - "dependencies"
+      - "apple"
