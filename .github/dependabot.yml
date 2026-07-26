@@ -77,15 +77,3 @@ updates:
     labels:
       - "dependencies"
       - "android"
-
-  # iOS Build System
-  - package-ecosystem: "swift"
-    directory: "/src-tauri/gen/apple"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    commit-message:
-      prefix: "chore(deps-ios)"
-    labels:
-      - "dependencies"
-      - "apple"
