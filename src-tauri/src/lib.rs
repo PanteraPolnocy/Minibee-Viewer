@@ -5,6 +5,7 @@ pub mod bridge;
 pub mod codec;
 pub mod commands;
 pub mod diaglog;
+pub mod updater;
 pub mod urlmatch;
 
 use bridge::state::{version_payload, AppState};
@@ -66,6 +67,8 @@ pub fn run() {
                 silence_native_context_menu(&window);
             }
             app.manage(AppState::new(version, ua));
+            #[cfg(desktop)]
+            app.manage(updater::PendingUpdate::default());
             Ok(())
         })
         // Catch the native window close so the frontend can raise a logout
@@ -91,6 +94,9 @@ pub fn run() {
             commands::app_readme,
             commands::app_help,
             commands::app_memory,
+            updater::app_updater_available,
+            updater::app_check_update,
+            updater::app_install_update,
             commands::set_close_guard,
             commands::confirm_close,
             commands::cancel_close,

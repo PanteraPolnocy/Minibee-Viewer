@@ -287,13 +287,11 @@ const FSSettingsUI = (function () {
         }
       }
       const b = data.build || {};
-      if (typeof FSUpdater !== 'undefined' && FSUpdater.setBuildTarget) {
-        FSUpdater.setBuildTarget(b.target || '');
-      }
       const updateBtn = document.getElementById('about-check-update');
-      if (updateBtn) {
-        const canUpdate = typeof FSUpdater !== 'undefined' && FSUpdater.available && FSUpdater.available();
-        updateBtn.hidden = !canUpdate;
+      if (updateBtn && typeof FSUpdater !== 'undefined' && FSUpdater.available) {
+        FSUpdater.available().then(function (canUpdate) {
+          updateBtn.hidden = !canUpdate;
+        });
       }
       const buildDl = document.getElementById('about-build');
       if (buildDl) {

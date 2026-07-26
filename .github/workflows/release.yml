@@ -7,6 +7,10 @@ name: Release (build + attach installers)
 # workflow builds on all three OSes and uploads the installers to it.
 # `workflow_dispatch` is also allowed for a manual dry run (no upload unless a
 # matching release exists).
+#
+# Updater note: desktop clients fetch .../releases/latest/download/latest.json.
+# GitHub only resolves /releases/latest for non-prerelease releases. Uncheck
+# "Set as a pre-release" when publishing, or the updater feed 404s.
 
 on:
   release:

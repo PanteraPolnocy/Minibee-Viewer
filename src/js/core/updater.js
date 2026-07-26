@@ -1,52 +1,38 @@
 /**
- * Desktop auto-update helper (Tauri updater + process plugins).
- * Uses the global API exposed by withGlobalTauri.
+ * Desktop auto-update UI. Checks and installs run in Rust (`app_check_update` / `app_install_update`).
  */
 const FSUpdater = (function () {
   'use strict';
 
   let startupChecked = false;
-  let buildTarget = '';
+  let updaterAvailable = null;
 
-  function tauri() {
-    return (typeof window !== 'undefined' && window.__TAURI__) ? window.__TAURI__ : null;
+  function invoke(cmd, args) {
+    if (typeof FSBridge === 'undefined' || typeof FSBridge.invoke !== 'function') {
+      return Promise.reject(new Error('Native bridge unavailable'));
+    }
+    return FSBridge.invoke(cmd, args || {});
   }
 
   function available() {
-    const t = tauri();
-    return !!(t && t.updater && typeof t.updater.check === 'function');
-  }
-
-  function setBuildTarget(target) {
-    buildTarget = typeof target === 'string' ? target : '';
-  }
-
-  function checkOptions() {
-    if (buildTarget.indexOf('universal') !== -1) {
-      return { target: 'darwin-universal' };
+    if (updaterAvailable !== null) {
+      return Promise.resolve(updaterAvailable);
     }
-    return {};
-  }
-
-  function checkForUpdate() {
-    if (!available()) return Promise.resolve(null);
-    return tauri().updater.check(checkOptions()).then(function (update) {
-      return update || null;
+    return invoke('app_updater_available').then(function (ok) {
+      updaterAvailable = !!ok;
+      return updaterAvailable;
+    }).catch(function () {
+      updaterAvailable = false;
+      return false;
     });
   }
 
-  function formatNotes(update) {
-    const body = update && update.body ? String(update.body).trim() : '';
-    if (body) return body;
-    return '';
-  }
-
-  function promptInstall(update) {
-    if (!update || typeof FSUtils === 'undefined' || typeof FSUtils.confirm !== 'function') {
+  function promptInstall(info) {
+    if (!info || typeof FSUtils === 'undefined' || typeof FSUtils.confirm !== 'function') {
       return Promise.resolve(false);
     }
-    const version = update.version ? String(update.version) : 'a new version';
-    const notes = formatNotes(update);
+    const version = info.version ? String(info.version) : 'a new version';
+    const notes = info.notes ? String(info.notes).trim() : '';
     const message = notes
       ? ('Version ' + version + ' is available.\n\n' + notes + '\n\nInstall now?')
       : ('Version ' + version + ' is available. Install now?');
@@ -58,32 +44,14 @@ const FSUpdater = (function () {
     });
   }
 
-  function downloadAndInstall(update) {
-    if (!update || !available()) {
-      return Promise.reject(new Error('Updater unavailable'));
-    }
-    if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-      FSUtils.showToast('Downloading update…', 'info', 4000);
-    }
-    return update.downloadAndInstall(function (event) {
-      if (!event || event.event !== 'Progress' || typeof FSUtils === 'undefined' || !FSUtils.showToast) {
-        return;
-      }
-      const total = event.data && event.data.contentLength;
-      if (!total) return;
-    }).then(function () {
-      const t = tauri();
-      if (t && t.process && typeof t.process.relaunch === 'function') {
-        return t.process.relaunch();
-      }
-    });
-  }
-
-  function offerUpdate(update) {
-    if (!update) return Promise.resolve(false);
-    return promptInstall(update).then(function (accepted) {
+  function offerUpdate(info) {
+    if (!info) return Promise.resolve(false);
+    return promptInstall(info).then(function (accepted) {
       if (!accepted) return false;
-      return downloadAndInstall(update).then(function () {
+      if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
+        FSUtils.showToast('Downloading update…', 'info', 4000);
+      }
+      return invoke('app_install_update').then(function () {
         return true;
       }).catch(function (err) {
         const msg = err && err.message ? err.message : String(err || 'Update failed');
@@ -96,44 +64,60 @@ const FSUpdater = (function () {
   }
 
   function checkStartup() {
-    if (startupChecked || !available()) return Promise.resolve();
-    startupChecked = true;
-    return checkForUpdate().then(function (update) {
-      if (!update) return;
-      return offerUpdate(update);
-    }).catch(function () {});
+    if (startupChecked) return Promise.resolve();
+    return available().then(function (ok) {
+      if (!ok) return;
+      startupChecked = true;
+      return invoke('app_check_update').then(function (result) {
+        if (result && result.status === 'available') {
+          return offerUpdate(result);
+        }
+      }).catch(function () {});
+    });
   }
 
   function checkManual(statusEl) {
     function setStatus(text) {
       if (statusEl) statusEl.textContent = text || '';
     }
-    if (!available()) {
-      setStatus('Updates are not available in this build.');
-      return Promise.resolve();
+    function clearLater(ms) {
+      window.setTimeout(function () { setStatus(''); }, ms);
     }
-    setStatus('Checking…');
-    return checkForUpdate().then(function (update) {
-      if (!update) {
-        setStatus('You are up to date.');
-        window.setTimeout(function () { setStatus(''); }, 3500);
+
+    return available().then(function (ok) {
+      if (!ok) {
+        setStatus('Updates are not available in this build.');
         return;
       }
-      setStatus('Update ' + update.version + ' found.');
-      return offerUpdate(update).then(function (installed) {
-        if (!installed) setStatus('Update postponed.');
-        window.setTimeout(function () { setStatus(''); }, 3500);
+      setStatus('Checking…');
+      return invoke('app_check_update').then(function (result) {
+        if (!result) return;
+        if (result.status === 'error') {
+          setStatus(result.message || 'Could not check for updates.');
+          clearLater(5000);
+          return;
+        }
+        if (result.status === 'up_to_date') {
+          setStatus('You are up to date.');
+          clearLater(3500);
+          return;
+        }
+        if (result.status === 'available') {
+          setStatus('Update ' + result.version + ' found.');
+          return offerUpdate(result).then(function (installed) {
+            if (!installed) setStatus('Update postponed.');
+            clearLater(3500);
+          });
+        }
       });
-    }).catch(function (err) {
-      const msg = err && err.message ? err.message : 'Could not check for updates.';
-      setStatus(msg);
-      window.setTimeout(function () { setStatus(''); }, 5000);
+    }).catch(function () {
+      setStatus('Could not check for updates.');
+      clearLater(5000);
     });
   }
 
   return {
     available: available,
-    setBuildTarget: setBuildTarget,
     checkStartup: checkStartup,
     checkManual: checkManual
   };
