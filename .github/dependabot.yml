@@ -4,7 +4,7 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "saturday"
     open-pull-requests-limit: 10
     cooldown:
@@ -30,7 +30,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "saturday"
     open-pull-requests-limit: 10
     cooldown:
@@ -51,7 +51,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "saturday"
     open-pull-requests-limit: 10
     cooldown:
@@ -70,7 +70,7 @@ updates:
   - package-ecosystem: "gradle"
     directory: "/src-tauri/gen/android"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 10
     commit-message:
       prefix: "chore(deps-android)"
