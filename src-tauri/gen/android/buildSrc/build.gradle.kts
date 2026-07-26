@@ -4,9 +4,9 @@ plugins {
 
 gradlePlugin {
     plugins {
-        create("pluginsForCoolKids") {
+        create("rust") {
             id = "rust"
-            implementationClass = "RustPlugin"
+            implementationClass = "com.pantera.minibee_viewer.kotlin.RustPlugin"
         }
     }
 }
