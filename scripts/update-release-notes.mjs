@@ -299,7 +299,7 @@ function formatDigest(digest) {
   if (!digest) return '-';
   const hex = digest.startsWith('sha256:') ? digest.slice(7) : digest;
   if (hex.length <= 24) return `\`${hex}\``;
-  return `\`${hex.slice(0, 12)}…${hex.slice(-12)}\``;
+  return `\`${hex.slice(0, 12)}...${hex.slice(-12)}\``;
 }
 
 /**
