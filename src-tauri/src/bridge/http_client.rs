@@ -1,30 +1,30 @@
 //! Build `reqwest` HTTP clients.
 //!
-//! Desktop uses the OS trust store via `rustls-platform-verifier` (pulled in by reqwest).
+//! Desktop uses the OS trust store via `rustls-platform-verifier` (default reqwest builder).
 //! Android cannot use that without JVM setup, so we pin Mozilla roots with
-//! `use_preconfigured_tls` instead (see tombstone: "Expect rustls-platform-verifier to be initialized").
+//! `tls_certs_only` instead (see tombstone: "Expect rustls-platform-verifier to be initialized").
 
 #[cfg(target_os = "android")]
-fn android_tls() -> std::sync::Arc<rustls::ClientConfig> {
-    use rustls::crypto::aws_lc_rs;
-    use rustls::ClientConfig;
+use once_cell::sync::Lazy;
 
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    std::sync::Arc::new(
-        ClientConfig::builder_with_provider(std::sync::Arc::new(aws_lc_rs::default_provider()))
-            .with_safe_default_protocol_versions()
-            .expect("tls protocol versions")
-            .with_root_certificates(roots)
-            .with_no_client_auth(),
-    )
-}
+#[cfg(target_os = "android")]
+static ANDROID_ROOTS: Lazy<Vec<reqwest::Certificate>> = Lazy::new(|| {
+    webpki_root_certs::TLS_SERVER_ROOT_CERTS
+        .iter()
+        .map(|der| {
+            reqwest::Certificate::from_der(der.as_ref())
+                .expect("mozilla root cert DER is valid")
+        })
+        .collect()
+});
 
 /// Shared `reqwest` builder for outbound HTTPS (login, caps proxy, map tiles, feeds).
 pub fn builder() -> reqwest::ClientBuilder {
     #[cfg(target_os = "android")]
     {
-        return reqwest::Client::builder().use_preconfigured_tls(android_tls());
+        return reqwest::Client::builder()
+            .tls_backend_rustls()
+            .tls_certs_only(ANDROID_ROOTS.iter().cloned());
     }
     #[cfg(not(target_os = "android"))]
     {
