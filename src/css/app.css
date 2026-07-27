@@ -3339,12 +3339,15 @@ html.require-http #app {
 }
 
 .about-disclaimer {
-  margin: 12px 0 0;
-  padding: 10px 12px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  font-size: 0.82rem;
-  line-height: 1.45;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  width: 100%;
+  max-width: 360px;
+  box-sizing: border-box;
 }
 
 .login-challenge__note {
@@ -3360,6 +3363,8 @@ html.require-http #app {
   font-style: italic;
   color: var(--text-muted);
   line-height: 1.4;
+  width: 100%;
+  max-width: 360px;
 }
 
 .login-challenge__note {

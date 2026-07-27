@@ -200,16 +200,18 @@ fn compute() -> HwId {
     }
 }
 
-/// Stable device identifiers from Android system properties (no desktop-only crates).
+/// Stable device identifiers from Android sysfs (no subprocess - some builds abort on `getprop`).
 #[cfg(target_os = "android")]
 fn android_device_seed() -> String {
-    if let Ok(out) = std::process::Command::new("getprop")
-        .arg("ro.serialno")
-        .output()
-    {
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !s.is_empty() && !s.eq_ignore_ascii_case("unknown") {
-            return s;
+    for path in [
+        "/sys/devices/soc0/serial_number",
+        "/sys/devices/virtual/dmi/id/product_uuid",
+    ] {
+        if let Ok(s) = std::fs::read_to_string(path) {
+            let t = s.trim().to_string();
+            if !t.is_empty() && !t.eq_ignore_ascii_case("unknown") {
+                return t;
+            }
         }
     }
     if let Ok(id) = std::fs::read_to_string("/proc/sys/kernel/random/boot_id") {

@@ -201,7 +201,15 @@ const FSLogin = (function () {
       form.addEventListener('submit', onSubmit);
       decline.addEventListener('click', onDecline);
       dialog.addEventListener('cancel', onCancel);
-      dialog.showModal();
+      if (typeof dialog.showModal === 'function') {
+        try {
+          if (!dialog.open) dialog.showModal();
+        } catch (_e) {
+          dialog.setAttribute('open', '');
+        }
+      } else {
+        dialog.setAttribute('open', '');
+      }
 
       if (challenge.type === 'mfa') {
         mfaToken.focus();
