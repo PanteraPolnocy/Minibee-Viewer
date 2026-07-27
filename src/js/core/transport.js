@@ -350,6 +350,11 @@ const FSTransport = (function () {
     adapter.queueNameResolve(ids);
   }
 
+  function queueGroupNameResolve(ids) {
+    if (!adapter || !adapter.queueGroupNameResolve) return;
+    adapter.queueGroupNameResolve(ids);
+  }
+
   function start() {
     if (adapter && adapter.start) adapter.start();
   }
@@ -415,6 +420,7 @@ const FSTransport = (function () {
     getCachedNameInfo: getCachedNameInfo,
     getGroupName: getGroupName,
     queueNameResolve: queueNameResolve,
+    queueGroupNameResolve: queueGroupNameResolve,
     start: start,
     stop: stop
   };

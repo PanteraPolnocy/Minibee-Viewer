@@ -382,14 +382,16 @@
         <div id="panel-chat" class="panel panel--active" data-panel="chat" role="tabpanel" aria-label="Nearby chat">
           <div id="chat-messages" class="message-list" role="log" aria-live="polite" aria-relevant="additions"></div>
           <form id="chat-form" class="composer">
-            <input type="text" id="chat-input" class="composer__input" placeholder="Say something..." maxlength="1024" autocomplete="off">
-            <label class="sr-only" for="chat-volume">Chat volume</label>
-            <select id="chat-volume" class="composer__volume" aria-label="Chat volume">
-              <option value="normal">Say</option>
-              <option value="whisper">Whisper</option>
-              <option value="shout">Shout</option>
-            </select>
-            <button type="submit" class="btn btn--primary composer__send" aria-label="Send message">Send</button>
+            <textarea id="chat-input" class="composer__input" rows="1" placeholder="Say something..." maxlength="1024" autocomplete="off"></textarea>
+            <div class="composer__actions">
+              <label class="sr-only" for="chat-volume">Chat volume</label>
+              <select id="chat-volume" class="composer__volume" aria-label="Chat volume">
+                <option value="normal">Say</option>
+                <option value="whisper">Whisper</option>
+                <option value="shout">Shout</option>
+              </select>
+              <button type="submit" class="btn btn--primary composer__send" aria-label="Send message">Send</button>
+            </div>
           </form>
         </div>
 
@@ -471,8 +473,10 @@
                 <span id="im-typing-text" class="im-typing__text"></span>
               </div>
               <form id="im-form" class="composer composer--disabled">
-                <input type="text" id="im-input" class="composer__input" placeholder="Type a message..." maxlength="1024" autocomplete="off" disabled>
-                <button type="submit" class="btn btn--primary composer__send" aria-label="Send IM" disabled>Send</button>
+                <textarea id="im-input" class="composer__input" rows="1" placeholder="Type a message..." maxlength="1024" autocomplete="off" disabled></textarea>
+                <div class="composer__actions">
+                  <button type="submit" class="btn btn--primary composer__send" aria-label="Send IM" disabled>Send</button>
+                </div>
               </form>
             </div>
           </div>
@@ -792,7 +796,7 @@
           </div>
 
           <div id="interact-pane-objects" class="settings-pane" role="region" aria-label="Objects nearby">
-            <div class="objects-toolbar">
+            <div class="objects-controls">
               <input type="search" id="objects-filter" class="objects-filter"
                 placeholder="Filter by name or owner" aria-label="Filter objects by name or owner">
               <select id="objects-range" class="objects-range" aria-label="How far to look">
@@ -802,12 +806,25 @@
                 <option value="64">64 m</option>
                 <option value="96">96 m</option>
                 <option value="128">128 m</option>
+                <option value="256">256 m</option>
+                <option value="384">384 m</option>
               </select>
-              <button type="button" id="objects-refresh" class="btn btn--secondary btn--sm">Load</button>
+              <div class="objects-filters" role="group" aria-label="Object list filters">
+                <label class="toggle">
+                  <input type="checkbox" id="objects-include-attachments">
+                  <span>Include attachments</span>
+                </label>
+                <label class="toggle">
+                  <input type="checkbox" id="objects-include-physical" checked>
+                  <span>Include physical</span>
+                </label>
+              </div>
+              <button type="button" id="objects-refresh" class="btn btn--secondary btn--sm objects-load">Load</button>
             </div>
             <p class="objects-count" id="objects-title">Nearby objects</p>
             <div class="objects-table" role="table" aria-label="Nearby objects">
               <div class="objects-row objects-row--head" role="row">
+                <span class="objects-cell objects-cell--expand" aria-hidden="true"></span>
                 <button type="button" class="objects-cell objects-sort objects-cell--num objects-sort--active" data-objects-sort="distance" role="columnheader">Distance</button>
                 <button type="button" class="objects-cell objects-sort" data-objects-sort="name" role="columnheader">Name</button>
                 <button type="button" class="objects-cell objects-sort" data-objects-sort="owner" role="columnheader">Owner</button>

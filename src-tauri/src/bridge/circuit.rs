@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -17,6 +17,7 @@ use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
+use crate::bridge::objects::distance;
 use crate::bridge::session::{self, Action, SessionState};
 use crate::codec;
 use crate::codec::template::Registry;
@@ -50,9 +51,7 @@ pub struct Session {
     /// Sequence numbers of inbound reliable packets we still owe an ack for.
     pending_acks: Mutex<Vec<u32>>,
     /// Reliable inbound seqs we've handled recently (seq, received_ms), used to
-    /// spot duplicate resends. We purge by age, like the reference viewer's
-    /// mRecentlyReceivedReliablePackets (60s window), so a seq the sim may still
-    /// be resending is never evicted too early; a large count cap backstops memory.
+    /// spot duplicate resends. Purged after 60s; a count cap backstops memory.
     recent_reliable: Mutex<VecDeque<(u32, u64)>>,
     /// Agent ids waiting to be resolved, batched together into a UUIDNameRequest.
     pending_names: Mutex<Vec<String>>,
@@ -67,9 +66,9 @@ pub struct Session {
     /// How many EventQueue recovery attempts we've made since the last healthy poll,
     /// bounded so a region whose EQ never comes back doesn't retry forever.
     eq_recover: AtomicU32,
-    /// True while the object-properties drain is working through the in-range set, so
-    /// pressing Load repeatedly can't stack request loops on top of each other.
-    props_draining: AtomicBool,
+    /// Generation counter for the object-properties drain. Each Load bumps this so
+    /// any in-flight drain exits and a fresh one can start.
+    props_drain_gen: AtomicU64,
 }
 
 impl Session {
@@ -230,32 +229,118 @@ impl Session {
         }
     }
 
-    pub fn nearby_objects(&self, range: f32) -> (Vec<serde_json::Value>, usize) {
+    pub fn missing_parent_object_ids(&self) -> Vec<u32> {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|st| st.objects.missing_parent_ids())
+            .unwrap_or_default()
+    }
+
+    pub fn unresolved_parent_count(&self) -> usize {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|st| st.objects.unresolved_parent_count())
+            .unwrap_or(0)
+    }
+
+    pub fn nearby_objects(
+        &self,
+        range: f32,
+    ) -> (
+        Vec<serde_json::Value>,
+        usize,
+        usize,
+        usize,
+        f32,
+        usize,
+        usize,
+        usize,
+        usize,
+    ) {
         let guard = self.engine.lock().unwrap();
         let st = match guard.as_ref() {
             Some(s) => s,
-            None => return (Vec::new(), 0),
+            None => return (Vec::new(), 0, 0, 0, -1.0, 0, 0, 0, 0),
         };
         let from = agent_eye(st);
+        let (attachments_tracked, attachments_in_range) = st.objects.attachment_stats(from, range);
         let rows: Vec<serde_json::Value> = st
             .objects
-            .nearby(from, range)
+            .nearby_for_list(from, range)
             .into_iter()
-            .map(|r| crate::bridge::objects::row_json(r, from))
+            .map(|(r, pos)| {
+                let root_id = st.objects.root_local_id(r.local_id);
+                let list_dist = distance(from, pos);
+                let in_attachment = st.objects.is_in_attachment(r.local_id);
+                crate::bridge::objects::row_json(r, pos, root_id, list_dist, in_attachment)
+            })
             .collect();
-        let (tracked, roots, nearest) = st.objects.census(from);
+        let (tracked, roots, nearest_root, nearest) = st.objects.census(from);
+        let cached = st.objects.cached_id_count();
+        let unresolved = st.objects.unresolved_parent_count();
         crate::dlog!(
-            "nearby: from=({:.0},{:.0},{:.0}) range={}m tracked={} roots={} nearest={:.1}m -> {} row(s)",
+            "nearby: from=({:.0},{:.0},{:.0}) range={}m tracked={} roots={} attachments={}/{} unresolved_parents={} nearest_root={:.1}m nearest={:.1}m -> {} row(s)",
             from[0],
             from[1],
             from[2],
             range,
             tracked,
             roots,
+            attachments_in_range,
+            attachments_tracked,
+            unresolved,
+            nearest_root,
             nearest,
             rows.len()
         );
-        (rows, st.objects.pending_props(from, range))
+        (
+            rows,
+            st.objects.pending_props(from, range),
+            tracked,
+            cached,
+            nearest,
+            roots,
+            unresolved,
+            attachments_tracked,
+            attachments_in_range,
+        )
+    }
+
+    pub fn objects_missing_from_cache(&self, limit: usize) -> Vec<u32> {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|st| st.objects.ids_missing_rows(limit))
+            .unwrap_or_default()
+    }
+
+    pub fn objects_missing_from_cache_all(&self) -> Vec<u32> {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|st| st.objects.ids_missing_rows_all())
+            .unwrap_or_default()
+    }
+
+    pub fn all_cached_object_ids(&self) -> Vec<u32> {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|st| st.objects.all_cached_ids())
+            .unwrap_or_default()
+    }
+
+    pub fn clear_object_rows_keep_cache(&self) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.objects.clear_rows_keep_cache();
+        }
     }
 
     pub fn allow_props_retry(&self) {
@@ -264,22 +349,36 @@ impl Session {
         }
     }
 
-    pub fn next_props_batch(&self, range: f32, limit: usize) -> Vec<u32> {
+    pub fn bump_props_drain(&self) -> u64 {
+        self.props_drain_gen.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    pub fn props_drain_stale(&self, drain_gen: u64) -> bool {
+        self.props_drain_gen.load(Ordering::SeqCst) != drain_gen
+    }
+
+    pub fn next_props_batch(&self, range: f32, limit: usize, timeout_ms: u64) -> Vec<u32> {
         match self.engine.lock().unwrap().as_mut() {
             Some(st) => {
                 let from = agent_eye(st);
-                st.objects.take_needing_props(from, range, limit)
+                let now = if st.now_ms > 0 { st.now_ms } else { wall_ms() };
+                st.objects
+                    .take_needing_props(from, range, limit, now, timeout_ms)
             }
             None => Vec::new(),
         }
     }
 
-    pub fn start_props_drain(&self) -> bool {
-        !self.props_draining.swap(true, Ordering::SeqCst)
-    }
-
-    pub fn end_props_drain(&self) {
-        self.props_draining.store(false, Ordering::SeqCst);
+    pub fn next_props_family_batch(&self, range: f32, limit: usize, timeout_ms: u64) -> Vec<String> {
+        match self.engine.lock().unwrap().as_mut() {
+            Some(st) => {
+                let from = agent_eye(st);
+                let now = if st.now_ms > 0 { st.now_ms } else { wall_ms() };
+                st.objects
+                    .take_needing_props_family(from, range, limit, now, timeout_ms)
+            }
+            None => Vec::new(),
+        }
     }
 
     pub fn object_full_id(&self, local_id: u32) -> Option<String> {
@@ -288,8 +387,8 @@ impl Session {
         st.objects
             .nearby([0.0, 0.0, 0.0], f32::MAX)
             .into_iter()
-            .find(|r| r.local_id == local_id)
-            .map(|r| crate::bridge::objects::id_string(&r.full_id))
+            .find(|(r, _)| r.local_id == local_id)
+            .map(|(r, _)| crate::bridge::objects::id_string(&r.full_id))
     }
 
     /// Swap in a fresh capability map for the engine, e.g. after a region change.
@@ -319,9 +418,8 @@ impl Session {
     }
 
     /// Recover a 404'd EventQueue by re-fetching the current region's caps and
-    /// restarting the poll. A 404 is usually harmless (the region changed and the
-    /// sim canceled the old cap - the reference viewer simply stops that poll), so
-    /// keep this a bounded, gentle self-heal for a genuine main-region cap expiry:
+    /// restarting the poll. A 404 is usually harmless (region changed, old cap
+    /// canceled), so keep this bounded:
     /// at most EQ_MAX_RECOVER attempts (any healthy poll resets the count), one cap
     /// refetch apiece, and never a tight retry loop hammering Linden's servers.
     /// Returns true once a fresh poll is running (the caller then ends this task).
@@ -536,10 +634,7 @@ impl Session {
                     self.retarget(addr);
                 }
                 // Once we switch sims, anything tied to the old sim's sequence space
-                // is meaningless. The reference viewer gets this for free (a new region is a new
-                // per-host circuit); we reuse one Session, so we clear it by hand -
-                // otherwise a new-region reliable packet whose seq collides with a
-                // stale entry would be dropped as a false duplicate, or acked stale.
+                // is meaningless. Clear it so seq collisions cannot drop real packets.
                 self.awaiting.lock().unwrap().clear();
                 self.recent_reliable.lock().unwrap().clear();
                 self.pending_acks.lock().unwrap().clear();
@@ -660,7 +755,15 @@ impl Session {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Wall-clock ms for object-property timeouts outside the packet router.
+fn wall_ms() -> u64 {
+    now_ms()
 }
 
 /// Monotonic milliseconds since process start. Circuit liveness, resend, and
@@ -830,7 +933,7 @@ pub async fn open(
         last_inbound: AtomicU64::new(mono_ms()),
         last_seed: Mutex::new(None),
         eq_recover: AtomicU32::new(0),
-        props_draining: AtomicBool::new(false),
+        props_drain_gen: AtomicU64::new(0),
     });
     let session_id = now_id();
 
@@ -880,7 +983,7 @@ fn spawn_agent_update(session: Arc<Session>) -> JoinHandle<()> {
 /// hear nothing for the whole heartbeat window the circuit is dead - report it and
 /// stop. Catches silent network drops and OS suspend that no resend timeout would.
 fn spawn_watchdog(app: AppHandle, session: Arc<Session>) -> JoinHandle<()> {
-    const HEARTBEAT_TIMEOUT_MS: u64 = 100_000; // same value the reference viewer uses
+    const HEARTBEAT_TIMEOUT_MS: u64 = 100_000; // 100s silence => dead circuit
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(15)).await;
@@ -955,9 +1058,17 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
     })
 }
 
-/// Where distances are measured from: the avatar, or the middle of the region until the
-/// sim has told us where we are.
+/// Where distances are measured from: the avatar's object-update position when known,
+/// otherwise the last coarse/teleport position we emitted.
 fn agent_eye(st: &SessionState) -> [f32; 3] {
+    let hint = st
+        .last_pos
+        .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]);
+    if !st.agent_id.is_empty() {
+        if let Some(pos) = st.objects.agent_region_pos(&st.agent_id, hint) {
+            return pos;
+        }
+    }
     st.last_pos
         .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32])
         .unwrap_or([128.0, 128.0, 25.0])

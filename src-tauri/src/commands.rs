@@ -790,8 +790,8 @@ pub async fn sl_pay(state: State<'_, Arc<AppState>>, dest_id: String, amount: i6
     Ok(json!({ "ok": true }))
 }
 
-// Agent control flags (indra_constants.h). STAND_UP and SIT_ON_GROUND are one-shot
-// requests; FLY is a state the viewer keeps re-sending, which is why we track it.
+// Agent control flags. STAND_UP and SIT_ON_GROUND are one-shot; FLY is a state
+// the viewer keeps re-sending, which is why we track it.
 use crate::bridge::session::AGENT_CONTROL_FLY; // 0x1 << 13
 const AGENT_CONTROL_STAND_UP: u64 = 0x1 << 16; // 0x00010000
 const AGENT_CONTROL_SIT_ON_GROUND: u64 = 0x1 << 17; // 0x00020000
@@ -823,8 +823,7 @@ async fn send_one_agent_update(
     s.send_encoded("AgentUpdate", &body, true).await;
 }
 
-/// Stand the avatar up, as LLAgent::standUp does. Harmless when we aren't sitting -
-/// the sim just ignores it.
+/// Stand the avatar up. Harmless when we aren't sitting - the sim ignores it.
 async fn send_stand_up(s: &Arc<crate::bridge::circuit::Session>, agent: &str, sess: &str) {
     send_agent_update(s, agent, sess, AGENT_CONTROL_STAND_UP).await;
     s.set_sitting(false);
@@ -850,8 +849,7 @@ pub async fn sl_stand_up(state: State<'_, Arc<AppState>>) -> Cmd {
     Ok(json!({ "ok": true, "sitting": false, "flying": s.is_flying() }))
 }
 
-/// Sit on the ground (LLAgent::sitDown). Flying and sitting are mutually exclusive,
-/// so this drops us out of flight as the sim does.
+/// Sit on the ground. Flying and sitting are mutually exclusive.
 #[tauri::command]
 pub async fn sl_sit_ground(state: State<'_, Arc<AppState>>) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
@@ -928,17 +926,41 @@ async fn request_objects_again(
     }
 }
 
-/// Ask the sim to describe a batch of objects properly - name, owner, creator, sale and
-/// permissions - by selecting them and letting go again.
+/// After switching to 360 interest, ask the sim again for anything we know about but
+/// do not have rows for yet.
+async fn refresh_object_requests(
+    state: &Arc<AppState>,
+    s: &Arc<crate::bridge::circuit::Session>,
+    agent: &str,
+    sess: &str,
+) -> bool {
+    let interest360 = crate::bridge::caps::interest_list_360(state, s).await;
+    send_agent_update(s, agent, sess, 0).await;
+    for round in 0..3 {
+        let recover = if round == 0 { s.objects_to_recover(400) } else { Vec::new() };
+        let mut refetch = s.objects_missing_from_cache_all();
+        refetch.extend(s.missing_parent_object_ids());
+        refetch.extend(recover);
+        refetch.sort_unstable();
+        refetch.dedup();
+        if refetch.is_empty() {
+            break;
+        }
+        crate::dlog!(
+            "re-requesting {} object(s) from region cache (Load retry round {})",
+            refetch.len(),
+            round + 1
+        );
+        request_objects_again(s, agent, sess, &refetch).await;
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+    }
+    interest360
+}
+
+/// Ask the sim to describe a batch of objects by selecting them briefly.
 ///
-/// This is exactly how the reference's area search fills its columns
-/// (`FSAreaSearch::requestObjectProperties`): ObjectSelect for the batch, then
-/// ObjectDeselect for the same batch. Selecting is what makes the sim send the full
-/// ObjectProperties rather than the cut-down Family reply, and the full one is the only
-/// place a creator appears - which is what the creator filter needs.
-///
-/// The reference packs up to 255 ids per message; we chunk at 64 and the caller limits
-/// how many objects a single press of Load will ask about.
+/// ObjectSelect makes the sim send full ObjectProperties (with creator); we chunk
+/// at 64 ids per message.
 async fn request_object_batch(
     s: &Arc<crate::bridge::circuit::Session>,
     agent: &str,
@@ -963,39 +985,45 @@ async fn request_object_batch(
 pub async fn sl_object_scan(state: State<'_, Arc<AppState>>, enable: bool) -> Cmd {
     let s = state.active().ok_or("No active session")?;
     s.set_object_scan(enable);
+    if enable {
+        let caps_state = state.inner().clone();
+        let session = s.clone();
+        let (_, agent, sess) = active_ids(&state)?;
+        refresh_object_requests(&caps_state, &session, &agent, &sess).await;
+    }
     crate::dlog!("object scan {}", if enable { "on" } else { "off" });
     Ok(json!({ "ok": true, "scanning": enable }))
 }
 
 /// Work through every in-range object that still has no properties, a batch at a time.
 ///
-/// Nothing is left out: the loop ends when each one has been asked about exactly once
-/// (`take_needing_props` marks them as it goes), so a busy region takes longer rather
-/// than getting truncated. It runs in the background because a wide radius means several
-/// seconds of paced requests, and Load shouldn't sit there waiting for them.
+/// Phase 1: ObjectSelect/Deselect batches. Phase 2: RequestObjectPropertiesFamily
+/// for anything still unnamed.
 ///
-/// The pacing is the polite part - `PROPS_GAP_MS` between messages, nearest objects
-/// first, so the rows the user is actually looking at fill in immediately and the rest
-/// trickle in. The reference's area search does the same job from its idle callback, with
-/// a per-region cap per pass and larger packets than these.
+/// Each press of Load bumps `drain_gen`, so a new drain always replaces any stale one.
 fn spawn_props_drain(
     s: Arc<crate::bridge::circuit::Session>,
     agent: String,
     sess: String,
     range: f32,
+    drain_gen: u64,
 ) {
-    /// Ids per ObjectSelect. The reference allows 255; this keeps each packet small.
-    const PROPS_PER_MESSAGE: usize = 64;
-    /// Breathing room between messages.
-    const PROPS_GAP_MS: u64 = 400;
+    /// Up to 200 ids per ObjectSelect message.
+    const PROPS_PER_MESSAGE: usize = 200;
+    /// Breathing room between select batches.
+    const PROPS_GAP_MS: u64 = 250;
+    /// Retry unanswered rows after this long.
+    const PROPS_TIMEOUT_MS: u64 = 30_000;
+    /// One family request per object; keep a short gap.
+    const FAMILY_GAP_MS: u64 = 60;
 
-    if !s.start_props_drain() {
-        return; // one is already running, and it covers the same set
-    }
     tokio::spawn(async move {
         let mut asked = 0usize;
         loop {
-            let ids = s.next_props_batch(range, PROPS_PER_MESSAGE);
+            if s.props_drain_stale(drain_gen) {
+                return;
+            }
+            let ids = s.next_props_batch(range, PROPS_PER_MESSAGE, PROPS_TIMEOUT_MS);
             if ids.is_empty() {
                 break;
             }
@@ -1003,10 +1031,25 @@ fn spawn_props_drain(
             request_object_batch(&s, &agent, &sess, &ids).await;
             tokio::time::sleep(Duration::from_millis(PROPS_GAP_MS)).await;
         }
+        loop {
+            if s.props_drain_stale(drain_gen) {
+                return;
+            }
+            let uuids = s.next_props_family_batch(range, 8, PROPS_TIMEOUT_MS);
+            if uuids.is_empty() {
+                break;
+            }
+            for uuid in uuids {
+                if s.props_drain_stale(drain_gen) {
+                    return;
+                }
+                request_object_props(&s, &agent, &sess, &uuid).await;
+                tokio::time::sleep(Duration::from_millis(FAMILY_GAP_MS)).await;
+            }
+        }
         if asked > 0 {
             crate::dlog!("object properties: asked about {asked} object(s) within {range}m");
         }
-        s.end_props_drain();
     });
 }
 
@@ -1018,27 +1061,48 @@ pub async fn sl_nearby_objects(state: State<'_, Arc<AppState>>, range: Option<f6
     // flag that hadn't been set yet used to mean Load answered with an empty list and no
     // explanation.
     let (s, agent, sess) = active_ids(&state)?;
-    const RECOVER_PER_LOAD: usize = 400;
     // 128m is as far as the interest list reaches (session::INTEREST_FAR), so asking for
     // more than that would promise objects the sim never sends.
-    let range = range.unwrap_or(32.0).clamp(8.0, 128.0) as f32;
-    // A teleport that never arrived leaves us standing in the old region with an empty
-    // table, and a sim describes its contents only once, on arrival. Ask again for what
-    // we dropped on the way out - a couple of packets per press of Load, not one blast.
-    let recover = s.objects_to_recover(RECOVER_PER_LOAD);
-    if !recover.is_empty() {
-        crate::dlog!("re-requesting {} object(s) after a teleport that didn't happen", recover.len());
-        request_objects_again(&s, &agent, &sess, &recover).await;
-    }
+    let range = range.unwrap_or(32.0).clamp(8.0, 384.0) as f32;
+    let interest360 =
+        refresh_object_requests(state.inner(), &s, &agent, &sess).await;
     // Pressing Load is also the retry: anything the sim never answered about becomes
     // askable again.
     s.allow_props_retry();
-    let (rows, pending) = s.nearby_objects(range);
-    crate::dlog!("nearby objects: {} row(s) within {}m, {} awaiting properties", rows.len(), range, pending);
+    let drain_gen = s.bump_props_drain();
+    let (rows, pending, tracked, cached, nearest, roots, unresolved, attachments_tracked, attachments_in_range) =
+        s.nearby_objects(range);
+    crate::dlog!(
+        "nearby objects: {} row(s) within {}m, {} awaiting properties, {} tracked, {} cached ids, {} roots, {} unresolved parents, {} attachment(s) in range ({} tracked), nearest={:.1}m, interest360={}",
+        rows.len(),
+        range,
+        pending,
+        tracked,
+        cached,
+        roots,
+        unresolved,
+        attachments_in_range,
+        attachments_tracked,
+        nearest,
+        interest360
+    );
     if pending > 0 {
-        spawn_props_drain(s.clone(), agent, sess, range);
+        spawn_props_drain(s.clone(), agent, sess, range, drain_gen);
     }
-    Ok(json!({ "ok": true, "scanning": true, "objects": rows, "pending": pending }))
+    Ok(json!({
+        "ok": true,
+        "scanning": true,
+        "objects": rows,
+        "pending": pending,
+        "tracked": tracked,
+        "cached": cached,
+        "nearest": nearest,
+        "roots": roots,
+        "unresolvedParents": unresolved,
+        "attachmentsTracked": attachments_tracked,
+        "attachmentsInRange": attachments_in_range,
+        "interest360": interest360,
+    }))
 }
 
 /// Full details for one object, fetched on demand when the user opens the detail
@@ -1053,13 +1117,8 @@ pub async fn sl_object_details(state: State<'_, Arc<AppState>>, object_id: Strin
     Ok(json!({ "ok": true }))
 }
 
-/// Pay an object (not a resident).
-///
-/// Same MoneyTransferRequest as paying a person, with two differences taken from the
-/// reference (llfloaterpay.cpp + give_money in llviewermessage.cpp): the transaction
-/// type is TRANS_PAY_OBJECT rather than TRANS_GIFT, and the description carries the
-/// object's name. DestID is the object's id; SourceID is us; Flags is 0 because
-/// neither side is a group, and both aggregate-permission bytes are AP_EMPTY.
+/// Pay an object (not a resident). TRANS_PAY_OBJECT with the object name in the
+/// description field.
 #[tauri::command]
 pub async fn sl_object_pay(
     state: State<'_, Arc<AppState>>,
@@ -1072,7 +1131,7 @@ pub async fn sl_object_pay(
     if object_id.is_empty() || object_id == ZERO_UUID {
         return Err("No object".into());
     }
-    // The reference refuses a zero amount outright and pays the absolute value.
+    // Zero amount is rejected; pay the absolute value.
     let amount = amount.abs();
     if amount < 1 {
         return Err("amount must be >= 1".into());
@@ -1146,10 +1205,7 @@ pub async fn sl_object_select(state: State<'_, Arc<AppState>>, local_id: u32) ->
 #[tauri::command]
 pub async fn sl_object_touch(state: State<'_, Arc<AppState>>, local_id: u32) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
-    // The reference always sends one SurfaceInfo block, filled from the mouse pick
-    // (lltoolgrab.cpp). Area search touches with a default-constructed LLPickInfo, whose
-    // UV and ST coordinates are -1 and whose face index is -1, so that's what a touch
-    // with no click point looks like on the wire. We were sending no block at all.
+    // Send one SurfaceInfo block with default "no pick point" values (-1 UV/ST, face -1).
     let surface = json!([{
         "UVCoord": [-1.0, -1.0, 0.0],
         "STCoord": [-1.0, -1.0, 0.0],
@@ -1307,9 +1363,7 @@ pub async fn sl_request_mute_list(state: State<'_, Arc<AppState>>) -> Cmd {
 /// Block a resident, grid-wide. The sim owns the list, so this is a write to it rather
 /// than something we keep to ourselves.
 ///
-/// MuteType 1 is LLMute::AGENT, and flags 0 means "everything" - the reference treats an
-/// all-zero flag set as a total block (llmutelist.h), which is what a person expects from
-/// a Block button.
+/// MuteType 1 is agent; flags 0 blocks everything.
 #[tauri::command]
 pub async fn sl_block_agent(
     state: State<'_, Arc<AppState>>,
@@ -1367,10 +1421,7 @@ pub async fn sl_unblock_agent(
 
 /// Ask the sim for group names by key.
 ///
-/// Group membership only describes our own groups, so anything else - an object's group,
-/// a group-owned parcel - needs asking about. The reference does the same through
-/// gCacheName; the reply arrives as `UUIDGroupNameReply` and reaches the UI as
-/// `group-names`.
+/// Group membership only covers our own groups; other keys need a UUIDGroupNameRequest.
 #[tauri::command]
 pub async fn sl_resolve_group_names(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Cmd {
     let s = state.active().ok_or("No active session")?;
@@ -1856,6 +1907,13 @@ pub async fn sl_start_session(app: AppHandle, state: State<'_, Arc<AppState>>, p
     // failed and the login only *looks* clean - exactly the silent cascade this
     // banner exists to surface.
     crate::bridge::caps::emit_caps_status(&app, Some(&caps_map), "connect");
+
+    // Request 360-degree interest at connect; we have no camera frustum to aim.
+    let boot_state = state.inner().clone();
+    let boot_session = session.clone();
+    tokio::spawn(async move {
+        crate::bridge::caps::interest_list_360(&boot_state, &boot_session).await;
+    });
 
     Ok(json!({ "sessionId": id, "localPort": local_port, "sim": format!("{}:{}", sim_ip, sim_port) }))
 }

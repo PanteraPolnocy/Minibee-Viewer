@@ -1,24 +1,17 @@
 //! A light object table for the "Objects nearby" list.
 //!
-//! The viewer has no 3D world, but it still has to follow object updates the way a
-//! full viewer does: the sim describes a region's contents when you ARRIVE, so a list
-//! built on demand would find nothing. Tracking therefore runs from login onward and
-//! the table is dropped when you teleport to another region.
+//! The sim streams region contents on arrival, so tracking starts at login and the
+//! table is cleared on teleport. One region only (EnableSimulator is ignored).
 //!
-//! Only ever one region's worth of objects lives here. A full viewer keeps its
-//! neighbours connected and holds their objects too, dropping them per-region when a
-//! sim disconnects; we deliberately ignore EnableSimulator, so there is only one
-//! circuit and only one region to track.
-//!
-//! We keep only what the list and detail views need: id, position, owner, parent and
-//! a few flags. No textures, no mesh, no inventory.
+//! Stores id, position, owner, parent, and flags - not mesh, textures, or inventory.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{json, Value};
 
-/// PCode for a primitive; avatars (47) and the rest are not "objects nearby".
-const PCODE_PRIM: u8 = 9;
+/// PCode for a primitive; avatars (47) are tracked for parenting but not listed.
+pub const PCODE_PRIM: u8 = 9;
+pub const PCODE_AVATAR: u8 = 47;
 
 /// Don't let a busy region grow the table without bound.
 ///
@@ -36,7 +29,7 @@ const MAX_OBJECTS: usize = 100000;
 /// the compressed update hands us the bytes anyway, so no conversion is needed on the
 /// way in. The description isn't stored at all: only the detail view wants it, and
 /// that reads it straight from the sim's reply.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ObjectRow {
     pub local_id: u32,
     pub full_id: [u8; 16],
@@ -45,6 +38,8 @@ pub struct ObjectRow {
     /// until the properties round-trip finishes.
     pub creator_id: [u8; 16],
     pub parent_id: u32,
+    /// PCode from the sim. Only primitives (9) appear in the nearby list.
+    pub pcode: u8,
     /// Region-local position, metres.
     pub pos: [f32; 3],
     /// Filled in later, from the properties reply. Boxed so an unnamed object costs a
@@ -52,42 +47,68 @@ pub struct ObjectRow {
     pub name: Option<Box<str>>,
     pub sale_price: i32,
     pub sale_type: u8,
-    /// The sim's UpdateFlags word (object_flags.h). This is what says whether an object
-    /// answers a touch or takes money, so it decides which row actions make sense.
+    /// The sim's UpdateFlags word. Decides which row actions make sense.
     pub flags: u32,
     /// llSetClickAction, from the update itself. CLICK_ACTION_SIT and friends.
     pub click_action: u8,
+    /// ObjectUpdate State byte. Non-zero means worn attachment.
+    pub attachment_state: u8,
     /// True once properties have arrived, so we ask only once per object.
     pub have_props: bool,
-    /// True once a request has gone out. Without this the drain would re-ask for the
-    /// same objects on its next pass, because a reply takes longer to come back than
-    /// the next batch takes to leave. The reference marks its rows SENT for exactly the
-    /// same reason (FSObjectProperties::SENT).
+    /// True once a request has gone out. Stops the drain re-asking the same ids
+    /// before replies land.
     pub asked_props: bool,
+    /// When `asked_props` was set, so unanswered rows can be retried (30s).
+    pub props_asked_ms: u64,
 }
 
-/// Sim-to-viewer object flags we act on (object_flags.h).
+impl Default for ObjectRow {
+    fn default() -> Self {
+        Self {
+            local_id: 0,
+            full_id: [0u8; 16],
+            owner_id: [0u8; 16],
+            creator_id: [0u8; 16],
+            parent_id: 0,
+            pcode: PCODE_PRIM,
+            pos: [0.0; 3],
+            name: None,
+            sale_price: 0,
+            sale_type: 0,
+            flags: 0,
+            click_action: 0,
+            attachment_state: 0,
+            have_props: false,
+            asked_props: false,
+            props_asked_ms: 0,
+        }
+    }
+}
+
+/// Sim-to-viewer object flags we act on.
+pub const FLAGS_USE_PHYSICS: u32 = 1 << 0;
 pub const FLAGS_SCRIPTED: u32 = 1 << 6;
 pub const FLAGS_HANDLE_TOUCH: u32 = 1 << 7;
 pub const FLAGS_TAKES_MONEY: u32 = 1 << 9;
+pub const FLAGS_TEMPORARY_ON_REZ: u32 = 1 << 29;
 
-/// Click actions we care about (indra_constants.h).
+/// Click actions we care about.
 pub const CLICK_ACTION_SIT: u8 = 1;
 pub const CLICK_ACTION_BUY: u8 = 2;
 pub const CLICK_ACTION_PAY: u8 = 3;
 
 impl ObjectRow {
-    /// Would a touch reach a script? `enable_object_touch` in the reference checks
-    /// `flagHandleTouch()` on the object or its parent; we only list root prims, so
-    /// there's no parent to consult. A click action of "touch" doesn't imply a handler,
-    /// but PAY and BUY both mean somebody scripted an interaction.
+    pub fn is_listable(&self) -> bool {
+        self.pcode == PCODE_PRIM
+    }
+
+    /// Would a touch reach a script? We only list root prims, so there is no parent
+    /// to consult. PAY and BUY imply a scripted handler.
     pub fn can_touch(&self) -> bool {
         self.flags & FLAGS_HANDLE_TOUCH != 0
     }
 
-    /// `enable_pay_object` in llviewermenu.cpp: flagTakesMoney on the object or its
-    /// parent, nothing else. A pay click action counts too - it's set by the same script
-    /// that would take the money.
+    /// True when FLAGS_TAKES_MONEY is set or the click action is PAY.
     pub fn can_pay(&self) -> bool {
         self.flags & FLAGS_TAKES_MONEY != 0 || self.click_action == CLICK_ACTION_PAY
     }
@@ -136,11 +157,8 @@ fn u32_at(b: &[u8], off: usize) -> Option<u32> {
 
 /// Position out of a full ObjectUpdate's packed ObjectData blob.
 ///
-/// The layout depends on the length (llviewerobject.cpp): 60 bytes is full
-/// precision - position, velocity, acceleration, rotation and angular velocity as
-/// three floats each - and position is simply the first vector. The quantised 32
-/// and 16 byte forms are for moving objects mid-flight; we skip those rather than
-/// guess, since a fresh full update always follows.
+/// 60-byte blobs carry full precision; position is the first vector. Shorter
+/// quantised forms are skipped - a full update follows.
 pub fn position_from_object_data(data: &[u8]) -> Option<[f32; 3]> {
     if data.len() >= 60 {
         vec3_at(data, 0)
@@ -149,53 +167,113 @@ pub fn position_from_object_data(data: &[u8]) -> Option<[f32; 3]> {
     }
 }
 
-/// Decode one ObjectUpdateCompressed data blob.
-///
-/// Field order is taken straight from the reference: the list code reads
-/// FullID, LocalID and PCode (llviewerobjectlist.cpp), then
-/// LLViewerObject::processUpdateMessage reads State, CRC, Material, ClickAction,
-/// Scale, Pos, Rot, a flags word and the owner id. The flags then say whether
-/// angular velocity and a parent id follow, which is why they're read in order.
-pub fn decode_compressed(data: &[u8]) -> Option<ObjectRow> {
+/// Decode one ObjectUpdateCompressed data blob (compressed, non-terse layout).
+pub fn decode_compressed(data: &[u8]) -> Option<(ObjectRow, bool)> {
+    if data.len() < 84 {
+        return None;
+    }
     let mut full_id = [0u8; 16];
     full_id.copy_from_slice(data.get(0..16)?);
     let local_id = u32_at(data, 16)?;
     let pcode = *data.get(20)?;
-    if pcode != PCODE_PRIM {
-        return None; // avatars and friends aren't objects for this list
+    if pcode != PCODE_PRIM && pcode != PCODE_AVATAR {
+        return None;
     }
-    // State(1) CRC(4) Material(1) then ClickAction(1), then Scale(12), Pos(12),
-    // Rot(12), SpecialCode(4), Owner(16).
-    let click_action = *data.get(21 + 6)?;
-    let mut off = 21 + 7 + 12;
-    let pos = vec3_at(data, off)?;
-    off += 12 + 12; // past Pos and Rot
-    let special = u32_at(data, off)?;
-    off += 4;
+    // State@21 CRC@22 Material@26 ClickAction@27 Scale@28 Pos@40 Rot@52 Special@64 Owner@68
+    let attachment_state = *data.get(21)?;
+    let click_action = *data.get(27)?;
+    let pos = vec3_at(data, 40)?;
+    let special = u32_at(data, 64)?;
     let mut owner_id = [0u8; 16];
-    owner_id.copy_from_slice(data.get(off..off + 16)?);
-    off += 16;
+    owner_id.copy_from_slice(data.get(68..84)?);
+    let mut off = 84usize;
     if special & 0x80 != 0 {
-        off += 12; // angular velocity
+        if data.len() < off + 12 {
+            return None;
+        }
+        off += 12; // Omega
     }
-    let parent_id = if special & 0x20 != 0 {
+    let has_parent = special & 0x20 != 0 && data.len() >= off + 4;
+    let parent_id = if has_parent {
         u32_at(data, off).unwrap_or(0)
     } else {
         0
     };
-    Some(ObjectRow {
-        local_id,
-        full_id,
-        owner_id,
-        parent_id,
-        pos,
-        click_action,
-        ..Default::default()
-    })
+    Some((
+        ObjectRow {
+            local_id,
+            full_id,
+            owner_id,
+            parent_id,
+            pcode,
+            pos,
+            click_action,
+            attachment_state,
+            ..Default::default()
+        },
+        has_parent,
+    ))
+}
+
+/// Decode ImprovedTerseObjectUpdate `Data`: LocalID, State, agent flag, optional
+/// collision plane, then a full-precision parent-relative position.
+pub fn decode_terse_improved(data: &[u8]) -> Option<(u32, [f32; 3])> {
+    if data.len() < 18 {
+        return None;
+    }
+    let local_id = u32_at(data, 0)?;
+    let agent = *data.get(5)?;
+    let pos_off = if agent != 0 {
+        if data.len() < 34 {
+            return None;
+        }
+        22
+    } else {
+        6
+    };
+    let pos = vec3_at(data, pos_off)?;
+    if !pos[0].is_finite() || !pos[1].is_finite() || !pos[2].is_finite() {
+        return None;
+    }
+    Some((local_id, pos))
+}
+
+const REGION_SIZE: f32 = 256.0;
+const REGION_MIN_HEIGHT: f32 = 0.0;
+const REGION_MAX_HEIGHT: f32 = 4096.0;
+/// Horizontal reach for skybox ground-anchor and storey alignment heuristics.
+const SKYBOX_HORIZ_M: f32 = 144.0;
+
+fn u16_to_f32(v: u16, min: f32, max: f32) -> f32 {
+    min + (max - min) * (f32::from(v) / 65535.0)
+}
+
+/// 16-bit quantised position from a 32-byte ObjectUpdate ObjectData blob.
+pub fn position_from_terse_object_data(data: &[u8]) -> Option<[f32; 3]> {
+    if data.len() < 6 {
+        return None;
+    }
+    Some([
+        u16_to_f32(
+            u16::from_le_bytes([data[0], data[1]]),
+            -0.5 * REGION_SIZE,
+            1.5 * REGION_SIZE,
+        ),
+        u16_to_f32(
+            u16::from_le_bytes([data[2], data[3]]),
+            -0.5 * REGION_SIZE,
+            1.5 * REGION_SIZE,
+        ),
+        u16_to_f32(
+            u16::from_le_bytes([data[4], data[5]]),
+            REGION_MIN_HEIGHT,
+            REGION_MAX_HEIGHT,
+        ),
+    ])
 }
 
 /// The table itself, plus the bookkeeping the list command needs.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct ObjectTable {
     rows: HashMap<u32, ObjectRow>,
     /// LocalIDs of rows thrown away on the way out of a region - see
@@ -203,6 +281,25 @@ pub struct ObjectTable {
     dropped: Vec<u32>,
     /// Which region those ids belong to. LocalIDs mean nothing outside it.
     dropped_region: (i64, i64),
+    /// Every local id the sim listed in ObjectUpdateCached for this region.
+    /// The sim only broadcasts that list once on arrival; Load re-asks for any
+    /// we still do not have rows for.
+    cached_ids: HashSet<u32>,
+    /// Coarse avatar positions from CoarseLocationUpdate (1 m XY, 4 m Z steps).
+    /// Used when an attachment's wearer never got a full ObjectUpdate row.
+    coarse_agents: HashMap<[u8; 16], [f32; 3]>,
+}
+
+impl Default for ObjectTable {
+    fn default() -> Self {
+        Self {
+            rows: HashMap::new(),
+            dropped: Vec::new(),
+            dropped_region: (0, 0),
+            cached_ids: HashSet::new(),
+            coarse_agents: HashMap::new(),
+        }
+    }
 }
 
 impl ObjectTable {
@@ -211,7 +308,307 @@ impl ObjectTable {
     /// capacity for the rest of the session.
     pub fn clear(&mut self) {
         self.rows = HashMap::new();
+        self.cached_ids.clear();
+        self.coarse_agents.clear();
         self.forget_dropped();
+    }
+
+    /// Drop decoded rows but keep cached local ids, so Load can re-request every
+    /// object and pick up positions decoded with a fixed layout.
+    pub fn clear_rows_keep_cache(&mut self) {
+        self.rows.clear();
+    }
+
+    /// Remember local ids from ObjectUpdateCached even before we have rows.
+    pub fn note_cached_ids(&mut self, ids: impl IntoIterator<Item = u32>) {
+        for id in ids {
+            if id != 0 {
+                self.cached_ids.insert(id);
+            }
+        }
+    }
+
+    pub fn cached_id_count(&self) -> usize {
+        self.cached_ids.len()
+    }
+
+    /// Re-request cached local ids the sim announced but we have no row for.
+    pub fn ids_missing_rows(&self, limit: usize) -> Vec<u32> {
+        self.cached_ids
+            .iter()
+            .filter(|id| !self.rows.contains_key(id))
+            .take(limit)
+            .copied()
+            .collect()
+    }
+
+    pub fn ids_missing_rows_all(&self) -> Vec<u32> {
+        self.cached_ids
+            .iter()
+            .filter(|id| !self.rows.contains_key(id))
+            .copied()
+            .collect()
+    }
+
+    /// Every cached id we know about, for a full refetch after interest-list changes.
+    pub fn all_cached_ids(&self) -> Vec<u32> {
+        self.cached_ids.iter().copied().collect()
+    }
+
+    /// Best region position for distance filtering.
+    pub fn region_pos(&self, local_id: u32) -> Option<[f32; 3]> {
+        self.region_pos_from(local_id, None)
+    }
+
+    /// Like `region_pos`, but applies skybox storey alignment when `from` is the agent eye.
+    pub fn region_pos_from(&self, local_id: u32, from: Option<[f32; 3]>) -> Option<[f32; 3]> {
+        let root_id = self.root_local_id(local_id);
+        let alt_hint = from.map(|eye| eye[2]);
+        let root_pos = self.resolve_root_region_pos(root_id, alt_hint)?;
+        let pos = if local_id == root_id {
+            root_pos
+        } else {
+            self.pos_from_resolved_root(local_id, root_id, root_pos)?
+        };
+        Some(if let Some(eye) = from {
+            Self::align_resolved_to_eye(pos, eye)
+        } else {
+            pos
+        })
+    }
+
+    /// Remember a resident's coarse position from CoarseLocationUpdate (radar).
+    pub fn note_coarse_agent(&mut self, agent_id: &str, pos: [f32; 3]) {
+        let id = id_bytes(agent_id);
+        if is_zero_id(&id) {
+            return;
+        }
+        self.coarse_agents.insert(id, pos);
+        self.update_avatar_coarse_pos(agent_id, pos);
+    }
+
+    /// Best region position for list distance: object resolution, then attachment
+    /// fallbacks via avatar rows or coarse radar.
+    pub fn region_pos_for_list(&self, local_id: u32, from: Option<[f32; 3]>) -> Option<[f32; 3]> {
+        if let Some(pos) = self.region_pos_from(local_id, from) {
+            return Some(pos);
+        }
+        self.attachment_fallback_pos(local_id)
+    }
+
+    fn attachment_fallback_pos(&self, local_id: u32) -> Option<[f32; 3]> {
+        let root = self.root_local_id(local_id);
+        if !self.is_attachment(root) {
+            return None;
+        }
+        self.attachment_region_pos(root)
+    }
+
+    /// Region position for a worn attachment root: avatar anchor, then wearer radar.
+    fn attachment_region_pos(&self, root_id: u32) -> Option<[f32; 3]> {
+        let row = self.rows.get(&root_id)?;
+        let offset = row.pos;
+        if let Some(avatar_id) = self.attachment_anchor_avatar(root_id) {
+            if let Some(anchor) = self.anchor_region_pos(avatar_id) {
+                return Some([
+                    anchor[0] + offset[0],
+                    anchor[1] + offset[1],
+                    anchor[2] + offset[2],
+                ]);
+            }
+            if let Some(avatar) = self.rows.get(&avatar_id) {
+                if let Some(&coarse) = self.coarse_agents.get(&avatar.full_id) {
+                    return Some([
+                        coarse[0] + offset[0],
+                        coarse[1] + offset[1],
+                        coarse[2] + offset[2],
+                    ]);
+                }
+            }
+        }
+        if let Some(wearer) = self.wearer_region_pos(&row.owner_id) {
+            return Some([
+                wearer[0] + offset[0],
+                wearer[1] + offset[1],
+                wearer[2] + offset[2],
+            ]);
+        }
+        None
+    }
+
+    /// Best known region position for a resident (avatar row or coarse radar).
+    fn wearer_region_pos(&self, wearer_id: &[u8; 16]) -> Option<[f32; 3]> {
+        if is_zero_id(wearer_id) {
+            return None;
+        }
+        if let Some(avatar) = self
+            .rows
+            .values()
+            .find(|r| r.pcode == PCODE_AVATAR && r.full_id == *wearer_id)
+        {
+            if let Some(pos) = self.anchor_region_pos(avatar.local_id) {
+                return Some(pos);
+            }
+            return Some(avatar.pos);
+        }
+        self.coarse_agents.get(wearer_id).copied()
+    }
+
+    /// Refresh a standing avatar's coarse position (radar packet), keyed by agent UUID.
+    pub fn update_avatar_coarse_pos(&mut self, agent_id: &str, pos: [f32; 3]) {
+        let want = id_bytes(agent_id);
+        if is_zero_id(&want) {
+            return;
+        }
+        for row in self.rows.values_mut() {
+            if row.pcode == PCODE_AVATAR && row.full_id == want && row.parent_id == 0 {
+                row.pos = pos;
+                return;
+            }
+        }
+    }
+
+    /// Region position for a linkset root (mislinked offsets resolved against ground anchors).
+    fn resolve_root_region_pos(&self, root_id: u32, alt_hint: Option<f32>) -> Option<[f32; 3]> {
+        let actual_root = self.root_local_id(root_id);
+        let row = self.rows.get(&actual_root)?;
+        if self.is_attachment(actual_root) {
+            return self.attachment_region_pos(actual_root);
+        }
+        if row.parent_id != 0 {
+            return None;
+        }
+        if Self::looks_like_linkset_offset(row) {
+            self.resolve_linkset_offset(row, alt_hint)
+        } else {
+            Some(row.pos)
+        }
+    }
+
+    /// Region position for an avatar or seat used as an attachment / sit anchor.
+    fn anchor_region_pos(&self, local_id: u32) -> Option<[f32; 3]> {
+        let row = self.rows.get(&local_id)?;
+        if row.parent_id == 0 {
+            if row.pcode == PCODE_AVATAR {
+                return Some(row.pos);
+            }
+            if Self::looks_like_linkset_offset(row) {
+                return self.resolve_linkset_offset(row, None);
+            }
+            return Some(row.pos);
+        }
+        if row.pcode == PCODE_AVATAR {
+            let parent_pos = self.anchor_region_pos(row.parent_id)?;
+            return Some([
+                parent_pos[0] + row.pos[0],
+                parent_pos[1] + row.pos[1],
+                parent_pos[2] + row.pos[2],
+            ]);
+        }
+        let parent_pos = self.anchor_region_pos(row.parent_id)?;
+        Some([
+            parent_pos[0] + row.pos[0],
+            parent_pos[1] + row.pos[1],
+            parent_pos[2] + row.pos[2],
+        ])
+    }
+
+    /// Walk parent-relative offsets from an already-resolved root position.
+    fn pos_from_resolved_root(
+        &self,
+        local_id: u32,
+        root_id: u32,
+        root_pos: [f32; 3],
+    ) -> Option<[f32; 3]> {
+        if local_id == root_id {
+            return Some(root_pos);
+        }
+        let row = self.rows.get(&local_id)?;
+        if row.parent_id == 0 {
+            return None;
+        }
+        let parent_pos = self.pos_from_resolved_root(row.parent_id, root_id, root_pos)?;
+        Some([
+            parent_pos[0] + row.pos[0],
+            parent_pos[1] + row.pos[1],
+            parent_pos[2] + row.pos[2],
+        ])
+    }
+
+    fn looks_like_linkset_offset(row: &ObjectRow) -> bool {
+        row.parent_id == 0
+            && row.pos[2] > 64.0
+            && row.pos[0].abs() < 128.0
+            && row.pos[1].abs() < 128.0
+    }
+
+    /// Skybox linksets often stack ~983m per storey; a broken chain can land one
+    /// storey above the avatar even when XY already matches.
+    fn align_resolved_to_eye(resolved: [f32; 3], eye: [f32; 3]) -> [f32; 3] {
+        if eye[2] <= 256.0 {
+            return resolved;
+        }
+        if Self::horiz_dist(eye, resolved) > SKYBOX_HORIZ_M {
+            return resolved;
+        }
+        if (resolved[2] - eye[2]).abs() <= 96.0 {
+            return resolved;
+        }
+        const STOREY: f32 = 983.0;
+        for n in 1..=4u32 {
+            let down = resolved[2] - STOREY * n as f32;
+            if (down - eye[2]).abs() < 96.0 {
+                return [resolved[0], resolved[1], down];
+            }
+            let up = resolved[2] + STOREY * n as f32;
+            if (up - eye[2]).abs() < 96.0 {
+                return [resolved[0], resolved[1], up];
+            }
+        }
+        resolved
+    }
+
+    /// Ground-level anchors used to resolve mislinked skybox offsets (parent_id 0).
+    fn ground_roots(&self) -> impl Iterator<Item = &ObjectRow> {
+        self.rows.values().filter(|r| {
+            r.is_listable() && r.parent_id == 0 && r.pos[2] < 512.0
+        })
+    }
+
+    /// Pick the skybox storey whose resolved Z best matches the agent altitude hint.
+    fn resolve_linkset_offset(&self, row: &ObjectRow, alt_hint: Option<f32>) -> Option<[f32; 3]> {
+        let mut best: Option<[f32; 3]> = None;
+        let mut best_score = f32::MAX;
+        for anchor in self.ground_roots() {
+            let resolved = [
+                anchor.pos[0] + row.pos[0],
+                anchor.pos[1] + row.pos[1],
+                anchor.pos[2] + row.pos[2],
+            ];
+            let score = if let Some(alt) = alt_hint {
+                (resolved[2] - alt).abs()
+            } else {
+                0.0
+            };
+            if score < best_score {
+                best_score = score;
+                best = Some(resolved);
+            }
+        }
+        best
+    }
+
+    fn horiz_dist(a: [f32; 3], b: [f32; 3]) -> f32 {
+        let dx = a[0] - b[0];
+        let dy = a[1] - b[1];
+        (dx * dx + dy * dy).sqrt()
+    }
+
+    /// True 3D distance from `from` to a prim's resolved region position.
+    pub fn list_distance(&self, local_id: u32, from: [f32; 3]) -> f32 {
+        self.region_pos_from(local_id, Some(from))
+            .map(|pos| distance(from, pos))
+            .unwrap_or(f32::MAX)
     }
 
     /// Drop the rows on the way out of a region, but keep their LocalIDs.
@@ -255,8 +652,43 @@ impl ObjectTable {
         self.rows.is_empty()
     }
 
+    /// Merge fields from a partial ObjectUpdate that carried no decodable position.
+    pub fn merge_partial(
+        &mut self,
+        local_id: u32,
+        parent_id: u32,
+        flags: u32,
+        click_action: u8,
+        attachment_state: u8,
+    ) {
+        if let Some(existing) = self.rows.get_mut(&local_id) {
+            // Partial updates may send ParentID 0 when the field is absent; avatars
+            // must still accept an explicit stand-up (ParentID 0).
+            if parent_id != 0 || existing.parent_id == 0 || existing.pcode == PCODE_AVATAR {
+                existing.parent_id = parent_id;
+            }
+            if flags != 0 {
+                existing.flags = flags;
+            }
+            existing.click_action = click_action;
+            if attachment_state != 0 {
+                existing.attachment_state = attachment_state;
+            }
+        }
+    }
+
     /// Merge a decoded update, keeping any properties we've already fetched.
     pub fn upsert(&mut self, row: ObjectRow) {
+        self.upsert_inner(row, true);
+    }
+
+    /// Merge a compressed ObjectUpdate blob. ParentID is optional in the blob; when it is
+    /// absent we must not wipe a link we already learned from a fuller update.
+    pub fn upsert_compressed(&mut self, row: ObjectRow, has_parent_field: bool) {
+        self.upsert_inner(row, has_parent_field);
+    }
+
+    fn upsert_inner(&mut self, row: ObjectRow, has_parent_field: bool) {
         if self.rows.len() >= MAX_OBJECTS && !self.rows.contains_key(&row.local_id) {
             // Say so rather than quietly under-report the region. Once is enough - this
             // would otherwise fire for every further update in a full region.
@@ -267,10 +699,21 @@ impl ObjectTable {
         }
         match self.rows.get_mut(&row.local_id) {
             Some(existing) => {
+                self.cached_ids.insert(row.local_id);
                 existing.full_id = row.full_id;
-                existing.parent_id = row.parent_id;
+                if has_parent_field {
+                    existing.parent_id = row.parent_id;
+                } else if row.parent_id != 0 {
+                    existing.parent_id = row.parent_id;
+                } else if existing.pcode == PCODE_AVATAR {
+                    // Uncompressed stand-up sends ParentID 0 explicitly; movement-only
+                    // compressed updates omit the field and must not undo that.
+                }
                 existing.pos = row.pos;
                 existing.click_action = row.click_action;
+                if row.attachment_state != 0 {
+                    existing.attachment_state = row.attachment_state;
+                }
                 // A cached-id update carries flags but no blob, so don't let a zero from
                 // one message wipe what a fuller one told us.
                 if row.flags != 0 {
@@ -281,6 +724,7 @@ impl ObjectTable {
                 }
             }
             None => {
+                self.cached_ids.insert(row.local_id);
                 self.rows.insert(row.local_id, row);
             }
         }
@@ -292,10 +736,42 @@ impl ObjectTable {
         self.rows.contains_key(&local_id)
     }
 
+    /// Apply a movement update (parent-relative or region-local, same as the sim).
+    pub fn update_movement(&mut self, local_id: u32, pos: [f32; 3]) {
+        if let Some(row) = self.rows.get_mut(&local_id) {
+            row.pos = pos;
+        }
+    }
+
+    /// Rows with a parent id the table does not have yet (linksets need the root first).
+    pub fn unresolved_parent_count(&self) -> usize {
+        self.rows
+            .values()
+            .filter(|r| r.parent_id != 0 && !self.rows.contains_key(&r.parent_id))
+            .count()
+    }
+
+    /// Parent local ids referenced by children but not present in the table yet.
+    pub fn missing_parent_ids(&self) -> Vec<u32> {
+        let mut out: Vec<u32> = self
+            .rows
+            .values()
+            .filter(|r| r.parent_id != 0 && !self.rows.contains_key(&r.parent_id))
+            .map(|r| r.parent_id)
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Where an object is, by LocalID. Needed to turn a seated avatar's parent-relative
     /// position into a region one.
     pub fn position_of(&self, local_id: u32) -> Option<[f32; 3]> {
         self.rows.get(&local_id).map(|r| r.pos)
+    }
+
+    pub fn parent_id_of(&self, local_id: u32) -> Option<u32> {
+        self.rows.get(&local_id).map(|r| r.parent_id)
     }
 
     pub fn remove(&mut self, local_id: u32) {
@@ -334,20 +810,187 @@ impl ObjectTable {
         }
     }
 
-    /// Root objects within `range` metres of `from`, nearest first.
+    /// Region position of the agent's own avatar row, if we have one.
     ///
-    /// Child prims are left out: a linkset should appear once, under its root, which
-    /// is also what keeps the list readable.
-    pub fn nearby(&self, from: [f32; 3], range: f32) -> Vec<&ObjectRow> {
-        let mut out: Vec<&ObjectRow> = self
+    /// Avatars skip skybox storey heuristics - the sim's object update is authoritative.
+    pub fn agent_region_pos(&self, agent_id: &str, eye_hint: Option<[f32; 3]>) -> Option<[f32; 3]> {
+        let id = self.agent_local_id(agent_id)?;
+        let row = self.rows.get(&id)?;
+        if row.parent_id == 0 {
+            return Some(row.pos);
+        }
+        let parent_pos = self.region_pos_from(row.parent_id, eye_hint)?;
+        Some([
+            parent_pos[0] + row.pos[0],
+            parent_pos[1] + row.pos[1],
+            parent_pos[2] + row.pos[2],
+        ])
+    }
+
+    /// True when a prim is parented directly to an avatar (wearable attachment).
+    fn is_parented_to_avatar(&self, local_id: u32) -> bool {
+        let Some(row) = self.rows.get(&local_id) else {
+            return false;
+        };
+        if row.parent_id == 0 {
+            return false;
+        }
+        self.rows
+            .get(&row.parent_id)
+            .is_some_and(|p| p.pcode == PCODE_AVATAR)
+    }
+
+    /// Avatar local id an attachment hangs from: parent link, or owner UUID match.
+    pub fn attachment_anchor_avatar(&self, local_id: u32) -> Option<u32> {
+        let root = self.root_local_id(local_id);
+        let row = self.rows.get(&root)?;
+        if row.attachment_state == 0 && !self.is_parented_to_avatar(root) {
+            return None;
+        }
+        if row.parent_id != 0 {
+            if let Some(parent) = self.rows.get(&row.parent_id) {
+                if parent.pcode == PCODE_AVATAR {
+                    return Some(row.parent_id);
+                }
+            }
+        }
+        if !is_zero_id(&row.owner_id) {
+            return self
+                .rows
+                .values()
+                .find(|r| r.pcode == PCODE_AVATAR && r.full_id == row.owner_id)
+                .map(|r| r.local_id);
+        }
+        None
+    }
+
+    /// True when a prim is a worn attachment (State byte or parented to an avatar).
+    pub fn is_attachment(&self, local_id: u32) -> bool {
+        let Some(row) = self.rows.get(&local_id) else {
+            return false;
+        };
+        if row.attachment_state != 0 {
+            return true;
+        }
+        self.is_parented_to_avatar(local_id)
+    }
+
+    /// Primitives that belong in the nearby interact list (not avatars).
+    fn is_nearby_listable(&self, local_id: u32) -> bool {
+        self.rows
+            .get(&local_id)
+            .is_some_and(|r| r.is_listable())
+    }
+
+    /// True when a prim belongs to a worn attachment linkset (root parent is an avatar).
+    pub fn is_in_attachment(&self, local_id: u32) -> bool {
+        self.is_attachment(self.root_local_id(local_id))
+    }
+
+    pub fn agent_local_id(&self, agent_id: &str) -> Option<u32> {
+        let want = id_bytes(agent_id);
+        if is_zero_id(&want) {
+            return None;
+        }
+        self.rows
+            .values()
+            .find(|r| r.pcode == PCODE_AVATAR && r.full_id == want)
+            .map(|r| r.local_id)
+    }
+
+    /// Walk the parent chain to the linkset root local id.
+    ///
+    /// Stops at avatars so attachments and sit targets are not folded into furniture linksets.
+    pub fn root_local_id(&self, local_id: u32) -> u32 {
+        let mut id = local_id;
+        for _ in 0..33 {
+            let Some(row) = self.rows.get(&id) else {
+                return local_id;
+            };
+            if row.parent_id == 0 {
+                return id;
+            }
+            let Some(parent) = self.rows.get(&row.parent_id) else {
+                return id;
+            };
+            if parent.pcode == PCODE_AVATAR {
+                return id;
+            }
+            id = row.parent_id;
+        }
+        local_id
+    }
+
+    /// In-range prims plus any linkset ancestors needed to group children under roots.
+    pub fn nearby_for_list(&self, from: [f32; 3], range: f32) -> Vec<(&ObjectRow, [f32; 3])> {
+        let in_range = self.nearby(from, range);
+        let mut out: Vec<(&ObjectRow, [f32; 3])> = Vec::new();
+        let mut seen: HashSet<u32> = HashSet::new();
+        let mut add = |local_id: u32| {
+            if seen.contains(&local_id) {
+                return;
+            }
+            let Some(row) = self.rows.get(&local_id) else {
+                return;
+            };
+            if !self.is_nearby_listable(local_id) {
+                return;
+            }
+            let Some(pos) = self.region_pos_for_list(local_id, Some(from)) else {
+                return;
+            };
+            seen.insert(local_id);
+            out.push((row, pos));
+        };
+        for (row, _) in &in_range {
+            add(row.local_id);
+            let mut pid = row.parent_id;
+            while pid != 0 {
+                let Some(parent) = self.rows.get(&pid) else {
+                    break;
+                };
+                if parent.pcode == PCODE_AVATAR {
+                    break;
+                }
+                add(pid);
+                pid = parent.parent_id;
+            }
+        }
+        // Second pass: worn attachment roots whose parent link was lost on a
+        // movement-only compressed update.
+        for row in self.rows.values() {
+            let root = self.root_local_id(row.local_id);
+            if root != row.local_id || !self.is_attachment(root) {
+                continue;
+            }
+            add(root);
+        }
+        out.sort_by(|a, b| {
+            distance(from, a.1)
+                .partial_cmp(&distance(from, b.1))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        out
+    }
+
+    /// Objects within `range` metres of `from`, nearest first.
+    ///
+    /// Child prims are included with their region position (root position plus
+    /// parent-relative offsets), so a linkset skybox still lists its parts.
+    pub fn nearby(&self, from: [f32; 3], range: f32) -> Vec<(&ObjectRow, [f32; 3])> {
+        let mut out: Vec<(&ObjectRow, [f32; 3])> = self
             .rows
             .values()
-            .filter(|r| r.parent_id == 0)
-            .filter(|r| distance(from, r.pos) <= range)
+            .filter(|r| self.is_nearby_listable(r.local_id))
+            .filter_map(|r| {
+                self.region_pos_for_list(r.local_id, Some(from))
+                    .map(|pos| (r, pos))
+            })
+            .filter(|(_, pos)| distance(from, *pos) <= range)
             .collect();
         out.sort_by(|a, b| {
-            distance(from, a.pos)
-                .partial_cmp(&distance(from, b.pos))
+            distance(from, a.1)
+                .partial_cmp(&distance(from, b.1))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         out
@@ -356,19 +999,63 @@ impl ObjectTable {
     /// Objects in range we haven't asked about yet, nearest first, up to `limit`.
     ///
     /// Marks each one as asked, so successive calls walk through the whole set instead
-    /// of handing back the same batch until the replies land. That's what makes the
-    /// drain terminate and what stops us asking twice.
-    pub fn take_needing_props(&mut self, from: [f32; 3], range: f32, limit: usize) -> Vec<u32> {
+    /// of handing back the same batch until the replies land. Rows that were asked but
+    /// never answered become eligible again once `timeout_ms` has passed.
+    pub fn take_needing_props(
+        &mut self,
+        from: [f32; 3],
+        range: f32,
+        limit: usize,
+        now_ms: u64,
+        timeout_ms: u64,
+    ) -> Vec<u32> {
+        let stale = |r: &ObjectRow| {
+            !r.have_props
+                && (!r.asked_props
+                    || now_ms.saturating_sub(r.props_asked_ms) >= timeout_ms)
+        };
         let ids: Vec<u32> = self
             .nearby(from, range)
             .into_iter()
-            .filter(|r| !r.have_props && !r.asked_props)
+            .filter(|(r, _)| stale(r))
             .take(limit)
-            .map(|r| r.local_id)
+            .map(|(r, _)| r.local_id)
             .collect();
         for id in &ids {
             if let Some(row) = self.rows.get_mut(id) {
                 row.asked_props = true;
+                row.props_asked_ms = now_ms;
+            }
+        }
+        ids
+    }
+
+    /// UUIDs for in-range objects still missing properties - used as a fallback when
+    /// ObjectSelect batches go unanswered (RequestObjectPropertiesFamily / hover path).
+    pub fn take_needing_props_family(
+        &mut self,
+        from: [f32; 3],
+        range: f32,
+        limit: usize,
+        now_ms: u64,
+        timeout_ms: u64,
+    ) -> Vec<String> {
+        let stale = |r: &ObjectRow| {
+            !r.have_props
+                && (!r.asked_props
+                    || now_ms.saturating_sub(r.props_asked_ms) >= timeout_ms)
+        };
+        let ids: Vec<String> = self
+            .nearby(from, range)
+            .into_iter()
+            .filter(|(r, _)| stale(r))
+            .take(limit)
+            .map(|(r, _)| id_string(&r.full_id))
+            .collect();
+        for row in self.rows.values_mut() {
+            if ids.iter().any(|id| id_bytes(id) == row.full_id) {
+                row.asked_props = true;
+                row.props_asked_ms = now_ms;
             }
         }
         ids
@@ -376,37 +1063,69 @@ impl ObjectTable {
 
     /// Let anything still unnamed be asked about again.
     ///
-    /// A request can go unanswered - the sim drops it, or we walked out of range and
-    /// back - and an object marked as asked would then stay nameless for good. Pressing
-    /// Load clears the marks, so it doubles as the retry the reference gets from its
-    /// FAILED/timeout bookkeeping.
+    /// Load clears the marks, so unanswered rows can be asked again.
     pub fn allow_props_retry(&mut self) {
         for row in self.rows.values_mut() {
             if !row.have_props {
                 row.asked_props = false;
+                row.props_asked_ms = 0;
             }
         }
     }
 
-    /// `(objects tracked, of which root prims, distance to the closest root)` measured from
-    /// `from`. Purely for the log - it's what distinguishes "the sim told us nothing" from
-    /// "we're looking in the wrong place".
-    pub fn census(&self, from: [f32; 3]) -> (usize, usize, f32) {
+    /// `(tracked, roots, nearest root m, nearest prim m)` measured from `from`.
+    pub fn census(&self, from: [f32; 3]) -> (usize, usize, f32, f32) {
         let mut roots = 0usize;
-        let mut nearest = f32::MAX;
-        for r in self.rows.values().filter(|r| r.parent_id == 0) {
-            roots += 1;
-            let d = distance(from, r.pos);
-            if d < nearest {
-                nearest = d;
+        let mut nearest_root = f32::MAX;
+        let mut nearest_any = f32::MAX;
+        for r in self.rows.values() {
+            if !self.is_nearby_listable(r.local_id) {
+                continue;
+            }
+            if r.parent_id == 0 {
+                roots += 1;
+            }
+            let Some(pos) = self.region_pos_from(r.local_id, Some(from)) else {
+                continue;
+            };
+            let d = distance(from, pos);
+            if d < nearest_any {
+                nearest_any = d;
+            }
+            if r.parent_id == 0 && d < nearest_root {
+                nearest_root = d;
             }
         }
-        (self.rows.len(), roots, if roots == 0 { -1.0 } else { nearest })
+        let root = if roots == 0 { -1.0 } else { nearest_root };
+        let any = if nearest_any == f32::MAX { -1.0 } else { nearest_any };
+        (self.rows.len(), roots, root, any)
+    }
+
+    /// `(tracked attachments, in-range attachment roots)` for diagnostics.
+    pub fn attachment_stats(&self, from: [f32; 3], range: f32) -> (usize, usize) {
+        let mut tracked = 0usize;
+        let mut in_range = 0usize;
+        for row in self.rows.values() {
+            let root = self.root_local_id(row.local_id);
+            if root != row.local_id || !self.is_attachment(root) {
+                continue;
+            }
+            tracked += 1;
+            if let Some(pos) = self.region_pos_for_list(root, Some(from)) {
+                if distance(from, pos) <= range {
+                    in_range += 1;
+                }
+            }
+        }
+        (tracked, in_range)
     }
 
     /// How many in-range objects are still waiting on a reply. Only for reporting.
     pub fn pending_props(&self, from: [f32; 3], range: f32) -> usize {
-        self.nearby(from, range).into_iter().filter(|r| !r.have_props).count()
+        self.nearby(from, range)
+            .into_iter()
+            .filter(|(r, _)| !r.have_props)
+            .count()
     }
 }
 
@@ -417,26 +1136,35 @@ pub fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-/// Shape one row for the UI. Distance is precomputed here so the list can sort on
-/// it without repeating the maths in JS.
-pub fn row_json(row: &ObjectRow, from: [f32; 3]) -> Value {
+/// Shape one row for the UI.
+pub fn row_json(
+    row: &ObjectRow,
+    region_pos: [f32; 3],
+    root_local_id: u32,
+    list_distance: f32,
+    in_attachment: bool,
+) -> Value {
     json!({
         "localId": row.local_id,
+        "parentId": row.parent_id,
+        "rootLocalId": root_local_id,
         "id": id_string(&row.full_id),
         "name": row.name.as_deref().unwrap_or(""),
         "ownerId": if is_zero_id(&row.owner_id) { String::new() } else { id_string(&row.owner_id) },
         "creatorId": if is_zero_id(&row.creator_id) { String::new() } else { id_string(&row.creator_id) },
-        "distance": (distance(from, row.pos) * 10.0).round() / 10.0,
-        "position": { "x": row.pos[0], "y": row.pos[1], "z": row.pos[2] },
+        "distance": (list_distance * 10.0).round() / 10.0,
+        "position": { "x": region_pos[0], "y": region_pos[1], "z": region_pos[2] },
         "salePrice": row.sale_price,
         "saleType": row.sale_type,
         "forSale": row.sale_type > 0 && row.sale_price > 0,
         "haveProps": row.have_props,
-        // What the row is actually allowed to do, decided the way the reference decides
-        // it - so the UI can hide an action instead of offering one that does nothing.
+        // Row actions follow the sim's flags so the UI can hide useless buttons.
         "canTouch": row.can_touch(),
         "canPay": row.can_pay(),
         "scripted": row.flags & FLAGS_SCRIPTED != 0,
+        "physical": row.flags & FLAGS_USE_PHYSICS != 0,
+        "temporary": row.flags & FLAGS_TEMPORARY_ON_REZ != 0,
+        "isAttachment": in_attachment,
         "clickAction": row.click_action,
     })
 }
@@ -473,9 +1201,21 @@ mod tests {
     }
 
     #[test]
+    fn compressed_layout_matches_reference_offsets() {
+        // State@21 CRC@22 Material@26 ClickAction@27 Scale@28 Pos@40 Rot@52 Special@64 Owner@68
+        let blob = compressed_blob(1, [128.0, 235.0, 1020.0], 0xCD, 0, 0);
+        assert_eq!(blob.len(), 84);
+        let (row, has_parent) = decode_compressed(&blob).expect("decoded");
+        assert!(!has_parent);
+        assert_eq!(row.pos, [128.0, 235.0, 1020.0]);
+        assert_eq!(row.click_action, 0);
+        assert!(id_string(&row.owner_id).starts_with("cdcdcdcd-"));
+    }
+
+    #[test]
     fn decodes_compressed_position_and_owner() {
         let blob = compressed_blob(4242, [10.0, 20.0, 30.0], 0xAB, 0, 0);
-        let row = decode_compressed(&blob).expect("decoded");
+        let (row, _) = decode_compressed(&blob).expect("decoded");
         assert_eq!(row.local_id, 4242);
         assert_eq!(row.pos, [10.0, 20.0, 30.0]);
         assert_eq!(row.parent_id, 0);
@@ -487,19 +1227,133 @@ mod tests {
     fn compressed_optional_fields_shift_the_parent_id() {
         // 0x80 adds angular velocity before the parent id, 0x20 says a parent follows.
         let blob = compressed_blob(7, [0.0, 0.0, 0.0], 1, 0x80 | 0x20, 99);
-        let row = decode_compressed(&blob).expect("decoded");
+        let (row, has_parent) = decode_compressed(&blob).expect("decoded");
+        assert!(has_parent);
         assert_eq!(row.parent_id, 99, "omega must be skipped before the parent id");
         // Without 0x80 the parent sits 12 bytes earlier.
         let blob2 = compressed_blob(8, [0.0, 0.0, 0.0], 1, 0x20, 55);
-        assert_eq!(decode_compressed(&blob2).unwrap().parent_id, 55);
+        assert_eq!(decode_compressed(&blob2).unwrap().0.parent_id, 55);
     }
 
     #[test]
     fn ignores_non_prims_and_short_blobs() {
         let mut blob = compressed_blob(1, [0.0; 3], 1, 0, 0);
-        blob[20] = 47; // avatar PCode
+        blob[20] = 47; // avatar - stored for parenting, not listing
+        let (row, _) = decode_compressed(&blob).expect("avatar row");
+        assert_eq!(row.pcode, PCODE_AVATAR);
+        assert!(!row.is_listable());
+        blob[20] = 47;
+        let mut t = ObjectTable::default();
+        t.upsert(row);
+        assert!(t.nearby([0.0; 3], 128.0).is_empty());
+        blob[20] = 12; // grass
         assert!(decode_compressed(&blob).is_none());
         assert!(decode_compressed(&[0u8; 8]).is_none());
+    }
+
+    #[test]
+    fn mislinked_child_without_parent_id_resolves_at_altitude() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow {
+            local_id: 10,
+            parent_id: 0,
+            pos: [128.0, 235.0, 37.0],
+            ..Default::default()
+        });
+        // Sim gave us a platform piece as a "root" with a parent-relative offset only.
+        t.upsert(ObjectRow {
+            local_id: 11,
+            parent_id: 0,
+            pos: [0.0, 0.0, 983.0],
+            ..Default::default()
+        });
+        let from = [128.0, 235.0, 1020.0];
+        let rows = t.nearby(from, 128.0);
+        assert!(
+            rows.iter().any(|(r, pos)| r.local_id == 11 && (pos[2] - 1020.0).abs() < 1.0),
+            "platform should list once anchored to the ground root"
+        );
+        let (_, _roots, _nr, nearest) = t.census(from);
+        assert!(nearest < 5.0);
+    }
+
+    #[test]
+    fn aligns_one_extra_skybox_storey_to_agent_altitude() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow {
+            local_id: 1,
+            parent_id: 0,
+            pos: [120.9, 229.3, 37.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 2,
+            parent_id: 1,
+            pos: [0.0, 0.0, 983.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 3,
+            parent_id: 2,
+            pos: [0.0, 0.0, 983.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 4,
+            parent_id: 3,
+            pos: [0.0, -0.4, -2.9],
+            ..Default::default()
+        });
+        let from = [128.0, 235.0, 1020.0];
+        let (_, _, _, nearest) = t.census(from);
+        assert!(nearest < 16.0, "one storey too high should snap near the avatar");
+        assert!(!t.nearby(from, 128.0).is_empty());
+    }
+
+    #[test]
+    fn orphaned_linkset_child_without_parent_is_not_listed() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow {
+            local_id: 11,
+            parent_id: 10,
+            pcode: PCODE_PRIM,
+            pos: [0.0, 0.0, 983.0],
+            ..Default::default()
+        });
+        let from = [128.0, 235.0, 1020.0];
+        let rows = t.nearby(from, 128.0);
+        assert!(rows.is_empty(), "child without parent row cannot be placed");
+    }
+
+    #[test]
+    fn linkset_children_inherit_root_position() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow {
+            local_id: 1,
+            parent_id: 0,
+            pos: [132.0, 236.0, 2098.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 2,
+            parent_id: 1,
+            pos: [0.5, 0.0, 0.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 3,
+            parent_id: 1,
+            pos: [1.0, 0.5, 0.0],
+            ..Default::default()
+        });
+        let from = [128.0, 235.0, 2099.0];
+        let root_d = t.list_distance(1, from);
+        let child_d = t.list_distance(2, from);
+        assert!((root_d - 4.5).abs() < 2.0, "root distance {root_d}");
+        assert!(
+            (child_d - root_d).abs() < 2.0,
+            "child should track root, root={root_d} child={child_d}"
+        );
     }
 
     #[test]
@@ -543,7 +1397,7 @@ mod tests {
         assert_eq!(t.len(), 1, "repeat updates must not duplicate the row");
         let rows = t.nearby([0.0, 0.0, 0.0], 100.0);
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].pos[0], 3.0, "the newest position wins");
+        assert_eq!(rows[0].0.pos[0], 3.0, "the newest position wins");
     }
 
     #[test]
@@ -556,6 +1410,7 @@ mod tests {
         t.clear();
         assert!(t.is_empty());
         assert!(t.nearby([0.0; 3], 100.0).is_empty());
+        assert_eq!(t.cached_id_count(), 0);
         // And a cleared table reports every id as unknown again, so the cached-update
         // path will re-request them in the new region.
         assert!(!t.contains(3));
@@ -596,7 +1451,7 @@ mod tests {
     }
 
     #[test]
-    fn nearby_sorts_by_distance_and_hides_child_prims() {
+    fn nearby_sorts_by_distance_and_includes_child_prims() {
         let mut t = ObjectTable::default();
         let mk = |id: u32, pos: [f32; 3], parent: u32| ObjectRow {
             local_id: id,
@@ -607,12 +1462,14 @@ mod tests {
         };
         t.upsert(mk(1, [10.0, 0.0, 0.0], 0));
         t.upsert(mk(2, [2.0, 0.0, 0.0], 0));
-        t.upsert(mk(3, [1.0, 0.0, 0.0], 2)); // child of 2
+        t.upsert(mk(3, [1.0, 0.0, 0.0], 2)); // child of 2 -> region pos [3, 0, 0]
         t.upsert(mk(4, [500.0, 0.0, 0.0], 0)); // out of range
         let rows = t.nearby([0.0, 0.0, 0.0], 100.0);
-        assert_eq!(rows.len(), 2, "child prims and distant objects are excluded");
-        assert_eq!(rows[0].local_id, 2, "nearest first");
-        assert_eq!(rows[1].local_id, 1);
+        assert_eq!(rows.len(), 3, "child prims count; distant objects are excluded");
+        assert_eq!(rows[0].0.local_id, 2, "nearest first");
+        assert_eq!(rows[1].0.local_id, 3, "child at parent offset");
+        assert_eq!(rows[2].0.local_id, 1);
+        assert!((rows[1].1[0] - 3.0).abs() < 0.01, "child uses region position");
     }
 
     #[test]
@@ -640,11 +1497,11 @@ mod tests {
             ..Default::default()
         });
         let rows = t.nearby([0.0, 0.0, 0.0], 100.0);
-        assert_eq!(rows[0].name.as_deref(), Some("Chair"));
-        assert_eq!(id_string(&rows[0].owner_id), "bb000000-0000-0000-0000-000000000002");
-        assert_eq!(id_string(&rows[0].creator_id), "cc000000-0000-0000-0000-000000000003");
-        assert_eq!(rows[0].pos[0], 2.0);
-        assert!(t.take_needing_props([0.0; 3], 100.0, 10).is_empty());
+        assert_eq!(rows[0].0.name.as_deref(), Some("Chair"));
+        assert_eq!(id_string(&rows[0].0.owner_id), "bb000000-0000-0000-0000-000000000002");
+        assert_eq!(id_string(&rows[0].0.creator_id), "cc000000-0000-0000-0000-000000000003");
+        assert_eq!(rows[0].0.pos[0], 2.0);
+        assert!(t.take_needing_props([0.0; 3], 100.0, 10, 1000, 30_000).is_empty());
     }
 
     /// The drain has to cover everything in range and ask about each object once - it's
@@ -666,7 +1523,7 @@ mod tests {
 
         let mut seen: Vec<u32> = Vec::new();
         loop {
-            let batch = t.take_needing_props([0.0; 3], 64.0, 4);
+            let batch = t.take_needing_props([0.0; 3], 64.0, 4, 1000, 30_000);
             if batch.is_empty() {
                 break;
             }
@@ -680,7 +1537,7 @@ mod tests {
         // Load presses again: the ones that never answered become askable once more.
         t.set_props(&format!("{:032x}", 3), "Lamp", "", "", 0, 0);
         t.allow_props_retry();
-        let retry = t.take_needing_props([0.0; 3], 64.0, 64);
+        let retry = t.take_needing_props([0.0; 3], 64.0, 64, 1000, 30_000);
         assert_eq!(retry.len(), 9, "the one that answered isn't asked again");
         assert!(!retry.contains(&3));
     }
@@ -712,12 +1569,287 @@ mod tests {
         t.set_props(id, "Bench", "", "cc000000-0000-0000-0000-000000000003", 0, 0);
         t.set_props(id, "Bench", "bb000000-0000-0000-0000-000000000002", "", 0, 0);
         let rows = t.nearby([0.0; 3], 100.0);
-        assert_eq!(id_string(&rows[0].creator_id), "cc000000-0000-0000-0000-000000000003");
-        assert_eq!(id_string(&rows[0].owner_id), "bb000000-0000-0000-0000-000000000002");
+        assert_eq!(id_string(&rows[0].0.creator_id), "cc000000-0000-0000-0000-000000000003");
+        assert_eq!(id_string(&rows[0].0.owner_id), "bb000000-0000-0000-0000-000000000002");
     }
 
-    /// Touch and Pay are offered only when the sim says the object handles them - the
-    /// same test the reference makes in enable_object_touch / enable_pay_object.
+    #[test]
+    fn skybox_linkset_child_resolves_at_altitude() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow {
+            local_id: 10,
+            parent_id: 0,
+            pos: [128.0, 235.0, 37.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 11,
+            parent_id: 10,
+            pos: [0.0, 0.0, 983.0],
+            ..Default::default()
+        });
+        let from = [128.0, 235.0, 1020.0];
+        let rows = t.nearby(from, 128.0);
+        assert_eq!(rows.len(), 2, "anchor and platform both in range");
+        let (_, platform_pos) = rows.iter().find(|(r, _)| r.local_id == 11).expect("platform");
+        assert!((platform_pos[2] - 1020.0).abs() < 0.1);
+        let (_, _roots, _nr, nearest) = t.census(from);
+        assert!(nearest < 5.0, "nearest prim should be under your feet, not 983m away");
+    }
+
+    #[test]
+    fn agent_region_pos_resolves_the_avatar_row() {
+        let mut t = ObjectTable::default();
+        let agent = "aa000000-0000-0000-0000-000000000001";
+        t.upsert(ObjectRow {
+            local_id: 42,
+            full_id: id_bytes(agent),
+            pcode: PCODE_AVATAR,
+            pos: [128.0, 235.0, 2099.0],
+            ..Default::default()
+        });
+        let pos = t.agent_region_pos(agent, None).expect("avatar pos");
+        assert!((pos[2] - 2099.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn agent_region_pos_when_standing_skips_skybox_align() {
+        let mut t = ObjectTable::default();
+        let agent = "aa000000-0000-0000-0000-000000000001";
+        t.upsert(ObjectRow {
+            local_id: 42,
+            full_id: id_bytes(agent),
+            pcode: PCODE_AVATAR,
+            parent_id: 0,
+            pos: [201.0, 171.0, 2088.0],
+            ..Default::default()
+        });
+        let pos = t
+            .agent_region_pos(agent, Some([201.0, 171.0, 4173.0]))
+            .expect("avatar pos");
+        assert!(
+            (pos[2] - 2088.0).abs() < 0.1,
+            "avatar Z must not be storey-snapped, got {}",
+            pos[2]
+        );
+    }
+
+    #[test]
+    fn upsert_clears_avatar_parent_on_stand() {
+        let mut t = ObjectTable::default();
+        let agent = "aa000000-0000-0000-0000-000000000001";
+        t.upsert(ObjectRow {
+            local_id: 1,
+            full_id: id_bytes(agent),
+            pcode: PCODE_AVATAR,
+            parent_id: 500,
+            pos: [0.0, 0.0, 0.5],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 1,
+            full_id: id_bytes(agent),
+            pcode: PCODE_AVATAR,
+            parent_id: 0,
+            pos: [201.0, 171.0, 2088.0],
+            ..Default::default()
+        });
+        let row = t.rows.get(&1).unwrap();
+        assert_eq!(row.parent_id, 0);
+        let pos = t.agent_region_pos(agent, None).expect("avatar pos");
+        assert!((pos[2] - 2088.0).abs() < 0.1, "must not double-add seat offset, got {}", pos[2]);
+    }
+
+    #[test]
+    fn attachments_list_without_pulling_in_sit_target() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow {
+            local_id: 100,
+            pcode: PCODE_AVATAR,
+            full_id: id_bytes("aa000000-0000-0000-0000-000000000001"),
+            parent_id: 0,
+            pos: [200.0, 171.0, 2088.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 500,
+            parent_id: 0,
+            pos: [400.0, 400.0, 2088.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 200,
+            parent_id: 100,
+            attachment_state: 0x31,
+            pos: [0.1, 0.0, 0.0],
+            ..Default::default()
+        });
+        assert!(t.is_attachment(200));
+        assert_eq!(t.root_local_id(200), 200);
+        assert!(t.is_in_attachment(200));
+        let from = [201.0, 171.0, 2088.5];
+        let list = t.nearby_for_list(from, 48.0);
+        assert!(
+            !list.iter().any(|(r, _)| r.local_id == 500),
+            "sit target must not appear via attachment ancestor walk"
+        );
+        assert!(
+            list.iter().any(|(r, _)| r.local_id == 200),
+            "attachment should be listable when in range"
+        );
+        let pos = t
+            .region_pos_from(200, Some(from))
+            .expect("attachment region position");
+        assert!((pos[0] - 200.1).abs() < 0.2, "attachment x, got {}", pos[0]);
+    }
+
+    #[test]
+    fn other_avatar_attachment_uses_coarse_radar_when_avatar_row_missing() {
+        let mut t = ObjectTable::default();
+        let other = id_bytes("bb000000-0000-0000-0000-000000000002");
+        t.note_coarse_agent(
+            "bb000000-0000-0000-0000-000000000002",
+            [100.0, 100.0, 25.0],
+        );
+        t.upsert(ObjectRow {
+            local_id: 201,
+            owner_id: other,
+            attachment_state: 0x31,
+            pos: [0.0, 0.0, 1.0],
+            ..Default::default()
+        });
+        let from = [100.5, 100.0, 25.0];
+        let list = t.nearby_for_list(from, 8.0);
+        assert!(
+            list.iter().any(|(r, _)| r.local_id == 201),
+            "attachment should list via coarse wearer position"
+        );
+    }
+
+    #[test]
+    fn other_avatar_attachment_anchors_via_owner_when_parent_unlinked() {
+        let mut t = ObjectTable::default();
+        let other = id_bytes("bb000000-0000-0000-0000-000000000002");
+        t.upsert(ObjectRow {
+            local_id: 50,
+            full_id: other,
+            pcode: PCODE_AVATAR,
+            parent_id: 0,
+            pos: [100.0, 100.0, 25.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 201,
+            owner_id: other,
+            attachment_state: 0x31,
+            pos: [0.0, 0.0, 1.0],
+            ..Default::default()
+        });
+        assert!(t.is_attachment(201));
+        assert_eq!(t.attachment_anchor_avatar(201), Some(50));
+        let pos = t
+            .region_pos_from(201, Some([100.0, 100.0, 25.0]))
+            .expect("attachment position");
+        assert!((pos[2] - 26.0).abs() < 0.1, "expected ~26m, got {}", pos[2]);
+        let from = [100.5, 100.0, 25.0];
+        let list = t.nearby_for_list(from, 8.0);
+        assert!(
+            list.iter().any(|(r, _)| r.local_id == 201),
+            "other resident attachment should list when avatar is in range"
+        );
+    }
+
+    #[test]
+    fn temporary_flag_surfaces_in_row_json() {
+        let row = ObjectRow {
+            flags: FLAGS_TEMPORARY_ON_REZ | FLAGS_USE_PHYSICS,
+            ..Default::default()
+        };
+        let json = row_json(&row, [0.0; 3], 1, 0.0, false);
+        assert_eq!(json["temporary"], true);
+        assert_eq!(json["physical"], true);
+    }
+
+    #[test]
+    fn skybox_anchor_reaches_across_a_wide_platform() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow {
+            local_id: 10,
+            parent_id: 0,
+            pos: [128.0, 235.0, 37.0],
+            ..Default::default()
+        });
+        t.upsert(ObjectRow {
+            local_id: 11,
+            parent_id: 0,
+            pos: [0.0, 0.0, 983.0],
+            ..Default::default()
+        });
+        let from = [200.0, 169.0, 1020.0];
+        let rows = t.nearby(from, 128.0);
+        assert!(
+            rows.iter().any(|(r, _)| r.local_id == 11),
+            "mislinked platform should resolve within 128m on a wide skybox"
+        );
+        let (_, _, _, nearest) = t.census(from);
+        assert!(nearest < 128.0, "nearest prim should be in range, got {nearest}m");
+    }
+
+    #[test]
+    fn list_distance_matches_true_3d_offset() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow {
+            local_id: 1,
+            parent_id: 0,
+            pos: [123.0, 235.0, 2003.0],
+            ..Default::default()
+        });
+        let from = [128.0, 235.0, 2098.0];
+        let d = t.list_distance(1, from);
+        let expected = distance(from, [123.0, 235.0, 2003.0]);
+        assert!((d - expected).abs() < 0.1, "got {d}, want {expected}");
+        assert!(d > 90.0, "must include vertical separation, got {d}");
+    }
+
+    #[test]
+    fn terse_improved_blob_decodes_position() {
+        let mut blob = Vec::new();
+        blob.extend_from_slice(&42u32.to_le_bytes());
+        blob.push(0); // state
+        blob.push(0); // not agent
+        blob.extend_from_slice(&128.0f32.to_le_bytes());
+        blob.extend_from_slice(&235.0f32.to_le_bytes());
+        blob.extend_from_slice(&1020.0f32.to_le_bytes());
+        let (id, pos) = decode_terse_improved(&blob).expect("decode");
+        assert_eq!(id, 42);
+        assert!((pos[2] - 1020.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn missing_parent_ids_lists_roots_we_still_need() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow { local_id: 11, parent_id: 10, ..Default::default() });
+        assert_eq!(t.missing_parent_ids(), vec![10]);
+        t.upsert(ObjectRow { local_id: 10, parent_id: 0, ..Default::default() });
+        assert!(t.missing_parent_ids().is_empty());
+    }
+
+    #[test]
+    fn cached_ids_survive_until_clear_and_drive_refetch() {
+        let mut t = ObjectTable::default();
+        t.note_cached_ids([1, 2, 3]);
+        t.upsert(ObjectRow { local_id: 2, ..Default::default() });
+        assert_eq!(t.cached_id_count(), 3);
+        let missing = t.ids_missing_rows(10);
+        assert_eq!(missing.len(), 2);
+        assert!(missing.contains(&1));
+        assert!(missing.contains(&3));
+        t.clear();
+        assert_eq!(t.cached_id_count(), 0);
+        assert!(t.ids_missing_rows(10).is_empty());
+    }
+
+    /// Touch and Pay follow the sim's FLAGS_HANDLE_TOUCH / FLAGS_TAKES_MONEY bits.
     #[test]
     fn row_actions_follow_the_sims_flags() {
         let plain = ObjectRow::default();
@@ -742,6 +1874,49 @@ mod tests {
     fn compressed_blob_carries_the_click_action() {
         let mut blob = compressed_blob(7, [1.0, 2.0, 3.0], 0xcd, 0, 0);
         blob[21 + 6] = CLICK_ACTION_SIT;
-        assert_eq!(decode_compressed(&blob).unwrap().click_action, CLICK_ACTION_SIT);
+        assert_eq!(decode_compressed(&blob).unwrap().0.click_action, CLICK_ACTION_SIT);
+    }
+
+    #[test]
+    fn compressed_movement_preserves_attachment_parent_link() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow {
+            local_id: 100,
+            pcode: PCODE_AVATAR,
+            full_id: id_bytes("aa000000-0000-0000-0000-000000000001"),
+            parent_id: 0,
+            pos: [200.0, 171.0, 2088.0],
+            ..Default::default()
+        });
+        let (row, true_parent) = decode_compressed(&compressed_blob(
+            200,
+            [0.1, 0.0, 0.0],
+            0xaa,
+            0x20,
+            100,
+        ))
+        .expect("attachment with parent");
+        assert!(true_parent);
+        t.upsert_compressed(row, true_parent);
+        let (move_only, false_parent) = decode_compressed(&compressed_blob(
+            200,
+            [0.2, 0.0, 0.0],
+            0xaa,
+            0,
+            0,
+        ))
+        .expect("movement without parent field");
+        assert!(!false_parent);
+        t.upsert_compressed(move_only, false_parent);
+        let stored = t.rows.get(&200).expect("attachment row");
+        assert_eq!(stored.parent_id, 100, "parent link must survive movement-only updates");
+        assert!(t.is_attachment(200));
+        let from = [200.1, 171.0, 2088.5];
+        assert!(
+            t.nearby_for_list(from, 8.0)
+                .iter()
+                .any(|(r, _)| r.local_id == 200),
+            "attachment should stay listable after parent-preserving upsert"
+        );
     }
 }

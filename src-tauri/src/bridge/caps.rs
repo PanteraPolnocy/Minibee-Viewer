@@ -232,8 +232,9 @@ fn chat_session_body(method: &str, session_id: &str, params: &[String], mute: Op
     format!("<?xml version=\"1.0\"?><llsd><map>{inner}</map></llsd>")
 }
 
-/// Ask the sim for a 360-degree interest list
-pub(crate) async fn interest_list_360(state: &Arc<AppState>, session: &Arc<crate::bridge::circuit::Session>) {
+/// Ask the sim for a 360-degree interest list. Returns true when the cap was granted
+/// and the POST succeeded.
+pub(crate) async fn interest_list_360(state: &Arc<AppState>, session: &Arc<crate::bridge::circuit::Session>) -> bool {
     let url = match session.cap("InterestList") {
         Some(u) => u,
         None => {
@@ -241,7 +242,7 @@ pub(crate) async fn interest_list_360(state: &Arc<AppState>, session: &Arc<crate
                 "InterestList cap NOT GRANTED - object updates stay culled to a camera frustum, \
                  so the nearby list will be incomplete (worst at altitude)"
             );
-            return;
+            return false;
         }
     };
     let body = "<?xml version=\"1.0\"?><llsd><map><key>mode</key><string>360</string></map></llsd>";
@@ -261,14 +262,21 @@ pub(crate) async fn interest_list_360(state: &Arc<AppState>, session: &Arc<crate
     {
         Ok(ex) if (200..300).contains(&ex.status) => {
             crate::dlog!("interest list set to 360 (HTTP {})", ex.status);
+            true
         }
-        Ok(ex) => crate::dlog!(
-            "InterestList POST refused: HTTP {} body={:.200} url={}",
-            ex.status,
-            ex.body,
-            url
-        ),
-        Err(e) => crate::dlog!("InterestList POST failed: {e} url={url}"),
+        Ok(ex) => {
+            crate::dlog!(
+                "InterestList POST refused: HTTP {} body={:.200} url={}",
+                ex.status,
+                ex.body,
+                url
+            );
+            false
+        }
+        Err(e) => {
+            crate::dlog!("InterestList POST failed: {e} url={url}");
+            false
+        }
     }
 }
 
@@ -281,8 +289,7 @@ pub(crate) async fn chat_session_post(
 ) -> Cmd {
     let session = state.active().ok_or("No active session")?;
     // POST to the bare cap URL. ChatSessionRequest is an opaque, sim-granted key
-    // matched by exact path, so a trailing slash (what cap_endpoint adds) tacks on an
-    // empty path segment and misroutes the request; the reference viewer posts bare too.
+    // matched by exact path, so a trailing slash misroutes the request.
     let base = session.cap("ChatSessionRequest").ok_or("ChatSessionRequest capability unavailable")?;
     let agent_session = session.agent_ids().map(|(_, s)| s).unwrap_or_default();
     let headers: Vec<(String, String)> = if agent_session.is_empty() {

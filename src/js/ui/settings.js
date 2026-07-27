@@ -47,6 +47,13 @@ const FSSettingsUI = (function () {
     { section: 'Parcel music', items: [
       { key: 'parcelMusicEnabled', label: 'Auto-play stream', kind: 'toggle' },
       { key: 'parcelMusicVolume', label: 'Volume', kind: 'range', unit: '%' }
+    ] },
+    { section: 'Interact', items: [
+      { key: 'objectsRange', label: 'Nearby objects range', kind: 'select',
+        options: [['16', '16 m'], ['32', '32 m'], ['48', '48 m'], ['64', '64 m'],
+          ['96', '96 m'], ['128', '128 m'], ['256', '256 m'], ['384', '384 m']] },
+      { key: 'objectsIncludeAttachments', label: 'Include attachments', kind: 'toggle' },
+      { key: 'objectsIncludePhysical', label: 'Include physical', kind: 'toggle' }
     ] }
   ];
 

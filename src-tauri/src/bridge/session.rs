@@ -333,7 +333,7 @@ fn is_zero_uuid(s: &str) -> bool {
 /// Global SL coordinates -> (grid_x, grid_y, local_x, local_y, local_z). A region
 /// is 256m, so the grid index is the region corner / 256 and the local coord is
 /// the offset within it. This lets the UI show a pick/classified location and
-/// teleport there without redoing the math in JS (mirrors FSSlurl.globalToGrid).
+/// teleport there without redoing the math in JS.
 fn global_to_grid(gx: f64, gy: f64, gz: f64) -> (i64, i64, i64, i64, i64) {
     let grid_x = (gx / 256.0).floor();
     let grid_y = (gy / 256.0).floor();
@@ -686,14 +686,19 @@ fn track_self(state: &mut SessionState, inst: &Value) -> Vec<Action> {
     let mut actions = Vec::new();
     let parent_id = inst_i64(inst, "ParentID") as u32;
     let blob = B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default();
+    let local = crate::bridge::objects::position_from_object_data(&blob)
+        .or_else(|| crate::bridge::objects::position_from_terse_object_data(&blob));
 
-    if let Some(local) = crate::bridge::objects::position_from_object_data(&blob) {
+    if let Some(local) = local {
+        let hint = state
+            .last_pos
+            .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]);
         let region_pos = if parent_id == 0 {
             Some(local)
         } else {
             state
                 .objects
-                .position_of(parent_id)
+                .region_pos_from(parent_id, hint)
                 .map(|seat| [seat[0] + local[0], seat[1] + local[1], seat[2] + local[2]])
         };
         if let Some(p) = region_pos {
@@ -731,6 +736,34 @@ fn track_self(state: &mut SessionState, inst: &Value) -> Vec<Action> {
         ));
     }
     actions
+}
+
+/// Push a position event when the avatar row moves (full or terse update).
+fn sync_self_from_avatar_row(state: &mut SessionState) -> Vec<Action> {
+    let hint = state
+        .last_pos
+        .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]);
+    let Some(p) = state.objects.agent_region_pos(&state.agent_id, hint) else {
+        return Vec::new();
+    };
+    let new_pos = [p[0] as f64, p[1] as f64, p[2] as f64];
+    let moved = state.last_pos.map_or(true, |old| {
+        (old[0] - new_pos[0]).abs() > 0.25
+            || (old[1] - new_pos[1]).abs() > 0.25
+            || (old[2] - new_pos[2]).abs() > 0.25
+    });
+    state.last_pos = Some(new_pos);
+    if !moved {
+        return Vec::new();
+    }
+    vec![Action::emit(
+        "position",
+        json!({
+            "position": { "x": p[0], "y": p[1], "z": p[2] },
+            "region": region_obj(state),
+            "source": "object-update",
+        }),
+    )]
 }
 
 /// An object's CreationDate as seconds since the epoch, or 0 if the sim didn't say.
@@ -894,7 +927,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 json!({ "XferID": [{
                     "ID": id.to_string(),
                     "Filename": B64.encode(format!("{filename}\0").as_bytes()),
-                    // ELLPath::LL_PATH_CACHE, matching the reference's request.
+                    // Cache path (FilePath 5).
                     "FilePath": 5,
                     "DeleteOnCompletion": true,
                     "UseBigPackets": false,
@@ -937,8 +970,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 }
                 Some(x) => {
                     if seq == x.next {
-                        // The very first packet carries the total size in front of the
-                        // payload, big-endian (llxfermanager.cpp:581).
+                        // First packet: total size prefix (4 bytes, big-endian), then payload.
                         let payload = if seq == 0 && data.len() >= 4 { &data[4..] } else { &data[..] };
                         if x.data.len() + payload.len() <= MAX_XFER_BYTES {
                             x.data.extend_from_slice(payload);
@@ -1010,13 +1042,31 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             let locs = block_instances(decoded, "Location");
             let agents = block_instances(decoded, "AgentData");
             let you = as_i64(field(decoded, "Index", "You"));
+            // Coarse Z is a byte * 4, capped at 1020. 0 and 255 mean unknown Z.
             let loc_pos = |i: usize| -> Option<(f64, f64, f64, bool)> {
                 locs.get(i).map(|l| {
                     let rz = inst_i64(l, "Z");
-                    (inst_i64(l, "X") as f64, inst_i64(l, "Y") as f64, rz as f64 * 4.0, rz == 0 || rz == 255)
+                    let unknown_z = rz == 0 || rz == 255;
+                    let z = rz as f64 * 4.0;
+                    (
+                        inst_i64(l, "X") as f64,
+                        inst_i64(l, "Y") as f64,
+                        z,
+                        unknown_z,
+                    )
                 })
             };
-            let self_pos = if you >= 0 { loc_pos(you as usize).map(|(x, y, z, _)| [x, y, z]) } else { None };
+            let self_pos = if you >= 0 {
+                loc_pos(you as usize).and_then(|(x, y, z, unknown_z)| {
+                    if unknown_z {
+                        state.last_pos.map(|p| [x, y, p[2]])
+                    } else {
+                        Some([x, y, z])
+                    }
+                })
+            } else {
+                None
+            };
             if let Some(sp) = self_pos {
                 let moved = state
                     .last_pos
@@ -1048,6 +1098,17 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     continue;
                 }
                 let (x, y, z, unknown) = loc_pos(i).unwrap_or((0.0, 0.0, 0.0, true));
+                let coarse_z = if unknown {
+                    state
+                        .last_pos
+                        .map(|p| p[2] as f32)
+                        .unwrap_or(25.0)
+                } else {
+                    z as f32
+                };
+                state
+                    .objects
+                    .note_coarse_agent(&id, [x as f32, y as f32, coarse_z]);
                 let range = if unknown {
                     (x - sp[0]).hypot(y - sp[1]).round()
                 } else {
@@ -1443,10 +1504,15 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     Ok(b) => b,
                     Err(_) => continue,
                 };
-                if let Some(mut row) = crate::bridge::objects::decode_compressed(&blob) {
+                if let Some((mut row, has_parent)) = crate::bridge::objects::decode_compressed(&blob) {
                     // UpdateFlags rides on the message block, not inside the blob.
                     row.flags = inst_i64(inst, "UpdateFlags") as u32;
-                    state.objects.upsert(row);
+                    state.objects.upsert_compressed(row, has_parent);
+                } else if !blob.is_empty() {
+                    crate::dlog!(
+                        "ObjectUpdateCompressed: decode failed ({} bytes)",
+                        blob.len()
+                    );
                 }
             }
         }
@@ -1455,28 +1521,99 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         // often arrives this way - and it's the only place our OWN avatar is described.
         "ObjectUpdate" => {
             for inst in block_instances(decoded, "ObjectData") {
+                let pcode = inst_i64(inst, "PCode") as u8;
+                let local_id = inst_i64(inst, "ID") as u32;
+                let parent_id = inst_i64(inst, "ParentID") as u32;
+                let flags = inst_i64(inst, "UpdateFlags") as u32;
+                let click_action = inst_i64(inst, "ClickAction") as u8;
+                let attachment_state = inst_i64(inst, "State") as u8;
                 // Our own avatar first, before the prim filter throws it away.
                 if !state.agent_id.is_empty() && same_uuid(&inst_str(inst, "FullID"), &state.agent_id) {
                     actions.extend(track_self(state, inst));
+                    if let Some(pos) = crate::bridge::objects::position_from_object_data(
+                        &B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default(),
+                    )
+                    .or_else(|| {
+                        crate::bridge::objects::position_from_terse_object_data(
+                            &B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default(),
+                        )
+                    }) {
+                        state.objects.upsert(crate::bridge::objects::ObjectRow {
+                            local_id,
+                            full_id: crate::bridge::objects::id_bytes(&inst_str(inst, "FullID")),
+                            parent_id,
+                            pcode: crate::bridge::objects::PCODE_AVATAR,
+                            pos,
+                            flags,
+                            click_action,
+                            attachment_state,
+                            ..Default::default()
+                        });
+                    }
                     continue;
                 }
-                if inst_i64(inst, "PCode") != 9 {
-                    continue; // 9 = primitive; avatars and the rest aren't listed
+                if pcode == crate::bridge::objects::PCODE_AVATAR {
+                    let blob = B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default();
+                    if let Some(pos) = crate::bridge::objects::position_from_object_data(&blob)
+                        .or_else(|| crate::bridge::objects::position_from_terse_object_data(&blob))
+                    {
+                        state.objects.upsert(crate::bridge::objects::ObjectRow {
+                            local_id,
+                            full_id: crate::bridge::objects::id_bytes(&inst_str(inst, "FullID")),
+                            parent_id,
+                            pcode,
+                            pos,
+                            flags,
+                            click_action,
+                            attachment_state,
+                            ..Default::default()
+                        });
+                    }
+                    continue;
+                }
+                if pcode != 9 {
+                    continue; // 9 = primitive; avatars handled above
                 }
                 let blob = B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default();
-                let pos = match crate::bridge::objects::position_from_object_data(&blob) {
-                    Some(p) => p,
-                    None => continue, // a quantised update; a full one will follow
+                let pos = crate::bridge::objects::position_from_object_data(&blob)
+                    .or_else(|| crate::bridge::objects::position_from_terse_object_data(&blob));
+                if let Some(pos) = pos {
+                    state.objects.upsert(crate::bridge::objects::ObjectRow {
+                        local_id,
+                        full_id: crate::bridge::objects::id_bytes(&inst_str(inst, "FullID")),
+                        parent_id,
+                        pcode,
+                        pos,
+                        flags,
+                        click_action,
+                        attachment_state,
+                        ..Default::default()
+                    });
+                } else {
+                    state.objects.merge_partial(
+                        local_id,
+                        parent_id,
+                        flags,
+                        click_action,
+                        attachment_state,
+                    );
+                }
+            }
+        }
+
+        // Movement-only updates for objects we already know about (no parenting changes).
+        "ImprovedTerseObjectUpdate" => {
+            for inst in block_instances(decoded, "ObjectData") {
+                let blob = match B64.decode(inst_str(inst, "Data")) {
+                    Ok(b) => b,
+                    Err(_) => continue,
                 };
-                state.objects.upsert(crate::bridge::objects::ObjectRow {
-                    local_id: inst_i64(inst, "ID") as u32,
-                    full_id: crate::bridge::objects::id_bytes(&inst_str(inst, "FullID")),
-                    parent_id: inst_i64(inst, "ParentID") as u32,
-                    pos,
-                    flags: inst_i64(inst, "UpdateFlags") as u32,
-                    click_action: inst_i64(inst, "ClickAction") as u8,
-                    ..Default::default()
-                });
+                if let Some((local_id, pos)) = crate::bridge::objects::decode_terse_improved(&blob) {
+                    state.objects.update_movement(local_id, pos);
+                    if state.objects.agent_local_id(&state.agent_id) == Some(local_id) {
+                        actions.extend(sync_self_from_avatar_row(state));
+                    }
+                }
             }
         }
 
@@ -1484,11 +1621,18 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         "ObjectUpdateCached" => {
             // EVERY id the sim lists, not a slice of them.
             const IDS_PER_REQUEST: usize = 200;
-            let unknown: Vec<u32> = block_instances(decoded, "ObjectData")
+            let ids: Vec<u32> = block_instances(decoded, "ObjectData")
                 .iter()
                 .map(|inst| inst_i64(inst, "ID") as u32)
-                .filter(|id| *id != 0 && !state.objects.contains(*id))
+                .filter(|id| *id != 0)
                 .collect();
+            state.objects.note_cached_ids(ids.iter().copied());
+            crate::dlog!(
+                "ObjectUpdateCached: {} id(s), {} new",
+                ids.len(),
+                ids.iter().filter(|id| !state.objects.contains(**id)).count()
+            );
+            let unknown: Vec<u32> = ids.into_iter().filter(|id| !state.objects.contains(*id)).collect();
             if !unknown.is_empty() && !state.agent_id.is_empty() {
                 for chunk in unknown.chunks(IDS_PER_REQUEST) {
                     let data: Vec<Value> = chunk
@@ -1720,7 +1864,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         "DeclineCallingCard" => actions.push(system_chat("Your friendship offer was declined.")),
 
         // A region performance sample, roughly once a second. StatID 1 is the sim's
-        // frame rate and 0 is the time dilation (llviewerstats.h); the top bar shows the FPS.
+        // frame rate and 0 is the time dilation; the top bar shows the FPS.
         "SimStats" => {
             let mut fps = 0.0_f64;
             let mut dilation = 1.0_f64;
@@ -1882,7 +2026,9 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     actions.push(Action::RefreshCaps { seed_url: seed, sim_ip });
                 }
             }
+            state.objects.clear();
             state.last_pos = Some([px, py, pz]);
+            actions.push(Action::InterestList360);
             actions.push(Action::emit(
                 "position",
                 json!({ "position": { "x": px, "y": py, "z": pz }, "region": region_obj(state), "source": "teleport" }),
@@ -2651,7 +2797,9 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                     actions.push(Action::RefreshCaps { seed_url: seed, sim_ip });
                 }
             }
+            state.objects.clear();
             state.last_pos = Some([px, py, pz]);
+            actions.push(Action::InterestList360);
             actions.push(Action::emit(
                 "position",
                 json!({ "position": { "x": px, "y": py, "z": pz }, "region": region_obj(state), "source": "teleport" }),
@@ -3101,6 +3249,32 @@ mod tests {
     }
 
     #[test]
+    fn standing_after_sit_clears_parent_and_keeps_region_position() {
+        let mut st = SessionState { agent_id: "me".into(), ..Default::default() };
+        st.objects.upsert(crate::bridge::objects::ObjectRow {
+            local_id: 4242,
+            pos: [200.0, 171.0, 2088.0],
+            ..Default::default()
+        });
+        route(&mut st, &self_update("me", 4242, [1.0, 0.0, 0.5]));
+        assert!(st.sitting);
+        route(&mut st, &self_update("me", 0, [201.0, 171.0, 2088.0]));
+        assert!(!st.sitting);
+        assert_eq!(st.last_pos, Some([201.0, 171.0, 2088.0]));
+        let avatar_id = st.objects.agent_local_id("me").expect("avatar row");
+        assert_eq!(st.objects.parent_id_of(avatar_id), Some(0));
+        let pos = st
+            .objects
+            .agent_region_pos("me", None)
+            .expect("avatar region pos");
+        assert!(
+            (pos[2] - 2088.0).abs() < 0.1,
+            "stand-up must not double seat height, got z={}",
+            pos[2]
+        );
+    }
+
+    #[test]
     fn a_teleport_stands_us_up() {
         let mut st = SessionState { agent_id: "me".into(), sitting: true, ..Default::default() };
         let a = route(&mut st, &json!({
@@ -3281,6 +3455,26 @@ mod tests {
         assert_eq!(radar[0]["range"], 10.0);
         // An unknown name -> a resolve request gets queued.
         assert!(a.iter().any(|x| matches!(x, Action::ResolveNames(ids) if ids == &vec!["bbbbbbbb-0000-0000-0000-000000000003".to_string()])));
+    }
+
+    #[test]
+    fn coarse_unknown_z_does_not_poison_high_altitude() {
+        let mut st = SessionState {
+            agent_id: "me".into(),
+            last_pos: Some([128.0, 235.0, 2099.0]),
+            ..Default::default()
+        };
+        let pkt = json!({
+            "name": "CoarseLocationUpdate",
+            "blocks": {
+                "Location": [ { "X": 128, "Y": 235, "Z": 255 } ],
+                "Index": [ { "You": 0, "Prey": -1 } ],
+                "AgentData": [ { "AgentID": "me" } ],
+            }
+        });
+        let a = route(&mut st, &pkt);
+        assert!(emit_of(&a, "position").is_none(), "unknown coarse Z should not move us");
+        assert_eq!(st.last_pos, Some([128.0, 235.0, 2099.0]));
     }
 
     const ME: &str = "11111111-1111-1111-1111-111111111111";
@@ -4059,7 +4253,7 @@ mod tests {
         assert_eq!(p["defaultPrice"], 0);
         assert_eq!(p["allowCustom"], true);
 
-        // A negative non-sentinel is a real amount; the reference takes abs().
+        // A negative non-sentinel is a real amount; take abs().
         let c = route(&mut st, &reply(-250, vec![]));
         assert_eq!(emit_of(&c, "pay-price").unwrap()["defaultPrice"], 250);
 

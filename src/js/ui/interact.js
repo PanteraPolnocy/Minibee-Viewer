@@ -56,7 +56,7 @@ const FSInteract = (function () {
     invoke('sl_avatar_state').then(applyResult).catch(function () { /* keep what we have */ });
   }
 
-  const RANGE_CHOICES = [16, 32, 48, 64, 96, 128];
+  const RANGE_CHOICES = [16, 32, 48, 64, 96, 128, 256, 384];
   const DEFAULT_RANGE = 32;
   let range = DEFAULT_RANGE;
   let objects = [];
@@ -64,8 +64,14 @@ const FSInteract = (function () {
   let sortAsc = true;
   /// True once Load has been pressed here, so an empty list can say why it's empty.
   let loaded = false;
+  /// Last Load response metadata - helps distinguish "nothing here" from "still fetching".
+  let lastScan = { pending: 0, tracked: 0, cached: 0, nearest: -1, roots: 0, unresolvedParents: 0, attachmentsTracked: 0, attachmentsInRange: 0, interest360: true };
+  /// Linkset roots whose child rows are visible.
+  const expandedRoots = {};
   /// Matches name or creator, both at once - see `matchesFilter`.
   let filterText = '';
+  let includeAttachments = false;
+  let includePhysical = true;
   let openDetailId = '';
   /// Which object we're sitting on, when we are - so "Sit on" can be out for that one row.
   let sittingOn = '';
@@ -100,6 +106,28 @@ const FSInteract = (function () {
     }
     const group = FSTransport.getGroupName ? FSTransport.getGroupName(id) : '';
     return group || 'resolving...';
+  }
+
+  function groupLabel(id) {
+    if (!id || FSProfiles.isZero(id)) return '';
+    const fromTransport = FSTransport.getGroupName ? FSTransport.getGroupName(id) : '';
+    if (fromTransport) return fromTransport;
+    if (typeof FSProfiles !== 'undefined' && FSProfiles.getGroupName) {
+      const cached = FSProfiles.getGroupName(id);
+      if (cached) return cached;
+    }
+    return 'resolving...';
+  }
+
+  function queueGroupResolve(ids) {
+    const list = (Array.isArray(ids) ? ids : [ids]).filter(function (id) {
+      return id && !FSProfiles.isZero(id);
+    });
+    if (!list.length) return;
+    if (FSTransport.queueGroupNameResolve) FSTransport.queueGroupNameResolve(list);
+    else if (typeof FSProfiles !== 'undefined' && FSProfiles.queueGroupName) {
+      FSProfiles.queueGroupName(list);
+    }
   }
 
   // Ask about the owners and creators we don't have names for yet.
@@ -154,13 +182,47 @@ const FSInteract = (function () {
     return [info.label, info.userName, info.displayName].filter(Boolean).join(' ');
   }
 
-  function visibleObjects() {
-    return objects.filter(matchesFilter);
+  function isListRoot(obj) {
+    if (!obj.parentId) return true;
+    return !!obj.isAttachment && obj.localId === obj.rootLocalId;
   }
 
-  function sortObjects() {
+  function isAttachmentObject(obj) {
+    return !!(obj && obj.isAttachment);
+  }
+
+  function rootsInList() {
+    return objects.filter(isListRoot);
+  }
+
+  function typeFlagsForRoot(root) {
+    const all = [root].concat(childrenOfRoot(root.localId));
+    return {
+      physical: all.some(function (o) { return o.physical; }),
+      isAttachment: all.some(function (o) { return o.isAttachment; })
+    };
+  }
+
+  function matchesTypeFilters(obj) {
+    const flags = typeFlagsForRoot(obj);
+    if (!includeAttachments && flags.isAttachment) return false;
+    if (!includePhysical && flags.physical) return false;
+    return true;
+  }
+
+  function childrenOfRoot(rootId) {
+    return objects.filter(function (o) {
+      return o.parentId && o.rootLocalId === rootId;
+    });
+  }
+
+  function visibleRoots() {
+    return sortList(rootsInList().filter(matchesTypeFilters).filter(matchesFilter));
+  }
+
+  function sortList(list) {
     const dir = sortAsc ? 1 : -1;
-    objects.sort(function (a, b) {
+    return list.slice().sort(function (a, b) {
       if (sortKey === 'distance') return (a.distance - b.distance) * dir;
       const av = sortKey === 'owner' ? ownerLabel(a.ownerId) : (a.name || '');
       const bv = sortKey === 'owner' ? ownerLabel(b.ownerId) : (b.name || '');
@@ -168,52 +230,141 @@ const FSInteract = (function () {
     });
   }
 
+  function attachRowHandlers(row, obj) {
+    row.addEventListener('click', function (e) {
+      if (e.target.closest('.objects-cell--expandable')) return;
+      e.stopPropagation();
+      showRowMenu(e, obj);
+    });
+    row.addEventListener('contextmenu', function (e) {
+      if (e.target.closest('.objects-cell--expandable')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      showRowMenu(e, obj);
+    });
+    row.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.target.closest('.objects-cell--expandable')) return;
+      e.preventDefault();
+      showRowMenu(e, obj);
+    });
+  }
+
+  function buildObjectRow(obj, opts) {
+    opts = opts || {};
+    const row = document.createElement('div');
+    row.className = 'objects-row objects-row--item' + (opts.child ? ' objects-row--child' : '');
+    row.setAttribute('role', 'row');
+    row.tabIndex = 0;
+
+    const expandCell = document.createElement('span');
+    expandCell.className = 'objects-cell objects-cell--expand';
+    if (opts.expandable) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'objects-expand' + (opts.expanded ? ' objects-expand--open' : '');
+      toggle.setAttribute(
+        'aria-label',
+        opts.expanded ? 'Hide linked prims' : 'Show ' + opts.childCount + ' linked prim' +
+          (opts.childCount === 1 ? '' : 's')
+      );
+      toggle.addEventListener('pointerdown', function (e) {
+        e.stopPropagation();
+      });
+      toggle.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        expandedRoots[obj.localId] = !expandedRoots[obj.localId];
+        renderObjects();
+      });
+      expandCell.classList.add('objects-cell--expandable');
+      expandCell.appendChild(toggle);
+    }
+    row.appendChild(expandCell);
+
+    const dist = document.createElement('span');
+    dist.className = 'objects-cell objects-cell--num';
+    dist.textContent = obj.distance.toFixed(1) + ' m';
+    row.appendChild(dist);
+
+    const name = document.createElement('span');
+    name.className = 'objects-cell';
+    name.textContent = obj.name || '(unnamed)';
+    row.appendChild(name);
+
+    const owner = document.createElement('span');
+    owner.className = 'objects-cell';
+    owner.textContent = ownerLabel(obj.ownerId) || '-';
+    row.appendChild(owner);
+
+    attachRowHandlers(row, obj);
+    return row;
+  }
+
   function renderObjects() {
     const host = document.getElementById('objects-rows');
     if (!host) return;
-    sortObjects();
-    const shown = visibleObjects();
+    const shownRoots = visibleRoots();
+    const allRoots = rootsInList();
     host.innerHTML = '';
-    if (!shown.length) {
+    if (!shownRoots.length) {
       host.innerHTML = !loaded
         ? '<p class="settings-note">Press <strong>Load</strong> to list the objects around you.</p>'
         : filterText
           ? '<p class="settings-note">Nothing here matches "' + FSUtils.escapeHtml(filterText) + '".</p>'
-          : '<p class="settings-note">Nothing within ' + range + 'm. The region may still be ' +
-            'describing itself - give it a moment and press <strong>Load</strong> again.</p>';
+          : rootsInList().length && !visibleRoots().length
+            ? '<p class="settings-note">Nothing matches the current type filters. Try enabling ' +
+              'attachments or physical objects above.</p>'
+            : lastScan.cached > 0 && lastScan.tracked === 0
+            ? '<p class="settings-note">The region listed ' + lastScan.cached +
+              ' object' + (lastScan.cached === 1 ? '' : 's') +
+              ' but none have arrived yet. Press <strong>Load</strong> again in a moment.</p>'
+            : lastScan.pending > 0
+              ? '<p class="settings-note">Still naming ' + lastScan.pending +
+                ' object' + (lastScan.pending === 1 ? '' : 's') +
+                ' within ' + range + 'm...</p>'
+              : !lastScan.interest360
+                ? '<p class="settings-note">This region did not grant the InterestList capability, ' +
+                  'so object updates may be incomplete. Try <strong>Load</strong> again after moving.</p>'
+                : includeAttachments && lastScan.attachmentsTracked > 0 && lastScan.attachmentsInRange === 0
+                ? '<p class="settings-note">The sim reported ' + lastScan.attachmentsTracked +
+                  ' worn attachment' + (lastScan.attachmentsTracked === 1 ? '' : 's') +
+                  ' but none are in range yet. Wait for radar updates, then press <strong>Load</strong> again.</p>'
+                : '<p class="settings-note">Nothing within ' + range + 'm (' + lastScan.tracked +
+                  ' tracked, ' + lastScan.cached + ' cached' +
+                  (lastScan.nearest >= 0 ? ', nearest ' + lastScan.nearest.toFixed(0) + 'm' : '') +
+                  (lastScan.unresolvedParents > 0
+                    ? ', ' + lastScan.unresolvedParents + ' missing parent link' +
+                      (lastScan.unresolvedParents === 1 ? '' : 's')
+                    : '') +
+                  '). Press <strong>Load</strong> again after a moment.</p>';
+      return;
     }
-    shown.forEach(function (obj) {
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'objects-row objects-row--item';
-      row.setAttribute('role', 'row');
-      row.innerHTML =
-        '<span class="objects-cell objects-cell--num">' + obj.distance.toFixed(1) + ' m</span>' +
-        '<span class="objects-cell">' + FSUtils.escapeHtml(obj.name || '(unnamed)') + '</span>' +
-        '<span class="objects-cell">' + FSUtils.escapeHtml(ownerLabel(obj.ownerId) || '-') + '</span>';
-      // stopPropagation matters: other panels hide the shared menu on any document
-      // click, so without it the menu opened and closed again in the same event.
-      row.addEventListener('click', function (e) {
-        e.stopPropagation();
-        showRowMenu(e, obj);
-      });
-      row.addEventListener('contextmenu', function (e) {
-        e.preventDefault(); // and so the general edit menu leaves this alone
-        e.stopPropagation();
-        showRowMenu(e, obj);
-      });
-      host.appendChild(row);
+    shownRoots.forEach(function (root) {
+      const kids = sortList(childrenOfRoot(root.localId));
+      const hasKids = kids.length > 0;
+      const expanded = !!expandedRoots[root.localId];
+      host.appendChild(buildObjectRow(root, {
+        expandable: hasKids,
+        expanded: expanded,
+        childCount: kids.length
+      }));
+      if (expanded && hasKids) {
+        kids.forEach(function (child) {
+          host.appendChild(buildObjectRow(child, { child: true }));
+        });
+      }
     });
-    // The count belongs in the heading rather than trailing off behind the button.
     const title = document.getElementById('objects-title');
     if (title) {
-      if (!objects.length) {
+      const inRangeRoots = allRoots.filter(function (r) { return r.distance <= range; }).length;
+      if (!allRoots.length) {
         title.textContent = 'Nearby objects';
-      } else if (shown.length !== objects.length) {
-        title.textContent = 'Nearby objects (' + shown.length + ' of ' + objects.length +
-          ' within ' + range + 'm)';
+      } else if (shownRoots.length !== allRoots.length) {
+        title.textContent = 'Nearby objects (' + shownRoots.length + ' of ' + inRangeRoots +
+          ' roots within ' + range + 'm)';
       } else {
-        title.textContent = 'Nearby objects (' + objects.length + ' within ' + range + 'm)';
+        title.textContent = 'Nearby objects (' + inRangeRoots + ' roots within ' + range + 'm)';
       }
     }
     document.querySelectorAll('[data-objects-sort]').forEach(function (btn) {
@@ -226,19 +377,73 @@ const FSInteract = (function () {
   // `pending` is how many of those rows are still waiting on the sim to say what they
   // are. The core asks about all of them, paced, so they fill in over the next few
   // seconds without another press.
+  let loadInFlight = false;
+
+  function normalizeObjects(rows) {
+    return (rows || []).map(function (o) {
+      return Object.assign({}, o, {
+        physical: !!o.physical,
+        isAttachment: !!o.isAttachment
+      });
+    });
+  }
+
   function refreshObjects() {
     if (!FSState.gridOnline()) return;
+    if (loadInFlight) return;
+    loadInFlight = true;
+    const refreshBtn = document.getElementById('objects-refresh');
+    if (refreshBtn) refreshBtn.disabled = true;
     invoke('sl_nearby_objects', { range: range }).then(function (res) {
-      objects = (res && res.objects) || [];
+      objects = normalizeObjects(res && res.objects);
       loaded = true;
+      lastScan = {
+        pending: (res && res.pending) || 0,
+        tracked: (res && res.tracked) || 0,
+        cached: (res && res.cached) || 0,
+        nearest: res && typeof res.nearest === 'number' ? res.nearest : -1,
+        roots: (res && res.roots) || 0,
+        unresolvedParents: (res && res.unresolvedParents) || 0,
+        attachmentsTracked: (res && res.attachmentsTracked) || 0,
+        attachmentsInRange: (res && res.attachmentsInRange) || 0,
+        interest360: !(res && res.interest360 === false)
+      };
       resolveOwners();
       renderObjects();
-      const pending = res && res.pending;
+      const pending = lastScan.pending;
       if (pending > 0) {
         FSUtils.showToast('Naming ' + pending + ' object' + (pending === 1 ? '' : 's') + '...', 'info');
       }
+      if (pending > 0 || objects.length === 0) {
+        // The sim may still be describing the region, or names may still be draining in.
+        [2000, 5000].forEach(function (delayMs) {
+          window.setTimeout(function () {
+            if (!FSState.gridOnline()) return;
+            invoke('sl_nearby_objects', { range: range }).then(function (r2) {
+              if (!r2 || !r2.objects) return;
+              objects = normalizeObjects(r2.objects);
+              lastScan = {
+              pending: r2.pending || 0,
+              tracked: r2.tracked || 0,
+              cached: r2.cached || 0,
+              nearest: typeof r2.nearest === 'number' ? r2.nearest : -1,
+              roots: r2.roots || 0,
+              unresolvedParents: r2.unresolvedParents || 0,
+              attachmentsTracked: r2.attachmentsTracked || 0,
+              attachmentsInRange: r2.attachmentsInRange || 0,
+              interest360: !(r2.interest360 === false)
+            };
+              resolveOwners();
+              renderObjects();
+            }).catch(function () {});
+          }, delayMs);
+        });
+      }
     }).catch(function () {
       FSUtils.showToast('Could not read the nearby objects.', 'warning');
+    }).finally(function () {
+      loadInFlight = false;
+      if (refreshBtn) refreshBtn.disabled = false;
     });
   }
 
@@ -268,25 +473,23 @@ const FSInteract = (function () {
       menu.appendChild(b);
     };
     add('Show details', true, function () { showDetails(obj); });
-    // Touch and Pay appear only when the object actually handles them. The sim says so
-    // in the update's flags, and that's the same test the reference makes in
-    // enable_object_touch / enable_pay_object - so an entry that's here will do
-    // something, and one that isn't wouldn't have.
+    // Touch and Pay only when the sim's flags say the object handles them.
     if (obj.canTouch) {
       add('Touch', true, function () {
         invoke('sl_object_touch', { localId: obj.localId })
           .catch(function () { FSUtils.showToast('Could not touch that.', 'warning'); });
       });
     }
-    // "By default, we can sit on anything" (llinspectobject.cpp), so this is only out
-    // when we're already sitting on this very object.
-    add('Sit on', !(state.sitting && sittingOn === obj.id), function () {
-      invoke('sl_object_sit', { objectId: obj.id }).then(function () {
-        state.sitting = true;
-        sittingOn = obj.id;
-        paint();
-      }).catch(function () { FSUtils.showToast('Could not sit on that.', 'warning'); });
-    });
+    // Sit on anything except worn attachments.
+    if (!isAttachmentObject(obj)) {
+      add('Sit on', !(state.sitting && sittingOn === obj.id), function () {
+        invoke('sl_object_sit', { objectId: obj.id }).then(function () {
+          state.sitting = true;
+          sittingOn = obj.id;
+          paint();
+        }).catch(function () { FSUtils.showToast('Could not sit on that.', 'warning'); });
+      });
+    }
     if (canPayNow(obj)) {
       add('Pay...', true, function () { payObject(obj); });
     }
@@ -306,9 +509,7 @@ const FSInteract = (function () {
     menu.style.top = Math.round(y) + 'px';
   }
 
-  // Two sources agree before we offer to pay: the sim's FLAGS_TAKES_MONEY on the update
-  // (what the reference's enable_pay_object checks), and PayPriceReply if it has come
-  // back. Either one saying no means no button at all.
+  // Pay needs FLAGS_TAKES_MONEY and a non-blocking PayPriceReply when we have one.
   function canPayNow(obj) {
     if (!obj.canPay) return false;
     const price = payPrices[obj.id];
@@ -316,7 +517,7 @@ const FSInteract = (function () {
   }
 
   function permText(mask) {
-    // Permission bits from llpermissionsflags.h.
+    // Permission bitmask (modify / copy / transfer).
     const m = Number(mask) || 0;
     const parts = [];
     if (m & 0x00004000) parts.push('modify');
@@ -336,7 +537,8 @@ const FSInteract = (function () {
   function personRow(label, id) {
     if (!id || FSProfiles.isZero(id)) return '';
     const text = ownerLabel(id) || id;
-    const isGroup = !!(FSTransport.getGroupName && FSTransport.getGroupName(id));
+    const isGroup = !!(FSTransport.getGroupName && FSTransport.getGroupName(id)) ||
+      (typeof FSProfiles !== 'undefined' && FSProfiles.getGroupName && FSProfiles.getGroupName(id));
     return '<div class="profile-field"><span class="profile-field__label">' +
       FSUtils.escapeHtml(label) + '</span><span><a href="#" class="settings-link" ' +
       'data-profile-id="' + FSUtils.escapeHtml(id) + '" ' +
@@ -344,9 +546,18 @@ const FSInteract = (function () {
       FSUtils.escapeHtml(text) + '</a></span></div>';
   }
 
+  function groupRow(label, id) {
+    if (!id || FSProfiles.isZero(id)) return '';
+    return '<div class="profile-field"><span class="profile-field__label">' +
+      FSUtils.escapeHtml(label) + '</span><span><a href="#" class="settings-link" ' +
+      'data-profile-id="' + FSUtils.escapeHtml(id) + '" data-profile-kind="group">' +
+      FSUtils.escapeHtml(groupLabel(id)) + '</a></span></div>';
+  }
+
   function openProfile(id, kind) {
     if (!id || typeof FSProfile === 'undefined') return;
-    if (kind === 'group' || (FSTransport.getGroupName && FSTransport.getGroupName(id))) {
+    if (kind === 'group' || (FSTransport.getGroupName && FSTransport.getGroupName(id)) ||
+        (typeof FSProfiles !== 'undefined' && FSProfiles.getGroupName && FSProfiles.getGroupName(id))) {
       if (FSProfile.openGroup) FSProfile.openGroup(id);
       return;
     }
@@ -485,9 +696,7 @@ const FSInteract = (function () {
       });
   }
 
-  // The core hands over whole seconds since the epoch (it divides the sim's
-  // microseconds down, as the reference does). Anything else means the sim hasn't told
-  // us yet, so show nothing rather than an invalid date.
+  // Creation time is whole seconds since the epoch; anything else means unknown.
   function formatCreated(raw) {
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return '';
@@ -514,7 +723,7 @@ const FSInteract = (function () {
         detailRow('Position', Math.round(pos.x) + ', ' + Math.round(pos.y) + ', ' + Math.round(pos.z)) +
         detailRow('Distance', obj.distance.toFixed(1) + ' m') +
         personRow('Owner', p.ownerId || obj.ownerId) +
-        (p.groupId && !FSProfiles.isZero(p.groupId) ? personRow('Group', p.groupId) : '') +
+        (p.groupId && !FSProfiles.isZero(p.groupId) ? groupRow('Group', p.groupId) : '') +
         personRow('Last owner', p.lastOwnerId) +
         detailRow('You may', props ? permText(p.everyoneMask) : '') +
         detailRow('Next owner may', props ? permText(p.nextOwnerMask) : '') +
@@ -533,8 +742,10 @@ const FSInteract = (function () {
         (obj.canTouch
           ? '<button type="button" class="btn btn--secondary btn--sm" data-obj-action="touch">Touch</button>'
           : '') +
-        '<button type="button" class="btn btn--secondary btn--sm" data-obj-action="sit"' +
-          (state.sitting && sittingOn === obj.id ? ' disabled' : '') + '>Sit on</button>' +
+        (!isAttachmentObject(obj)
+          ? '<button type="button" class="btn btn--secondary btn--sm" data-obj-action="sit"' +
+            (state.sitting && sittingOn === obj.id ? ' disabled' : '') + '>Sit on</button>'
+          : '') +
         (canPayNow(obj)
           ? '<button type="button" class="btn btn--secondary btn--sm" data-obj-action="pay">' +
             (payPrices[obj.id] && payPrices[obj.id].defaultPrice > 0
@@ -592,6 +803,7 @@ const FSInteract = (function () {
         else window.open(url, '_blank', 'noopener,noreferrer');
       });
     });
+    if (p.groupId && !FSProfiles.isZero(p.groupId)) queueGroupResolve(p.groupId);
   }
 
   // Media-on-a-prim entries arrive as "face|url" so we can say which side it's on.
@@ -660,6 +872,61 @@ const FSInteract = (function () {
       }, 150));
     }
 
+    function initTypeFilter(id, key, getValue, setValue) {
+      const box = document.getElementById(id);
+      if (!box) return;
+      if (typeof FSSettings !== 'undefined') {
+        const saved = FSSettings.get(key);
+        if (typeof saved === 'boolean') setValue(saved);
+      }
+      box.checked = getValue();
+      box.addEventListener('change', function () {
+        setValue(box.checked);
+        if (typeof FSSettings !== 'undefined') FSSettings.set(key, box.checked);
+        if (id === 'objects-include-attachments' && box.checked && loaded) {
+          refreshObjects();
+          return;
+        }
+        renderObjects();
+      });
+    }
+
+    initTypeFilter(
+      'objects-include-attachments',
+      'objectsIncludeAttachments',
+      function () { return includeAttachments; },
+      function (v) { includeAttachments = v; }
+    );
+    initTypeFilter(
+      'objects-include-physical',
+      'objectsIncludePhysical',
+      function () { return includePhysical; },
+      function (v) { includePhysical = v; }
+    );
+
+    // When range or type filters change in Bee -> Settings, mirror them here.
+    if (typeof FSSettings !== 'undefined' && FSSettings.onChange) {
+      FSSettings.onChange(function (key, value) {
+        if (key === 'objectsRange') {
+          const next = Number(value);
+          if (RANGE_CHOICES.indexOf(next) === -1) return;
+          if (rangeBox) rangeBox.value = String(next);
+          setRange(next);
+        } else if (key === 'objectsIncludeAttachments') {
+          includeAttachments = !!value;
+          const box = document.getElementById('objects-include-attachments');
+          if (box) box.checked = includeAttachments;
+          if (includeAttachments && loaded) refreshObjects();
+          else renderObjects();
+        } else if (key === 'objectsIncludePhysical') {
+          includePhysical = !!value;
+          const box = document.getElementById('objects-include-physical');
+          if (box) box.checked = includePhysical;
+          renderObjects();
+        }
+      });
+    }
+
     // Escape or the backdrop closes the detail window; keep our own state in step.
     const dlg = document.getElementById('objects-detail');
     if (dlg) {
@@ -695,9 +962,8 @@ const FSInteract = (function () {
         if (props.ownerId) row.ownerId = props.ownerId;
         if (props.creatorId) row.creatorId = props.creatorId;
         // An object's group is usually one we're not in, so membership never named it.
-        if (props.groupId && !FSProfiles.isZero(props.groupId) &&
-            FSTransport.queueGroupNameResolve) {
-          FSTransport.queueGroupNameResolve([props.groupId]);
+        if (props.groupId && !FSProfiles.isZero(props.groupId)) {
+          queueGroupResolve(props.groupId);
         }
         // Merge, because the Family reply and the full one carry different fields.
         detailProps[row.id] = Object.assign({}, detailProps[row.id], props);
@@ -718,6 +984,8 @@ const FSInteract = (function () {
       FSTransport.on('teleport-finish', function () {
         objects = [];
         loaded = false;
+        Object.keys(expandedRoots).forEach(function (k) { delete expandedRoots[k]; });
+        lastScan = { pending: 0, tracked: 0, cached: 0, nearest: -1, roots: 0, unresolvedParents: 0, attachmentsTracked: 0, attachmentsInRange: 0, interest360: true };
         closeDetails();
         renderObjects();
       });
@@ -732,6 +1000,14 @@ const FSInteract = (function () {
       FSTransport.on('names-updated', repaintNames);
       // Group names arrive on their own event, and the details window shows one.
       FSTransport.on('group-names', repaintNames);
+    }
+    if (typeof FSProfiles !== 'undefined' && FSProfiles.onChange) {
+      FSProfiles.onChange(function (evt) {
+        if (!evt || (evt.kind !== 'group' && evt.kind !== 'membership')) return;
+        if (!openDetailId) return;
+        const row = objects.find(function (o) { return o.id === openDetailId; });
+        if (row) paintDetails(row, detailProps[row.id] || null);
+      });
     }
 
     // Stop scanning when the user navigates away from the Interactions panel.
@@ -763,6 +1039,8 @@ const FSInteract = (function () {
       sittingOn = '';
       objects = [];
       loaded = false;
+      Object.keys(expandedRoots).forEach(function (k) { delete expandedRoots[k]; });
+      lastScan = { pending: 0, tracked: 0, cached: 0, nearest: -1, roots: 0, unresolvedParents: 0, attachmentsTracked: 0, attachmentsInRange: 0, interest360: true };
       filterText = '';
       const box = document.getElementById('objects-filter');
       if (box) box.value = '';

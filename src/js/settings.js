@@ -22,8 +22,13 @@ const FSSettings = (function () {
     // Parcel music streaming. Off by default because of autoplay policy; volume 0-100.
     parcelMusicEnabled: { type: 'boolean', default: false },
     parcelMusicVolume: { type: 'number', default: 50, min: 0, max: 100, step: 1 },
+    objectsRange: { type: 'number', default: 32 },
+    objectsIncludeAttachments: { type: 'boolean', default: false },
+    objectsIncludePhysical: { type: 'boolean', default: true },
     theme: { type: 'string', default: 'dark' }
   };
+
+  const OBJECTS_RANGE_CHOICES = [16, 32, 48, 64, 96, 128, 256, 384];
 
   const STATE_MAP = {
     radarRange: 'radarRange',
@@ -36,6 +41,11 @@ const FSSettings = (function () {
   function coerce(key, raw) {
     const spec = SCHEMA[key];
     if (!spec) return undefined;
+    if (key === 'objectsRange') {
+      const n = parseInt(raw, 10);
+      if (OBJECTS_RANGE_CHOICES.indexOf(n) !== -1) return n;
+      return spec.default;
+    }
     if (spec.type === 'boolean') return !!raw;
     if (spec.type === 'number') {
       const n = parseInt(raw, 10);

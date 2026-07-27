@@ -60,6 +60,43 @@ const FSUtils = (function () {
     return Math.min(max, Math.max(min, n));
   }
 
+  function bindAutoGrowTextarea(el, options) {
+    if (!el || el.tagName !== 'TEXTAREA') return function () {};
+    const maxRows = options && options.maxRows != null ? options.maxRows : 3;
+    const submitOnEnter = !(options && options.submitOnEnter === false);
+
+    function resize() {
+      el.style.height = 'auto';
+      const cs = window.getComputedStyle(el);
+      const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.45;
+      const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const borderY = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+      const maxHeight = lineHeight * maxRows + padY + borderY;
+      const next = Math.min(el.scrollHeight, maxHeight);
+      el.style.height = next + 'px';
+      el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }
+
+    el.addEventListener('input', resize);
+
+    if (submitOnEnter) {
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          const form = el.form;
+          if (form && typeof form.requestSubmit === 'function') {
+            form.requestSubmit();
+          } else if (form) {
+            form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+          }
+        }
+      });
+    }
+
+    resize();
+    return resize;
+  }
+
   function distance3d(a, b) {
     const dx = a.x - b.x;
     const dy = a.y - b.y;
@@ -235,6 +272,7 @@ const FSUtils = (function () {
     escapeHtml: escapeHtml,
     debounce: debounce,
     clamp: clamp,
+    bindAutoGrowTextarea: bindAutoGrowTextarea,
     distance3d: distance3d,
     xorSessionId: xorSessionId,
     showToast: showToast,

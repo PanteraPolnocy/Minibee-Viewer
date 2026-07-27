@@ -58,6 +58,8 @@
   --side-nav-w: 88px;
   --map-tools-w: 220px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
   --transition: 0.2s ease;
@@ -669,7 +671,7 @@ html.require-http #app {
   align-items: center;
   justify-content: space-between;
   height: var(--top-bar-h);
-  padding: 0 12px 0 16px;
+  padding: 0 calc(12px + var(--safe-right)) 0 calc(16px + var(--safe-left));
   background: var(--bg-deep);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -1462,22 +1464,38 @@ html.require-http #app {
 
 .composer {
   display: flex;
+  align-items: flex-end;
   gap: 8px;
   padding: 10px 12px calc(10px + var(--safe-bottom));
+  padding-left: calc(12px + var(--safe-left));
+  padding-right: calc(12px + var(--safe-right));
   background: var(--bg-deep);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
 
+.composer__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .composer__input {
   flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  max-height: calc(1.45em * 3 + 22px);
   padding: 10px 14px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-md);
   background: var(--bg-input);
   color: var(--text);
   font: inherit;
+  line-height: 1.45;
   outline: none;
+  resize: none;
+  overflow-y: auto;
 }
 
 .composer__input:focus { border-color: var(--accent); }
@@ -1486,6 +1504,7 @@ html.require-http #app {
   padding: 10px 16px;
   border-radius: 999px;
   flex-shrink: 0;
+  min-height: 40px;
 }
 
 .composer__volume {
@@ -2818,7 +2837,7 @@ html.require-http #app {
 
 .objects-row {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-columns: 44px 72px minmax(0, 1.6fr) minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   width: 100%;
@@ -2857,6 +2876,82 @@ html.require-http #app {
 .objects-row--item { cursor: pointer; font-size: 0.84rem; }
 .objects-row--item:hover { background: var(--bg-elevated); }
 
+.objects-row--child {
+  background: color-mix(in srgb, var(--bg-elevated) 55%, transparent);
+  font-size: 0.8rem;
+}
+
+.objects-row--child .objects-cell:nth-child(3) {
+  padding-left: 10px;
+  color: var(--text-muted);
+}
+
+.objects-row--child:hover {
+  background: color-mix(in srgb, var(--bg-elevated) 85%, transparent);
+}
+
+.objects-cell--expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  padding: 0;
+  overflow: visible;
+}
+
+.objects-cell--expandable {
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.objects-expand {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--accent) 15%);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  color: var(--text-muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.objects-expand::before {
+  content: '';
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin: 0 auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg) translate(-1px, -1px);
+  transition: transform 0.15s ease;
+}
+
+.objects-expand--open::before {
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.objects-expand:hover,
+.objects-expand:focus-visible {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--bg-elevated) 70%, var(--accent) 12%);
+  outline: none;
+}
+
+.objects-expand:active {
+  transform: scale(0.96);
+}
+
 .objects-cell {
   min-width: 0;
   overflow: hidden;
@@ -2868,12 +2963,29 @@ html.require-http #app {
 
 .objects-sort.objects-cell--num { text-align: right; }
 
-.objects-toolbar {
+.objects-controls {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  grid-template-rows: auto auto;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.objects-filters {
+  grid-column: 1 / -1;
+  grid-row: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 10px 14px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.objects-load {
+  grid-column: 3;
+  grid-row: 1;
 }
 
 .objects-count {
@@ -2883,6 +2995,8 @@ html.require-http #app {
 }
 
 .objects-range {
+  grid-column: 2;
+  grid-row: 1;
   flex: 0 0 auto;
   padding: 5px 8px;
   border: 1px solid var(--border);
@@ -2895,7 +3009,8 @@ html.require-http #app {
 }
 
 .objects-filter {
-  flex: 1 1 160px;
+  grid-column: 1;
+  grid-row: 1;
   min-width: 0;
   padding: 5px 9px;
   border: 1px solid var(--border);
@@ -2968,14 +3083,101 @@ html.require-http #app {
 .objects-detail__actions .btn { flex: 0 1 auto; min-width: 92px; }
 
 @media (max-width: 640px) {
-  .objects-filter { flex: 1 1 100%; }
-  .objects-range { flex: 1 1 auto; }
-  .objects-toolbar .btn { flex: 0 0 auto; }
+  .objects-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .objects-filter,
+  .objects-range,
+  .objects-load {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .objects-filter,
+  .objects-range {
+    padding: 10px 12px;
+    font-size: 0.9rem;
+  }
+
+  .objects-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .objects-filters .toggle {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-deep);
+    white-space: normal;
+    min-height: 44px;
+    box-sizing: border-box;
+    font-size: 0.88rem;
+  }
+
+  .objects-filters .toggle input {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+
+  .objects-load {
+    min-height: 44px;
+    font-size: 0.9rem;
+    margin-top: 2px;
+  }
+
+  .composer {
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+    padding-top: 10px;
+    padding-bottom: calc(10px + var(--safe-bottom));
+    padding-left: calc(10px + var(--safe-left));
+    padding-right: calc(10px + var(--safe-right));
+  }
+
+  .composer__input {
+    flex: 1 1 100%;
+    width: 100%;
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  .composer__actions {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .composer__volume {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+
+  .composer__send {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px;
+  }
 
   .objects-row {
-    grid-template-columns: 58px minmax(0, 1.5fr) minmax(0, 0.9fr);
+    grid-template-columns: 40px 58px minmax(0, 1.5fr) minmax(0, 0.9fr);
     gap: 6px;
     padding: 8px;
+  }
+
+  .objects-expand {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
   }
 
   .objects-row--item { font-size: 0.8rem; }
@@ -4774,12 +4976,16 @@ html.require-http #app {
   /* Top bar on phones: shed the niche chrome (FPS, SLT clock, music volume
      slider, parcel sub-line) and let the name grow, so the agent name and the
      L$ balance keep their place instead of being squeezed off the right edge. */
-  .top-bar { padding: 0 8px 0 10px; }
+  .top-bar {
+    padding: 0 calc(10px + var(--safe-right)) 0 calc(10px + var(--safe-left));
+  }
   .top-bar__left { max-width: none; flex: 1 1 auto; }
   .top-bar__center { flex: 0 1 auto; padding: 0 6px; }
   .top-bar__parcel { display: none; }
   #fps-badge { display: none; }
   .parcel-music-bar__volume { display: none; }
+  .parcel-music-bar { padding: 2px 4px; }
+  .top-bar__right { gap: 2px; }
   /* Screen space is precious here, so the balance/clock chips, the theme toggle
      and the logout button all move into the bee popup. The parcel-music note
      stays on the bar - it's a one-tap control people reach for constantly. */

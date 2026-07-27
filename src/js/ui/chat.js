@@ -4,6 +4,8 @@
 const FSChat = (function () {
   'use strict';
 
+  let resetChatInputHeight = function () {};
+
   const CHAT_TYPE_CLASS = {
     whisper: 'msg__name--whisper',
     shout: 'msg__name--shout',
@@ -822,11 +824,17 @@ const FSChat = (function () {
 
     FSTransport.sendChat(text, { type: volume });
     input.value = '';
+    resetChatInputHeight();
     input.focus();
   }
 
   function init() {
     document.getElementById('chat-form').addEventListener('submit', handleSubmit);
+
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+      resetChatInputHeight = FSUtils.bindAutoGrowTextarea(chatInput, { maxRows: 3 });
+    }
 
     FSState.on('chat', function (msg) {
       if (FSState.get().activeTab === 'chat') {
