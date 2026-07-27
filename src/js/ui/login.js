@@ -116,7 +116,7 @@ const FSLogin = (function () {
     if (btn) btn.hidden = !hasSavedLogin();
   }
 
-  function updateForgetVisibility() {
+  function showChallenge(challenge) {
     return new Promise(function (resolve) {
       const dialog = document.getElementById('login-challenge');
       const title = document.getElementById('challenge-title');
