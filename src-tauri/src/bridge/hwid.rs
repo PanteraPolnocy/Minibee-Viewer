@@ -60,7 +60,7 @@ fn fold6(s: &[u8]) -> [u8; 6] {
     id
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn nic_mac() -> Option<[u8; 6]> {
     mac_address::get_mac_address().ok().flatten().map(|m| m.bytes())
 }
@@ -195,14 +195,12 @@ fn linux_disk_uuid() -> Option<String> {
 fn compute() -> HwId {
     let seed = android_device_seed();
     HwId {
-        mac: nic_mac()
-            .map(|b| hex_md5(&b))
-            .unwrap_or_else(|| hex_md5(&fold6(seed.as_bytes()))),
+        mac: hex_md5(&fold6(seed.as_bytes())),
         id0: hex_md5(seed.as_bytes()),
     }
 }
 
-/// Stable device identifiers available on Android without masking or randomising.
+/// Stable device identifiers from Android system properties (no desktop-only crates).
 #[cfg(target_os = "android")]
 fn android_device_seed() -> String {
     if let Ok(out) = std::process::Command::new("getprop")
