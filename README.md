@@ -42,7 +42,7 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 
 ## Download
 
-Just want to run it? Grab a prebuilt installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases)** page (runners build Windows, Linux, Mac and Android versions). Want to build it yourself? Jump to [Build & distribute](#build--distribute). Images to look at sit in the [Screenshots](/screenshots) directory.
+Just want to run it? Grab a prebuilt installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases/latest)** page (runners build Windows, Linux, Mac and Android versions). Want to build it yourself? Jump to [Build & distribute](#build--distribute). Images to look at sit in the [Screenshots](/screenshots) directory.
 
 New to Minibee? The **[plain-language user guide (HELP.md)](/HELP.md)** explains what everything does and where to find it - no technical jargon. It's also built into the app under **Settings → Help**.
 
