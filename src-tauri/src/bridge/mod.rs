@@ -5,6 +5,7 @@ pub mod caps;
 pub mod circuit;
 pub mod eventqueue;
 pub mod feeds;
+pub mod http_client;
 pub mod hwid;
 pub mod login;
 pub mod map;

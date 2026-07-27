@@ -268,7 +268,7 @@ mod tests {
 
 impl AppState {
     pub fn new(version: Value, ua: String) -> Arc<Self> {
-        let http = reqwest::Client::builder()
+        let http = crate::bridge::http_client::builder()
             .user_agent(&ua)
             .gzip(true)
             .build()

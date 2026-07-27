@@ -122,7 +122,7 @@ pub async fn fetch_map_tile(
     loop {
         crate::bridge::proxy::guard_url(&current).await?;
         let pin = crate::bridge::proxy::resolve_public_pin(&current).await;
-        let mut builder = reqwest::Client::builder()
+        let mut builder = crate::bridge::http_client::builder()
             .user_agent(&state.ua)
             .redirect(reqwest::redirect::Policy::none())
             .gzip(true);

@@ -228,7 +228,7 @@ pub async fn exchange(
         Some(p) => Some(p.clone()),
         None => resolve_public_pin(&cur_url).await,
     };
-    let mut builder = reqwest::Client::builder()
+    let mut builder = crate::bridge::http_client::builder()
         .user_agent(ua)
         .redirect(Policy::none())
         .gzip(true);

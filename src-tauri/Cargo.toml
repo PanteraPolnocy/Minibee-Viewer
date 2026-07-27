@@ -39,6 +39,9 @@ mac_address = "1.1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-roots = "1.0"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 wmi = "0.18"
 # Reaching the WebView2 settings directly, to turn off its own right-click menu.
