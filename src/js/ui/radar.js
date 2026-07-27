@@ -92,7 +92,7 @@ const FSRadar = (function () {
     li.dataset.id = entry.id;
     const status = entry.status ? ' [' + entry.status + ']' : '';
     const age = ageFor(entry);
-    const ageText = age ? ('Age: ' + age) : 'Age: …';
+    const ageText = age ? ('Age: ' + age) : 'Age: ...';
     li.innerHTML =
       '<div class="entity-item__avatar" data-agent-id="' + FSUtils.escapeHtml(entry.id) +
         '" data-resolve-image="0" data-label="' + FSUtils.escapeHtml(names.title) + '"></div>' +

@@ -1,7 +1,7 @@
 // Unit tests for the pure helpers in src/js/protocol/sl-profiles.js (the
 // Rust-fed profile/group cache mirror). Loaded as an IIFE in a function scope
 // with stubbed globals, like the other frontend tests. Event ingestion +
-// fetches (which need the live core) are not exercised here — only the pure
+// fetches (which need the live core) are not exercised here - only the pure
 // formatting/URL/getter helpers.
 
 import { test } from 'node:test';

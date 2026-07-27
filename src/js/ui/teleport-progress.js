@@ -18,11 +18,11 @@ const FSTeleportProgress = (function () {
 
   function humanize(message) {
     const key = String(message || '').toLowerCase();
-    if (!key || key.indexOf('request') >= 0) return 'Requesting teleport…';
-    if (key.indexOf('start') >= 0) return 'Starting teleport…';
-    if (key.indexOf('arriv') >= 0) return 'Arriving…';
+    if (!key || key.indexOf('request') >= 0) return 'Requesting teleport...';
+    if (key.indexOf('start') >= 0) return 'Starting teleport...';
+    if (key.indexOf('arriv') >= 0) return 'Arriving...';
     // Anything else the sim reports (e.g. "resolving", "downloading") passes straight through.
-    return message.charAt(0).toUpperCase() + message.slice(1) + '…';
+    return message.charAt(0).toUpperCase() + message.slice(1) + '...';
   }
 
   function percentFor(message) {

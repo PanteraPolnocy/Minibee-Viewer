@@ -195,7 +195,7 @@
         <h1>Minibee Viewer</h1>
         <p class="login-sub">A lightweight buzz into the infinite grid</p>
         <p class="login-credit">Brought to you by Pantera Północy</p>
-        <p id="login-version" class="login-version" aria-label="Viewer version">Minibee Viewer</p>
+        <p id="login-version" class="login-version" aria-label="Viewer version"></p>
       </div>
       <form id="login-form" class="login-form" autocomplete="on">
         <label class="field">
@@ -204,7 +204,7 @@
         </label>
         <label class="field">
           <span>Password</span>
-          <input type="password" id="login-password" name="password" placeholder="Password" required autocomplete="current-password" maxlength="16">
+          <input type="password" id="login-password" name="password" placeholder="Password" required autocomplete="current-password">
         </label>
         <label class="field">
           <span>Grid</span>
@@ -868,6 +868,7 @@
             <button type="button" class="settings-tab" data-settings-tab="help" role="tab" aria-selected="false" aria-controls="settings-pane-help">Help</button>
             <button type="button" class="settings-tab" data-settings-tab="readme" role="tab" aria-selected="false" aria-controls="settings-pane-readme">README</button>
             <button type="button" class="settings-tab" data-settings-tab="license" role="tab" aria-selected="false" aria-controls="settings-pane-license">License</button>
+            <button type="button" class="settings-tab" data-settings-tab="privacy" role="tab" aria-selected="false" aria-controls="settings-pane-privacy">Privacy</button>
           </div>
 
           <div id="settings-pane-prefs" class="settings-pane" role="tabpanel" aria-label="Viewer settings">
@@ -899,10 +900,15 @@
               </div>
               <h2 id="about-name" class="about-name">Minibee Viewer</h2>
               <p id="about-version" class="about-version"></p>
+              <p id="about-channel" class="about-channel"></p>
+              <p id="about-disclaimer" class="about-disclaimer"></p>
               <p id="about-catchphrase" class="about-catchphrase"></p>
               <dl class="about-meta">
                 <dt>Author</dt><dd id="about-author"></dd>
                 <dt>Contact</dt><dd id="about-contact"></dd>
+                <dt>Support</dt><dd id="about-support"></dd>
+                <dt>Privacy</dt><dd id="about-privacy"></dd>
+                <dt>Source</dt><dd id="about-source"></dd>
               </dl>
               <hr class="about-hr">
               <dl class="about-meta about-meta--mono" id="about-build"></dl>
@@ -918,15 +924,19 @@
           </div>
 
           <div id="settings-pane-help" class="settings-pane" role="tabpanel" aria-label="Help" hidden>
-            <pre id="settings-help" class="settings-doc" tabindex="0">Loading…</pre>
+            <pre id="settings-help" class="settings-doc" tabindex="0">Loading...</pre>
           </div>
 
           <div id="settings-pane-readme" class="settings-pane" role="tabpanel" aria-label="README" hidden>
-            <pre id="settings-readme" class="settings-doc" tabindex="0">Loading…</pre>
+            <pre id="settings-readme" class="settings-doc" tabindex="0">Loading...</pre>
           </div>
 
           <div id="settings-pane-license" class="settings-pane" role="tabpanel" aria-label="License" hidden>
-            <pre id="settings-license" class="settings-doc" tabindex="0">Loading…</pre>
+            <pre id="settings-license" class="settings-doc" tabindex="0">Loading...</pre>
+          </div>
+
+          <div id="settings-pane-privacy" class="settings-pane" role="tabpanel" aria-label="Privacy" hidden>
+            <pre id="settings-privacy" class="settings-doc" tabindex="0">Loading...</pre>
           </div>
         </div>
 
@@ -961,7 +971,7 @@
     <dialog id="teleport-progress-dialog" class="login-challenge tp-progress-dialog">
       <div class="login-challenge__body tp-progress">
         <h2 class="login-challenge__title">Teleporting</h2>
-        <p id="teleport-progress-label" class="login-challenge__text">Requesting teleport…</p>
+        <p id="teleport-progress-label" class="login-challenge__text">Requesting teleport...</p>
         <div class="tp-progress__track"><div id="teleport-progress-bar" class="tp-progress__bar"></div></div>
       </div>
     </dialog>

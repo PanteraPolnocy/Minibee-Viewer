@@ -31,11 +31,13 @@ const FSUpdater = (function () {
     if (!info || typeof FSUtils === 'undefined' || typeof FSUtils.confirm !== 'function') {
       return Promise.resolve(false);
     }
-    const version = info.version ? String(info.version) : 'a new version';
+    const availableVersion = info.version ? String(info.version) : 'a new version';
     const notes = info.notes ? String(info.notes).trim() : '';
+    const current = info.current_display_version ? String(info.current_display_version) : '';
+    const currentLine = current ? ('You have ' + current + '.\n\n') : '';
     const message = notes
-      ? ('Version ' + version + ' is available.\n\n' + notes + '\n\nInstall now?')
-      : ('Version ' + version + ' is available. Install now?');
+      ? (currentLine + 'Update ' + availableVersion + ' is available.\n\n' + notes + '\n\nInstall now?')
+      : (currentLine + 'Update ' + availableVersion + ' is available. Install now?');
     return FSUtils.confirm({
       title: 'Update available',
       message: message,
@@ -49,7 +51,7 @@ const FSUpdater = (function () {
     return promptInstall(info).then(function (accepted) {
       if (!accepted) return false;
       if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-        FSUtils.showToast('Downloading update…', 'info', 4000);
+        FSUtils.showToast('Downloading update...', 'info', 4000);
       }
       return invoke('app_install_update').then(function () {
         return true;
@@ -89,7 +91,7 @@ const FSUpdater = (function () {
         setStatus('Updates are not available in this build.');
         return;
       }
-      setStatus('Checking…');
+      setStatus('Checking...');
       return invoke('app_check_update').then(function (result) {
         if (!result) return;
         if (result.status === 'error') {
@@ -98,8 +100,9 @@ const FSUpdater = (function () {
           return;
         }
         if (result.status === 'up_to_date') {
-          setStatus('You are up to date.');
-          clearLater(3500);
+          const current = result.current_display_version ? String(result.current_display_version) : '';
+          setStatus(current ? ('You are up to date (' + current + ').') : 'You are up to date.');
+          clearLater(4500);
           return;
         }
         if (result.status === 'available') {

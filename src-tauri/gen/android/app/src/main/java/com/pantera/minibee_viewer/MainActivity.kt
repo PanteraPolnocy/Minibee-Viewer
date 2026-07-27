@@ -38,7 +38,7 @@ class MainActivity : TauriActivity() {
       ContextCompat.startForegroundService(this, Intent(this, ConnectionService::class.java))
     } catch (_: Exception) {
       // Some OEMs restrict starting a foreground service from the background;
-      // nothing else to do — the app behaves as before on those devices.
+      // nothing else to do - the app behaves as before on those devices.
     }
   }
 

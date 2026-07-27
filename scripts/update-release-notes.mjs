@@ -299,7 +299,7 @@ function formatDigest(digest) {
   if (!digest) return '-';
   const hex = digest.startsWith('sha256:') ? digest.slice(7) : digest;
   if (hex.length <= 24) return `\`${hex}\``;
-  return `\`${hex.slice(0, 12)}â€¦${hex.slice(-12)}\``;
+  return `\`${hex.slice(0, 12)}…${hex.slice(-12)}\``;
 }
 
 /**
@@ -398,8 +398,20 @@ export function buildDownloadBlock(release) {
     throw new Error(`No user-facing release assets found on ${release.tag_name}`);
   }
 
+  const repo = process.env.GITHUB_REPOSITORY || DEFAULT_REPO;
+  const repoUrl = `https://github.com/${repo}`;
+
   const lines = [
     DOWNLOAD_BEGIN,
+    '',
+    '### Third-party viewer notice',
+    '',
+    '**Minibee Viewer** is not provided or supported by Linden Lab, the makers of Second Life.',
+    '',
+    `- [Privacy policy](${repoUrl}/blob/main/PRIVACY.md)`,
+    `- [Support (GitHub Issues)](${repoUrl}/issues)`,
+    `- [Discussions](${repoUrl}/discussions)`,
+    '- **Android:** APK via GitHub Releases (sideload). Google Play distribution is planned; APK builds will continue alongside.',
     '',
     '### Downloads',
     '',
@@ -434,7 +446,7 @@ export function buildDownloadBlock(release) {
     '',
     '</details>',
     '',
-    `_Built for Minibee Viewer ${version}. Windows builds are unsigned (SmartScreen may warn). Android APK requires sideloading or your own distribution channel._`,
+    `_Built for Minibee Viewer ${version}. Windows builds are unsigned and will stay that way (SmartScreen may warn - use More info -> Run anyway). Android APK requires sideloading or your own distribution channel._`,
     '',
     DOWNLOAD_END,
   );

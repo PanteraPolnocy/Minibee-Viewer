@@ -4,8 +4,7 @@
  * Every preference control wires straight into FSSettings, so a change made here
  * ripples out across the rest of the viewer (FSSettings.set fires its listeners
  * and patches FSState). The About / License / README text comes from the Rust
- * core (app_about / app_license / app_readme), fetched lazily - only the first
- * time each subtab is opened.
+ * core (app_about / app_license / app_readme / app_help / app_privacy), fetched lazily
  */
 const FSSettingsUI = (function () {
   'use strict';
@@ -15,6 +14,7 @@ const FSSettingsUI = (function () {
     prefs: 'settings-pane-prefs',
     about: 'settings-pane-about',
     help: 'settings-pane-help',
+    privacy: 'settings-pane-privacy',
     readme: 'settings-pane-readme',
     license: 'settings-pane-license'
   };
@@ -51,7 +51,7 @@ const FSSettingsUI = (function () {
   ];
 
   let activeTab = DEFAULT_TAB;
-  const loaded = { about: false, help: false, license: false, readme: false };
+  const loaded = { about: false, help: false, license: false, readme: false, privacy: false };
   const rendered = {}; // per-control state, keyed by setting: { item, input, valueEl }
   let aboutInfo = null; // cached app_about payload, kept around for the Copy-all button
   let memTimer = null;  // refreshes the memory figure every 5s while About is open
@@ -259,6 +259,38 @@ const FSSettingsUI = (function () {
     if (memTimer) { window.clearInterval(memTimer); memTimer = null; }
   }
 
+  function linkCell(parent, label, url) {
+    if (!parent) return;
+    parent.innerHTML = '';
+    if (!url) {
+      parent.textContent = '-';
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = url;
+    link.className = 'settings-link';
+    link.textContent = label || url;
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      openExternal(url);
+    });
+    parent.appendChild(link);
+  }
+
+  function linkToSettingsTab(parent, label, tab) {
+    if (!parent) return;
+    parent.innerHTML = '';
+    const link = document.createElement('a');
+    link.href = '#';
+    link.className = 'settings-link';
+    link.textContent = label;
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      setTab(tab);
+    });
+    parent.appendChild(link);
+  }
+
   function loadAbout() {
     if (loaded.about) return;
     loaded.about = true;
@@ -266,7 +298,9 @@ const FSSettingsUI = (function () {
       aboutInfo = info || {};
       const data = aboutInfo;
       setText('about-name', data.name || 'Minibee Viewer');
-      setText('about-version', data.version ? ('Version ' + data.version) : '');
+      setText('about-version', data.displayVersion ? ('Version ' + data.displayVersion) : '');
+      setText('about-channel', data.channel ? ('Channel ' + data.channel) : '');
+      setText('about-disclaimer', data.disclaimer || '');
       setText('about-catchphrase', data.catchphrase || '');
       setText('about-author', data.author || 'Unknown');
       const contact = document.getElementById('about-contact');
@@ -286,6 +320,30 @@ const FSSettingsUI = (function () {
           contact.textContent = '-';
         }
       }
+      const support = data.support || {};
+      const supportEl = document.getElementById('about-support');
+      if (supportEl) {
+        supportEl.innerHTML = '';
+        if (support.issues) {
+          linkCell(supportEl, 'GitHub Issues', support.issues);
+        } else {
+          supportEl.textContent = '-';
+        }
+        if (support.discussions) {
+          if (supportEl.childNodes.length) supportEl.appendChild(document.createTextNode(' · '));
+          const link = document.createElement('a');
+          link.href = support.discussions;
+          link.className = 'settings-link';
+          link.textContent = 'Discussions';
+          link.addEventListener('click', function (e) {
+            e.preventDefault();
+            openExternal(support.discussions);
+          });
+          supportEl.appendChild(link);
+        }
+      }
+      linkToSettingsTab(document.getElementById('about-privacy'), 'Privacy policy', 'privacy');
+      linkCell(document.getElementById('about-source'), 'Source code', data.sourceUrl || data.homepage);
       const b = data.build || {};
       const updateBtn = document.getElementById('about-check-update');
       if (updateBtn && typeof FSUpdater !== 'undefined' && FSUpdater.available) {
@@ -351,11 +409,16 @@ const FSSettingsUI = (function () {
     const d = aboutInfo || {};
     const b = d.build || {};
     const s = d.system || {};
+    const display = d.displayVersion || '';
     const lines = [
-      (d.name || 'Minibee Viewer') + (d.version ? ' ' + d.version : ''),
+      (d.name || 'Minibee Viewer') + (display ? ' ' + display : ''),
+      d.channel ? ('Channel: ' + d.channel) : '',
+      d.disclaimer || '',
       d.catchphrase || '',
       'Author: ' + (d.author || ''),
       d.homepage ? 'Homepage: ' + d.homepage : '',
+      d.support && d.support.issues ? 'Support: ' + d.support.issues : '',
+      'Privacy: bundled (Bee -> Privacy)',
       '',
       'Build: ' + buildSummary(b),
       'LTO: ' + (b.lto ? 'Enabled' : 'Disabled'),
@@ -386,7 +449,7 @@ const FSSettingsUI = (function () {
     if (loaded[name]) return;
     loaded[name] = true;
     const target = document.getElementById(targetId);
-    if (target) target.textContent = 'Loading…';
+    if (target) target.textContent = 'Loading...';
     invoke(cmd).then(function (result) {
       const text = result && typeof result.text === 'string' ? result.text : '';
       if (target) target.textContent = text || 'No content.';
@@ -412,6 +475,7 @@ const FSSettingsUI = (function () {
     stopMemPoll();
     if (activeTab === 'about') { loadAbout(); startMemPoll(); }
     else if (activeTab === 'help') loadDoc('help', 'app_help', 'settings-help');
+    else if (activeTab === 'privacy') loadDoc('privacy', 'app_privacy', 'settings-privacy');
     else if (activeTab === 'readme') loadDoc('readme', 'app_readme', 'settings-readme');
     else if (activeTab === 'license') loadDoc('license', 'app_license', 'settings-license');
   }

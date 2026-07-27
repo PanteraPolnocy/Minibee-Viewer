@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare Minibee packet coverage against Firestorm message handlers."""
+"""Compare Minibee packet coverage against SLViewer message handlers."""
 from __future__ import annotations
 
 import os
@@ -45,8 +45,8 @@ def main() -> int:
 
     if not msg_file:
         print(
-            'message_template.msg not found. Set SL_MSG_TEMPLATE or place the '
-            'experiment inside a Firestorm-style tree.',
+            'message_template.msg not found. Set SL_MSG_TEMPLATE or place this '
+            'experiment inside a SLViewer-style tree.',
             file=sys.stderr,
         )
         return 2

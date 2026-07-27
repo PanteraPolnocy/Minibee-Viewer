@@ -63,7 +63,7 @@ const FSApp = (function () {
     if (reconnecting) { scheduleReconnect(RECONNECT_INTERVAL); return; }
     reconnecting = true;
     reconnectAttempt += 1;
-    FSUtils.showToast('Connection lost - reconnecting (attempt ' + reconnectAttempt + ')…',
+    FSUtils.showToast('Connection lost - reconnecting (attempt ' + reconnectAttempt + ')...',
       'warning', 4000);
     Promise.resolve(FSTransport.reconnect()).then(function () {
       reconnecting = false;
@@ -447,6 +447,9 @@ const FSApp = (function () {
       FSSessionLost.init();
       FSCapsBanner.init();
       if (typeof FSParcelMusic !== 'undefined') FSParcelMusic.init();
+      if (typeof MinibeeVersion !== 'undefined' && MinibeeVersion.load) {
+        MinibeeVersion.load().catch(function () {});
+      }
       if (typeof FSUpdater !== 'undefined' && FSUpdater.checkStartup) {
         window.setTimeout(function () { FSUpdater.checkStartup(); }, 2500);
       }

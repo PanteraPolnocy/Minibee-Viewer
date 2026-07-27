@@ -9,6 +9,7 @@ pub mod hwid;
 pub mod login;
 pub mod map;
 pub mod objects;
+pub mod platform;
 pub mod proxy;
 pub mod session;
 pub mod state;

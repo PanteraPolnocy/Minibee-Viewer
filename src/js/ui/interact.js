@@ -99,7 +99,7 @@ const FSInteract = (function () {
       return lines.subtitle ? lines.title + ' (' + lines.subtitle + ')' : lines.title;
     }
     const group = FSTransport.getGroupName ? FSTransport.getGroupName(id) : '';
-    return group || 'resolving…';
+    return group || 'resolving...';
   }
 
   // Ask about the owners and creators we don't have names for yet.
@@ -235,7 +235,7 @@ const FSInteract = (function () {
       renderObjects();
       const pending = res && res.pending;
       if (pending > 0) {
-        FSUtils.showToast('Naming ' + pending + ' object' + (pending === 1 ? '' : 's') + '…', 'info');
+        FSUtils.showToast('Naming ' + pending + ' object' + (pending === 1 ? '' : 's') + '...', 'info');
       }
     }).catch(function () {
       FSUtils.showToast('Could not read the nearby objects.', 'warning');
@@ -288,7 +288,7 @@ const FSInteract = (function () {
       }).catch(function () { FSUtils.showToast('Could not sit on that.', 'warning'); });
     });
     if (canPayNow(obj)) {
-      add('Pay…', true, function () { payObject(obj); });
+      add('Pay...', true, function () { payObject(obj); });
     }
     // Whoever it belongs to, and whoever made it, are people you may want to look up.
     if (obj.ownerId && !FSProfiles.isZero(obj.ownerId)) {
@@ -400,7 +400,7 @@ const FSInteract = (function () {
     if (!price) {
       // Ask, then let the reply reopen this with real choices.
       invoke('sl_request_pay_price', { objectId: obj.id }).catch(function () {});
-      FSUtils.showToast('Asking the object what it charges…', 'info');
+      FSUtils.showToast('Asking the object what it charges...', 'info');
       return;
     }
     if (!price.payable) {
@@ -434,7 +434,7 @@ const FSInteract = (function () {
     if (price.allowCustom) {
       const other = document.createElement('button');
       other.type = 'button';
-      other.textContent = 'Other amount…';
+      other.textContent = 'Other amount...';
       other.addEventListener('click', function () {
         menu.hidden = true;
         askCustomAmount(obj);
@@ -538,8 +538,8 @@ const FSInteract = (function () {
         (canPayNow(obj)
           ? '<button type="button" class="btn btn--secondary btn--sm" data-obj-action="pay">' +
             (payPrices[obj.id] && payPrices[obj.id].defaultPrice > 0
-              ? 'Pay L$ ' + payPrices[obj.id].defaultPrice + '…'
-              : 'Pay…') + '</button>'
+              ? 'Pay L$ ' + payPrices[obj.id].defaultPrice + '...'
+              : 'Pay...') + '</button>'
           : '') +
       '</div>' +
       '<div class="interact-actions" id="objects-pay-row" hidden>' +
@@ -547,7 +547,7 @@ const FSInteract = (function () {
           'min="1" step="1" placeholder="L$ amount" inputmode="numeric">' +
         '<button type="button" class="btn btn--primary btn--sm" id="objects-pay-send">Pay</button>' +
       '</div>' +
-      (props && extra.ok ? '' : '<p class="settings-note">Still gathering details…</p>');
+      (props && extra.ok ? '' : '<p class="settings-note">Still gathering details...</p>');
 
     const close = document.getElementById('objects-detail-close');
     if (close) close.addEventListener('click', closeDetails);
@@ -722,7 +722,7 @@ const FSInteract = (function () {
         renderObjects();
       });
       // Owner and creator names resolve after the fact; repaint so the labels replace
-      // the "resolving…" placeholders and the ids.
+      // the "resolving..." placeholders and the ids.
       const repaintNames = function () {
         if (objects.length) repaintSoon();
         if (!openDetailId) return;

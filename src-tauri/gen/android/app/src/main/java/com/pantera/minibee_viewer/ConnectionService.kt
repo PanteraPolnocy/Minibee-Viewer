@@ -11,7 +11,7 @@ import android.os.Build
 import android.os.IBinder
 
 /**
- * Keeps the process — and with it the native Second Life circuit — alive while
+ * Keeps the process - and with it the native Second Life circuit - alive while
  * the app is in the background, so switching to another app and coming back
  * doesn't tear the session down and drop you on the login screen. Android would
  * otherwise freeze or kill a backgrounded process, and the sim disconnects an
@@ -31,7 +31,7 @@ class ConnectionService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-        // If the OS kills us anyway, don't auto-recreate — MainActivity restarts
+        // If the OS kills us anyway, don't auto-recreate - MainActivity restarts
         // the service next time the app is backgrounded.
         return START_NOT_STICKY
     }

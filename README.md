@@ -8,21 +8,11 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 
 ## Table of Contents
 
-- [Download](#download)
 - [Read this first (the "use at your own risk" bit)](#read-this-first-the-use-at-your-own-risk-bit)
-- [Build & distribute](#build--distribute)
-- [What's in the box](#whats-in-the-box)
-- [Quick start](#quick-start)
-  - [Icons](#icons)
-- [Tests](#tests)
-- [How it's built](#how-its-built)
-  - [The frontend (`src/js/`)](#the-frontend-srcjs)
-  - [The core (`src-tauri/`)](#the-core-src-tauri)
-  - [How a login actually happens](#how-a-login-actually-happens)
-  - [Who does what (and where it's heading)](#who-does-what-and-where-its-heading)
-  - [The Debug tab](#the-debug-tab)
-  - [Lazy tabs](#lazy-tabs)
-- [Features at a glance](#features-at-a-glance)
+- [Download](#download)
+- [Third-party viewer](#third-party-viewer)
+- [How Minibee connects](#how-minibee-connects)
+- [Bee](#bee)
 - [Getting around](#getting-around)
 - [Chat and Events](#chat-and-events)
 - [Instant messages](#instant-messages)
@@ -37,14 +27,7 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 - [News](#news)
 - [When the connection drops](#when-the-connection-drops)
 - [Limitations (a.k.a. things it honestly can't do)](#limitations-aka-things-it-honestly-cant-do)
-- [Roadmap](#roadmap)
-- [Reference](#reference)
-
-## Download
-
-Just want to run it? Grab a prebuilt installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases/latest)** page (runners build Windows, Linux, Mac and Android versions). Want to build it yourself? Jump to [Build & distribute](#build--distribute). Images to look at sit in the [Screenshots](/screenshots) directory.
-
-New to Minibee? The **[plain-language user guide (HELP.md)](/HELP.md)** explains what everything does and where to find it - no technical jargon. It's also built into the app under **Settings → Help**.
+- [For developers](#for-developers)
 
 ## Read this first (the "use at your own risk" bit)
 
@@ -54,261 +37,66 @@ Minibee is **experimental software** - a lightweight work-in-progress, not a fin
 
 Short version: great for exploring and testing, not the thing to bet your account on.
 
-## Build & distribute
+## Download
 
-The version number is defined **once**, in `src-tauri/Cargo.toml`. Rust edition 2024. In `dev` the frontend is served live from `src/`; for a release build it's embedded straight into the binary.
+Just want to run it? Grab a prebuilt installer from the **[Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases/latest)** page (runners build Windows, Linux, Mac and Android versions). Want to build it yourself? Jump to [For developers](#for-developers). Images to look at sit in the [Screenshots](/screenshots) directory.
 
-Standalone optimized binary:
+New to Minibee? The **[plain-language user guide (HELP.md)](HELP.md)** explains what everything does and where to find it - no technical jargon. It's also built into the app under **Bee -> Help**.
 
-```bat
-cd Minibee-Viewer/src-tauri
-cargo build --release
-```
+## Third-party viewer
 
-Installers (what you actually want to hand to someone):
+Minibee Viewer is a **third-party client** for [Second Life](https://secondlife.com). It follows Linden Lab's [Third Party Viewer Policy](https://secondlife.com/corporate/third-party-viewers).
 
-```bat
-cd Minibee-Viewer
-npm run tauri build
-```
+**Not from Linden Lab.** This software is not provided, endorsed, or supported by Linden Lab. It is developed independently by Pantera Północy. Use it at your own risk.
 
-You'll find these under `src-tauri/target/release/`:
+**What it is:** a text-and-map client - chat, IM, search, radar, map, land, profiles, the Destination Guide, and related features through the Second Life protocol. The sections below walk through the details.
 
-| Artifact | Path | Notes |
-|----------|------|-------|
-| Standalone exe | `minibee-viewer.exe` | Windowed (~14 MB), frontend embedded; needs WebView2 already installed |
-| NSIS setup | `bundle/nsis/Minibee-Viewer_x.x.x_x64-setup.exe` | **Recommended** - bootstraps WebView2, adds a Start-menu shortcut + uninstaller; shows the LGPL license during setup |
-| MSI | `bundle/msi/Minibee-Viewer_x.x.x_x64_en-US.msi` | For group-policy / enterprise deploys |
+**What it is not:** a 3D viewer. You will not see avatars, objects, or region geometry. Some official-viewer features may be missing or behave differently.
 
-Installed copies also include `LICENSE` and `README.md` next to the app executable (configured in `tauri.conf.json` `bundle.resources`). The NSIS installer reads `bundle.licenseFile` for the license agreement page.
+**How we play fair:** Minibee identifies itself honestly at login and does not impersonate the official viewer or another third-party client. Script dialogs, permission requests, and payment prompts always need your tap - nothing is auto-accepted. Untrusted web links from chat ask before opening. Desktop updates only install when you confirm.
 
-- **WebView2**: preinstalled on Windows 11 and current Windows 10. The bare exe needs it present; the NSIS installer fetches it if it's missing.
-- **Unsigned**: the builds aren't code-signed, so Windows SmartScreen will do its "unknown publisher" song and dance (*More info → Run anyway*). A signing certificate (configured in `tauri.conf.json`) makes it stop.
-- **Console window**: `target/debug` exes show a console with logs; the release exe and installers are windowed and quiet (`main.rs` sets `windows_subsystem = "windows"` in release).
+**Privacy:** [PRIVACY.md](PRIVACY.md) (also **Bee -> Privacy**).
 
-## What's in the box
+**Support:** community help through [GitHub Issues](https://github.com/PanteraPolnocy/Minibee-Viewer/issues) and [Discussions](https://github.com/PanteraPolnocy/Minibee-Viewer/discussions). No paid or guaranteed response-time support. Linden Lab does not support third-party viewers.
 
-```
-Minibee-Viewer/
-  README.md              You are here
-  LICENSE                LGPL 2.1
-  SECURITY.md            How to report a vulnerability
-  CODE_OF_CONDUCT.md
-  CONTRIBUTING.md
-  src/                   Frontend (served by the app)
-    index.html           Shell, login screen, side navigation
-    css/app.css          Styles (dark/light themes)
-    js/                  The client app (UI + a thin adapter to the Rust core)
-  src-tauri/             Native core (Rust)
-    src/                 Transport, message codec, circuit, commands
-    resources/           message_template.msg (bundled)
-    tauri.conf.json      App and installer config
-    Cargo.toml           Single source of the version number
-```
+**Terms:** Linden Lab's Terms of Service (and any login-time prompts for updated terms or critical messages) are presented when you log in. You must accept them to connect.
 
-## Quick start
+**Updates (desktop):** after startup, Minibee checks [GitHub Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases) for a newer version. Downloads and installs happen only if you confirm. Details in [PRIVACY.md](PRIVACY.md).
 
-Minibee is - by default, unless you use the Android boilerplate directory - a desktop app. The UI lives in a WebView; the native **Rust core** does everything a browser flat-out can't - the SL UDP circuit, the XML-RPC login, and the cross-origin capability/map requests. The two talk over Tauri IPC (`window.__TAURI__.core.invoke`). There's no local HTTP server and no separate bridge process to babysit.
+**Source:** LGPL 2.1 - https://github.com/PanteraPolnocy/Minibee-Viewer
 
-You'll need (on Windows, but Minibee builds without a problem under Linux or Mac):
+## How Minibee connects
 
-- [Rust](https://rustup.rs) with the MSVC toolchain (`stable-x86_64-pc-windows-msvc`)
-- Visual Studio Build Tools (**Desktop development with C++**)
-- WebView2 runtime (already on Windows 11)
-- Node.js (for the Tauri CLI)
+Minibee speaks Linden Lab's documented viewer protocol to Second Life and compatible OpenSim grids. It does not impersonate the official viewer or another third-party client.
 
-Then:
+**At login**, the grid sees a channel of `Minibee-Viewer Release` (installers from Releases) or `Minibee-Viewer Test` (local debug builds only), plus a four-part version number from `Cargo.toml` - build `0` when you compile yourself, a CI build id on automated releases. The login screen and **Bee -> About** show the same channel and version.
 
-```bat
-cd Minibee-Viewer
-npm install
-npm run tauri dev
-```
+**Your machine, honestly:** platform fields are the real OS, not hardcoded. Device identifiers the protocol asks for (`mac`, `id0`, and the rest) use the same rules as other viewers in the family - not masked or faked.
 
-Pick a grid (Agni, Aditi, or a local OpenSim), enter your credentials, and log in. Changed the frontend? Reload the window. Changed Rust? Restart `npm run tauri dev`.
+**Credentials:** passwords are never saved to disk. Auto-reconnect keeps them in obfuscated memory only until you log out.
 
-**Certificates:** TLS is checked against the operating system's trust store, so there's no CA bundle to download or configure. One less thing.
+**OpenSim:** on grids other than Agni or Aditi, a single-word username can log in the OpenSim way when the grid expects that.
 
-### Icons
+Any future departure from standard protocol behaviour will be documented here before release.
 
-The app icon is set once in `tauri.conf.json` (`bundle.icon`) and applies everywhere - the Windows exe, the macOS `.app`/DMG (`icon.icns`), and Linux `.deb`/`.rpm`/AppImage (PNGs). The source assets live in `src-tauri/icons/`: `32x32.png`, `64x64.png`, `128x128.png`, `128x128@2x.png`, `icon.png`, `icon.icns`, `icon.ico` (plus `android/` and `ios/` sets for a future mobile life).
+## Bee
 
-- NSIS setup `.exe` icon comes from `bundle.windows.nsis.installerIcon` → `icons/icon.ico`.
-- NSIS wizard art lives in `src-tauri/icons/nsis/` (`header.bmp`, `sidebar.bmp`, `uninstall-header.bmp`).
-- WiX MSI art lives in `src-tauri/icons/wix/` (`banner.bmp` 493×58, `dialog.bmp` 493×312 for Welcome/Finish).
-- Regenerate all installer bitmaps with `powershell -ExecutionPolicy Bypass -File scripts/generate-nsis-bmp.ps1`, or drop your own 24-bit BMPs at those paths.
-- The `.msi` file's own icon is fixed by Windows Installer; its Add/Remove Programs entry uses the app icon.
+Open **Bee** in the nav (bee icon) for preferences and bundled docs:
 
-## Tests
+- **Settings** (sub-tab) - theme, radar range/alerts, buddies filter, destination feed, parcel music, auto-reconnect, optional sit-on-ground after login. Changes apply everywhere immediately.
+- **About Minibee** - version, author, support links, **Check for updates** (desktop), **Copy all** for bug reports.
+- **Help** - the full user guide ([HELP.md](HELP.md)).
+- **README** / **License** / **Privacy** - bundled project docs.
 
-Two unit-test suites cover the pure logic - the stuff you can check without a live grid:
-
-```bat
-cd Minibee-Viewer
-npm test            REM JS  - node --test (frontend pure helpers)
-npm run test:rust   REM Rust - cargo test (native core)
-```
-
-- **Rust** (`src-tauri/src/**`): the message codec + zerocoding, LLSD, URL matching (`urlmatch`), the `bridge_proxy` SSRF egress guard, address/UUID/seed-URL normalisation (`util`), map coord/region parsing, login (password hashing, XML-RPC build + response parse), and the version payload.
-- **JS** (`test/*.test.mjs`): SLURL parsing, chat linkify + trust classification, region-coordinate math (`core/sl-slurl.js`), and the profile/group cache-mirror helpers (`core/sl-profiles.js`). The frontend modules are IIFEs, so the tests load them in a stubbed function scope and poke at the pure helpers without needing a DOM.
-
-## How it's built
-
-### The frontend (`src/js/`)
-
-```
-app.js                      Bootstrap and event wiring
-serve-guard.js              Blocks file://; insists on running inside the app WebView
-settings.js                 Local preferences (localStorage, theme)
-state.js                    Shared UI/session state and unread counts
-errors.js                   App-wide log facade (errors + optional chat mirror)
-audio/parcel-music.js       Parcel music stream player (top-bar control)
-ui/chat.js                  Nearby chat composer + rendering
-ui/im.js                    IM, group & conference chat, roster, typing, moderation, pay dialog
-ui/events.js                Script dialogs, permissions, prompts, payments
-ui/buddies.js               Friends list + context actions
-ui/search.js                People / places / groups search UI
-ui/radar.js                 Coarse nearby avatars, range, alerts
-ui/map.js                   World map, teleport, teleport home
-ui/land.js                  Parcel view + edit
-ui/destinations.js          Destination Guide feeds
-ui/teleport.js              Incoming teleport offer/request prompts
-ui/settings.js              Settings tab (live preferences, About, License, README)
-ui/navigation.js            Tab switching, top bar, badges, SLT clock
-ui/session-lost.js          Disconnect overlay + offline browse mode
-ui/panel-busy.js            Per-panel loading overlays
-ui/profile.js               Avatar + group profile floater
-ui/avatar-thumb.js          Shared profile thumbnails in lists
-core/sl-bridge.js           Transport adapter: Rust events -> FSTransport bus,
-                            UI actions -> invoke, name/buddy mirror, MFA/TOS loop
-core/sl-profiles.js         Profile/group cache mirror (fed by Rust events; no parsing)
-core/transport.js           In-app event bus + method facade the UI talks to
-core/bridge.js              IPC client (invoke + event subscription)
-core/sl-slurl.js            SLURL / map coordinate + tile-URL helpers (UI display)
-version.js                  Reads the version from the core (bridge_version)
-```
-
-### The core (`src-tauri/`)
-
-One async backend (tokio). Because circuit receipt, cap requests, and login all run concurrently, a slow capability call can't stall incoming chat/IM/radar packets - the old "everything waits behind one HTTP request" problem is gone. A single pooled HTTP client reuses TLS/keep-alive connections across cap calls, and EventQueue long-polls are **single-flight** per session so a reconnect doesn't leave an orphaned poll haunting the sim.
-
-| Module | Job |
-|--------|-----|
-| `codec/template.rs` | Parses the bundled `message_template.msg` into a message registry |
-| `codec/mod.rs` | Generic encode/decode + zerocoding for every message |
-| `bridge/session.rs` | The session engine: a pure `route()`/`route_eq()` turning decoded packets + EventQueue events into UI events and outbound sends (chat, IM, radar, parcel, groups, teleport, profiles) |
-| `bridge/circuit.rs` | One UDP socket per session; decode → route → send; Rust-owned sequence/ack/reliable-resend; handshake + teleport sim-migration; inbound trusted-message HTTP listener |
-| `bridge/eventqueue.rs` | EventQueueGet long-poll + ChatterBox chat-session demux |
-| `bridge/login.rs` | XML-RPC `login_to_simulator`, response classify/normalize, payload assembly, seed-capability fetch |
-| `bridge/caps.rs` | Capability consumers: GetDisplayNames, ChatSessionRequest |
-| `bridge/hwid.rs` | Hardware-derived login ids (`mac`/`id0`), per-platform, mirrors Firestorm |
-| `bridge/proxy.rs` | Capability HTTP proxy (redirects, simhost IP pinning, EventQueue lane) + SSRF egress guard |
-| `bridge/map.rs` | Map tiles, region lookups, Destination Guide |
-| `urlmatch.rs` | Chat/IM link matching + trust classification (`bridge_linkify`; mirrors `LLUrlRegistry`) |
-| `commands.rs` | The Tauri command surface (`bridge_*`, `sl_*`, `app_*`, window-close guard) |
-
-### How a login actually happens
-
-1. The UI sends credentials to `bridge_login` - the core does XML-RPC `login_to_simulator`, then classifies (ok / MFA / TOS), normalizes the response into agent/region/buddies, and fetches the seed capabilities, all in Rust. JS only runs the MFA/TOS prompt loop.
-2. `sl_start_session` - the core opens a UDP socket, runs the handshake (`UseCircuitCode` → `CompleteAgentMovement`), and starts the EventQueue long-poll. From here the core owns sequence numbers, acks, and reliable resends.
-3. The reader decodes each datagram, `route()`s it, performs any responses (ping, region-handshake reply, teleport sim-migration), and emits UI-level events (`minibee-viewer://chat`, `…/im`, `…/region`, `…/teleport-finish`, …). The high-frequency object/effect/sound firehose a no-3D client never uses is dropped in the core.
-4. HTTP caps run in the core too: `GetDisplayNames` for names, `ChatSessionRequest` for group/conference chat, directory search, avatar/group profiles. `EventQueueGet` delivers chat-session lifecycle and teleport backup.
-5. The WebView just listens to those events and calls commands (`sl_chat_send`, `sl_teleport_to`, …) - no protocol parsing in JS.
-
-### Who does what
-
-The Rust core owns the whole protocol: the message-template codec, the UDP circuit engine, EventQueue, LLSD, login, and capabilities. The WebView is UI plus a thin adapter (`sl-bridge.js`) that maps core events onto its event bus and UI actions onto `invoke`; a small cache mirror (`sl-profiles.js`) holds profile/group data the UI reads synchronously. There is no protocol parsing left in JavaScript.
-
-### The Settings tab
-
-Open **Settings** (the bee icon in the nav) for everything preference-related in one place:
-
-- **Settings** - live viewer preferences (theme, radar range/alerts, buddies filter, destination feed, parcel music, **auto-reconnect**). Changing anything here applies across the viewer immediately.
-- **About Minibee** - logo, version, catchphrase, author and contact, pulled from the app manifest (`tauri.conf.json`) + Cargo package info.
-- **License** / **README** - the bundled `LICENSE` and `README.md`, read from the core on demand (only when you open the subtab).
-
-There's no in-app diagnostics panel any more - protocol logging goes straight to a file via the `--enablelogfiles` flag below.
-
-### The `--enablelogfiles` flag
-
-When something goes wrong down in the native core, start the app with `--enablelogfiles` (or set `MINIBEE_ENABLE_LOGFILES=1`) and Rust + the frontend will both scribble timestamped lines into a single file:
-
-```bat
-minibee-viewer.exe --enablelogfiles
-```
-
-You'll find it at `%TEMP%/minibee-viewer/minibee-viewer.log` on Windows (the OS temp dir elsewhere - in its own folder, created private-to-you on Linux so a shared `/tmp` can't leak or clobber it). It's **off unless you ask for it** - no flag, no file, not a single wasted write - so it's safe to leave the flag out for normal use and reach for it only when a bug needs a paper trail. Truncated fresh on each launch, so you're never spelunking through last Tuesday.
-
-### Lazy tabs
-
-Tabs load their data only when you open them, so login stays quick and the bridge isn't doing busywork:
-
-- **Chat / IM / Events / People / Radar** - render on first visit; UDP keeps flowing in the background once you're connected
-- **Search** - queries run when you submit one
-- **Map** - tiles and region names load when the tab is active
-- **Land** - parcel refresh + land caps run when you open the tab
-- **Guide** - feeds load on first visit
-- **Settings** - About / License / README are fetched from the core only when their subtab is first opened
-
-## Features at a glance
-
-| Feature | Status |
-|---------|--------|
-| Login (Agni / Aditi / local) | Yes |
-| Remember / forget login | Yes (username + grid saved locally; **password is never stored**; a "Forget saved login & MFA token" button wipes creds + all MFA tokens) |
-| MFA / TOS / critical prompts | Yes (in the login dialog) |
-| Dark / light theme | Yes (top-bar toggle **or** Settings tab; saved locally) |
-| Settings hub | Yes (one place for theme, radar, buddies, destination feed, parcel music, auto-reconnect; plus About / License / README) |
-| Auto-reconnect | Yes (**off by default**; credentials kept obfuscated in the Rust core, replayed on drop with back-off) |
-| Close confirmation | Yes (closing the window while connected asks to log out & quit; quit reachable only from that dialog) |
-| Responsive layout | Yes (navigation drops to a bottom bar on phone-width screens) |
-| Nearby chat | Yes (UDP) |
-| Events tab (scripts, prompts, payments) | Yes (separate from chat; has its own unread badge) |
-| Script dialogs / permissions | Yes (Events cards; never auto-replies) |
-| LoadURL / map prompts / friendship offers | Yes (Events cards; you confirm) |
-| Linden dollar balance | Yes (top bar; `MoneyBalanceReply`) |
-| SLT clock | Yes (top bar, US Pacific) |
-| IM (send + receive) | Yes (UDP) |
-| Group chat | Yes (`IM_SESSION_GROUP_START`; sim-streamed; group name from the membership cache) |
-| Conference (ad-hoc) chat | Yes (`ChatSessionRequest` cap; invite participants) |
-| Session roster + moderation | Yes (live member list; moderator text mute; roster refreshes on reopen) |
-| Typing indicators | Yes (1:1; `IM_TYPING_START/STOP`) |
-| IM pay resident | Yes (L$ transfer dialog) |
-| Close / leave / dismiss conversation | Yes (P2P dismiss keeps history; group/conference leave server-side) |
-| Friends list + display names | Yes (`GetDisplayNames` cap) |
-| Block list | Yes (sim's mute list over Xfer; block/unblock from profile, IM, or People → Blocked) |
-| Buddy teleport offer / request | Yes (context menu) |
-| Remove friend | Yes (buddies menu + profile; asks first) |
-| Avatar profiles | Yes (`AgentProfile` cap + UDP; about, picks, classifieds, notes, groups) |
-| Group profiles | Yes (charter, insignia, join / leave, activate, title picker + save, open group chat when a member) |
-| Avatar thumbnails in lists | Partial (buddies resolve photos; others show initials) |
-| Search - people | Yes (UDP directory + avatar cap; profile + IM from results) |
-| Search - places | Yes (UDP directory; show on map, expandable details) |
-| Search - groups | Yes (UDP directory; open group profile) |
-| Radar (coarse positions) | Yes (`CoarseLocationUpdate`; filter, range, optional alerts) |
-| World map + tiles | Yes (map-server JPEG tiles via the bridge) |
-| Region lookup / SLURL | Yes (map location field, linkified chat/IM) |
-| Clickable links in chat/IM | Yes (SLURL, http(s), `[url Label]`, email; trusted vs external, with a confirm for external) |
-| Parcel music playback | Yes (top-bar play/volume control, shown only when the parcel actually streams music; off by default) |
-| Manual teleport | Yes (map selection, Destination Guide, `Teleport Here`) |
-| Teleport home | Yes (map sidebar button) |
-| Teleport progress | Yes (full-screen lock with a centered progress bar; plus stage + percentage on busy buttons) |
-| Sim-initiated teleport | Yes (force / god / home / death; not plain lure offers) |
-| Destination Guide | Yes (Linden feeds: suggested, popular, new, editor, events) |
-| Session disconnect detection | Yes (overlay; browse offline; gentle status/logout pulse) |
-| Unread badges | Yes (chat, IM, events counts; radar/land/debug indicators) |
-| Land parcel view/edit | Partial (owner + group-member parcels; HTTP + UDP data) |
-| Teleport offers / requests | Partial (IM accept/decline prompts; buddy send) |
-| Nearby objects | Yes (Interact tab: configurable radius, name/creator filter, sortable, details on demand) |
-| Object touch / sit / pay | Yes (gated on the sim's own object flags, as the reference gates them) |
-| Avatar actions | Yes (sit on ground, stand, fly, stop flying) |
-| 3D world / inventory / attachments | No (and not pretending to) |
+There is **no Debug tab** and no in-app log viewer. For a bug paper trail, start with `--enablelogfiles` (or `MINIBEE_ENABLE_LOGFILES=1`). Log file: `%TEMP%/minibee-viewer/minibee-viewer.log` on Windows (your OS temp dir elsewhere). **Off by default** - truncated fresh each launch.
 
 ## Getting around
 
-- **Side navigation** - Chat, IM, Interact, Events, People, Search, Radar, Map, Land, Guide, News, Settings down the left edge.
-- **Top bar** - connection dot next to your name; your name (click to open your own profile when connected); your **active group title** underneath (or "No active group title" - the group *name* isn't shown here, just the title); parcel name + region; a **parcel-music** play/volume control that only appears when the parcel streams music; L$ balance; SLT clock; sim FPS; theme toggle; logout.
-- **Unread badges** - numbers on Chat, IM, and Events; dots on Radar (someone new in range), Land (parcel updated), and Debug (new errors). A new IM bumps the IM badge but doesn't yank you to the tab - you read when you're ready.
+- **Side navigation** - Chat, IM, Interact, Events, People, Search, Radar, Map, Land, Guide, News, Bee down the left edge (bottom bar on a phone-width screen).
+- **Top bar** - connection dot, your name (tap for your profile), **active group title** underneath, parcel + region, parcel-music control when the parcel streams, L$ balance, SLT clock, sim FPS, theme toggle, logout.
+- **Unread badges** - numbers on Chat, IM, and Events; dots on Radar (someone new in range) and Land (parcel updated). A new IM bumps the badge but doesn't yank you to the tab - you read when you're ready.
+
+Tabs load their data when you open them, so login stays quick. Chat and IM keep flowing in the background once you're connected.
 
 ## Chat and Events
 
@@ -317,207 +105,160 @@ Tabs load their data only when you open them, so login stays quick and the bridg
 - Script dialogs and text boxes
 - Script permission requests
 - LoadURL, map, and friendship prompts
-- Payment / economy notices (deduplicated when the sim resends the same transaction - a repeat just refreshes the existing card's balance instead of stacking another one)
+- Payment / economy notices (if the sim resends the same payment, Minibee refreshes the existing card instead of stacking duplicates)
 
 Nothing in Events answers by itself. Unresolved items keep the Events badge lit until you look.
 
-**Links in chat/IM/MOTD are clickable.** In-world SLURLs open the map; `secondlife:///app/agent|group/...` links open the relevant profile; recognised `http(s)` links, `[url Label]` bracket forms, and email addresses get linkified with trust-aware styling. Trusted Linden/Firestorm domains open straight away; **an untrusted external link asks first** (and wears a little `↗`) before it takes you out of Second Life. The URL grammar + trust list live in the core (`urlmatch.rs`), mirroring Firestorm's `LLUrlRegistry`.
+**Links in chat/IM are clickable.** Place links open the map; profile links open the right floater; web and email links are recognised. Trusted Linden/Firestorm domains open straight away; **an untrusted external link asks first** (little `^` marker) before it takes you out of Second Life.
 
 ## Instant messages
 
 The **IM** tab keeps 1:1, group, and conference conversations in one list:
 
-- **1:1 IM** - plain `ImprovedInstantMessage`, with a "typing…" indicator while the other person composes. Closing a 1:1 hides it but keeps the history; it reopens the moment either of you writes again.
+- **1:1 IM** - with a "typing..." indicator while the other person composes. Closing a 1:1 hides it but keeps the history; it reopens when either of you writes again.
 - **Notifications** - a new IM raises the IM badge; Minibee won't switch tabs on you.
-- **Group chat** - open it from the Land tab's parcel group, a group profile, or when another member starts talking; the sim streams messages to members over UDP (`IM_SESSION_GROUP_START`). The session title comes from your group membership, not the binary bucket.
-- **Conference chat** - start an ad-hoc session from the IM tab or a buddy's menu; incoming invites are accepted through the `ChatSessionRequest` capability. **Invite** adds more people to an open conference.
-- **Roster** - a collapsible member sidebar with online state and resolved display names; click a member to open a 1:1. Reopening a group re-requests the roster from the sim and seeds from recent participants.
-- **Moderation** - in **group** sessions, moderators can mute/unmute a participant's text (`ChatSessionRequest` "mute update"). Moderator status comes from the sim roster (`is_moderator` on `ChatterBoxSessionAgentListUpdates`), not from profile role data. Ad-hoc **conferences** show no MOD tags or mute controls - that's Firestorm parity, moderation is a group thing - and "mute update" is never sent for them.
-- **Mute vs Leave** - Mute silences a noisy session locally (it stops nagging the badge); Leave actually exits the group/conference server-side.
+- **Group chat** - open from the Land tab's parcel group, a group profile, or when someone posts in that group.
+- **Conference chat** - start from the IM tab or a buddy's menu; **Invite** adds more people to an open conference.
+- **Roster** - member sidebar with online state; click someone for a 1:1.
+- **Moderation** - in **group** sessions, moderators can mute/unmute a participant's text. Ad-hoc conferences don't get moderation controls (that's deliberate - it's a group thing).
+- **Mute vs Leave** - Mute silences a session locally; Leave actually exits group/conference chat on the server.
+
+You can pay another resident from the IM pay dialog.
 
 ## Profiles
 
-Open a resident or group profile from **Search**, **Buddies**, **Radar**, **IM**, **Chat** (the speaker's name), **Land** (owner / group links), or the **top bar** (your own name).
+Open a resident or group profile from **Search**, **People**, **Radar**, **IM**, **Chat**, **Land**, or the **top bar** (your own name).
 
-**Avatar profiles** load through the `AgentProfile` HTTP cap when it's available (full about text, up to ~64 KB), falling back to UDP `AvatarPropertiesReply` for the smaller fields. The floater has:
+**Avatar profiles** show display name, username, photo, about text, picks, classifieds, groups, and private **Notes** (including on yourself). Actions: IM, Pay, offer/request teleport, add/remove friend (with confirm), block.
 
-- Display name + username in the header; account level (membership tier) in the subtitle
-- Resident tab: photo, born date, partner, payment info, scrollable about text, groups list
-  - Groups come from the `AgentProfile` cap and UDP `AvatarGroupsReply` combined (the union of both), sorted alphabetically
-  - **Your own profile** lists every membership, including groups hidden from search, with the active group in bold and a "[ Set active group to none ]" option on top
-  - **Other residents:** whatever their profile exposes
-- Places, Classifieds, Web, More (First Life), and Notes tabs when there's data (Notes work on your own profile too)
-- Pick / classified detail: resolved parcel + region, a map preview, and teleport (which closes the profile, like the Destination Guide does)
-- Actions: IM, Pay, Offer teleport, Request teleport, Add / Remove friend (with a confirm)
+**Group profiles** show charter, insignia, member count, founder. Members can open group chat, **Activate** the group, pick and save an **active title**, or **Join** / **Leave**. Non-members can join when enrollment is open.
 
-**Group profiles** show the name, charter, insignia, enrollment flags, member count, and founder (a linked name once resolved). Members can:
-
-- Open group chat
-- **Activate** the group (`ActivateGroup`, confirmed via `AgentDataUpdate`)
-- Pick their **active title** from a dropdown (current one preselected) and **Save** it (`GroupTitlesRequest` / `GroupTitleUpdate`); if this is your active group, the title under your name updates too
-- **Join** or **Leave** (with a confirm; `JoinGroupRequest` / `LeaveGroupRequest`)
-
-Non-members can join when enrollment is open (the join prompt shows any fee).
-
-List-row thumbnails resolve photos for **buddies** only (to keep sim traffic down); everywhere else shows initials until you open the full profile or the image is already cached (`localStorage`, 7-day TTL).
+List-row photos resolve for **buddies** only (to keep traffic down); elsewhere you get initials until a full profile or cache fills in.
 
 ## Search
 
-The **Search** tab queries the sim directory over UDP (three characters minimum):
+Pick **People**, **Places**, or **Groups**, type at least three characters, and go.
 
-| Category | Results | Actions |
-|----------|---------|---------|
-| **People** | Residents by username | Open profile; start IM |
-| **Places** | Regions, parcels, destinations | Show on map; expand for description + traffic |
-| **Groups** | Group names + member counts | Open group profile |
+| Category | What you get |
+|----------|--------------|
+| **People** | Open profile; start IM |
+| **Places** | Show on map; description and traffic |
+| **Groups** | Open group profile |
 
-People hits get enriched with `GetDisplayNames` when the cap is around, and your current radar is searched locally too for quick matches.
+Your current radar is searched locally too for quick matches.
 
 ## Map and teleport
 
-- **Map** - pan, centre on your avatar (`@`), click a region tile to select it, or type a SLURL / region name and hit **Show on map**, then **Teleport Here** or **Teleport Home**.
-- **Bad region name?** The map stays put and you get a toast, rather than sailing off to nowhere.
+- **Map** - pan, centre on yourself (`@`), click a tile, or type a region name / SLURL and hit **Show on map**, then **Teleport Here** or **Teleport Home**.
+- **Bad region name?** The map stays put and you get a toast instead of sailing off to nowhere.
 - **SLURLs** in chat/IM open the Map tab with the location pre-filled.
-- Region names come from sim `MapBlock` UDP and an HTTP region lookup where available.
-- **Mid-teleport**, the teleport button shows the stage and percentage; clicking it again won't cancel an outbound teleport.
+- **Mid-teleport**, a progress dialog shows stage and percentage.
 
 | Teleport type | What happens |
 |---------------|--------------|
-| **Manual** (map, SLURL, Guide) | Sends `TeleportLocationRequest`; waits for `TeleportStart` / `TeleportFinish`. |
-| **Home** (map button) | `DataHomeLocationRequest`; arrival uses your home region + name. |
-| **Lure offer** (IM) | You accept or decline; accepting sends `TeleportLureRequest`. Never auto-teleports. |
-| **Force / god / sim-initiated** | A `TeleportStart` from the sim with non-lure flags (godlike, 911, force-redirect, home…) is followed automatically. |
+| **Manual** (map, SLURL, Guide) | You asked; Minibee waits for the sim to finish moving you. |
+| **Home** | Uses your set home location. |
+| **Lure offer** (IM/Events) | You accept or decline. Never auto-teleports. |
+| **Force / sim-initiated** | Home, death, god-redirect, etc. - the sim started it; Minibee follows. |
 
 ## People (friends and the block list)
 
-Two sub-tabs. **Friends** is the buddy list (search by name or private note, online-only toggle, right-click for profile / IM / teleport / remove). **Blocked** is the sim's own mute list.
+Two sub-tabs. **Friends** is the buddy list (search by name or private note, online-only toggle, right-click or tap for profile / IM / teleport / remove). **Blocked** is everyone you've muted on the grid.
 
-Getting that list is the interesting part: the sim doesn't send it inline. `MuteListRequest` (with a zero CRC, meaning "I have nothing cached") makes it write a file and reply with `MuteListUpdate` carrying the filename; the file itself comes back over the **Xfer** protocol - `RequestXfer`, then `SendXferPacket` chunks that each need a `ConfirmXferPacket` or the sim keeps resending. The first chunk carries the total size big-endian in front of the payload, and the last has `0x80000000` set on its packet number. `UseCachedMuteList` can't be honoured (there's no disk cache), so it triggers exactly one fresh request - once, or it would loop.
-
-The file format is `type id name|flags` per line, read the way `LLMuteList::loadFromFile` reads it. Only agents are listed: objects and groups are muted *things*, and a by-name entry has no key to open a profile with.
-
-**Block / Unblock** sit on a resident's profile and in the IM header (one button, label flips), and unblock also appears on each row of the Blocked tab. They're `UpdateMuteListEntry` / `RemoveMuteListEntry` - writes to the sim's list, so they hold grid-wide in every viewer, which is why blocking confirms first. Names come from the usual cache rather than the file, since the sim's copy keeps account names and can be stale.
+**Block / Unblock** on a profile or in IM (and on each row in Blocked). Blocking writes to the sim's list, so it applies in every viewer - which is why Minibee asks you to confirm first.
 
 ## Radar
 
-Coarse avatar positions from `CoarseLocationUpdate`. Filter by name, set the range slider (avatars past it are dimmed, not hidden), and optionally turn on **Alerts** to get a toast when someone new wanders into range. When the sim doesn't report an avatar's altitude, Minibee falls back to horizontal distance instead of parking them a fictional kilometre away.
+Who's near you and roughly how far. Filter by name, set the range slider (avatars past it are dimmed), and optionally turn on **Alerts** for a toast when someone new wanders into range. Range and alerts also live in **Bee -> Settings**.
 
 ## Interact (nearby objects, avatar actions)
 
-The **Interact** tab is an area-search-lite plus the handful of things a bodiless avatar can still be told to do. A compact strip along the top reports what you're doing and offers **Sit on ground / Stand up / Fly / Stop flying**; each is a one-shot `AgentUpdate` control flag, repeated a few times a few hundred ms apart because the reference sends one every frame and a lone packet was getting missed.
+The **Interact** tab is area-search-lite plus what a bodiless avatar can still be told to do.
 
-Object tracking runs in the core **from login onward**, not when the tab opens: a sim describes a region's contents on *arrival* and never again, so a list built on demand finds nothing. The table is keyed by LocalID (no duplicates), holds root prims only (a linkset appears once), stores UUIDs as raw 16 bytes rather than 36-char strings, and drops itself when you teleport to a different region - keeping the LocalIDs so a *failed* teleport can re-request them, since the sim won't volunteer the region twice.
+A strip along the top reports what you're doing and offers **Sit on ground / Stand up / Fly / Stop flying** - only what makes sense right now.
 
-Two capability/protocol details taken from `fsareasearch.cpp` matter for completeness:
+Below that, nearby objects. Press **Load** when you want the list (it does not auto-refresh):
 
-- **`InterestList` cap, `{"mode": "360"}`**, posted on every region arrival. By default a sim culls object updates to the camera frustum; we have no camera, so the list was missing most of the region. Area search flips the same switch while its floater is open.
-- **`AgentUpdate` carries the real `CameraCenter` and a 128m `Far`**, sent at least once a second (the reference's `MIN_AGENT_UPDATES_PER_SECOND` keep-alive rate). Those two fields are what the sim's interest list culls against - with a camera parked at the region corner it correctly sent us nothing.
+- **Distance** - 16 to 128 metres, default 32, remembered.
+- **Filter** - narrows by object **name** or **owner** (display name, username, or pasted key).
+- **Sort** - Distance, Name, or Owner; tap again to reverse.
 
-The list itself:
-
-| Control | Behaviour |
-|---------|-----------|
-| **Load** | The only thing that reads the table. No timers, no auto-refresh. Also re-arms retries for objects the sim never described. |
-| **Distance** | 16 / 32 / 48 / 64 / 96 / 128 m, default 32, remembered. Everything inside it is listed - no row cap. 128 is the ceiling because that's the `Far` we ask for. |
-| **Filter** | Matches the visible columns - object **name** and **owner** (display name *or* username, or a pasted key). Not creator: it isn't a column, so a row matching on it would show nothing resembling the query. Local; sends nothing. |
-| **Sort** | Distance / Name / Owner headings; re-tap to reverse. |
-
-Names, owners and creators come from **full `ObjectProperties`**, which a sim only sends for *selected* objects - so the core selects and immediately deselects in batches, exactly as `FSAreaSearch::requestObjectProperties` does. Every object in range is covered (each asked once, nearest first), paced at 64 ids per message with a gap between messages; the reference allows 255 per packet, so this is deliberately gentler.
-
-Owner and creator keys then resolve through `FSTransport.queueNameResolve`, the same path every other list uses - the `GetDisplayNames` cap first, `UUIDNameRequest` as the core's fallback - so the column reads **"Display Name (username)"** rather than a bare username. Owner, creator and group are clickable in the details dialog, and the row menu offers **Owner profile** / **Creator profile**.
-
-Row actions are gated on what the sim says the object can do, from `UpdateFlags` (`object_flags.h`) on the update itself:
-
-- **Touch** - only with `FLAGS_HANDLE_TOUCH`, mirroring `flagHandleTouch()`. Sent as `ObjectGrab` + `ObjectDeGrab` with the one `SurfaceInfo` block `lltoolgrab.cpp` always writes (default pick: UV/ST `-1`, face `-1`). Most scenery has no touch handler, so most rows won't offer it - that's correct, not a bug.
-- **Pay** - only with `FLAGS_TAKES_MONEY`, which is all `enable_pay_object()` checks, and withdrawn again if `PayPriceReply` says the object takes nothing. Amounts come from the object; `TRANS_PAY_OBJECT` (5008), `PAY_PRICE_HIDE`/`PAY_PRICE_DEFAULT` sentinels handled as in `lllslconstants.h`. Every payment confirms the object and amount first.
-- **Sit on** - always available except on the object you're already sitting on ("by default, we can sit on anything", `llinspectobject.cpp`).
-
-**Show details** opens a dialog with position, distance, owner, group, creator, creation date (the sim sends *microseconds*; divided down as `llfloaterinspect.cpp` does), permissions, land impact and physics cost (`GetObjectCost` cap), and any media-on-prim URLs (`ObjectMedia` cap). The caps are called **once, on open** - the list never triggers them, and nothing in the dialog polls.
+Names fill in over a few seconds in busy regions. Tap a row for **Show details**, owner/creator profiles, **Touch** (only when the object actually handles touch - most scenery doesn't), **Sit on**, or **Pay** (with confirm).
 
 ## Land
 
-Standing-parcel data comes from UDP `ParcelProperties` plus HTTP `RemoteParcelRequest` (name, area, flags, owner). Open the Land tab or tap refresh to ask for an update.
+Shows the parcel under your feet. Open the tab or tap refresh for an update.
 
-Prim **capacity** uses the sim's number when available, otherwise it's estimated from parcel area (Linden's 15000-prims-per-region default). Prim **usage** needs the sim's counts. If a number looks off, peek at Debug → Diagnostics for `prims=used/total` lines.
+Prim counts come from the sim when available; otherwise capacity may be estimated from parcel area.
 
-Editable fields (name, description, build/script flags, fly/damage/search/sound/voice/sell-passes) work on parcels **you own or hold through the owning group** - the sim still enforces the actual land powers, and an update round-trips the *current* parcel data so an edit never silently wipes settings you didn't touch. Others' parcels are view-only. On **group-owned** land the Owner field resolves the group name and opens the group profile, not a resident one.
+Editable fields work on parcels **you own or hold through the owning group** (with the right land powers). Others' parcels are view-only. On **group-owned** land the Owner field opens the **group** profile.
 
-Objects that message you (script dialogs, LoadURL prompts) show a clickable object title that opens the **owner's** profile - the group's when the object is group-owned, otherwise the resident's.
+Objects that message you (script dialogs, LoadURL) show a clickable title that opens the **owner's** profile - the group's when group-owned.
 
 ## Destination Guide
 
-The **Guide** tab pulls curated destinations from Linden Lab's public API (`worldaping.agni.lindenlab.com`), fetched by the core to sidestep WebView CORS:
-
-| Feed | Label |
-|------|-------|
-| `mobile` | Mobile |
-| `popular` | Popular |
-| `new` | New |
-| `editor` | Editor |
-| `events` | Events |
-
-Each entry shows a name, description, maturity rating, and thumbnail. **Map** or **Teleport** straight from it, or follow its SLURL. Teleport progress works the same as on the map.
+The **Guide** tab pulls curated destinations from Linden Lab's public feeds: Mobile, Popular, New, Editor, Events. Each entry has a name, blurb, maturity rating, and thumbnail. **Map**, **Teleport**, or follow its SLURL.
 
 ## News
 
 Four sub-tabs: **Linden News**, **SL Calendar**, **Grid Status**, **Bloggers**.
 
-Three of them are RSS, fetched and parsed **in the core** (`bridge/feeds.rs`) so the WebView never touches XML - each item arrives as plain text plus a link, which keeps rendering cheap and means no feed markup is ever injected into the page. Cards start collapsed; only the opened one renders its full text. `bridge_feed` takes a **feed name, never a URL**, and the name resolves through a hard-coded allowlist - it is not a general-purpose proxy.
-
-| Sub-tab | Source |
-|---------|--------|
-| Linden News | `community.secondlife.com/rss/1-blog-rss.xml` |
-| Grid Status | `status.secondlifegrid.net/history.rss` |
-| Bloggers | the Inoreader "Second Life Bloggers" stream, read as RSS |
-| SL Calendar | framed Google Calendar embed (`frame-src` allows that host only) |
-
-The calendar is the one framed page, and framing has a real limit worth recording: **a link inside a cross-origin frame is that frame's own navigation**, which our CSP won't allow off its host, and a `target=_blank` in there has no window to open. Nothing of ours can see those clicks either - no script of ours runs in someone else's origin. The blogger tab was framed at first and every post click silently did nothing for exactly that reason; it's an RSS stream underneath, so it's read as one and its links are ordinary anchors that go to the OS browser. Framed tabs keep an **Open in browser** button and a visible fallback for sites that refuse framing outright.
+The three list tabs show cards - tap to expand, **Read on the web** for the full article. The calendar is embedded (links inside it are awkward in a frame, so use **Open in browser** when needed). Nothing loads until you open the News tab.
 
 ## When the connection drops
 
-If the sim drops you (`LogoutReply`, a kick, circuit loss, or a bridge 404), you get a **Connection lost** overlay. Dismiss it to **browse offline** - read your chat/IM/log history and flip between tabs while grid actions stay disabled. The status dot and logout button pulse gently as a reminder that you're not really there anymore. **Return to Login** when you're ready to reconnect.
+If the sim drops you, you get a **Connection lost** overlay. Dismiss it to **browse offline** - read chat/IM history and flip tabs while grid actions stay disabled. The status dot and logout button pulse gently. **Return to Login** when you're ready.
 
-**Auto-reconnect** (Settings → Connection, **off by default**) skips the overlay and quietly logs back in with a short back-off instead. The account password is never persisted or held in JavaScript for this: the Rust core keeps the login payload **obfuscated in memory** (XOR keystream from a per-run random key, cleared on logout) and replays it via `bridge_relogin`. If every attempt fails it falls back to the manual overlay. Because the core caches the payload on every login, you can turn auto-reconnect on mid-session and it still works.
+**Auto-reconnect** (**Bee -> Settings**, off by default) skips the overlay and quietly logs back in with a short back-off.
 
-Closing the window while you're connected raises a **log-out-and-quit** confirmation (the native close is intercepted in the core). That quit path is reachable **only** from that dialog, so a stray in-world link can't close the viewer on you.
+Your password is never written to disk - only held obfuscated in memory until logout. If every attempt fails, you get the manual overlay anyway.
+
+Closing the window while connected asks **log out and quit** - and that quit path only works from that dialog, so a stray in-world link can't close the viewer on you.
 
 ## Limitations (a.k.a. things it honestly can't do)
 
-- No world rendering, inventory, attachments, or movement beyond teleport
-- **No RLV / RLVa** - no Restrained Love restrictions (`@getstatus`, folder locks, sit/touch blocks, etc.)
-- Buddy names may show as a UUID for a beat until `GetDisplayNames` comes back
-- Avatar about text needs the `AgentProfile` cap; without it you get only the UDP packet's ~512 bytes
-- **Parcel music formats:** streams are handed to the platform's audio decoder, so anything it can't decode (some exotic Icecast setups) won't play; the top bar says why. On Android, insecure `http://` streams are allowed through deliberately - see below
-- List thumbnails resolve photos for buddies only; radar/search/chat/IM show initials unless the image is already cached
+- No world rendering, inventory, attachments, or walking around (teleport only)
+- **No RLV / RLVa** - no Restrained Love restrictions
+- Names may show as codes for a moment until they resolve
+- Avatar "About" may be truncated if the region can't serve the full profile
+- **Parcel music:** some exotic stream formats won't decode; the top bar says why. On Android, plain `http://` audio is allowed on purpose
+- Buddy-list photos only in the buddies list; radar/search/chat show initials unless cached
 - Radar positions are the sim's coarse ~1 m grid
-- Land prim usage depends on UDP `ParcelProperties`; capacity may be estimated from area when the sim doesn't send counts
-- If UDP acts up or receive sits at zero packets: close other SL viewers, and make sure Windows Firewall lets Minibee's UDP through
+- If nothing updates and packet counts sit at zero: close other SL viewers and check Windows Firewall for Minibee's UDP
 
-## Roadmap
+## For developers
 
-Simplified view of what's still open.
+Version lives in `src-tauri/Cargo.toml` (run `npm run version:sync` before release).
 
-- **MFA reliability** - investigate frequent "invalid" challenges (token, `mfa_hash`, clock skew).
-- **Group text moderation** - re-test in-world (`mute update` regression; client path matches Firestorm but reports persist).
-- De-dup IM/chat on a message/sequence id instead of the current content + time-window heuristic.
-- **Parcel media (video)** - only the audio stream is played; parcel video/media URLs aren't rendered.
-- Avatar thumbnails beyond the buddies list (radar, search, chat).
-- Open group chat from search results.
-- Missing About Land tabs: **Covenant**, **Experiences**, **Environment**.
-- **Objects** tab (prim counts, owner list, return).
-- **Access** lists, landing-point controls, terraforming / object-entry options.
-- Buy, abandon, and buy-pass flows where applicable.
-- **Landmarks** - read-only inventory list with teleport.
-- Teleport handoff verification on Agni (`EstablishAgentCommunication` / `TeleportFinish` via EventQueue).
-- `CrossedRegion` without an active outbound teleport (for when movement exists).
-- Nearby **object list** (name, distance, owner, scripted flag).
-- **Touch** and **sit** on selected objects.
-- Buy / pay / inspect from object context (no 3D pick ray until there's a world view).
-- Voice - D'oh.
-- Incrementally move UDP message **interpretation** from JS into the Rust core (radar, chat, IM, parcel, teleport, …) so the WebView subscribes to semantic events instead of decoding packets.
-- UDP traffic status indicator.
-- Maybe: LSL/LUA script editor with validation from server / scripts list from inventory.
+**Quick start:**
 
-## Reference
+```bat
+cd Minibee-Viewer
+npm install
+npm run tauri dev
+```
 
-The core bundles Second Life's `message_template.msg` (from `scripts/messages/message_template.msg` in the Firestorm repo) and drives its codec straight from it, so every message in the template is understood. Firestorm's source is treated as the reference for protocol behaviour throughout.
+**Release build** (`npm run tauri build`) produces installers under `src-tauri/target/release/`:
+
+**Local builds** (no updater signing key needed): `npm run build:local` or `npm run build:local:debug`.
+
+| Artifact | Notes |
+|----------|-------|
+| Standalone exe | Windowed; needs WebView2 on Windows |
+| NSIS setup | **Recommended** - bootstraps WebView2, Start-menu shortcut, uninstaller, LGPL during setup |
+| MSI | For group-policy / enterprise deploys |
+
+CI also publishes builds on [GitHub Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases) for Windows, Linux, macOS, and Android (APK sideload).
+
+- **WebView2:** on Windows 11 and current Windows 10 already. The bare exe needs it; the NSIS installer fetches it if missing.
+- **Unsigned:** Windows releases are not code-signed, and that is not planned. SmartScreen will show the usual "unknown publisher" warning - use *More info -> Run anyway*.
+- **Debug builds** (`npm run build:local:debug`) show a console; release installers are quiet and windowed.
+- **CI releases:** `npm run tauri build` also signs updater artifacts (needs `TAURI_SIGNING_PRIVATE_KEY` in the environment).
+
+Installed copies bundle `LICENSE`, `README.md`, `HELP.md`, and `PRIVACY.md` next to the app.
+
+Tests: `npm test` and `npm run test:rust`.
+
+Want to contribute? See **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+
+**License:** LGPL 2.1 · **Security:** [SECURITY.md](SECURITY.md)

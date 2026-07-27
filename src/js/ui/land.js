@@ -151,7 +151,7 @@ const FSLand = (function () {
     }
     const label = parcel.ownerName ||
       (typeof FSTransport.getCachedName === 'function' ? FSTransport.getCachedName(id) : '') ||
-      (id ? 'Resident (resolving…)' : '');
+      (id ? 'Resident (resolving...)' : '');
     return { id: id, label: label, type: 'avatar', isGroup: false };
   }
 
@@ -263,7 +263,7 @@ const FSLand = (function () {
     renderSummary(parcel);
   }
 
-  // Renders the summary line ("Standing on … Owner: … Group: …"). It lives on its
+  // Renders the summary line ("Standing on ... Owner: ... Group: ..."). It lives on its
   // own so we can re-render it once the owner/group name resolves after the form
   // first paints - otherwise it stays stuck showing the UUID.
   function renderSummary(parcel) {
@@ -516,7 +516,7 @@ const FSLand = (function () {
     // arrive asynchronously (AgentGroupDataUpdate / GroupProfileReply), and the
     // owner (on Linden/avatar-owned parcels) via names-updated - all of it AFTER
     // the form first paints. Without this the fields stay stuck on the UUID or
-    // "(resolving…)".
+    // "(resolving...)".
     function refreshOwnerGroupFields() {
       const parcel = FSState.get().parcel;
       if (!parcel || parcel.stub) return;

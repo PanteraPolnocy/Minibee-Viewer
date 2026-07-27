@@ -116,7 +116,7 @@ const FSLogin = (function () {
     if (btn) btn.hidden = !hasSavedLogin();
   }
 
-  function showChallenge(challenge) {
+  function updateForgetVisibility() {
     return new Promise(function (resolve) {
       const dialog = document.getElementById('login-challenge');
       const title = document.getElementById('challenge-title');
@@ -252,15 +252,8 @@ const FSLogin = (function () {
   }
 
   function setViewerVersion() {
-    const el = document.getElementById('login-version');
-    if (!el) return;
-    const apply = function () {
-      if (typeof MinibeeVersion !== 'undefined' && MinibeeVersion.isLoaded()) {
-        el.textContent = MinibeeVersion.getVersionString();
-      }
-    };
     if (typeof MinibeeVersion !== 'undefined') {
-      MinibeeVersion.load().then(apply).catch(function () { /* leave the HTML placeholder in place */ });
+      MinibeeVersion.load().catch(function () { /* version label optional */ });
     }
   }
 

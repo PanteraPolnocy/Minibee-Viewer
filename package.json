@@ -1,10 +1,12 @@
 {
   "name": "minibee-viewer",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.8.4",
   "type": "module",
   "scripts": {
     "assetscompress": "node scripts/assetscompress.mjs",
+    "build:local": "node scripts/build-local.mjs",
+    "build:local:debug": "node scripts/build-local.mjs --debug",
     "tauri": "tauri",
     "test": "node --test",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",

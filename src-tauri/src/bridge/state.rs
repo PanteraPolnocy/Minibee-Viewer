@@ -118,21 +118,90 @@ pub struct AppState {
     pub close_pending: AtomicBool,
 }
 
-/// Build the version payload and user-agent string from Tauri package info.
-pub fn version_payload(channel: &str, major: u64, minor: u64, patch: u64, build: u64) -> (Value, String) {
-    let mut ver_str = format!("{}.{}.{}", major, minor, patch);
-    if build > 0 {
-        ver_str.push_str(&format!(".{}", build));
-    }
-    let ua = format!("SecondLife/{} ({}; Minibee Viewer)", ver_str, channel);
-    let payload = json!({
+/// Parse `major.minor.patch` from a three-part semver string.
+pub fn cargo_semver_parts(version: &str) -> (u64, u64, u64) {
+    let parts: Vec<&str> = version.split('.').collect();
+    let parse = |i: usize| parts.get(i).and_then(|s| s.parse().ok()).unwrap_or(0);
+    (parse(0), parse(1), parse(2))
+}
+
+/// Shared viewer identity for login, `bridge_version`, About, and updater UI.
+pub fn viewer_identity_for_channel(channel: &str, major: u64, minor: u64, patch: u64, build: u64) -> Value {
+    let semver = format!("{}.{}.{}", major, minor, patch);
+    let login_version = format!("{}.{}.{}.{}", major, minor, patch, build);
+    json!({
         "channel": channel,
-        "version": ver_str,
+        "semver": semver,
+        "version": login_version,
+        "loginBuild": build,
+        "displayVersion": viewer_display_version(major, minor, patch, build, channel),
         "major": major,
         "minor": minor,
         "patch": patch,
         "build": build,
-    });
+        "variant": channel_variant(channel),
+    })
+}
+
+/// Viewer identity for this binary (`productName` base channel from config).
+pub fn viewer_identity_for_product(channel_base: &str) -> Value {
+    let (major, minor, patch) = cargo_semver_parts(env!("CARGO_PKG_VERSION"));
+    let build = login_build_number(0);
+    viewer_identity_for_channel(&viewer_channel(channel_base), major, minor, patch, build)
+}
+
+/// Short channel variant (`Release`, `Test`, etc.) from a full login channel name.
+pub fn channel_variant(channel: &str) -> &str {
+    channel.rsplit_once(' ').map(|(_, variant)| variant).unwrap_or(channel)
+}
+
+/// User-facing version label, e.g. `0.8.3 (12345) Release`.
+pub fn viewer_display_version(major: u64, minor: u64, patch: u64, build: u64, channel: &str) -> String {
+    format!(
+        "{}.{}.{} ({}) {}",
+        major,
+        minor,
+        patch,
+        build,
+        channel_variant(channel)
+    )
+}
+
+/// Login channel name per Linden viewer-identifier conventions (`Name Release` / `Name Test`).
+pub fn viewer_channel_variant(base: &str, test_build: bool) -> String {
+    let base = base.trim();
+    let base = if base.is_empty() { "Minibee-Viewer" } else { base };
+    if test_build {
+        format!("{base} Test")
+    } else {
+        format!("{base} Release")
+    }
+}
+
+/// Login channel for this binary (`debug_assertions` -> Test, else Release).
+pub fn viewer_channel(base: &str) -> String {
+    viewer_channel_variant(base, cfg!(debug_assertions))
+}
+
+/// Fourth segment of the login `version` field (`major.minor.patch.build`).
+/// Cargo.toml stays three-part; the build number is injected at compile time.
+pub fn login_build_number(tauri_build: u64) -> u64 {
+    if tauri_build > 0 {
+        return tauri_build;
+    }
+    option_env!("MINIBEE_LOGIN_BUILD")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Build the version payload and user-agent string from Tauri package info.
+pub fn version_payload(channel: &str, major: u64, minor: u64, patch: u64, build: u64) -> (Value, String) {
+    let payload = viewer_identity_for_channel(channel, major, minor, patch, build);
+    let ver_str = payload
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0.0.0.0");
+    let ua = format!("SecondLife/{} ({}; Minibee Viewer)", ver_str, channel);
     (payload, ua)
 }
 
@@ -141,13 +210,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn version_payload_without_build() {
+    fn viewer_display_version_formats_build_and_variant() {
+        assert_eq!(
+            viewer_display_version(0, 8, 3, 12345, "Minibee-Viewer Release"),
+            "0.8.3 (12345) Release"
+        );
+        assert_eq!(
+            viewer_display_version(1, 2, 3, 0, "Minibee-Viewer Test"),
+            "1.2.3 (0) Test"
+        );
+    }
+
+    #[test]
+    fn viewer_channel_variants() {
+        assert_eq!(viewer_channel_variant("Minibee-Viewer", false), "Minibee-Viewer Release");
+        assert_eq!(viewer_channel_variant("Minibee-Viewer", true), "Minibee-Viewer Test");
+        assert_eq!(viewer_channel_variant("", false), "Minibee-Viewer Release");
+    }
+
+    #[test]
+    fn version_payload_always_four_part() {
         let (payload, ua) = version_payload("Minibee-Viewer", 1, 2, 3, 0);
-        assert_eq!(payload["version"], "1.2.3");
+        assert_eq!(payload["version"], "1.2.3.0");
+        assert_eq!(payload["displayVersion"], "1.2.3 (0) Minibee-Viewer");
         assert_eq!(payload["channel"], "Minibee-Viewer");
         assert_eq!(payload["major"], 1);
         assert_eq!(payload["build"], 0);
-        assert_eq!(ua, "SecondLife/1.2.3 (Minibee-Viewer; Minibee Viewer)");
+        assert_eq!(ua, "SecondLife/1.2.3.0 (Minibee-Viewer; Minibee Viewer)");
     }
 
     #[test]
@@ -215,5 +304,14 @@ impl AppState {
     pub fn active(&self) -> Option<Arc<Session>> {
         let id = self.active_session.lock().unwrap().clone()?;
         self.session(&id)
+    }
+
+    /// User-facing label, e.g. `0.8.3 (12345) Release`.
+    pub fn display_version(&self) -> String {
+        self.version
+            .get("displayVersion")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
     }
 }

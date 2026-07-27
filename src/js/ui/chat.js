@@ -229,18 +229,6 @@ const FSChat = (function () {
     });
   }
 
-  function isAllowedExternalUrl(url) {
-    const raw = String(url || '').trim();
-    if (!raw) return false;
-    const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : 'https://' + raw;
-    try {
-      const parsed = new URL(withScheme);
-      return ['http:', 'https:', 'mailto:', 'secondlife:', 'x-secondlife:'].indexOf(parsed.protocol) >= 0;
-    } catch (_e) {
-      return false;
-    }
-  }
-
   function resolveInteractivePrompt(msg, el, action, responseLabel) {
     if (!msg || !msg.prompt || msg.prompt.resolved) return Promise.resolve();
     const prompt = msg.prompt;
@@ -267,15 +255,18 @@ const FSChat = (function () {
 
     if (prompt.type === 'load-url') {
       if (action === 'open') {
-        if (!isAllowedExternalUrl(prompt.url)) {
-          if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-            FSUtils.showToast('Blocked unsafe or invalid URL.', 'warning');
+        const opener = (typeof FSSlurl !== 'undefined' && FSSlurl.openExternalUrlPrompted)
+          ? FSSlurl.openExternalUrlPrompted(prompt.url)
+          : Promise.resolve(false);
+        return opener.then(function (opened) {
+          if (!opened) {
+            if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
+              FSUtils.showToast('Blocked unsafe or invalid URL.', 'warning');
+            }
+            return;
           }
-          return Promise.resolve();
-        }
-        window.open(prompt.url, '_blank', 'noopener,noreferrer');
-        finish('Opened page');
-        return Promise.resolve();
+          finish('Opened page');
+        });
       }
       finish('Ignored');
       return Promise.resolve();

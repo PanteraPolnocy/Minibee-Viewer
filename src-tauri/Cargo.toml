@@ -1,6 +1,6 @@
 [package]
 name = "minibee-viewer"
-version = "0.8.3"
+version = "0.8.4"
 description = "Minibee Viewer"
 authors = ["PanteraPolnocy"]
 edition = "2024"

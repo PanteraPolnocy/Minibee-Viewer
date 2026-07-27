@@ -60,7 +60,7 @@ fn fold6(s: &[u8]) -> [u8; 6] {
     id
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux", target_os = "android"))]
 fn nic_mac() -> Option<[u8; 6]> {
     mac_address::get_mac_address().ok().flatten().map(|m| m.bytes())
 }
@@ -189,9 +189,48 @@ fn linux_disk_uuid() -> Option<String> {
     (!best.is_empty()).then_some(best)
 }
 
-// --- Mobile / other -------------------------------------------------------
+// --- Android --------------------------------------------------------------
 
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+#[cfg(target_os = "android")]
+fn compute() -> HwId {
+    let seed = android_device_seed();
+    HwId {
+        mac: nic_mac()
+            .map(|b| hex_md5(&b))
+            .unwrap_or_else(|| hex_md5(&fold6(seed.as_bytes()))),
+        id0: hex_md5(seed.as_bytes()),
+    }
+}
+
+/// Stable device identifiers available on Android without masking or randomising.
+#[cfg(target_os = "android")]
+fn android_device_seed() -> String {
+    if let Ok(out) = std::process::Command::new("getprop")
+        .arg("ro.serialno")
+        .output()
+    {
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !s.is_empty() && !s.eq_ignore_ascii_case("unknown") {
+            return s;
+        }
+    }
+    if let Ok(id) = std::fs::read_to_string("/proc/sys/kernel/random/boot_id") {
+        let t = id.trim().to_string();
+        if !t.is_empty() {
+            return t;
+        }
+    }
+    std::env::var("HOSTNAME").unwrap_or_else(|_| "android".into())
+}
+
+// --- Other (non-desktop) --------------------------------------------------
+
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "android"
+)))]
 fn compute() -> HwId {
     let seed = std::env::var("HOSTNAME")
         .or_else(|_| std::env::var("COMPUTERNAME"))

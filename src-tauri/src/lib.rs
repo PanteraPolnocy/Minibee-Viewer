@@ -8,7 +8,7 @@ pub mod diaglog;
 pub mod updater;
 pub mod urlmatch;
 
-use bridge::state::{version_payload, AppState};
+use bridge::state::{version_payload, viewer_channel, viewer_display_version, AppState};
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager};
 
@@ -49,19 +49,20 @@ pub fn run() {
             // Log the viewer, build, and system details right under the "diaglog started" line.
             commands::log_about();
             // Grab the version straight from Cargo.toml.
-            let channel = app
+            let channel_base = app
                 .config()
                 .product_name
                 .clone()
                 .unwrap_or_else(|| "Minibee-Viewer".to_string());
+            let channel = viewer_channel(&channel_base);
             let v = app.package_info().version.clone();
-            let build: u64 = v.build.as_str().parse().unwrap_or(0);
+            let tauri_build: u64 = v.build.as_str().parse().unwrap_or(0);
+            let build = bridge::state::login_build_number(tauri_build);
             let (version, ua) = version_payload(&channel, v.major, v.minor, v.patch, build);
-            let ver_str = version
-                .get("version")
-                .and_then(|value| value.as_str())
-                .unwrap_or("0.0.0");
-            let window_title = format!("Minibee Viewer {ver_str}");
+            let window_title = format!(
+                "Minibee Viewer {}",
+                viewer_display_version(v.major, v.minor, v.patch, build, &channel)
+            );
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title(&window_title);
                 silence_native_context_menu(&window);
@@ -93,6 +94,7 @@ pub fn run() {
             commands::app_license,
             commands::app_readme,
             commands::app_help,
+            commands::app_privacy,
             commands::app_memory,
             updater::imp::app_updater_available,
             updater::imp::app_check_update,
@@ -109,6 +111,7 @@ pub fn run() {
             commands::bridge_map_regions,
             commands::bridge_region_by_name,
             commands::bridge_linkify,
+            commands::bridge_classify_url,
             commands::bridge_log,
             commands::bridge_log_path,
             commands::sl_open_circuit,

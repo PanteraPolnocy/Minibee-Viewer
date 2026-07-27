@@ -347,6 +347,36 @@ const FSSlurl = (function () {
     window.open(raw, '_blank', 'noopener,noreferrer');
   }
 
+  function openExternalUrlPrompted(url) {
+    const raw = String(url || '').trim();
+    if (!raw) return Promise.resolve(false);
+    if (typeof FSBridge === 'undefined' || typeof FSBridge.invoke !== 'function') {
+      return Promise.resolve(false);
+    }
+    return FSBridge.invoke('bridge_classify_url', { url: raw }).then(function (policy) {
+      if (!policy || !policy.allowed) return false;
+      const normalized = policy.normalized || raw;
+      if (policy.trusted) {
+        openExternalUrl(normalized);
+        return true;
+      }
+      const ask = (typeof FSUtils !== 'undefined' && FSUtils.confirm)
+        ? FSUtils.confirm({
+            title: 'Open external link?',
+            message: 'This link leaves Second Life and opens in your browser:\n' + normalized,
+            confirmLabel: 'Open',
+            cancelLabel: 'Cancel'
+          })
+        : Promise.resolve(window.confirm('Open external link?\n' + normalized));
+      return ask.then(function (ok) {
+        if (ok) openExternalUrl(normalized);
+        return !!ok;
+      });
+    }).catch(function () {
+      return false;
+    });
+  }
+
   // Wire up click handlers for the links linkify() produced: SLURLs open on the
   // map, and external URLs open in the OS browser (untrusted ones behind a confirm).
   function bindLinks(container) {
@@ -420,6 +450,7 @@ const FSSlurl = (function () {
     scanLinks: scanLinks,
     bindLinks: bindLinks,
     openExternalUrl: openExternalUrl,
+    openExternalUrlPrompted: openExternalUrlPrompted,
     findSlurls: findSlurls
   };
 })();

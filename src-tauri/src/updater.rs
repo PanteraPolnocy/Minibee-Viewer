@@ -5,8 +5,14 @@ use serde::Serialize;
 #[derive(Clone, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum UpdateCheckResponse {
-    Available { version: String, notes: String },
-    UpToDate,
+    Available {
+        version: String,
+        notes: String,
+        current_display_version: String,
+    },
+    UpToDate {
+        current_display_version: String,
+    },
     Unavailable,
     Error { message: String },
 }
@@ -23,10 +29,12 @@ pub fn format_check_error(raw: &str) -> String {
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 pub mod imp {
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use tauri::{AppHandle, State};
     use tauri_plugin_updater::UpdaterExt;
+
+    use crate::bridge::state::AppState;
 
     use super::{format_check_error, UpdateCheckResponse};
 
@@ -63,7 +71,9 @@ pub mod imp {
     pub async fn app_check_update(
         app: AppHandle,
         pending: State<'_, PendingUpdate>,
+        viewer: State<'_, Arc<AppState>>,
     ) -> Result<UpdateCheckResponse, String> {
+        let current_display_version = viewer.display_version();
         let updater = match build_updater(&app) {
             Ok(updater) => updater,
             Err(_) => return Ok(UpdateCheckResponse::Unavailable),
@@ -74,9 +84,15 @@ pub mod imp {
                 let version = update.version.to_string();
                 let notes = update.body.clone().unwrap_or_default();
                 *pending.0.lock().map_err(|_| "Update state lock poisoned.".to_string())? = Some(update);
-                UpdateCheckResponse::Available { version, notes }
+                UpdateCheckResponse::Available {
+                    version,
+                    notes,
+                    current_display_version,
+                }
             }
-            Ok(None) => UpdateCheckResponse::UpToDate,
+            Ok(None) => UpdateCheckResponse::UpToDate {
+                current_display_version,
+            },
             Err(err) => UpdateCheckResponse::Error {
                 message: format_check_error(&err.to_string()),
             },

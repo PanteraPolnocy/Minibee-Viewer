@@ -3332,7 +3332,37 @@ html.require-http #app {
   color: var(--text-muted);
 }
 
+.about-channel {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.about-disclaimer {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.login-challenge__note {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 .about-catchphrase {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  font-style: italic;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.login-challenge__note {
   /* Same breathing room below as we leave above the Copy-all button. */
   margin: 6px 0 22px;
   font-style: italic;
@@ -3415,7 +3445,7 @@ html.require-http #app {
 /* External links carry an outward-arrow affordance and a warmer hover, a cue
    that they lead out of Second Life (a confirm still gates the actual open). */
 .chat-link--external::after {
-  content: " \2197"; /* ↗ */
+  content: " \2197"; /* ^ */
   font-size: 0.85em;
   opacity: 0.7;
 }

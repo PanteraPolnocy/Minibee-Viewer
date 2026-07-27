@@ -1,54 +1,41 @@
 /**
- * Holds the version metadata that `bridge_version` reports, which in turn comes from Cargo.toml.
+ * Displays viewer version on the login screen from Rust (`bridge_version` / `displayVersion`).
+ * The native OS window title is set in Rust (`lib.rs`); this module does not touch it.
  */
 const MinibeeVersion = (function () {
   'use strict';
 
-  const state = {
-    channel: '',
-    major: null,
-    minor: null,
-    patch: null,
-    build: null,
-    loaded: false
-  };
-
+  let displayVersion = '';
+  let loaded = false;
   let loadPromise = null;
 
-  function versionString() {
-    if (!state.loaded) return '';
-    const base = state.major + '.' + state.minor + '.' + state.patch;
-    return state.build ? base + '.' + state.build : base;
-  }
+  const VERSION_ELEMENT_IDS = ['login-version'];
 
-  function label() {
-    if (!state.loaded) return '';
-    return state.channel + ' ' + versionString();
+  function refreshDom() {
+    if (!displayVersion) return;
+    VERSION_ELEMENT_IDS.forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = displayVersion;
+    });
   }
 
   function apply(data) {
     if (!data || typeof data !== 'object') return false;
-    if (data.channel) state.channel = String(data.channel);
-    if (data.major !== undefined) state.major = Number(data.major);
-    if (data.minor !== undefined) state.minor = Number(data.minor);
-    if (data.patch !== undefined) state.patch = Number(data.patch);
-    if (data.build !== undefined) state.build = Number(data.build);
-    state.loaded = Number.isFinite(state.major)
-      && Number.isFinite(state.minor)
-      && Number.isFinite(state.patch);
-    return state.loaded;
+    const label = data.displayVersion ? String(data.displayVersion) : '';
+    if (!label) return false;
+    displayVersion = label;
+    loaded = true;
+    refreshDom();
+    return true;
   }
 
   function load() {
-    if (state.loaded) return Promise.resolve(state);
+    if (loaded) return Promise.resolve({ displayVersion: displayVersion });
     if (!loadPromise) {
       loadPromise = FSBridge.version().then(function (data) {
         if (!apply(data)) throw new Error('invalid version payload');
-        return state;
+        return { displayVersion: displayVersion };
       }).catch(function (err) {
-        // Deliberately don't cache the failure here, otherwise a single transient
-        // error would block version loading for the whole session (and could even
-        // throw during login).
         loadPromise = null;
         throw err;
       });
@@ -59,9 +46,9 @@ const MinibeeVersion = (function () {
   return {
     load: load,
     apply: apply,
-    isLoaded: function () { return state.loaded; },
-    getChannel: function () { return state.channel; },
-    getVersionString: versionString,
-    getLabel: label
+    refreshDom: refreshDom,
+    isLoaded: function () { return loaded; },
+    getDisplayString: function () { return displayVersion; },
+    getLabel: function () { return displayVersion; }
   };
 })();

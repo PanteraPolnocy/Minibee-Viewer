@@ -1,20 +1,22 @@
 ---
 name: Feature request
-about: Suggest an idea for this project
+about: Suggest an idea for Minibee Viewer
 title: ''
 labels: ''
 assignees: ''
 
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+Minibee is a **text-and-map** viewer (no 3D world). Features that need rendering, inventory, or full official-viewer parity are unlikely to fit - but ideas for chat, IM, land, map, and protocol-side tooling are welcome.
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+**Problem**
+What is missing or awkward today?
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+**Proposed solution**
+What should Minibee do instead?
 
-**Additional context**
-Add any other context or screenshots about the feature request here.
+**Alternatives**
+Anything else you considered?
+
+**Context**
+Screenshots, grid (Agni/Aditi), version from **Bee -> About** if relevant.

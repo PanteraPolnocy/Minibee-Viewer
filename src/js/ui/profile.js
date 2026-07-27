@@ -273,8 +273,7 @@ const FSProfile = (function () {
   function applyNameHint(profile, hint) {
     if (!profile || !hint) return profile;
     // A hint that came from a buddy/radar object keeps the UUID in `name` until
-    // GetDisplayNames resolves it. Never let a UUID slip into a name field - that
-    // was what gave us headers like "5e9c… (Pantera Północy)".
+    // GetDisplayNames resolves it. Never let a UUID slip into a name field
     const clean = function (v) { const s = String(v || '').trim(); return FSUtils.isUuid(s) ? '' : s; };
     const hintName = clean(hint.name);
     profile.displayName = clean(hint.displayName) || clean(profile.displayName) || '';
@@ -723,7 +722,7 @@ const FSProfile = (function () {
       '<p class="profile-notes-hint">Your private notes about this person. Only you can see them.</p>' +
       '<textarea id="profile-notes-input" class="profile-notes-input" rows="10" maxlength="65535" ' +
         (loaded ? '' : 'readonly ') +
-        'placeholder="' + (loaded ? 'Add private notes...' : 'Loading notes…') + '">' +
+        'placeholder="' + (loaded ? 'Add private notes...' : 'Loading notes...') + '">' +
         FSUtils.escapeHtml(notes) + '</textarea>' +
       '<div class="profile-notes-actions">' +
       '<button type="button" class="btn btn--primary" id="profile-notes-save"' +

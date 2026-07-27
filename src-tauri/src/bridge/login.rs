@@ -766,22 +766,24 @@ fn assemble_login_body(state: &AppState, cred: &Value) -> Value {
     let is_linden = grid.is_empty() || grid == "agni" || grid == "aditi";
     let account_login =
         !is_linden && !raw_username.trim().is_empty() && !raw_username.trim().contains([' ', '.', '_']);
-    let channel = state.version.get("channel").and_then(|v| v.as_str()).unwrap_or("Minibee-Viewer");
+    let channel = state.version.get("channel").and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| crate::bridge::state::viewer_channel("Minibee-Viewer"));
     let version = state.version.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0");
     let start = {
         let s = cs("start");
         if s.is_empty() { "last".to_string() } else { s }
     };
+    let platform = crate::bridge::platform::login_platform();
     let mut body = json!({
         "url": url,
         "passwd": cs("password"),
         "start": start,
         "channel": channel,
         "version": version,
-        "platform": "Win",
-        "platform_version": "10.0",
-        "platform_string": "Windows 10",
-        "address_size": 64,
+        "platform": platform.platform,
+        "platform_version": platform.platform_version,
+        "platform_string": platform.platform_string,
+        "address_size": crate::bridge::platform::login_address_size(),
         "extended_errors": true,
         "last_exec_event": 0,
         "last_exec_duration": 0,

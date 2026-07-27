@@ -3,7 +3,7 @@
  *
  * All the parsing happens in Rust; this module just caches the structured
  * profile/group/name data the native engine emits (avatar-profile, group-*,
- * names-updated, …) and hands it to the UI synchronously. Fetches are thin
+ * names-updated, ...) and hands it to the UI synchronously. Fetches are thin
  * `invoke` calls, and the cache fills in once the matching event arrives.
  */
 const FSProfiles = (function () {

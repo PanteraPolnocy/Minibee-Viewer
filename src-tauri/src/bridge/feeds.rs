@@ -33,13 +33,27 @@ fn decode_entities(s: &str) -> String {
         };
         n.and_then(char::from_u32).map(String::from).unwrap_or_default()
     });
-    out.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&#39;", "'")
+    ascii_punct(
+        out.replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&#39;", "'"),
+    )
+}
+
+fn ascii_punct(s: String) -> String {
+    s.chars()
+        .flat_map(|c| match c {
+            '\u{2018}' | '\u{2019}' => vec!['\''],
+            '\u{201C}' | '\u{201D}' => vec!['"'],
+            '\u{2013}' | '\u{2014}' => vec!['-'],
+            '\u{2026}' => vec!['.', '.', '.'],
+            _ => vec![c],
+        })
+        .collect()
 }
 
 pub fn html_to_text(html: &str) -> String {
@@ -98,7 +112,7 @@ fn summarize(text: &str, limit: usize) -> String {
     if let Some(pos) = cut.rfind(' ') {
         cut.truncate(pos);
     }
-    format!("{}…", cut.trim_end())
+    format!("{}...", cut.trim_end())
 }
 
 fn child_text(node: roxmltree::Node, name: &str) -> String {
@@ -257,14 +271,14 @@ mod tests {
     #[test]
     fn html_becomes_readable_text() {
         let html = "<p>Hello <b>world</b>&nbsp;&amp; friends</p><p>Second &#8217;graph</p>";
-        assert_eq!(html_to_text(html), "Hello world & friends\n\nSecond ’graph");
+        assert_eq!(html_to_text(html), "Hello world & friends\n\nSecond 'graph");
         assert!(!html_to_text("<script>alert(1)</script>ok").contains('<'));
     }
 
     #[test]
     fn summary_breaks_on_a_word() {
         let s = summarize("one two three four five", 12);
-        assert!(s.ends_with('…'));
+        assert!(s.ends_with("..."));
         assert!(!s.contains("four"));
     }
 

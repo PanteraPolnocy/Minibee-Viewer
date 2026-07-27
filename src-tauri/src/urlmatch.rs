@@ -290,6 +290,70 @@ pub fn linkify(text: &str) -> Vec<Segment> {
     segments
 }
 
+/// Policy for opening a user-supplied external URL (e.g. in-world LoadURL).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExternalUrlPolicy {
+    pub allowed: bool,
+    pub trusted: bool,
+    pub normalized: String,
+}
+
+const ALLOWED_EXTERNAL_SCHEMES: &[&str] = &[
+    "http:", "https:", "mailto:", "secondlife:", "x-secondlife:",
+];
+
+fn normalize_external_url(url: &str) -> Option<String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let with_scheme = if trimmed.contains("://") || trimmed.starts_with("mailto:") {
+        trimmed.to_string()
+    } else if let Some((scheme, _)) = trimmed.split_once(':') {
+        if !scheme.is_empty()
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        {
+            trimmed.to_string()
+        } else {
+            format!("https://{trimmed}")
+        }
+    } else {
+        format!("https://{trimmed}")
+    };
+    let scheme = with_scheme.split(':').next()?;
+    let scheme = format!("{}:", scheme);
+    if !ALLOWED_EXTERNAL_SCHEMES
+        .iter()
+        .any(|allowed| scheme.eq_ignore_ascii_case(allowed))
+    {
+        return None;
+    }
+    Some(with_scheme)
+}
+
+/// Classify whether an external URL may be opened and whether it is trusted.
+pub fn classify_external_url(url: &str) -> ExternalUrlPolicy {
+    let Some(normalized) = normalize_external_url(url) else {
+        return ExternalUrlPolicy {
+            allowed: false,
+            trusted: false,
+            normalized: String::new(),
+        };
+    };
+    let lower = normalized.to_ascii_lowercase();
+    let trusted = lower.starts_with("secondlife://")
+        || host_of(&normalized)
+            .map(|host| host_trusted(&host))
+            .unwrap_or(false);
+    ExternalUrlPolicy {
+        allowed: true,
+        trusted,
+        normalized,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,5 +528,26 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, vec!["t", "l", "t", "l", "t"]);
+    }
+
+    #[test]
+    fn classify_blocks_javascript_scheme() {
+        let policy = classify_external_url("javascript:alert(1)");
+        assert!(!policy.allowed);
+    }
+
+    #[test]
+    fn classify_trusted_linden_host() {
+        let policy = classify_external_url("https://community.secondlife.com/blog");
+        assert!(policy.allowed);
+        assert!(policy.trusted);
+    }
+
+    #[test]
+    fn classify_untrusted_external_host() {
+        let policy = classify_external_url("example.com");
+        assert!(policy.allowed);
+        assert!(!policy.trusted);
+        assert!(policy.normalized.starts_with("https://example.com"));
     }
 }

@@ -125,7 +125,7 @@ const FSNews = (function () {
     if (!key) return;
     if (loaded[tab] && !force) return;
     const list = document.getElementById('news-list-' + tab);
-    if (list) list.innerHTML = '<p class="news-empty">Loading…</p>';
+    if (list) list.innerHTML = '<p class="news-empty">Loading...</p>';
     if (typeof FSBridge === 'undefined' || !FSBridge.invoke) {
       if (list) list.innerHTML = '<p class="news-empty">Native bridge unavailable.</p>';
       return;
@@ -161,7 +161,7 @@ const FSNews = (function () {
 
     const note = document.createElement('p');
     note.className = 'news-empty news-frame__note';
-    note.textContent = 'Loading…';
+    note.textContent = 'Loading...';
     host.appendChild(note);
 
     const frame = document.createElement('iframe');

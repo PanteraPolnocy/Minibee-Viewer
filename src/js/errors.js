@@ -1,5 +1,5 @@
 /**
- * Client-side diagnostic log that backs the Debug tab, with an optional chat mirror.
+ * In-memory client diagnostic log, with optional file output via `--enablelogfiles`.
  */
 const FSErrors = (function () {
   'use strict';

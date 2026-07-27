@@ -8,7 +8,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::bridge::state::AppState;
+use crate::bridge::state::{viewer_identity_for_product, AppState};
 use crate::bridge::util::{normalize_seed_url, normalize_sim_ip, trim_quotes};
 use crate::bridge::{circuit, login, map, proxy};
 use crate::codec;
@@ -44,7 +44,7 @@ pub async fn bridge_version(state: State<'_, Arc<AppState>>) -> Cmd {
     Ok(state.version.clone())
 }
 
-/// "About Minibee" metadata for the Settings → About subtab. It comes from
+/// "About Minibee" metadata for the Bee -> About subtab. It comes from
 /// tauri.conf.json (baked in with `include_str!`) plus Cargo package info, so
 /// author/contact/catchphrase all share a single source of truth. Read lazily:
 /// the frontend only invokes it the first time the About subtab is opened.
@@ -56,6 +56,13 @@ pub fn app_about() -> Cmd {
     let or = |value: String, fallback: &str| if value.is_empty() { fallback.to_string() } else { value };
 
     let name = or(field(&conf, "productName"), "Minibee Viewer").replace('-', " ");
+    let channel_base = field(&conf, "productName");
+    let homepage = field(&bundle, "homepage");
+    let repo = if homepage.is_empty() {
+        "https://github.com/PanteraPolnocy/Minibee-Viewer".to_string()
+    } else {
+        homepage.clone()
+    };
     // LTO is enabled only for the release profile (see Cargo.toml).
     let is_release = env!("MINIBEE_PROFILE") == "release";
 
@@ -71,16 +78,36 @@ pub fn app_about() -> Cmd {
         os_version.push_str(&format!(" ({edition})"));
     }
     let (mem_total, mem_used, mem_proc) = mem_snapshot();
-
-    Ok(json!({
-        "name": name,
-        "version": env!("CARGO_PKG_VERSION"),
-        "catchphrase": or(field(&bundle, "longDescription"), "A lightweight buzz into the infinite grid."),
-        "description": or(field(&bundle, "shortDescription"), "Minimalist client for Second Life"),
-        "author": or(field(&bundle, "publisher"), env!("CARGO_PKG_AUTHORS")),
-        "homepage": field(&bundle, "homepage"),
-        // Build metadata (from build.rs). buildEpoch is in seconds; the UI formats it.
-        "build": {
+    let mut about = viewer_identity_for_product(&channel_base);
+    let about_obj = about
+        .as_object_mut()
+        .ok_or_else(|| "about payload".to_string())?;
+    about_obj.insert("name".into(), json!(name));
+    about_obj.insert(
+        "disclaimer".into(),
+        json!("This software is not provided or supported by Linden Lab, the makers of Second Life."),
+    );
+    about_obj.insert(
+        "catchphrase".into(),
+        json!(or(field(&bundle, "longDescription"), "A lightweight buzz into the infinite grid.")),
+    );
+    about_obj.insert(
+        "description".into(),
+        json!(or(field(&bundle, "shortDescription"), "Minimalist client for Second Life")),
+    );
+    about_obj.insert("author".into(), json!(or(field(&bundle, "publisher"), env!("CARGO_PKG_AUTHORS"))));
+    about_obj.insert("homepage".into(), json!(homepage));
+    about_obj.insert(
+        "support".into(),
+        json!({
+            "issues": format!("{repo}/issues"),
+            "discussions": format!("{repo}/discussions"),
+        }),
+    );
+    about_obj.insert("sourceUrl".into(), json!(repo));
+    about_obj.insert(
+        "build".into(),
+        json!({
             "profile": env!("MINIBEE_PROFILE"),
             "optLevel": env!("MINIBEE_OPT_LEVEL"),
             "lto": is_release,
@@ -89,9 +116,11 @@ pub fn app_about() -> Cmd {
             "host": env!("MINIBEE_HOST"),
             "buildEpoch": env!("MINIBEE_BUILD_EPOCH"),
             "debugAssertions": cfg!(debug_assertions),
-        },
-        // Specs of the host we're actually running on.
-        "system": {
+        }),
+    );
+    about_obj.insert(
+        "system".into(),
+        json!({
             "os": std::env::consts::OS,
             "osVersion": os_version,
             "arch": std::env::consts::ARCH,
@@ -99,8 +128,9 @@ pub fn app_about() -> Cmd {
             "memTotal": mem_total,
             "memUsed": mem_used,
             "memProcess": mem_proc,
-        },
-    }))
+        }),
+    );
+    Ok(about)
 }
 
 /// Memory in bytes, returned as (total, used, minibee-process).
@@ -132,9 +162,14 @@ pub fn log_about() {
     let (mem_total, _used, _proc) = mem_snapshot();
     let osi = os_info::get();
     let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0);
+    let identity = viewer_identity_for_product("Minibee-Viewer");
+    let display = identity
+        .get("displayVersion")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     crate::dlog!(
-        "about: Minibee Viewer v{} [{}] lto={} opt={}",
-        env!("CARGO_PKG_VERSION"),
+        "about: Minibee Viewer {} [{}] lto={} opt={}",
+        display,
         env!("MINIBEE_PROFILE"),
         env!("MINIBEE_PROFILE") == "release",
         env!("MINIBEE_OPT_LEVEL")
@@ -154,19 +189,26 @@ pub fn log_about() {
     );
 }
 
-/// The complete LICENSE text, baked in at build time; Settings → License reads it lazily.
+/// Privacy policy text; Bee -> Privacy reads it lazily.
+/// Bundled PRIVACY.md; Bee -> Privacy (after License).
+#[tauri::command]
+pub fn app_privacy() -> Cmd {
+    Ok(json!({ "text": include_str!("../../PRIVACY.md") }))
+}
+
+/// The complete LICENSE text, baked in at build time; Bee -> License reads it lazily.
 #[tauri::command]
 pub fn app_license() -> Cmd {
     Ok(json!({ "text": include_str!("../../LICENSE") }))
 }
 
-/// The complete README text, baked in at build time; Settings → README reads it lazily.
+/// The complete README text, baked in at build time; Bee -> README reads it lazily.
 #[tauri::command]
 pub fn app_readme() -> Cmd {
     Ok(json!({ "text": include_str!("../../README.md") }))
 }
 
-/// The plain-language user guide, baked in at build time; Settings → Help reads it lazily.
+/// The plain-language user guide, baked in at build time; Bee -> Help reads it lazily.
 #[tauri::command]
 pub fn app_help() -> Cmd {
     Ok(json!({ "text": include_str!("../../HELP.md") }))
@@ -390,6 +432,11 @@ pub async fn bridge_region_by_name(state: State<'_, Arc<AppState>>, name: String
 #[tauri::command]
 pub async fn bridge_linkify(text: String) -> Cmd {
     Ok(json!({ "segments": urlmatch::linkify(&text) }))
+}
+
+#[tauri::command]
+pub fn bridge_classify_url(url: String) -> Cmd {
+    Ok(serde_json::to_value(urlmatch::classify_external_url(&url)).unwrap_or(Value::Null))
 }
 
 /// Append a line from the frontend to the shared diagnostic log (a no-op unless enabled).

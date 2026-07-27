@@ -1,14 +1,28 @@
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+fn login_build_number() -> u64 {
+    println!("cargo:rerun-if-env-changed=MINIBEE_BUILD_NUMBER");
+    println!("cargo:rerun-if-env-changed=GITHUB_RUN_NUMBER");
+    for key in ["MINIBEE_BUILD_NUMBER", "GITHUB_RUN_NUMBER"] {
+        if let Ok(raw) = std::env::var(key) {
+            if let Ok(n) = raw.parse::<u64>() {
+                return n;
+            }
+        }
+    }
+    0
+}
+
 fn main() {
-    // Build metadata surfaced on the Settings → About screen. Emitted as
+    // Build metadata surfaced on Bee -> About. Emitted as
     // compile-time env vars (read with env!); cross-platform, no extra crates.
     let epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
     println!("cargo:rustc-env=MINIBEE_BUILD_EPOCH={epoch}");
+    println!("cargo:rustc-env=MINIBEE_LOGIN_BUILD={}", login_build_number());
 
     let rustc = Command::new(std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into()))
         .arg("--version")
