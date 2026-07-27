@@ -245,7 +245,8 @@ body {
   box-shadow: inset 0 -2px 4px rgba(0, 0, 0, 0.15);
 }
 
-.login-hero h1 {
+.login-hero h1,
+.login-hero .about-name {
   margin: 0 0 4px;
   font-size: 1.5rem;
   font-weight: 700;
@@ -390,7 +391,8 @@ html.require-http #app {
     height: 28px;
   }
 
-  .login-hero h1 {
+  .login-hero h1,
+  .login-hero .about-name {
     font-size: 1.35rem;
   }
 }
@@ -3290,10 +3292,10 @@ html.require-http #app {
   gap: 4px;
 }
 
-/* The About tab reuses the full login logo (.login-logo: striped square + MB + bee). */
-.about-logo {
-  margin: 22px auto 14px;
-  flex: 0 0 auto;
+.about-hero {
+  padding: 8px 24px 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .about-hr {
@@ -3310,36 +3312,36 @@ html.require-http #app {
 
 .about-actions {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  width: 100%;
+}
+
+.about-action-status {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  text-align: center;
+  max-width: 360px;
+}
+
+.about-action-status:empty {
+  display: none;
+}
+
+.about-actions__buttons {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 10px;
-  margin-top: 22px;
-}
-
-.about-copy-status {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.about-name {
-  margin: 0;
-  font-size: 1.3rem;
-}
-
-.about-version {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-.about-channel {
-  margin: 4px 0 0;
-  font-size: 0.75rem;
-  color: var(--text-muted);
 }
 
 .about-disclaimer {
-  margin: 8px 0 0;
+  margin: 36px 0 8px;
   padding: 8px 10px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -3355,16 +3357,6 @@ html.require-http #app {
   font-size: 0.82rem;
   color: var(--text-muted);
   line-height: 1.45;
-}
-
-.about-catchphrase {
-  margin: 10px 0 0;
-  font-size: 0.9rem;
-  font-style: italic;
-  color: var(--text-muted);
-  line-height: 1.4;
-  width: 100%;
-  max-width: 360px;
 }
 
 .login-challenge__note {

@@ -298,10 +298,9 @@ const FSSettingsUI = (function () {
       aboutInfo = info || {};
       const data = aboutInfo;
       setText('about-name', data.name || 'Minibee Viewer');
-      setText('about-version', data.displayVersion ? ('Version ' + data.displayVersion) : '');
-      setText('about-channel', data.channel ? ('Channel ' + data.channel) : '');
-      setText('about-disclaimer', data.disclaimer || '');
       setText('about-catchphrase', data.catchphrase || '');
+      setText('about-version', data.displayVersion || '');
+      setText('about-disclaimer', data.disclaimer || '');
       setText('about-author', data.author || 'Unknown');
       const contact = document.getElementById('about-contact');
       if (contact) {

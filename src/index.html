@@ -878,31 +878,31 @@
 
           <div id="settings-pane-about" class="settings-pane" role="tabpanel" aria-label="About Minibee" hidden>
             <div class="about-card">
-              <div class="login-logo about-logo" aria-hidden="true">
-                <svg class="login-logo__bee" viewBox="0 0 32 32">
-                  <path d="M7 13 C3 9 3 5 9 7 C11 8 12 11 11 14" fill="rgba(255,248,230,0.7)" stroke="rgba(255,255,255,0.35)" stroke-width="0.6"/>
-                  <path d="M25 13 C29 9 29 5 23 7 C21 8 20 11 21 14" fill="rgba(255,248,230,0.7)" stroke="rgba(255,255,255,0.35)" stroke-width="0.6"/>
-                  <ellipse cx="16" cy="18.5" rx="5.8" ry="7.8" fill="#f5c542"/>
-                  <path d="M10.8 15.2 H21.2" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
-                  <path d="M10.4 18.6 H21.6" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
-                  <path d="M10.8 22 H21.2" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
-                  <circle cx="16" cy="9.8" r="4.6" fill="#1a1408"/>
-                  <circle cx="14.2" cy="9.2" r="1.1" fill="#fff8e8"/>
-                  <circle cx="17.8" cy="9.2" r="1.1" fill="#fff8e8"/>
-                  <circle cx="14.5" cy="9.2" r="0.45" fill="#1a1408"/>
-                  <circle cx="18.1" cy="9.2" r="0.45" fill="#1a1408"/>
-                  <path d="M13.2 6.2 Q11.2 2.8 10.2 1.2" stroke="#1a1408" stroke-width="1.1" fill="none" stroke-linecap="round"/>
-                  <path d="M18.8 6.2 Q20.8 2.8 21.8 1.2" stroke="#1a1408" stroke-width="1.1" fill="none" stroke-linecap="round"/>
-                  <circle cx="10.2" cy="1.2" r="1" fill="#f0b429"/>
-                  <circle cx="21.8" cy="1.2" r="1" fill="#f0b429"/>
-                </svg>
-                <span class="login-logo__mark">MB</span>
+              <div class="login-hero about-hero">
+                <div class="login-logo" aria-hidden="true">
+                  <svg class="login-logo__bee" viewBox="0 0 32 32" aria-hidden="true">
+                    <path d="M7 13 C3 9 3 5 9 7 C11 8 12 11 11 14" fill="rgba(255,248,230,0.7)" stroke="rgba(255,255,255,0.35)" stroke-width="0.6"/>
+                    <path d="M25 13 C29 9 29 5 23 7 C21 8 20 11 21 14" fill="rgba(255,248,230,0.7)" stroke="rgba(255,255,255,0.35)" stroke-width="0.6"/>
+                    <ellipse cx="16" cy="18.5" rx="5.8" ry="7.8" fill="#f5c542"/>
+                    <path d="M10.8 15.2 H21.2" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M10.4 18.6 H21.6" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M10.8 22 H21.2" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
+                    <circle cx="16" cy="9.8" r="4.6" fill="#1a1408"/>
+                    <circle cx="14.2" cy="9.2" r="1.1" fill="#fff8e8"/>
+                    <circle cx="17.8" cy="9.2" r="1.1" fill="#fff8e8"/>
+                    <circle cx="14.5" cy="9.2" r="0.45" fill="#1a1408"/>
+                    <circle cx="18.1" cy="9.2" r="0.45" fill="#1a1408"/>
+                    <path d="M13.2 6.2 Q11.2 2.8 10.2 1.2" stroke="#1a1408" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+                    <path d="M18.8 6.2 Q20.8 2.8 21.8 1.2" stroke="#1a1408" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+                    <circle cx="10.2" cy="1.2" r="1" fill="#f0b429"/>
+                    <circle cx="21.8" cy="1.2" r="1" fill="#f0b429"/>
+                  </svg>
+                  <span class="login-logo__mark">MB</span>
+                </div>
+                <h2 id="about-name" class="about-name">Minibee Viewer</h2>
+                <p id="about-catchphrase" class="login-sub"></p>
+                <p id="about-version" class="login-version" aria-label="Viewer version"></p>
               </div>
-              <h2 id="about-name" class="about-name">Minibee Viewer</h2>
-              <p id="about-version" class="about-version"></p>
-              <p id="about-channel" class="about-channel"></p>
-              <p id="about-catchphrase" class="about-catchphrase"></p>
-              <p id="about-disclaimer" class="about-disclaimer"></p>
               <dl class="about-meta">
                 <dt>Author</dt><dd id="about-author"></dd>
                 <dt>Contact</dt><dd id="about-contact"></dd>
@@ -915,11 +915,14 @@
               <hr class="about-hr">
               <dl class="about-meta about-meta--mono" id="about-system"></dl>
               <div class="about-actions">
-                <button type="button" id="about-check-update" class="btn btn--ghost btn--sm" hidden>Check for updates</button>
-                <button type="button" id="about-copy" class="btn btn--ghost btn--sm">Copy all</button>
-                <span id="about-update-status" class="about-copy-status" role="status" aria-live="polite"></span>
-                <span id="about-copy-status" class="about-copy-status" role="status" aria-live="polite"></span>
+                <span id="about-update-status" class="about-action-status" role="status" aria-live="polite"></span>
+                <span id="about-copy-status" class="about-action-status" role="status" aria-live="polite"></span>
+                <div class="about-actions__buttons">
+                  <button type="button" id="about-check-update" class="btn btn--ghost btn--sm" hidden>Check for updates</button>
+                  <button type="button" id="about-copy" class="btn btn--ghost btn--sm">Copy all</button>
+                </div>
               </div>
+              <p id="about-disclaimer" class="about-disclaimer"></p>
             </div>
           </div>
 
