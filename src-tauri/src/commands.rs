@@ -1053,10 +1053,16 @@ fn spawn_props_drain(
     });
 }
 
-/// The nearby list: everything within the chosen radius, with no ceiling on how many.
-/// Pressing Load also kicks off the properties drain for anything still unnamed.
+/// The nearby list: linkset roots within the chosen radius, with type filters applied
+/// in the core. Pressing Load also kicks off the properties drain for anything still unnamed.
 #[tauri::command]
-pub async fn sl_nearby_objects(state: State<'_, Arc<AppState>>, range: Option<f64>) -> Cmd {
+pub async fn sl_nearby_objects(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    range: Option<f64>,
+    include_attachments: Option<bool>,
+    include_physical: Option<bool>,
+) -> Cmd {
     // No gate on the scan flag. Reading a table we maintain anyway costs nothing, and a
     // flag that hadn't been set yet used to mean Load answered with an empty list and no
     // explanation.
@@ -1064,17 +1070,42 @@ pub async fn sl_nearby_objects(state: State<'_, Arc<AppState>>, range: Option<f6
     // 128m is as far as the interest list reaches (session::INTEREST_FAR), so asking for
     // more than that would promise objects the sim never sends.
     let range = range.unwrap_or(32.0).clamp(8.0, 384.0) as f32;
+    let filters = crate::bridge::objects::ListFilters {
+        include_attachments: include_attachments.unwrap_or(false),
+        include_physical: include_physical.unwrap_or(true),
+    };
     let interest360 =
         refresh_object_requests(state.inner(), &s, &agent, &sess).await;
     // Pressing Load is also the retry: anything the sim never answered about becomes
     // askable again.
     s.allow_props_retry();
     let drain_gen = s.bump_props_drain();
-    let (rows, pending, tracked, cached, nearest, roots, unresolved, attachments_tracked, attachments_in_range) =
-        s.nearby_objects(range);
+    let (
+        entries,
+        resolve_ids,
+        pending,
+        tracked,
+        cached,
+        nearest,
+        roots,
+        unresolved,
+        attachments_tracked,
+        attachments_in_range,
+    ) = s.nearby_objects(range, filters);
+    let names_needed = s.filter_names_needed(resolve_ids);
+    if !names_needed.is_empty() {
+        let app = app.clone();
+        let core = state.inner().clone();
+        let session = s.clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::bridge::caps::resolve_display_names(&app, &core, &session, &names_needed).await {
+                crate::dlog!("nearby objects: owner name resolve failed: {}", e);
+            }
+        });
+    }
     crate::dlog!(
-        "nearby objects: {} row(s) within {}m, {} awaiting properties, {} tracked, {} cached ids, {} roots, {} unresolved parents, {} attachment(s) in range ({} tracked), nearest={:.1}m, interest360={}",
-        rows.len(),
+        "nearby objects: {} list root(s) within {}m, {} awaiting properties, {} tracked, {} cached ids, {} roots, {} unresolved parents, {} attachment(s) in range ({} tracked), nearest={:.1}m, interest360={}",
+        entries.len(),
         range,
         pending,
         tracked,
@@ -1092,7 +1123,7 @@ pub async fn sl_nearby_objects(state: State<'_, Arc<AppState>>, range: Option<f6
     Ok(json!({
         "ok": true,
         "scanning": true,
-        "objects": rows,
+        "entries": entries,
         "pending": pending,
         "tracked": tracked,
         "cached": cached,

@@ -59,6 +59,7 @@ const FSInteract = (function () {
   const RANGE_CHOICES = [16, 32, 48, 64, 96, 128, 256, 384];
   const DEFAULT_RANGE = 32;
   let range = DEFAULT_RANGE;
+  let entries = [];
   let objects = [];
   let sortKey = 'distance';
   let sortAsc = true;
@@ -76,9 +77,14 @@ const FSInteract = (function () {
   /// Which object we're sitting on, when we are - so "Sit on" can be out for that one row.
   let sittingOn = '';
 
-  // Owners we've already asked the sim to name, so a repaint can't turn into a stream
-  // of requests. Names arrive on 'names-updated' and the list repaints itself.
-  const namesAsked = {};
+  function flattenEntries(list) {
+    const out = [];
+    (list || []).forEach(function (root) {
+      out.push(root);
+      (root.children || []).forEach(function (child) { out.push(child); });
+    });
+    return out;
+  }
 
   // The plain name of whoever holds this key, or '' if we don't know yet. Deliberately
   // no placeholder text: `matchesFilter` compares against this, and a placeholder would
@@ -130,29 +136,6 @@ const FSInteract = (function () {
     }
   }
 
-  // Ask about the owners and creators we don't have names for yet.
-  //
-  // Through FSTransport.queueNameResolve, so it takes the same route as every other
-  // list: the GetDisplayNames cap first (which is what gives us display names rather
-  // than bare usernames), falling back to UUIDNameRequest in the core. One batch per
-  // Load, never per row and never on a timer.
-  function resolveOwners() {
-    const wanted = [];
-    const want = function (id) {
-      if (!id || FSProfiles.isZero(id) || namesAsked[id]) return;
-      if (nameOf(id)) return;
-      namesAsked[id] = true;
-      wanted.push(id);
-    };
-    objects.forEach(function (obj) {
-      want(obj.ownerId);
-      want(obj.creatorId);
-    });
-    if (!wanted.length) return;
-    if (FSTransport.queueNameResolve) FSTransport.queueNameResolve(wanted);
-    else invoke('sl_resolve_names', { ids: wanted }).catch(function () {});
-  }
-
   // The filter matches the columns you can actually see: Name and Owner.
   //
   // Creator is deliberately not matched. It isn't a column, so a row that matched on it
@@ -182,42 +165,12 @@ const FSInteract = (function () {
     return [info.label, info.userName, info.displayName].filter(Boolean).join(' ');
   }
 
-  function isListRoot(obj) {
-    if (!obj.parentId) return true;
-    return !!obj.isAttachment && obj.localId === obj.rootLocalId;
-  }
-
   function isAttachmentObject(obj) {
     return !!(obj && obj.isAttachment);
   }
 
-  function rootsInList() {
-    return objects.filter(isListRoot);
-  }
-
-  function typeFlagsForRoot(root) {
-    const all = [root].concat(childrenOfRoot(root.localId));
-    return {
-      physical: all.some(function (o) { return o.physical; }),
-      isAttachment: all.some(function (o) { return o.isAttachment; })
-    };
-  }
-
-  function matchesTypeFilters(obj) {
-    const flags = typeFlagsForRoot(obj);
-    if (!includeAttachments && flags.isAttachment) return false;
-    if (!includePhysical && flags.physical) return false;
-    return true;
-  }
-
-  function childrenOfRoot(rootId) {
-    return objects.filter(function (o) {
-      return o.parentId && o.rootLocalId === rootId;
-    });
-  }
-
-  function visibleRoots() {
-    return sortList(rootsInList().filter(matchesTypeFilters).filter(matchesFilter));
+  function visibleEntries() {
+    return sortList(entries.filter(matchesFilter));
   }
 
   function sortList(list) {
@@ -304,17 +257,13 @@ const FSInteract = (function () {
   function renderObjects() {
     const host = document.getElementById('objects-rows');
     if (!host) return;
-    const shownRoots = visibleRoots();
-    const allRoots = rootsInList();
+    const shownRoots = visibleEntries();
     host.innerHTML = '';
     if (!shownRoots.length) {
       host.innerHTML = !loaded
         ? '<p class="settings-note">Press <strong>Load</strong> to list the objects around you.</p>'
         : filterText
           ? '<p class="settings-note">Nothing here matches "' + FSUtils.escapeHtml(filterText) + '".</p>'
-          : rootsInList().length && !visibleRoots().length
-            ? '<p class="settings-note">Nothing matches the current type filters. Try enabling ' +
-              'attachments or physical objects above.</p>'
             : lastScan.cached > 0 && lastScan.tracked === 0
             ? '<p class="settings-note">The region listed ' + lastScan.cached +
               ' object' + (lastScan.cached === 1 ? '' : 's') +
@@ -341,7 +290,7 @@ const FSInteract = (function () {
       return;
     }
     shownRoots.forEach(function (root) {
-      const kids = sortList(childrenOfRoot(root.localId));
+      const kids = sortList(root.children || []);
       const hasKids = kids.length > 0;
       const expanded = !!expandedRoots[root.localId];
       host.appendChild(buildObjectRow(root, {
@@ -357,14 +306,14 @@ const FSInteract = (function () {
     });
     const title = document.getElementById('objects-title');
     if (title) {
-      const inRangeRoots = allRoots.filter(function (r) { return r.distance <= range; }).length;
-      if (!allRoots.length) {
+      const totalRoots = entries.length;
+      if (!totalRoots) {
         title.textContent = 'Nearby objects';
-      } else if (shownRoots.length !== allRoots.length) {
-        title.textContent = 'Nearby objects (' + shownRoots.length + ' of ' + inRangeRoots +
+      } else if (shownRoots.length !== totalRoots) {
+        title.textContent = 'Nearby objects (' + shownRoots.length + ' of ' + totalRoots +
           ' roots within ' + range + 'm)';
       } else {
-        title.textContent = 'Nearby objects (' + inRangeRoots + ' roots within ' + range + 'm)';
+        title.textContent = 'Nearby objects (' + totalRoots + ' roots within ' + range + 'm)';
       }
     }
     document.querySelectorAll('[data-objects-sort]').forEach(function (btn) {
@@ -372,84 +321,100 @@ const FSInteract = (function () {
     });
   }
 
-  // Load, and only when asked. Reads the table the core already keeps - no polling.
-  //
-  // `pending` is how many of those rows are still waiting on the sim to say what they
-  // are. The core asks about all of them, paced, so they fill in over the next few
-  // seconds without another press.
-  let loadInFlight = false;
+  let objectsLoadBusy = false;
 
-  function normalizeObjects(rows) {
-    return (rows || []).map(function (o) {
-      return Object.assign({}, o, {
-        physical: !!o.physical,
-        isAttachment: !!o.isAttachment
-      });
+  function setObjectsControlsBusy(busy) {
+    ['objects-refresh', 'objects-include-attachments', 'objects-include-physical', 'objects-range'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.disabled = busy;
     });
+  }
+
+  function normalizeEntry(row) {
+    return Object.assign({}, row, {
+      physical: !!row.physical,
+      isAttachment: !!row.isAttachment,
+      children: (row.children || []).map(normalizeEntry)
+    });
+  }
+
+  function applyScanResponse(res) {
+    entries = (res && res.entries ? res.entries : []).map(normalizeEntry);
+    objects = flattenEntries(entries);
+    lastScan = {
+      pending: (res && res.pending) || 0,
+      tracked: (res && res.tracked) || 0,
+      cached: (res && res.cached) || 0,
+      nearest: res && typeof res.nearest === 'number' ? res.nearest : -1,
+      roots: (res && res.roots) || 0,
+      unresolvedParents: (res && res.unresolvedParents) || 0,
+      attachmentsTracked: (res && res.attachmentsTracked) || 0,
+      attachmentsInRange: (res && res.attachmentsInRange) || 0,
+      interest360: !(res && res.interest360 === false)
+    };
+  }
+
+  function nearbyQuery() {
+    return {
+      range: range,
+      includeAttachments: includeAttachments,
+      includePhysical: includePhysical
+    };
   }
 
   function refreshObjects() {
     if (!FSState.gridOnline()) return;
-    if (loadInFlight) return;
-    loadInFlight = true;
-    const refreshBtn = document.getElementById('objects-refresh');
-    if (refreshBtn) refreshBtn.disabled = true;
-    invoke('sl_nearby_objects', { range: range }).then(function (res) {
-      objects = normalizeObjects(res && res.objects);
+    if (objectsLoadBusy) return;
+    objectsLoadBusy = true;
+    setObjectsControlsBusy(true);
+
+    function finishLoad() {
+      objectsLoadBusy = false;
+      setObjectsControlsBusy(false);
+    }
+
+    invoke('sl_nearby_objects', nearbyQuery()).then(function (res) {
+      applyScanResponse(res);
       loaded = true;
-      lastScan = {
-        pending: (res && res.pending) || 0,
-        tracked: (res && res.tracked) || 0,
-        cached: (res && res.cached) || 0,
-        nearest: res && typeof res.nearest === 'number' ? res.nearest : -1,
-        roots: (res && res.roots) || 0,
-        unresolvedParents: (res && res.unresolvedParents) || 0,
-        attachmentsTracked: (res && res.attachmentsTracked) || 0,
-        attachmentsInRange: (res && res.attachmentsInRange) || 0,
-        interest360: !(res && res.interest360 === false)
-      };
-      resolveOwners();
       renderObjects();
       const pending = lastScan.pending;
       if (pending > 0) {
         FSUtils.showToast('Naming ' + pending + ' object' + (pending === 1 ? '' : 's') + '...', 'info');
       }
-      if (pending > 0 || objects.length === 0) {
-        // The sim may still be describing the region, or names may still be draining in.
+      if (pending > 0 || entries.length === 0) {
+        let followUpsLeft = 2;
+        function followDone() {
+          followUpsLeft -= 1;
+          if (followUpsLeft <= 0) finishLoad();
+        }
         [2000, 5000].forEach(function (delayMs) {
           window.setTimeout(function () {
-            if (!FSState.gridOnline()) return;
-            invoke('sl_nearby_objects', { range: range }).then(function (r2) {
-              if (!r2 || !r2.objects) return;
-              objects = normalizeObjects(r2.objects);
-              lastScan = {
-              pending: r2.pending || 0,
-              tracked: r2.tracked || 0,
-              cached: r2.cached || 0,
-              nearest: typeof r2.nearest === 'number' ? r2.nearest : -1,
-              roots: r2.roots || 0,
-              unresolvedParents: r2.unresolvedParents || 0,
-              attachmentsTracked: r2.attachmentsTracked || 0,
-              attachmentsInRange: r2.attachmentsInRange || 0,
-              interest360: !(r2.interest360 === false)
-            };
-              resolveOwners();
-              renderObjects();
-            }).catch(function () {});
+            if (!objectsLoadBusy) return;
+            if (!FSState.gridOnline()) {
+              followDone();
+              return;
+            }
+            invoke('sl_nearby_objects', nearbyQuery()).then(function (r2) {
+              if (r2 && r2.entries) {
+                applyScanResponse(r2);
+                renderObjects();
+              }
+            }).catch(function () {}).finally(followDone);
           }, delayMs);
         });
+      } else {
+        finishLoad();
       }
     }).catch(function () {
       FSUtils.showToast('Could not read the nearby objects.', 'warning');
-    }).finally(function () {
-      loadInFlight = false;
-      if (refreshBtn) refreshBtn.disabled = false;
+      finishLoad();
     });
   }
 
   function setRange(metres) {
     const next = RANGE_CHOICES.indexOf(Number(metres)) !== -1 ? Number(metres) : DEFAULT_RANGE;
     if (next === range) return;
+    if (objectsLoadBusy) return;
     range = next;
     if (typeof FSSettings !== 'undefined') FSSettings.set('objectsRange', range);
     // A different radius is a different question, so ask it rather than filtering what
@@ -516,8 +481,8 @@ const FSInteract = (function () {
     return !price || price.payable !== false;
   }
 
-  function permText(mask) {
-    // Permission bitmask (modify / copy / transfer).
+  function permText(mask, decoded) {
+    if (decoded) return decoded;
     const m = Number(mask) || 0;
     const parts = [];
     if (m & 0x00004000) parts.push('modify');
@@ -725,8 +690,8 @@ const FSInteract = (function () {
         personRow('Owner', p.ownerId || obj.ownerId) +
         (p.groupId && !FSProfiles.isZero(p.groupId) ? groupRow('Group', p.groupId) : '') +
         personRow('Last owner', p.lastOwnerId) +
-        detailRow('You may', props ? permText(p.everyoneMask) : '') +
-        detailRow('Next owner may', props ? permText(p.nextOwnerMask) : '') +
+        detailRow('You may', props ? permText(p.everyoneMask, p.everyonePerms) : '') +
+        detailRow('Next owner may', props ? permText(p.nextOwnerMask, p.nextOwnerPerms) : '') +
         detailRow('For sale', obj.forSale ? 'L$ ' + obj.salePrice : (props ? 'no' : '')) +
         personRow('Creator', p.creatorId || obj.creatorId) +
         detailRow('Created', formatCreated(p.creationDate)) +
@@ -881,13 +846,11 @@ const FSInteract = (function () {
       }
       box.checked = getValue();
       box.addEventListener('change', function () {
+        if (objectsLoadBusy) return;
         setValue(box.checked);
         if (typeof FSSettings !== 'undefined') FSSettings.set(key, box.checked);
-        if (id === 'objects-include-attachments' && box.checked && loaded) {
-          refreshObjects();
-          return;
-        }
-        renderObjects();
+        if (loaded) refreshObjects();
+        else renderObjects();
       });
     }
 
@@ -916,13 +879,16 @@ const FSInteract = (function () {
           includeAttachments = !!value;
           const box = document.getElementById('objects-include-attachments');
           if (box) box.checked = includeAttachments;
-          if (includeAttachments && loaded) refreshObjects();
+          if (objectsLoadBusy) return;
+          if (loaded) refreshObjects();
           else renderObjects();
         } else if (key === 'objectsIncludePhysical') {
           includePhysical = !!value;
           const box = document.getElementById('objects-include-physical');
           if (box) box.checked = includePhysical;
-          renderObjects();
+          if (objectsLoadBusy) return;
+          if (loaded) refreshObjects();
+          else renderObjects();
         }
       });
     }
@@ -982,6 +948,9 @@ const FSInteract = (function () {
       // arrival - so clear the list rather than leave the old region's rows sitting
       // there with distances that no longer mean anything.
       FSTransport.on('teleport-finish', function () {
+        objectsLoadBusy = false;
+        setObjectsControlsBusy(false);
+        entries = [];
         objects = [];
         loaded = false;
         Object.keys(expandedRoots).forEach(function (k) { delete expandedRoots[k]; });

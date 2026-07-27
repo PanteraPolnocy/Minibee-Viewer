@@ -17,7 +17,6 @@ use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
-use crate::bridge::objects::distance;
 use crate::bridge::session::{self, Action, SessionState};
 use crate::codec;
 use crate::codec::template::Registry;
@@ -250,8 +249,10 @@ impl Session {
     pub fn nearby_objects(
         &self,
         range: f32,
+        filters: crate::bridge::objects::ListFilters,
     ) -> (
         Vec<serde_json::Value>,
+        Vec<String>,
         usize,
         usize,
         usize,
@@ -264,26 +265,16 @@ impl Session {
         let guard = self.engine.lock().unwrap();
         let st = match guard.as_ref() {
             Some(s) => s,
-            None => return (Vec::new(), 0, 0, 0, -1.0, 0, 0, 0, 0),
+            None => return (Vec::new(), Vec::new(), 0, 0, 0, -1.0, 0, 0, 0, 0),
         };
         let from = agent_eye(st);
         let (attachments_tracked, attachments_in_range) = st.objects.attachment_stats(from, range);
-        let rows: Vec<serde_json::Value> = st
-            .objects
-            .nearby_for_list(from, range)
-            .into_iter()
-            .map(|(r, pos)| {
-                let root_id = st.objects.root_local_id(r.local_id);
-                let list_dist = distance(from, pos);
-                let in_attachment = st.objects.is_in_attachment(r.local_id);
-                crate::bridge::objects::row_json(r, pos, root_id, list_dist, in_attachment)
-            })
-            .collect();
+        let (entries, resolve_ids) = st.objects.nearby_list_entries(from, range, filters);
         let (tracked, roots, nearest_root, nearest) = st.objects.census(from);
         let cached = st.objects.cached_id_count();
         let unresolved = st.objects.unresolved_parent_count();
         crate::dlog!(
-            "nearby: from=({:.0},{:.0},{:.0}) range={}m tracked={} roots={} attachments={}/{} unresolved_parents={} nearest_root={:.1}m nearest={:.1}m -> {} row(s)",
+            "nearby: from=({:.0},{:.0},{:.0}) range={}m tracked={} roots={} attachments={}/{} unresolved_parents={} nearest_root={:.1}m nearest={:.1}m -> {} list root(s)",
             from[0],
             from[1],
             from[2],
@@ -295,10 +286,11 @@ impl Session {
             unresolved,
             nearest_root,
             nearest,
-            rows.len()
+            entries.len()
         );
         (
-            rows,
+            entries,
+            resolve_ids,
             st.objects.pending_props(from, range),
             tracked,
             cached,
@@ -308,6 +300,41 @@ impl Session {
             attachments_tracked,
             attachments_in_range,
         )
+    }
+
+    /// Owner/creator ids we have not cached yet.
+    pub fn filter_names_needed(&self, ids: Vec<String>) -> Vec<String> {
+        let guard = self.engine.lock().unwrap();
+        let st = match guard.as_ref() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for id in ids {
+            if id.is_empty() {
+                continue;
+            }
+            let key = id.to_ascii_lowercase();
+            if !seen.insert(key) {
+                continue;
+            }
+            if st.knows_name(&id) {
+                continue;
+            }
+            out.push(id);
+        }
+        out
+    }
+
+    /// Queue a UDP UUIDNameRequest for each chunk (best-effort when the cap is missing).
+    pub async fn request_uuid_names(&self, ids: &[String]) {
+        for chunk in ids.chunks(40) {
+            let blocks = serde_json::json!({
+                "UUIDNameBlock": chunk.iter().map(|id| serde_json::json!({ "ID": id })).collect::<Vec<_>>()
+            });
+            self.send_encoded("UUIDNameRequest", &blocks, false).await;
+        }
     }
 
     pub fn objects_missing_from_cache(&self, limit: usize) -> Vec<u32> {

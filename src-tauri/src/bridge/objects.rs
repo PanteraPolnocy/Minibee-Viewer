@@ -97,6 +97,46 @@ pub const CLICK_ACTION_SIT: u8 = 1;
 pub const CLICK_ACTION_BUY: u8 = 2;
 pub const CLICK_ACTION_PAY: u8 = 3;
 
+/// Permission bits decoded for the object detail view.
+pub const PERM_TRANSFER: i64 = 0x00002000;
+pub const PERM_MODIFY: i64 = 0x00004000;
+pub const PERM_COPY: i64 = 0x00008000;
+
+/// Type filters for the nearby objects list (applied in the core).
+#[derive(Clone, Copy, Debug)]
+pub struct ListFilters {
+    pub include_attachments: bool,
+    pub include_physical: bool,
+}
+
+impl Default for ListFilters {
+    fn default() -> Self {
+        Self {
+            include_attachments: false,
+            include_physical: true,
+        }
+    }
+}
+
+/// Human-readable modify / copy / transfer from an object permission mask.
+pub fn perm_mask_text(mask: i64) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    if mask & PERM_MODIFY != 0 {
+        parts.push("modify");
+    }
+    if mask & PERM_COPY != 0 {
+        parts.push("copy");
+    }
+    if mask & PERM_TRANSFER != 0 {
+        parts.push("transfer");
+    }
+    if parts.is_empty() {
+        "none".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
 impl ObjectRow {
     pub fn is_listable(&self) -> bool {
         self.pcode == PCODE_PRIM
@@ -973,6 +1013,147 @@ impl ObjectTable {
         out
     }
 
+    fn is_list_root(&self, local_id: u32) -> bool {
+        let Some(row) = self.rows.get(&local_id) else {
+            return false;
+        };
+        if row.parent_id == 0 {
+            return true;
+        }
+        let root = self.root_local_id(local_id);
+        local_id == root && self.is_attachment(local_id)
+    }
+
+    fn linkset_passes_type_filters(&self, root_id: u32, filters: ListFilters) -> bool {
+        let mut attachment = false;
+        let mut physical = false;
+        for row in self.rows.values() {
+            if self.root_local_id(row.local_id) != root_id {
+                continue;
+            }
+            if !self.is_nearby_listable(row.local_id) {
+                continue;
+            }
+            if self.is_in_attachment(row.local_id) {
+                attachment = true;
+            }
+            if row.flags & FLAGS_USE_PHYSICS != 0 {
+                physical = true;
+            }
+        }
+        if !filters.include_attachments && attachment {
+            return false;
+        }
+        if !filters.include_physical && physical {
+            return false;
+        }
+        true
+    }
+
+    /// Nearby list as linkset roots with child rows, after type filters.
+    ///
+    /// Returns `(entries, owner/creator ids still needing a name lookup)`.
+    pub fn nearby_list_entries(
+        &self,
+        from: [f32; 3],
+        range: f32,
+        filters: ListFilters,
+    ) -> (Vec<Value>, Vec<String>) {
+        let flat: Vec<(u32, [f32; 3])> = self
+            .nearby_for_list(from, range)
+            .into_iter()
+            .map(|(r, pos)| (r.local_id, pos))
+            .collect();
+        let mut by_id: HashMap<u32, [f32; 3]> = HashMap::new();
+        for (id, pos) in flat {
+            by_id.insert(id, pos);
+        }
+
+        let mut root_ids: Vec<u32> = by_id
+            .keys()
+            .copied()
+            .filter(|id| self.is_list_root(*id))
+            .collect();
+        root_ids.sort_by(|a, b| {
+            let da = distance(from, by_id[a]);
+            let db = distance(from, by_id[b]);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut resolve_ids: Vec<String> = Vec::new();
+        let mut seen_resolve: HashSet<String> = HashSet::new();
+        let mut note_id = |id: &str| {
+            if id.is_empty() || is_zero_id(&id_bytes(id)) {
+                return;
+            }
+            let key = id.to_ascii_lowercase();
+            if seen_resolve.insert(key) {
+                resolve_ids.push(id.to_string());
+            }
+        };
+
+        let mut entries: Vec<Value> = Vec::new();
+        for root_id in root_ids {
+            if !self.linkset_passes_type_filters(root_id, filters) {
+                continue;
+            }
+            let Some(root_row) = self.rows.get(&root_id) else {
+                continue;
+            };
+            let Some(root_pos) = by_id.get(&root_id).copied() else {
+                continue;
+            };
+            let list_dist = distance(from, root_pos);
+            let in_attachment = self.is_in_attachment(root_id);
+
+            let mut child_entries: Vec<Value> = Vec::new();
+            let mut child_ids: Vec<u32> = by_id
+                .keys()
+                .copied()
+                .filter(|id| {
+                    *id != root_id
+                        && self
+                            .rows
+                            .get(id)
+                            .is_some_and(|r| r.parent_id != 0 && self.root_local_id(*id) == root_id)
+                })
+                .collect();
+            child_ids.sort_by(|a, b| {
+                let da = distance(from, by_id[a]);
+                let db = distance(from, by_id[b]);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            for child_id in child_ids {
+                let Some(child_row) = self.rows.get(&child_id) else {
+                    continue;
+                };
+                let child_pos = by_id[&child_id];
+                let child_dist = distance(from, child_pos);
+                let child_attachment = self.is_in_attachment(child_id);
+                child_entries.push(row_json(
+                    child_row,
+                    child_pos,
+                    root_id,
+                    child_dist,
+                    child_attachment,
+                ));
+                note_id(&id_string(&child_row.owner_id));
+                note_id(&id_string(&child_row.creator_id));
+            }
+
+            note_id(&id_string(&root_row.owner_id));
+            note_id(&id_string(&root_row.creator_id));
+
+            let mut entry = row_json(root_row, root_pos, root_id, list_dist, in_attachment);
+            if let Some(obj) = entry.as_object_mut() {
+                obj.insert("children".to_string(), Value::Array(child_entries));
+            }
+            entries.push(entry);
+        }
+
+        (entries, resolve_ids)
+    }
+
     /// Objects within `range` metres of `from`, nearest first.
     ///
     /// Child prims are included with their region position (root position plus
@@ -1847,6 +2028,16 @@ mod tests {
         t.clear();
         assert_eq!(t.cached_id_count(), 0);
         assert!(t.ids_missing_rows(10).is_empty());
+    }
+
+    #[test]
+    fn perm_mask_text_decodes_common_bits() {
+        assert_eq!(perm_mask_text(0), "none");
+        assert_eq!(
+            perm_mask_text(PERM_MODIFY | PERM_COPY | PERM_TRANSFER),
+            "modify, copy, transfer"
+        );
+        assert_eq!(perm_mask_text(PERM_COPY), "copy");
     }
 
     /// Touch and Pay follow the sim's FLAGS_HANDLE_TOUCH / FLAGS_TAKES_MONEY bits.

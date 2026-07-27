@@ -77,12 +77,24 @@ fn name_parts(row: &Value) -> (String, String, String) {
 }
 
 /// Resolve agent display names through the GetDisplayNames cap and feed the
-/// engine name cache (emits `names-updated`). If this errors outright, falling
-/// back to UDP UUIDNameRequest is the caller's job.
-#[tauri::command]
-pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
-    let cap = session.cap("GetDisplayNames").ok_or("GetDisplayNames capability unavailable")?;
+/// engine name cache (emits `names-updated`). Falls back to UDP when the cap is
+/// missing or individual ids are unresolved.
+pub(crate) async fn resolve_display_names(
+    app: &AppHandle,
+    state: &Arc<AppState>,
+    session: &Arc<crate::bridge::circuit::Session>,
+    ids: &[String],
+) -> Result<(), String> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let cap = match session.cap("GetDisplayNames") {
+        Some(u) => u,
+        None => {
+            session.request_uuid_names(ids).await;
+            return Ok(());
+        }
+    };
     let base = cap_endpoint(&cap);
     let agent_session = session.agent_ids().map(|(_, s)| s).unwrap_or_default();
     let headers: Vec<(String, String)> = if agent_session.is_empty() {
@@ -92,7 +104,7 @@ pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppSt
     };
 
     let mut resolved: Vec<(String, String)> = Vec::new();
-    let mut rich: Vec<Value> = Vec::new(); // one { name, displayName, userName } per id, for the UI
+    let mut rich: Vec<Value> = Vec::new();
     let mut bad_ids: Vec<String> = Vec::new();
     for chunk in ids.chunks(40) {
         let query = chunk
@@ -118,8 +130,6 @@ pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppSt
         {
             Ok(e) => e,
             Err(e) => {
-                // This chunk failed, but still send its ids down the UDP fallback
-                // so those avatars aren't left stranded on raw UUIDs.
                 crate::dlog!("GetDisplayNames: chunk HTTP error, falling back to UDP: {}", e);
                 bad_ids.extend(chunk.iter().cloned());
                 continue;
@@ -144,9 +154,6 @@ pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppSt
                 }
             }
         }
-        // On the same 200 response the cap hands back any ids it couldn't resolve
-        // (expired or pending display names) in `bad_ids`; gather them for the UDP
-        // fallback rather than leaving those avatars showing raw UUIDs.
         if let Some(bad) = parsed.get("bad_ids").and_then(|v| v.as_array()) {
             for v in bad {
                 if let Some(s) = v.as_str() {
@@ -158,8 +165,6 @@ pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppSt
         }
     }
 
-    // Grab a small sample of the resolved display/username pairs so we can tell
-    // whether display names are actually coming back, or everyone's just a username.
     let sample: String = rich
         .iter()
         .take(3)
@@ -174,8 +179,6 @@ pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppSt
         .join(", ");
     let changed = session.merge_names(&resolved);
     if !changed.is_empty() {
-        // Emit the rich form (display + username) only for the ids that actually
-        // changed, so the UI can render "Display Name (username)".
         let changed_ids: std::collections::HashSet<String> = changed
             .iter()
             .filter_map(|c| c.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
@@ -188,12 +191,8 @@ pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppSt
             let _ = app.emit("minibee-viewer://names-updated", json!({ "names": names_out }));
         }
     }
-    // Anything the cap couldn't resolve falls back to the legacy UUIDNameRequest.
-    for chunk in bad_ids.chunks(40) {
-        let blocks = json!({
-            "UUIDNameBlock": chunk.iter().map(|id| json!({ "ID": id })).collect::<Vec<_>>()
-        });
-        session.send_encoded("UUIDNameRequest", &blocks, false).await;
+    if !bad_ids.is_empty() {
+        session.request_uuid_names(&bad_ids).await;
     }
     crate::dlog!(
         "GetDisplayNames: requested={} resolved={} fellBackToUdp={} sample=[{}]",
@@ -202,7 +201,14 @@ pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppSt
         bad_ids.len(),
         sample
     );
-    Ok(json!({ "ok": true, "resolved": resolved.len(), "fellBack": bad_ids.len() }))
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Cmd {
+    let session = state.active().ok_or("No active session")?;
+    resolve_display_names(&app, state.inner(), &session, &ids).await?;
+    Ok(json!({ "ok": true, "requested": ids.len() }))
 }
 
 fn xml_text(s: &str) -> String {

@@ -216,6 +216,10 @@ impl SessionState {
         self.names.get(id).map(|s| s.as_str())
     }
 
+    pub(crate) fn knows_name(&self, id: &str) -> bool {
+        self.cached_name(id).is_some_and(|n| !n.trim().is_empty())
+    }
+
     /// True if this IM key turned up within the 1500ms window, i.e. a duplicate.
     /// Otherwise it records the key and prunes stale or oversized entries.
     fn is_duplicate_im(&mut self, key: &str) -> bool {
@@ -1727,7 +1731,9 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                         "nextOwnerMask": inst_i64(d, "NextOwnerMask"),
                         "groupMask": inst_i64(d, "GroupMask"),
                         "everyoneMask": inst_i64(d, "EveryoneMask"),
+                        "everyonePerms": crate::bridge::objects::perm_mask_text(inst_i64(d, "EveryoneMask")),
                         "baseMask": inst_i64(d, "BaseMask"),
+                        "nextOwnerPerms": crate::bridge::objects::perm_mask_text(inst_i64(d, "NextOwnerMask")),
                         "salePrice": inst_i64(d, "SalePrice"),
                         "saleType": inst_i64(d, "SaleType"),
                         "source": "properties",
@@ -1765,7 +1771,9 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "nextOwnerMask": inst_i64(&d, "NextOwnerMask"),
                     "groupMask": inst_i64(&d, "GroupMask"),
                     "everyoneMask": inst_i64(&d, "EveryoneMask"),
+                    "everyonePerms": crate::bridge::objects::perm_mask_text(inst_i64(&d, "EveryoneMask")),
                     "baseMask": inst_i64(&d, "BaseMask"),
+                    "nextOwnerPerms": crate::bridge::objects::perm_mask_text(inst_i64(&d, "NextOwnerMask")),
                     "salePrice": inst_i64(&d, "SalePrice"),
                     "saleType": inst_i64(&d, "SaleType"),
                     "ownershipCost": inst_i64(&d, "OwnershipCost"),
