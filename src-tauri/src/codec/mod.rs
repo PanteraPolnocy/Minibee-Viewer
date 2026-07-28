@@ -670,9 +670,52 @@ mod tests {
             "AvatarNotesUpdate", "DirFindQuery", "ParcelPropertiesRequest", "ParcelPropertiesUpdate",
             "UUIDNameRequest", "LogoutRequest", "UseCircuitCode", "CompleteAgentMovement",
             "RegionHandshakeReply", "PacketAck", "CompletePingCheck",
+            "InviteGroupRequest", "RezMultipleAttachmentsFromInv", "AgentAnimation",
+            "AgentRequestSit", "AgentSit", "AgentUpdate", "RequestXfer", "ConfirmXferPacket",
+            "MuteListRequest", "DirPlacesQuery",
         ];
         let missing: Vec<&str> = NAMES.iter().copied().filter(|n| reg.by_name(n).is_none()).collect();
         assert!(missing.is_empty(), "missing outbound messages: {missing:?}");
+    }
+
+    #[test]
+    fn invite_group_request_roundtrips_multiple_invitees() {
+        let reg = template::build_registry();
+        let zero = "00000000-0000-0000-0000-000000000000";
+        let blocks = json!({
+            "AgentData": [{ "AgentID": "11111111-1111-1111-1111-111111111111", "SessionID": "22222222-2222-2222-2222-222222222222" }],
+            "GroupData": [{ "GroupID": "33333333-3333-3333-3333-333333333333" }],
+            "InviteData": [
+                { "InviteeID": "44444444-4444-4444-4444-444444444444", "RoleID": zero },
+                { "InviteeID": "55555555-5555-5555-5555-555555555555", "RoleID": zero },
+            ],
+        });
+        let pkt = encode(&reg, "InviteGroupRequest", &blocks, 1, 0).expect("encode");
+        let dec = decode(&reg, &pkt).expect("decode");
+        assert_eq!(dec["name"], "InviteGroupRequest");
+        let invites = dec["blocks"]["InviteData"].as_array().expect("InviteData");
+        assert_eq!(invites.len(), 2, "InviteData is Variable: one row per invitee");
+        assert_eq!(invites[0]["InviteeID"], "44444444-4444-4444-4444-444444444444");
+        assert_eq!(invites[1]["RoleID"], zero, "zero RoleID = the implicit Everyone role");
+    }
+
+    #[test]
+    fn agent_animation_roundtrips_with_empty_physical_events() {
+        let reg = template::build_registry();
+        let blocks = crate::bridge::session::build_agent_animation(
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+            crate::bridge::session::ANIM_AGENT_STAND,
+            true,
+        );
+        let pkt = encode(&reg, "AgentAnimation", &blocks, 1, 0).expect("encode");
+        let dec = decode(&reg, &pkt).expect("decode");
+        assert_eq!(dec["name"], "AgentAnimation");
+        assert_eq!(
+            dec["blocks"]["AnimationList"][0]["AnimID"],
+            crate::bridge::session::ANIM_AGENT_STAND
+        );
+        assert_eq!(dec["blocks"]["AnimationList"][0]["StartAnim"], true);
     }
 
     #[test]

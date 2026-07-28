@@ -1,7 +1,7 @@
 /**
  * The single source of truth for app state, with a small pub/sub layer on top.
  */
-const FSState = (function () {
+const BeeState = (function () {
   'use strict';
 
   const listeners = new Map();
@@ -102,7 +102,8 @@ const FSState = (function () {
     if (msg.outgoing) return false;
     if (msg.type === 'system' || msg.source === 'system') return false;
     if (msg.kind === 'script-dialog' || msg.kind === 'script-permission' ||
-        msg.kind === 'interactive-prompt' || msg.kind === 'payment' || msg.kind === 'motd') {
+        msg.kind === 'interactive-prompt' || msg.kind === 'payment' || msg.kind === 'motd' ||
+        msg.kind === 'group-notice') {
       return false;
     }
     return true;
@@ -467,7 +468,7 @@ const FSState = (function () {
     const agentId = normAgentId(state.agent && state.agent.id);
     if (!agentId || !participant || !participant.id) return null;
 
-    const sessionId = FSUtils.xorSessionId(agentId, normAgentId(participant.id));
+    const sessionId = BeeUtils.xorSessionId(agentId, normAgentId(participant.id));
     if (!state.imSessions[sessionId]) {
       state.imSessions[sessionId] = {
         id: sessionId,

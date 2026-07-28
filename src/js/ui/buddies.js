@@ -1,7 +1,7 @@
 /**
  * Buddies - the friends list.
  */
-const FSBuddies = (function () {
+const BeeBuddies = (function () {
   'use strict';
 
   let filter = '';
@@ -11,17 +11,17 @@ const FSBuddies = (function () {
   // asynchronously via GetDisplayNames (which reaches us as names-updated).
   // Prefer the resolved cache, falling back to whatever the buddy object carries.
   function nameLines(agent) {
-    const info = agent && agent.id && typeof FSTransport.getCachedNameInfo === 'function'
-      ? FSTransport.getCachedNameInfo(agent.id)
+    const info = agent && agent.id && typeof BeeTransport.getCachedNameInfo === 'function'
+      ? BeeTransport.getCachedNameInfo(agent.id)
       : null;
     if (info && (info.userName || info.label || info.displayName)) {
-      return FSUtils.agentNameLines({
+      return BeeUtils.agentNameLines({
         displayName: info.displayName || '',
         userName: info.userName || info.label || '',
         name: info.label || (agent && agent.name) || ''
       });
     }
-    return FSUtils.agentNameLines(agent);
+    return BeeUtils.agentNameLines(agent);
   }
 
   function iconProfile() {
@@ -45,14 +45,14 @@ const FSBuddies = (function () {
 
     li.innerHTML =
       '<div class="entity-item__avatar' + (buddy.online ? ' entity-item__avatar--online' : '') +
-        '" data-agent-id="' + FSUtils.escapeHtml(buddy.id) + '" data-resolve-image="1" data-label="' +
-        FSUtils.escapeHtml(names.title) + '"></div>' +
+        '" data-agent-id="' + BeeUtils.escapeHtml(buddy.id) + '" data-resolve-image="1" data-label="' +
+        BeeUtils.escapeHtml(names.title) + '"></div>' +
       '<div class="entity-item__body">' +
-        '<div class="entity-item__name">' + FSUtils.escapeHtml(names.title) + '</div>' +
+        '<div class="entity-item__name">' + BeeUtils.escapeHtml(names.title) + '</div>' +
         (names.subtitle
-          ? '<div class="entity-item__legacy">' + FSUtils.escapeHtml(names.subtitle) + '</div>'
+          ? '<div class="entity-item__legacy">' + BeeUtils.escapeHtml(names.subtitle) + '</div>'
           : '') +
-        '<div class="entity-item__sub">' + FSUtils.escapeHtml(status + notes) + '</div>' +
+        '<div class="entity-item__sub">' + BeeUtils.escapeHtml(status + notes) + '</div>' +
       '</div>' +
       '<div class="entity-item__actions">' +
         '<button type="button" class="icon-btn" data-action="profile" title="Profile" aria-label="Profile">' +
@@ -66,12 +66,12 @@ const FSBuddies = (function () {
     li.addEventListener('click', function (e) {
       if (e.target.closest('[data-action="profile"]')) {
         e.stopPropagation();
-        FSProfile.openAvatar(buddy.id, { agent: buddy });
+        BeeProfile.openAvatar(buddy.id, { agent: buddy });
         return;
       }
       if (e.target.closest('[data-action="im"]')) {
         e.stopPropagation();
-        FSIm.startImWith(buddy);
+        BeeIm.startImWith(buddy);
         return;
       }
       // Stop here - otherwise this same click bubbles up to the document
@@ -92,9 +92,16 @@ const FSBuddies = (function () {
   function notesFor(buddy) {
     if (!buddy) return '';
     if (buddy.notes) return buddy.notes;
-    if (typeof FSProfiles === 'undefined' || !FSProfiles.getAvatarProfile) return '';
-    const p = FSProfiles.getAvatarProfile(buddy.id);
+    if (typeof BeeProfiles === 'undefined' || !BeeProfiles.getAvatarProfile) return '';
+    const p = BeeProfiles.getAvatarProfile(buddy.id);
     return (p && p.notes) || '';
+  }
+
+  function copyToClipboard(text, what) {
+    if (!text || !navigator.clipboard) return;
+    navigator.clipboard.writeText(text).then(function () {
+      BeeUtils.showToast(what + ' copied', 'success');
+    }).catch(function () {});
   }
 
   function showContextMenu(e, buddy) {
@@ -102,33 +109,36 @@ const FSBuddies = (function () {
     menu.innerHTML = '';
     menu.hidden = false;
 
+    const buddyNames = nameLines(buddy);
     const actions = [
-      { label: 'Send IM', fn: function () { FSIm.startImWith(buddy); } },
+      { label: 'Send IM', fn: function () { BeeIm.startImWith(buddy); } },
+      { label: 'Copy name', fn: function () { copyToClipboard(buddyNames.title || buddy.name || '', 'Name'); } },
+      { label: 'Copy UUID', fn: function () { copyToClipboard(buddy.id, 'UUID'); } },
       { label: 'Start conference...', fn: function () {
-        if (FSIm && typeof FSIm.openConferenceDialog === 'function') {
-          FSIm.openConferenceDialog([buddy.id]);
+        if (BeeIm && typeof BeeIm.openConferenceDialog === 'function') {
+          BeeIm.openConferenceDialog([buddy.id]);
         }
       } },
-      { label: 'Profile', fn: function () { FSProfile.openAvatar(buddy.id, { agent: buddy }); } },
-      { label: 'Teleport offer', fn: function () { FSTeleportUI.offerTo(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
-      { label: 'Teleport request', fn: function () { FSTeleportUI.requestFrom(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
+      { label: 'Profile', fn: function () { BeeProfile.openAvatar(buddy.id, { agent: buddy }); } },
+      { label: 'Teleport offer', fn: function () { BeeTeleportUI.offerTo(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
+      { label: 'Teleport request', fn: function () { BeeTeleportUI.requestFrom(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
       { label: 'Remove friend', fn: async function () {
         const names = nameLines(buddy);
         const label = names.title || buddy.name || 'this friend';
-        const ok = await FSUtils.confirm({
+        const ok = await BeeUtils.confirm({
           title: 'Remove friend?',
           message: 'Remove ' + label + ' from your friends list?',
           confirmLabel: 'Remove',
           danger: true
         });
         if (!ok) return;
-        FSTransport.removeFriendship(buddy.id).then(function (result) {
+        BeeTransport.removeFriendship(buddy.id).then(function (result) {
           if (result && result.sent) {
-            FSUtils.showToast('Friend removed.', 'success');
+            BeeUtils.showToast('Friend removed.', 'success');
           } else if (result && result.notFriend) {
-            FSUtils.showToast('Not on your friends list.', 'warning');
+            BeeUtils.showToast('Not on your friends list.', 'warning');
           } else {
-            FSUtils.showToast('Could not remove friend.', 'warning');
+            BeeUtils.showToast('Could not remove friend.', 'warning');
           }
         });
       }, danger: true }
@@ -163,7 +173,7 @@ const FSBuddies = (function () {
     if (!list) return;
     list.innerHTML = '';
 
-    let buddies = FSState.get().buddies.slice();
+    let buddies = BeeState.get().buddies.slice();
     if (onlineOnly) buddies = buddies.filter(function (b) { return b.online; });
     if (filter) {
       const q = filter.toLowerCase();
@@ -197,7 +207,7 @@ const FSBuddies = (function () {
       list.appendChild(renderItem(buddy));
     });
     list.querySelectorAll('.entity-item__avatar[data-agent-id]').forEach(function (node) {
-      FSAvatarThumb.refresh(node);
+      BeeAvatarThumb.refresh(node);
     });
   }
 
@@ -209,10 +219,10 @@ const FSBuddies = (function () {
 
   function requestBlocked(force) {
     if (blockedAsked && !force) return;
-    if (!FSState.gridOnline()) return;
+    if (!BeeState.gridOnline()) return;
     blockedAsked = true;
-    if (typeof FSBridge !== 'undefined' && FSBridge.invoke) {
-      FSBridge.invoke('sl_request_mute_list').catch(function () { blockedAsked = false; });
+    if (typeof BeeBridge !== 'undefined' && BeeBridge.invoke) {
+      BeeBridge.invoke('sl_request_mute_list').catch(function () { blockedAsked = false; });
     }
   }
 
@@ -250,7 +260,7 @@ const FSBuddies = (function () {
       li.dataset.id = person.id;
       li.innerHTML =
         '<div class="entity-item__body">' +
-          '<div class="entity-item__name">' + FSUtils.escapeHtml(labelFor(person)) + '</div>' +
+          '<div class="entity-item__name">' + BeeUtils.escapeHtml(labelFor(person)) + '</div>' +
           '<div class="entity-item__sub">Blocked</div>' +
         '</div>';
       const actions = document.createElement('div');
@@ -261,18 +271,20 @@ const FSBuddies = (function () {
       profile.textContent = 'Profile';
       profile.addEventListener('click', function (e) {
         e.stopPropagation();
-        FSProfile.openAvatar(person.id);
+        BeeProfile.openAvatar(person.id);
       });
-      const unblock = document.createElement('button');
-      unblock.type = 'button';
-      unblock.className = 'btn btn--secondary btn--sm';
-      unblock.textContent = 'Unblock';
-      unblock.addEventListener('click', function (e) {
+      // Named unblockBtn: a `const unblock` here used to shadow the module's
+      // unblock() function, so clicking it threw instead of unblocking.
+      const unblockBtn = document.createElement('button');
+      unblockBtn.type = 'button';
+      unblockBtn.className = 'btn btn--secondary btn--sm';
+      unblockBtn.textContent = 'Unblock';
+      unblockBtn.addEventListener('click', function (e) {
         e.stopPropagation();
         unblock(person.id, labelFor(person));
       });
       actions.appendChild(profile);
-      actions.appendChild(unblock);
+      actions.appendChild(unblockBtn);
       li.appendChild(actions);
       list.appendChild(li);
     });
@@ -281,7 +293,7 @@ const FSBuddies = (function () {
   // The sim's copy of the list keeps account names, not display names, and can be stale -
   // so prefer whatever the name cache knows.
   function labelFor(person) {
-    const cached = FSTransport.getCachedName ? FSTransport.getCachedName(person.id) : '';
+    const cached = BeeTransport.getCachedName ? BeeTransport.getCachedName(person.id) : '';
     return cached || person.name || person.id;
   }
 
@@ -305,8 +317,8 @@ const FSBuddies = (function () {
   }
 
   function init() {
-    if (typeof FSSettings !== 'undefined') {
-      onlineOnly = !!FSSettings.get('buddiesOnlineOnly');
+    if (typeof BeeSettings !== 'undefined') {
+      onlineOnly = !!BeeSettings.get('buddiesOnlineOnly');
       const onlineEl = document.getElementById('buddies-online-only');
       if (onlineEl) onlineEl.checked = onlineOnly;
     }
@@ -316,7 +328,7 @@ const FSBuddies = (function () {
     });
     const blockedSearch = document.getElementById('blocked-search');
     if (blockedSearch) {
-      blockedSearch.addEventListener('input', FSUtils.debounce(function () {
+      blockedSearch.addEventListener('input', BeeUtils.debounce(function () {
         blockedFilter = blockedSearch.value.trim();
         renderBlocked();
       }, 200));
@@ -324,28 +336,31 @@ const FSBuddies = (function () {
     const blockedBtn = document.getElementById('blocked-refresh');
     if (blockedBtn) blockedBtn.addEventListener('click', function () { requestBlocked(true); });
 
-    FSTransport.on('mute-list', function (data) {
+    BeeTransport.on('mute-list', function (data) {
       blocked = (data && data.people) || [];
       blockedAsked = true;
+      if (data && data.error && typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+        BeeUtils.showToast(data.error, 'warning');
+      }
       renderBlocked();
     });
 
-    FSState.on('change', function (partial) {
+    BeeState.on('change', function (partial) {
       if (partial.connected === true) {
         blockedAsked = false;
         requestBlocked(true);
       }
     });
 
-    document.getElementById('buddies-search').addEventListener('input', FSUtils.debounce(function (e) {
+    document.getElementById('buddies-search').addEventListener('input', BeeUtils.debounce(function (e) {
       filter = e.target.value.trim();
       render();
     }, 200));
 
     document.getElementById('buddies-online-only').addEventListener('change', function (e) {
       onlineOnly = e.target.checked;
-      if (typeof FSSettings !== 'undefined') {
-        FSSettings.set('buddiesOnlineOnly', onlineOnly);
+      if (typeof BeeSettings !== 'undefined') {
+        BeeSettings.set('buddiesOnlineOnly', onlineOnly);
       }
       render();
     });
@@ -355,22 +370,22 @@ const FSBuddies = (function () {
       if (!menu.hidden && !menu.contains(e.target)) menu.hidden = true;
     });
 
-    FSState.on('change', function (partial) {
-      if (partial.buddies && FSNavigation.isTabActive('buddies')) render();
+    BeeState.on('change', function (partial) {
+      if (partial.buddies && BeeNavigation.isTabActive('buddies')) render();
     });
 
     // Names land asynchronously, after the list has first rendered, so repaint
     // to swap the UUID placeholder out for the real names on each row.
-    FSTransport.on('names-updated', function () {
-      if (FSNavigation.isTabActive('buddies')) {
+    BeeTransport.on('names-updated', function () {
+      if (BeeNavigation.isTabActive('buddies')) {
         render();
         renderBlocked();
       }
     });
 
-    FSState.on('reset', function () {
+    BeeState.on('reset', function () {
       filter = '';
-      onlineOnly = typeof FSSettings !== 'undefined' ? !!FSSettings.get('buddiesOnlineOnly') : false;
+      onlineOnly = typeof BeeSettings !== 'undefined' ? !!BeeSettings.get('buddiesOnlineOnly') : false;
       document.getElementById('buddies-search').value = '';
       document.getElementById('buddies-online-only').checked = onlineOnly;
       blocked = [];
@@ -383,24 +398,24 @@ const FSBuddies = (function () {
   }
 
   function block(id, name) {
-    if (!id || typeof FSBridge === 'undefined') return Promise.resolve(false);
-    return FSBridge.invoke('sl_block_agent', { agentId: id, name: name || '' })
+    if (!id || typeof BeeBridge === 'undefined') return Promise.resolve(false);
+    return BeeBridge.invoke('sl_block_agent', { agentId: id, name: name || '' })
       .then(function () {
-        FSUtils.showToast('Blocked ' + (name || 'resident') + '.', 'success');
+        BeeUtils.showToast('Blocked ' + (name || 'resident') + '.', 'success');
         requestBlocked(true);
         return true;
       })
       .catch(function (err) {
-        FSUtils.showToast((err && err.message) || 'Could not block that resident.', 'warning');
+        BeeUtils.showToast((err && err.message) || 'Could not block that resident.', 'warning');
         return false;
       });
   }
 
   function unblock(id, name) {
-    if (!id || typeof FSBridge === 'undefined') return Promise.resolve(false);
-    return FSBridge.invoke('sl_unblock_agent', { agentId: id, name: name || '' })
+    if (!id || typeof BeeBridge === 'undefined') return Promise.resolve(false);
+    return BeeBridge.invoke('sl_unblock_agent', { agentId: id, name: name || '' })
       .then(function () {
-        FSUtils.showToast('Unblocked ' + (name || 'resident') + '.', 'success');
+        BeeUtils.showToast('Unblocked ' + (name || 'resident') + '.', 'success');
         blocked = blocked.filter(function (p) {
           return String(p.id).toLowerCase() !== String(id).toLowerCase();
         });
@@ -409,7 +424,7 @@ const FSBuddies = (function () {
         return true;
       })
       .catch(function (err) {
-        FSUtils.showToast((err && err.message) || 'Could not unblock that resident.', 'warning');
+        BeeUtils.showToast((err && err.message) || 'Could not unblock that resident.', 'warning');
         return false;
       });
   }

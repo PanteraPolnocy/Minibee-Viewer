@@ -1,10 +1,9 @@
-//! Login hardware ids (`mac`, `id0`), derived from the machine so they line up
-//! with what the reference viewer computes in `llmachineid` / `generateSerialNumber`
-//! on each platform. They aren't random: the login server uses them to identify
+//! Login hardware ids (`mac`, `id0`), derived from the machine the same way on
+//! each platform. They aren't random: the login server uses them to identify
 //! the device (MFA's "remember this computer" is bound to them), so they need to
 //! stay stable across launches. We compute them once, on first use.
 //!
-//! How the reference viewer builds them (every value is a lowercase 32-char MD5 hex digest):
+//! How they're built (every value is a lowercase 32-char MD5 hex digest):
 //!   mac = MD5 of a 6-byte machine id
 //!         win:   Win32_ComputerSystemProduct.UUID folded to 6 bytes
 //!         mac:   IOPlatformSerialNumber folded to 6 bytes
@@ -42,7 +41,7 @@ fn hex_md5(bytes: &[u8]) -> String {
     out
 }
 
-/// Fold a serial string down into 6 bytes exactly as `llmachineid.cpp` does:
+/// Fold a serial string down into 6 bytes:
 /// `byte[k % 6] += ascii[k]` with wrapping, stopping at the first NUL.
 #[cfg(any(
     target_os = "windows",
@@ -91,7 +90,7 @@ fn is_usable_uuid(s: &str) -> bool {
 }
 
 /// Pulls (product UUID, OS serial, C: volume serial) from WMI. We prefer the
-/// BIOS/product UUID since that's what FS uses; the OS serial and NIC MAC are the fallbacks.
+/// BIOS/product UUID; the OS serial and NIC MAC are the fallbacks.
 #[cfg(target_os = "windows")]
 fn windows_ids() -> (Option<String>, Option<String>, Option<u32>) {
     use std::collections::HashMap;
@@ -146,7 +145,7 @@ fn compute() -> HwId {
     }
 }
 
-/// The IOPlatformSerialNumber, the same value FS reads from IOKit.
+/// The IOPlatformSerialNumber, read from IOKit.
 #[cfg(target_os = "macos")]
 fn macos_serial() -> Option<String> {
     let out = std::process::Command::new("ioreg")
@@ -177,7 +176,7 @@ fn compute() -> HwId {
     }
 }
 
-/// The longest entry in /dev/disk/by-uuid (ties go to the alphabetically last one), matching FS.
+/// The longest entry in /dev/disk/by-uuid (ties go to the alphabetically last one).
 #[cfg(target_os = "linux")]
 fn linux_disk_uuid() -> Option<String> {
     let mut best = String::new();

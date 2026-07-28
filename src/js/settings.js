@@ -1,7 +1,7 @@
 /**
  * Viewer preferences, kept in localStorage between sessions.
  */
-const FSSettings = (function () {
+const BeeSettings = (function () {
   'use strict';
 
   const STORAGE_KEY = 'minibee-settings';
@@ -69,12 +69,12 @@ const FSSettings = (function () {
   }
 
   function loadRaw() {
-    const raw = FSUtils.storageGet(STORAGE_KEY, null);
+    const raw = BeeUtils.storageGet(STORAGE_KEY, null);
     return raw && typeof raw === 'object' ? raw : {};
   }
 
   function save() {
-    FSUtils.storageSet(STORAGE_KEY, values);
+    BeeUtils.storageSet(STORAGE_KEY, values);
   }
 
   function applyStatePatch() {
@@ -82,7 +82,7 @@ const FSSettings = (function () {
     Object.keys(STATE_MAP).forEach(function (key) {
       patch[STATE_MAP[key]] = values[key];
     });
-    if (Object.keys(patch).length) FSState.patch(patch);
+    if (Object.keys(patch).length) BeeState.patch(patch);
   }
 
   function applyTheme(theme) {
@@ -123,7 +123,7 @@ const FSSettings = (function () {
     save();
     if (key === 'theme') applyTheme(values[key]);
     if (STATE_MAP[key]) {
-      FSState.patch({ [STATE_MAP[key]]: values[key] });
+      BeeState.patch({ [STATE_MAP[key]]: values[key] });
     }
     listeners.forEach(function (fn) {
       try {

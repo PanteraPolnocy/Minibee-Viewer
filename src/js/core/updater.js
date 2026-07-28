@@ -1,17 +1,17 @@
 /**
  * Desktop auto-update UI. Checks and installs run in Rust (`app_check_update` / `app_install_update`).
  */
-const FSUpdater = (function () {
+const BeeUpdater = (function () {
   'use strict';
 
   let startupChecked = false;
   let updaterAvailable = null;
 
   function invoke(cmd, args) {
-    if (typeof FSBridge === 'undefined' || typeof FSBridge.invoke !== 'function') {
+    if (typeof BeeBridge === 'undefined' || typeof BeeBridge.invoke !== 'function') {
       return Promise.reject(new Error('Native bridge unavailable'));
     }
-    return FSBridge.invoke(cmd, args || {});
+    return BeeBridge.invoke(cmd, args || {});
   }
 
   function available() {
@@ -28,7 +28,7 @@ const FSUpdater = (function () {
   }
 
   function promptInstall(info) {
-    if (!info || typeof FSUtils === 'undefined' || typeof FSUtils.confirm !== 'function') {
+    if (!info || typeof BeeUtils === 'undefined' || typeof BeeUtils.confirm !== 'function') {
       return Promise.resolve(false);
     }
     const availableVersion = info.version ? String(info.version) : 'a new version';
@@ -38,7 +38,7 @@ const FSUpdater = (function () {
     const message = notes
       ? (currentLine + 'Update ' + availableVersion + ' is available.\n\n' + notes + '\n\nInstall now?')
       : (currentLine + 'Update ' + availableVersion + ' is available. Install now?');
-    return FSUtils.confirm({
+    return BeeUtils.confirm({
       title: 'Update available',
       message: message,
       confirmLabel: 'Install',
@@ -50,15 +50,15 @@ const FSUpdater = (function () {
     if (!info) return Promise.resolve(false);
     return promptInstall(info).then(function (accepted) {
       if (!accepted) return false;
-      if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-        FSUtils.showToast('Downloading update...', 'info', 4000);
+      if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+        BeeUtils.showToast('Downloading update...', 'info', 4000);
       }
       return invoke('app_install_update').then(function () {
         return true;
       }).catch(function (err) {
         const msg = err && err.message ? err.message : String(err || 'Update failed');
-        if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-          FSUtils.showToast('Update failed: ' + msg, 'warning', 6000);
+        if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+          BeeUtils.showToast('Update failed: ' + msg, 'warning', 6000);
         }
         return false;
       });

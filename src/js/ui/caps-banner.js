@@ -8,7 +8,7 @@
  * Relog buttons. An `ok: true` status clears the banner, for instance after a
  * clean relog or once we cross into a healthy region.
  */
-const FSCapsBanner = (function () {
+const BeeCapsBanner = (function () {
   'use strict';
 
   let userDismissed = false;
@@ -52,12 +52,12 @@ const FSCapsBanner = (function () {
     const relog = document.getElementById('caps-banner-relog');
     if (relog) {
       relog.addEventListener('click', function () {
-        if (window.FSApp) window.FSApp.logout({ skipConfirm: true });
+        if (window.BeeApp) window.BeeApp.logout({ skipConfirm: true });
       });
     }
     // Clear on logout or reset so a fresh session never inherits a stale banner.
-    if (typeof FSState !== 'undefined' && FSState.on) {
-      FSState.on('reset', function () {
+    if (typeof BeeState !== 'undefined' && BeeState.on) {
+      BeeState.on('reset', function () {
         userDismissed = false;
         hide();
       });

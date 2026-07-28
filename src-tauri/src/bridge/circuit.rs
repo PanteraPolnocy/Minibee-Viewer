@@ -52,8 +52,9 @@ pub struct Session {
     /// Reliable inbound seqs we've handled recently (seq, received_ms), used to
     /// spot duplicate resends. Purged after 60s; a count cap backstops memory.
     recent_reliable: Mutex<VecDeque<(u32, u64)>>,
-    /// Agent ids waiting to be resolved, batched together into a UUIDNameRequest.
-    pending_names: Mutex<Vec<String>>,
+    /// Agent ids we recently asked names for (lowercased id -> mono ms), so the
+    /// steady radar/roster refresh can't re-request the same unresolved id.
+    recent_name_reqs: Mutex<HashMap<String, u64>>,
     /// The active EventQueue long-poll task, swapped out whenever the region changes.
     eq_task: Mutex<Option<JoinHandle<()>>>,
     /// Wall-clock ms of the last inbound datagram we accepted, feeding the liveness
@@ -68,6 +69,9 @@ pub struct Session {
     /// Generation counter for the object-properties drain. Each Load bumps this so
     /// any in-flight drain exits and a fresh one can start.
     props_drain_gen: AtomicU64,
+    /// When we last started a FINISH_ANIM reply (mono ms). The sim repeats
+    /// AvatarAnimation, and one finisher at a time is plenty.
+    finish_anim_at: AtomicU64,
 }
 
 impl Session {
@@ -156,19 +160,80 @@ impl Session {
         mono_ms().saturating_sub(self.last_inbound.load(Ordering::Relaxed)) < RECENTLY_MS
     }
 
-    pub fn agent_update_keepalive(&self) -> Option<Value> {
+    /// Build an AgentUpdate for where we are, with `extra_flags` OR'd onto the
+    /// persistent ones (fly). None before the handshake completes.
+    pub fn agent_update_body(&self, extra_flags: u64) -> Option<Value> {
         let guard = self.engine.lock().unwrap();
         let st = guard.as_ref()?;
         if st.agent_id.is_empty() || !st.handshake_reply_sent {
             return None;
         }
-        let flags = if st.flying { session::AGENT_CONTROL_FLY } else { 0 };
+        let flags = extra_flags | if st.flying { session::AGENT_CONTROL_FLY } else { 0 };
         Some(session::build_agent_update(
             &st.agent_id,
             &st.session_uuid,
             st.last_pos.unwrap_or([128.0, 128.0, 25.0]),
             flags,
         ))
+    }
+
+    pub fn agent_update_keepalive(&self) -> Option<Value> {
+        self.agent_update_body(0)
+    }
+
+    pub async fn finish_transient_anim(self: &Arc<Self>, delay_ms: u64) {
+        let now = mono_ms();
+        let last = self.finish_anim_at.load(Ordering::SeqCst);
+        if now.saturating_sub(last) < 1500 && last != 0 {
+            return;
+        }
+        self.finish_anim_at.store(now, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        if let Some(body) = self.agent_update_body(session::AGENT_CONTROL_FINISH_ANIM) {
+            self.send_encoded("AgentUpdate", &body, false).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        if let Some(body) = self.agent_update_body(0) {
+            self.send_encoded("AgentUpdate", &body, false).await;
+        }
+        if self.is_sitting() {
+            return; // a seated avatar plays the seat's animation, not stand
+        }
+        if let Some((agent, sess)) = self.agent_ids() {
+            self.send_encoded(
+                "AgentAnimation",
+                &session::build_agent_animation(&agent, &sess, session::ANIM_AGENT_STAND, true),
+                true,
+            )
+            .await;
+        }
+    }
+
+    pub fn own_attachment_count(&self) -> usize {
+        let guard = self.engine.lock().unwrap();
+        match guard.as_ref() {
+            Some(st) => st.objects.attachments_of_avatar(&st.agent_id),
+            None => 0,
+        }
+    }
+
+    pub fn region_id(&self) -> String {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|s| s.region_id.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn is_sit_pending(&self) -> bool {
+        self.engine.lock().unwrap().as_ref().map(|s| s.sit_pending).unwrap_or(false)
+    }
+
+    pub fn set_sit_pending(&self, pending: bool) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.sit_pending = pending;
+        }
     }
 
     pub fn objects_to_recover(&self, limit: usize) -> Vec<u32> {
@@ -327,13 +392,14 @@ impl Session {
         out
     }
 
-    /// Queue a UDP UUIDNameRequest for each chunk (best-effort when the cap is missing).
+    /// Queue a UDP UUIDNameRequest for each chunk (the fallback when the cap is
+    /// missing). Reliable: a dropped name request has no other retry path.
     pub async fn request_uuid_names(&self, ids: &[String]) {
         for chunk in ids.chunks(40) {
             let blocks = serde_json::json!({
                 "UUIDNameBlock": chunk.iter().map(|id| serde_json::json!({ "ID": id })).collect::<Vec<_>>()
             });
-            self.send_encoded("UUIDNameRequest", &blocks, false).await;
+            self.send_encoded("UUIDNameRequest", &blocks, true).await;
         }
     }
 
@@ -463,6 +529,20 @@ impl Session {
         crate::dlog!("eventqueue: 404 recovery - refetching region caps");
         self.refresh_region_caps(app, &seed_url, &sim_ip).await;
         true
+    }
+
+    /// Progress of an in-flight directory search: (rows so far, wall-ms of the
+    /// last reply packet). None until the first packet lands.
+    pub fn dir_search_progress(&self, query_id: &str) -> Option<(usize, u64)> {
+        let guard = self.engine.lock().unwrap();
+        let st = guard.as_ref()?;
+        st.dir_searches.get(query_id).map(|s| (s.rows.len(), s.last_ms))
+    }
+
+    /// Take a finished directory search out of the accumulator.
+    pub fn take_dir_search(&self, query_id: &str) -> Option<session::DirSearch> {
+        let mut guard = self.engine.lock().unwrap();
+        guard.as_mut()?.dir_searches.remove(query_id)
     }
 
     /// Store resolved names in the engine cache; returns the entries that actually
@@ -640,20 +720,30 @@ impl Session {
             }
             Action::ResolveNames(ids) => {
                 let batch: Vec<String> = {
-                    let mut p = self.pending_names.lock().unwrap();
-                    for id in ids {
-                        if !p.contains(&id) {
-                            p.push(id);
-                        }
-                    }
-                    let take = p.len().min(40);
-                    p.drain(..take).collect()
+                    let now = mono_ms();
+                    let mut recent = self.recent_name_reqs.lock().unwrap();
+                    const RETRY_MS: u64 = 30_000;
+                    recent.retain(|_, &mut t| now.saturating_sub(t) < RETRY_MS);
+                    ids.into_iter()
+                        .filter(|id| !id.is_empty())
+                        .filter(|id| {
+                            let key = id.to_ascii_lowercase();
+                            if recent.contains_key(&key) {
+                                false
+                            } else {
+                                recent.insert(key, now);
+                                true
+                            }
+                        })
+                        .collect()
                 };
                 if !batch.is_empty() {
-                    let blocks = json!({
-                        "UUIDNameBlock": batch.iter().map(|id| json!({ "ID": id })).collect::<Vec<_>>()
+                    let state = app.state::<Arc<crate::bridge::state::AppState>>().inner().clone();
+                    let me = self.clone();
+                    let app = app.clone();
+                    tokio::spawn(async move {
+                        let _ = crate::bridge::caps::resolve_display_names(&app, &state, &me, &batch).await;
                     });
-                    self.send_encoded("UUIDNameRequest", &blocks, false).await;
                 }
             }
             Action::Retarget { sim_ip, sim_port, agent_id, session_uuid, circuit_code } => {
@@ -679,6 +769,20 @@ impl Session {
                 let me = self.clone();
                 tokio::spawn(async move {
                     crate::bridge::caps::interest_list_360(&state, &me).await;
+                });
+            }
+            Action::FinishAnim { delay_ms } => {
+                let me = self.clone();
+                tokio::spawn(async move {
+                    me.finish_transient_anim(delay_ms).await;
+                });
+            }
+            Action::RestoreOutfit { delay_ms } => {
+                let state = app.state::<Arc<crate::bridge::state::AppState>>().inner().clone();
+                let me = self.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    crate::bridge::outfit::restore(&state, &me).await;
                 });
             }
             Action::AcceptChatSession { session_id } => {
@@ -895,7 +999,7 @@ const IGNORED_HIGH_FREQ: &[u8] = &[
     14, // ObjectUpdateCached
     15, // ImprovedTerseObjectUpdate
     16, // KillObject
-    20, // AvatarAnimation
+    // 20 (AvatarAnimation) is routed: the sim waits on us to FINISH_ANIM
     29, // SoundTrigger
     30, // ObjectAnimation
 ];
@@ -955,12 +1059,13 @@ pub async fn open(
         awaiting: Mutex::new(HashMap::new()),
         pending_acks: Mutex::new(Vec::new()),
         recent_reliable: Mutex::new(VecDeque::new()),
-        pending_names: Mutex::new(Vec::new()),
+        recent_name_reqs: Mutex::new(HashMap::new()),
         eq_task: Mutex::new(None),
         last_inbound: AtomicU64::new(mono_ms()),
         last_seed: Mutex::new(None),
         eq_recover: AtomicU32::new(0),
         props_drain_gen: AtomicU64::new(0),
+        finish_anim_at: AtomicU64::new(0),
     });
     let session_id = now_id();
 

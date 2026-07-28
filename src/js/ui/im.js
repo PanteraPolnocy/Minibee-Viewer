@@ -1,7 +1,7 @@
 /**
  * Instant messaging panel.
  */
-const FSIm = (function () {
+const BeeIm = (function () {
   'use strict';
 
   let resetImInputHeight = function () {};
@@ -16,17 +16,17 @@ const FSIm = (function () {
   // asynchronously (via the names-updated event). Prefer the resolved cache,
   // falling back to the object's own fields.
   function nameLines(agent) {
-    const info = agent && agent.id && typeof FSTransport.getCachedNameInfo === 'function'
-      ? FSTransport.getCachedNameInfo(agent.id)
+    const info = agent && agent.id && typeof BeeTransport.getCachedNameInfo === 'function'
+      ? BeeTransport.getCachedNameInfo(agent.id)
       : null;
     if (info && (info.userName || info.label || info.displayName)) {
-      return FSUtils.agentNameLines({
+      return BeeUtils.agentNameLines({
         displayName: info.displayName || '',
         userName: info.userName || info.label || '',
         name: info.label || (agent && agent.name) || ''
       });
     }
-    return FSUtils.agentNameLines(agent || {});
+    return BeeUtils.agentNameLines(agent || {});
   }
 
   const ME_TYPING_RESEND_MS = 4000;
@@ -44,7 +44,7 @@ const FSIm = (function () {
     const row = document.createElement('div');
     row.className = 'im-session';
     row.dataset.sessionId = session.id;
-    if (FSState.get().activeImSession === session.id) {
+    if (BeeState.get().activeImSession === session.id) {
       row.classList.add('im-session--active');
     }
 
@@ -60,11 +60,11 @@ const FSIm = (function () {
     const isGroup = session.type === 'group';
     let title = names.title;
     let insigniaId = '';
-    if (isGroup && typeof FSProfiles !== 'undefined') {
-      const gname = FSProfiles.getGroupName && FSProfiles.getGroupName(session.id);
+    if (isGroup && typeof BeeProfiles !== 'undefined') {
+      const gname = BeeProfiles.getGroupName && BeeProfiles.getGroupName(session.id);
       if (gname) title = gname;
-      insigniaId = (FSProfiles.getGroupInsigniaId && FSProfiles.getGroupInsigniaId(session.id)) || '';
-      if ((!gname || !insigniaId) && FSProfiles.queueGroupName) FSProfiles.queueGroupName(session.id);
+      insigniaId = (BeeProfiles.getGroupInsigniaId && BeeProfiles.getGroupInsigniaId(session.id)) || '';
+      if ((!gname || !insigniaId) && BeeProfiles.queueGroupName) BeeProfiles.queueGroupName(session.id);
     }
     const avatarClass = 'im-session__avatar' + (sessionChat
       ? ' im-session__avatar--session'
@@ -73,14 +73,14 @@ const FSIm = (function () {
       ? '<span class="im-session__count">' + memberCount + '</span>' : '';
     let avatarNode;
     if (isGroup) {
-      avatarNode = '<div class="' + avatarClass + '" data-agent-id="' + FSUtils.escapeHtml(session.id) +
-        '" data-kind="group" data-resolve-image="0" data-image-id="' + FSUtils.escapeHtml(insigniaId) +
-        '" data-label="' + FSUtils.escapeHtml(title) + '">' + countBadge + '</div>';
+      avatarNode = '<div class="' + avatarClass + '" data-agent-id="' + BeeUtils.escapeHtml(session.id) +
+        '" data-kind="group" data-resolve-image="0" data-image-id="' + BeeUtils.escapeHtml(insigniaId) +
+        '" data-label="' + BeeUtils.escapeHtml(title) + '">' + countBadge + '</div>';
     } else if (sessionChat) {
       avatarNode = '<div class="' + avatarClass + '">' + GROUP_GLYPH + countBadge + '</div>';
     } else {
-      avatarNode = '<div class="' + avatarClass + '" data-agent-id="' + FSUtils.escapeHtml((p && p.id) || '') +
-        '" data-resolve-image="0" data-label="' + FSUtils.escapeHtml(names.title) + '"' +
+      avatarNode = '<div class="' + avatarClass + '" data-agent-id="' + BeeUtils.escapeHtml((p && p.id) || '') +
+        '" data-resolve-image="0" data-label="' + BeeUtils.escapeHtml(names.title) + '"' +
         (online ? ' data-online="1"' : '') + '></div>';
     }
     const mutedGlyph = session.muted
@@ -96,14 +96,14 @@ const FSIm = (function () {
       avatarNode +
       '<div class="im-session__body">' +
         '<div class="im-session__top">' +
-          '<span class="im-session__name">' + FSUtils.escapeHtml(title) + '</span>' +
+          '<span class="im-session__name">' + BeeUtils.escapeHtml(title) + '</span>' +
           mutedGlyph +
-          '<span class="im-session__time">' + FSUtils.escapeHtml(FSUtils.formatRelative(session.updatedAt)) + '</span>' +
+          '<span class="im-session__time">' + BeeUtils.escapeHtml(BeeUtils.formatRelative(session.updatedAt)) + '</span>' +
         '</div>' +
         (names.subtitle
-          ? '<div class="im-session__legacy">' + FSUtils.escapeHtml(names.subtitle) + '</div>'
+          ? '<div class="im-session__legacy">' + BeeUtils.escapeHtml(names.subtitle) + '</div>'
           : '') +
-        '<p class="' + previewClass + '">' + FSUtils.escapeHtml(previewText) + '</p>' +
+        '<p class="' + previewClass + '">' + BeeUtils.escapeHtml(previewText) + '</p>' +
       '</div>' +
       (session.unread ? '<span class="im-session__unread">' + session.unread + '</span>' : '');
 
@@ -128,22 +128,22 @@ const FSIm = (function () {
     row.appendChild(closeBtn);
     if (!sessionChat || isGroup) {
       const thumb = openBtn.querySelector('[data-agent-id]');
-      if (thumb) FSAvatarThumb.refresh(thumb);
+      if (thumb) BeeAvatarThumb.refresh(thumb);
     }
     return row;
   }
 
   function closeSession(sessionId) {
     if (!sessionId) return;
-    const session = FSState.get().imSessions[sessionId];
+    const session = BeeState.get().imSessions[sessionId];
     if (!session) return;
-    if (isSessionChat(session) && typeof FSTransport.leaveImSession === 'function') {
-      FSTransport.leaveImSession(sessionId);
-      FSState.closeImSession(sessionId);
+    if (isSessionChat(session) && typeof BeeTransport.leaveImSession === 'function') {
+      BeeTransport.leaveImSession(sessionId);
+      BeeState.closeImSession(sessionId);
     } else {
-      FSState.dismissImSession(sessionId);
+      BeeState.dismissImSession(sessionId);
     }
-    const wasActive = FSState.get().activeImSession === sessionId;
+    const wasActive = BeeState.get().activeImSession === sessionId;
     if (wasActive) {
       syncImLayout();
       renderSessions();
@@ -153,10 +153,10 @@ const FSIm = (function () {
   }
 
   function refreshIncomingImUi(sessionId) {
-    if (!FSNavigation.isTabActive('im')) return;
-    const session = FSState.get().imSessions[sessionId];
+    if (!BeeNavigation.isTabActive('im')) return;
+    const session = BeeState.get().imSessions[sessionId];
     if (!session || session.muted) return;
-    if (FSState.get().activeImSession === sessionId) {
+    if (BeeState.get().activeImSession === sessionId) {
       renderThread(sessionId);
       return;
     }
@@ -165,10 +165,10 @@ const FSIm = (function () {
 
   function refreshSessionPresence(session) {
     if (!session || !session.id) return;
-    if (typeof FSState.refreshImSessionPresence === 'function') {
-      FSState.refreshImSessionPresence(session.id);
-    } else if (typeof FSState.resolveParticipantPresence === 'function') {
-      session.participant = FSState.resolveParticipantPresence(session.participant);
+    if (typeof BeeState.refreshImSessionPresence === 'function') {
+      BeeState.refreshImSessionPresence(session.id);
+    } else if (typeof BeeState.resolveParticipantPresence === 'function') {
+      session.participant = BeeState.resolveParticipantPresence(session.participant);
     }
   }
 
@@ -177,7 +177,7 @@ const FSIm = (function () {
     if (!container) return;
     container.innerHTML = '';
 
-    const sessions = Object.values(FSState.get().imSessions).filter(function (session) {
+    const sessions = Object.values(BeeState.get().imSessions).filter(function (session) {
       return !session.dismissed;
     });
     sessions.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
@@ -186,8 +186,8 @@ const FSIm = (function () {
       // Resolve presence inline here, without emitting - refreshImSessionPresence
       // fires 'im-sessions-updated' synchronously, which would re-enter
       // renderSessions mid-loop and duplicate rows.
-      if (typeof FSState.resolveParticipantPresence === 'function' && session.participant) {
-        session.participant = FSState.resolveParticipantPresence(session.participant);
+      if (typeof BeeState.resolveParticipantPresence === 'function' && session.participant) {
+        session.participant = BeeState.resolveParticipantPresence(session.participant);
       }
       container.appendChild(renderSession(session));
     });
@@ -198,11 +198,11 @@ const FSIm = (function () {
     el.className = 'msg ' + (msg.outgoing ? 'msg--outgoing' : 'msg--incoming');
     el.innerHTML =
       '<div class="msg__meta">' +
-        '<span class="msg__name">' + FSUtils.escapeHtml(msg.fromName) + '</span>' +
-        '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+        '<span class="msg__name">' + BeeUtils.escapeHtml(msg.fromName) + '</span>' +
+        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
       '</div>' +
-      '<p class="msg__body">' + FSSlurl.linkify(msg.text, FSUtils.escapeHtml) + '</p>';
-    FSSlurl.bindLinks(el);
+      '<p class="msg__body">' + BeeSlurl.linkify(msg.text, BeeUtils.escapeHtml) + '</p>';
+    BeeSlurl.bindLinks(el);
     return el;
   }
 
@@ -210,8 +210,8 @@ const FSIm = (function () {
   // presence or roster updates without disturbing scrollback.
   function updateThreadHeader(session) {
     if (!session) return;
-    if (typeof FSState.resolveParticipantPresence === 'function') {
-      session.participant = FSState.resolveParticipantPresence(session.participant);
+    if (typeof BeeState.resolveParticipantPresence === 'function') {
+      session.participant = BeeState.resolveParticipantPresence(session.participant);
     }
     const p = session.participant;
     const names = nameLines(p || {});
@@ -246,7 +246,7 @@ const FSIm = (function () {
     const list = document.getElementById('im-messages');
     if (!list) return;
     list.innerHTML = '';
-    const session = FSState.get().imSessions[sessionId];
+    const session = BeeState.get().imSessions[sessionId];
     if (!session) return;
     session.messages.forEach(function (msg) {
       list.appendChild(renderImMessage(msg));
@@ -280,7 +280,7 @@ const FSIm = (function () {
       list.appendChild(empty);
       return;
     }
-    const selfId = String((FSState.get().agent || {}).id || '').toLowerCase();
+    const selfId = String((BeeState.get().agent || {}).id || '').toLowerCase();
     // The text moderation UI is group-only; conferences have no MOD or mute controls.
     const isGroup = !!(session && session.type === 'group');
     const canModerate = !!(session && session.canModerate) && isGroup;
@@ -304,12 +304,12 @@ const FSIm = (function () {
       nameBtn.innerHTML =
         '<span class="im-roster__dot' + (member.online ? ' im-roster__dot--online' : '') + '"></span>' +
         '<span class="im-roster__name' + (member.muted ? ' im-roster__name--muted' : '') + '">' +
-          FSUtils.escapeHtml(label) + '</span>' +
+          BeeUtils.escapeHtml(label) + '</span>' +
         ((member.isModerator && isGroup) ? '<span class="im-roster__mod">MOD</span>' : '');
       if (!isSelf) {
         nameBtn.addEventListener('click', function () {
-          if (typeof FSProfile !== 'undefined' && FSProfile.openAvatar) {
-            FSProfile.openAvatar(member.id, { agent: { id: member.id, name: label } });
+          if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) {
+            BeeProfile.openAvatar(member.id, { agent: { id: member.id, name: label } });
           } else {
             startImWith({ id: member.id, name: label });
           }
@@ -329,14 +329,14 @@ const FSIm = (function () {
         muteBtn.innerHTML = MUTE_GLYPH;
         muteBtn.addEventListener('click', function (e) {
           e.stopPropagation();
-          if (typeof FSTransport.moderateSessionText !== 'function') {
-            FSUtils.showToast('Moderation is not available.', 'warning');
+          if (typeof BeeTransport.moderateSessionText !== 'function') {
+            BeeUtils.showToast('Moderation is not available.', 'warning');
             return;
           }
           muteBtn.disabled = true;
-          FSTransport.moderateSessionText(sessionId, member.id, !member.muted)
+          BeeTransport.moderateSessionText(sessionId, member.id, !member.muted)
             .catch(function (err) {
-              FSUtils.showToast('Moderation failed: ' +
+              BeeUtils.showToast('Moderation failed: ' +
                 (err && err.message ? err.message : err), 'warning');
             })
             .then(function () { muteBtn.disabled = false; });
@@ -351,8 +351,8 @@ const FSIm = (function () {
     const bar = document.getElementById('im-typing');
     const textEl = document.getElementById('im-typing-text');
     if (!bar) return;
-    const activeId = FSState.get().activeImSession;
-    const session = activeId ? FSState.get().imSessions[activeId] : null;
+    const activeId = BeeState.get().activeImSession;
+    const session = activeId ? BeeState.get().imSessions[activeId] : null;
     const show = !!(session && !isSessionChat(session) && session.typing);
     if (show) {
       const name = session.typingName ||
@@ -367,9 +367,9 @@ const FSIm = (function () {
   }
 
   function activeP2PSessionId() {
-    const sid = FSState.get().activeImSession;
+    const sid = BeeState.get().activeImSession;
     if (!sid) return null;
-    const session = FSState.get().imSessions[sid];
+    const session = BeeState.get().imSessions[sid];
     if (!session || isSessionChat(session)) return null;
     return sid;
   }
@@ -380,21 +380,21 @@ const FSIm = (function () {
   }
 
   function beginTyping() {
-    if (typeof FSTransport.sendTypingState !== 'function') return;
+    if (typeof BeeTransport.sendTypingState !== 'function') return;
     const sid = activeP2PSessionId();
-    if (!sid || !FSState.gridOnline()) return;
+    if (!sid || !BeeState.gridOnline()) return;
     const now = Date.now();
     if (!meTyping.active || meTyping.sessionId !== sid) {
       if (meTyping.active && meTyping.sessionId && meTyping.sessionId !== sid) {
-        FSTransport.sendTypingState(meTyping.sessionId, false);
+        BeeTransport.sendTypingState(meTyping.sessionId, false);
       }
       meTyping.sessionId = sid;
       meTyping.active = true;
       meTyping.lastSent = now;
-      FSTransport.sendTypingState(sid, true);
+      BeeTransport.sendTypingState(sid, true);
     } else if (now - meTyping.lastSent > ME_TYPING_RESEND_MS) {
       meTyping.lastSent = now;
-      FSTransport.sendTypingState(sid, true);
+      BeeTransport.sendTypingState(sid, true);
     }
     scheduleTypingIdle();
   }
@@ -402,15 +402,15 @@ const FSIm = (function () {
   function endTyping() {
     if (meTyping.timer) { clearTimeout(meTyping.timer); meTyping.timer = null; }
     if (meTyping.active && meTyping.sessionId &&
-        typeof FSTransport.sendTypingState === 'function') {
-      FSTransport.sendTypingState(meTyping.sessionId, false);
+        typeof BeeTransport.sendTypingState === 'function') {
+      BeeTransport.sendTypingState(meTyping.sessionId, false);
     }
     meTyping.active = false;
     meTyping.sessionId = null;
   }
 
   function syncImLayout() {
-    const sessionId = FSState.get().activeImSession;
+    const sessionId = BeeState.get().activeImSession;
     const layout = document.querySelector('.im-layout');
     const empty = document.getElementById('im-empty');
     const messages = document.getElementById('im-messages');
@@ -424,16 +424,16 @@ const FSIm = (function () {
     const blockBtn = document.getElementById('im-block');
     const closeBtn = document.getElementById('im-close');
     const hasSession = !!sessionId;
-    const session = hasSession ? FSState.get().imSessions[sessionId] : null;
+    const session = hasSession ? BeeState.get().imSessions[sessionId] : null;
     const sessionChat = isSessionChat(session);
     const p2p = hasSession && !sessionChat;
     const participantId = p2p && session.participant ? session.participant.id : '';
     const participant = p2p && session.participant ? session.participant : null;
-    const isFriend = participantId && typeof FSTransport.isBuddy === 'function'
-      ? FSTransport.isBuddy(participantId)
+    const isFriend = participantId && typeof BeeTransport.isBuddy === 'function'
+      ? BeeTransport.isBuddy(participantId)
       : false;
-    const tpOnline = participant && typeof FSTransport.isAgentOnline === 'function'
-      ? FSTransport.isAgentOnline(participantId, participant)
+    const tpOnline = participant && typeof BeeTransport.isAgentOnline === 'function'
+      ? BeeTransport.isAgentOnline(participantId, participant)
       : true;
     const body = document.getElementById('im-thread-body');
     const roster = document.getElementById('im-roster');
@@ -475,8 +475,8 @@ const FSIm = (function () {
       friendBtn.title = isFriend ? 'Already friends' : 'Offer friendship';
     }
     if (blockBtn) {
-      const blocked = !!(participantId && typeof FSBuddies !== 'undefined' &&
-        FSBuddies.isBlocked && FSBuddies.isBlocked(participantId));
+      const blocked = !!(participantId && typeof BeeBuddies !== 'undefined' &&
+        BeeBuddies.isBlocked && BeeBuddies.isBlocked(participantId));
       blockBtn.disabled = !p2p;
       blockBtn.classList.toggle('im-action-btn--active', blocked);
       blockBtn.setAttribute('aria-pressed', blocked ? 'true' : 'false');
@@ -511,9 +511,9 @@ const FSIm = (function () {
   }
 
   function getActiveParticipant() {
-    const sessionId = FSState.get().activeImSession;
+    const sessionId = BeeState.get().activeImSession;
     if (!sessionId) return null;
-    const session = FSState.get().imSessions[sessionId];
+    const session = BeeState.get().imSessions[sessionId];
     return session && session.participant ? session.participant : null;
   }
 
@@ -534,38 +534,38 @@ const FSIm = (function () {
   }
 
   function openSession(sessionId) {
-    const session = FSState.get().imSessions[sessionId];
+    const session = BeeState.get().imSessions[sessionId];
     if (!session) return;
 
     refreshSessionPresence(session);
 
     const prevUnread = session.unread || 0;
     session.unread = 0;
-    FSState.patch({
+    BeeState.patch({
       activeImSession: sessionId,
-      unreadIm: Math.max(0, FSState.get().unreadIm - prevUnread)
+      unreadIm: Math.max(0, BeeState.get().unreadIm - prevUnread)
     });
 
     syncImLayout();
     renderSessions();
     renderThread(sessionId);
-    FSNavigation.switchTab('im');
+    BeeNavigation.switchTab('im');
   }
 
   function startImWith(participant) {
-    const sessionId = FSState.ensureImSession(participant);
+    const sessionId = BeeState.ensureImSession(participant);
     if (sessionId) openSession(sessionId);
   }
 
   function openGroupChat(groupId, groupName) {
     if (!groupId) return;
-    if (!FSState.gridOnline()) {
-      FSUtils.showToast('Connect to the grid to open group chat.', 'warning');
+    if (!BeeState.gridOnline()) {
+      BeeUtils.showToast('Connect to the grid to open group chat.', 'warning');
       return;
     }
-    FSState.ensureKeyedSession(groupId, { type: 'group', title: groupName || '' });
-    if (typeof FSTransport.openGroupChat === 'function') {
-      FSTransport.openGroupChat(groupId, groupName || '');
+    BeeState.ensureKeyedSession(groupId, { type: 'group', title: groupName || '' });
+    if (typeof BeeTransport.openGroupChat === 'function') {
+      BeeTransport.openGroupChat(groupId, groupName || '');
     }
     openSession(groupId);
   }
@@ -578,8 +578,8 @@ const FSIm = (function () {
     const heading = document.getElementById('conference-dialog-title');
     const submit = document.getElementById('conference-submit');
     if (!dialog || !picker) return;
-    if (!FSState.gridOnline()) {
-      FSUtils.showToast('Connect to the grid to start a conference.', 'warning');
+    if (!BeeState.gridOnline()) {
+      BeeUtils.showToast('Connect to the grid to start a conference.', 'warning');
       return;
     }
     const opts = options || {};
@@ -611,7 +611,7 @@ const FSIm = (function () {
       };
     }
     picker.innerHTML = '';
-    const buddies = (FSState.get().buddies || []).slice().filter(function (b) {
+    const buddies = (BeeState.get().buddies || []).slice().filter(function (b) {
       return !exclude[String(b.id).toLowerCase()];
     }).sort(function (a, b) {
       const an = nameLines(a).title || a.name || '';
@@ -649,16 +649,16 @@ const FSIm = (function () {
 
   function handleSubmit(e) {
     e.preventDefault();
-    const sessionId = FSState.get().activeImSession;
+    const sessionId = BeeState.get().activeImSession;
     const input = document.getElementById('im-input');
     const text = input.value.trim();
-    if (!sessionId || !text || !FSState.gridOnline()) return;
+    if (!sessionId || !text || !BeeState.gridOnline()) return;
 
-    FSTransport.sendIm(sessionId, text);
+    BeeTransport.sendIm(sessionId, text);
     // The sim doesn't echo our own IMs back to us, so show them locally (optimistic).
-    const agent = FSState.get().agent || {};
-    FSState.addImMessage(sessionId, {
-      id: FSUtils.uuid(),
+    const agent = BeeState.get().agent || {};
+    BeeState.addImMessage(sessionId, {
+      id: BeeUtils.uuid(),
       fromId: agent.id || '',
       fromName: agent.displayName || agent.name || 'You',
       text: text,
@@ -672,7 +672,7 @@ const FSIm = (function () {
 
   function activate() {
     renderSessions();
-    const active = FSState.get().activeImSession;
+    const active = BeeState.get().activeImSession;
     syncImLayout();
     if (active) renderThread(active);
   }
@@ -680,14 +680,14 @@ const FSIm = (function () {
   function init() {
     document.getElementById('im-form').addEventListener('submit', handleSubmit);
     document.getElementById('im-back').addEventListener('click', function () {
-      FSState.patch({ activeImSession: null });
+      BeeState.patch({ activeImSession: null });
       syncImLayout();
       renderSessions();
     });
     const closeBtn = document.getElementById('im-close');
     if (closeBtn) {
       closeBtn.addEventListener('click', function () {
-        const sessionId = FSState.get().activeImSession;
+        const sessionId = BeeState.get().activeImSession;
         if (sessionId) closeSession(sessionId);
       });
     }
@@ -702,8 +702,8 @@ const FSIm = (function () {
     const inviteBtn = document.getElementById('im-invite');
     if (inviteBtn) {
       inviteBtn.addEventListener('click', function () {
-        const sid = FSState.get().activeImSession;
-        const session = sid ? FSState.get().imSessions[sid] : null;
+        const sid = BeeState.get().activeImSession;
+        const session = sid ? BeeState.get().imSessions[sid] : null;
         if (!session || session.type !== 'conference') return;
         const existing = (session.participants || []).map(function (p) { return p.id; });
         openConferenceDialog([], { mode: 'invite', sessionId: sid, excludeIds: existing });
@@ -712,10 +712,10 @@ const FSIm = (function () {
     const muteSessionBtn = document.getElementById('im-mute-session');
     if (muteSessionBtn) {
       muteSessionBtn.addEventListener('click', function () {
-        const sid = FSState.get().activeImSession;
+        const sid = BeeState.get().activeImSession;
         if (!sid) return;
-        const muted = FSState.setSessionMuted(sid);
-        FSUtils.showToast(muted ? 'Notifications muted for this session.'
+        const muted = BeeState.setSessionMuted(sid);
+        BeeUtils.showToast(muted ? 'Notifications muted for this session.'
           : 'Notifications unmuted.', 'success', 2500);
         syncImLayout();
         renderSessions();
@@ -723,7 +723,7 @@ const FSIm = (function () {
     }
     const imInput = document.getElementById('im-input');
     if (imInput) {
-      resetImInputHeight = FSUtils.bindAutoGrowTextarea(imInput, { maxRows: 3 });
+      resetImInputHeight = BeeUtils.bindAutoGrowTextarea(imInput, { maxRows: 3 });
       imInput.addEventListener('input', function () {
         if (imInput.value.trim()) beginTyping();
         else endTyping();
@@ -739,7 +739,7 @@ const FSIm = (function () {
     const conferenceCancel = document.getElementById('conference-cancel');
     if (conferenceCancel && conferenceDialog) {
       conferenceCancel.addEventListener('click', function () {
-        FSUtils.dismissDialog(conferenceDialog);
+        BeeUtils.dismissDialog(conferenceDialog);
       });
     }
     if (conferenceForm && conferenceDialog) {
@@ -750,31 +750,31 @@ const FSIm = (function () {
           .call(picker.querySelectorAll('input[type="checkbox"]:checked'))
           .map(function (cb) { return cb.value; });
         if (!ids.length) {
-          FSUtils.showToast('Select at least one participant.', 'warning');
+          BeeUtils.showToast('Select at least one participant.', 'warning');
           return;
         }
-        FSUtils.dismissDialog(conferenceDialog);
+        BeeUtils.dismissDialog(conferenceDialog);
         if (conferenceMode.mode === 'invite' && conferenceMode.sessionId) {
           const invited = ids.length;
-          Promise.resolve(FSTransport.inviteToSession(conferenceMode.sessionId, ids))
+          Promise.resolve(BeeTransport.inviteToSession(conferenceMode.sessionId, ids))
             .then(function (result) {
               if (!result || !result.sent) throw new Error('send failed');
-              FSUtils.showToast('Invited ' + invited +
+              BeeUtils.showToast('Invited ' + invited +
                 (invited === 1 ? ' person.' : ' people.'), 'success');
             }).catch(function (err) {
-              FSUtils.showToast('Could not invite: ' +
+              BeeUtils.showToast('Could not invite: ' +
                 (err && err.message ? err.message : err), 'warning');
             });
           return;
         }
         // The dialog's text field is a contact filter now, not a session name, so
         // let the sim auto-name the conference from its participants.
-        Promise.resolve(FSTransport.startConference(ids, '')).then(function (result) {
+        Promise.resolve(BeeTransport.startConference(ids, '')).then(function (result) {
           // startConference resolves { sessionId, type, title } - open by its id.
           const sid = result && result.sessionId ? result.sessionId : result;
           if (sid) openSession(sid);
         }).catch(function (err) {
-          FSUtils.showToast('Could not start conference: ' +
+          BeeUtils.showToast('Could not start conference: ' +
             (err && err.message ? err.message : err), 'warning');
         });
       });
@@ -782,44 +782,44 @@ const FSIm = (function () {
     document.querySelectorAll('.im-tab-link').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const tab = btn.getAttribute('data-tab-link');
-        if (tab) FSNavigation.switchTab(tab);
+        if (tab) BeeNavigation.switchTab(tab);
       });
     });
     document.getElementById('im-profile').addEventListener('click', function () {
       const participant = getActiveParticipant();
       if (!participant || !participant.id) return;
-      FSProfile.openAvatar(participant.id, { agent: participant });
+      BeeProfile.openAvatar(participant.id, { agent: participant });
     });
     document.getElementById('im-tp-offer').addEventListener('click', function () {
-      const session = FSState.get().imSessions[FSState.get().activeImSession];
+      const session = BeeState.get().imSessions[BeeState.get().activeImSession];
       if (!session || !session.participant) return;
-      FSTeleportUI.offerTo(session.participant.id, session.participant.name, session.participant);
+      BeeTeleportUI.offerTo(session.participant.id, session.participant.name, session.participant);
     });
     document.getElementById('im-tp-request').addEventListener('click', function () {
-      const session = FSState.get().imSessions[FSState.get().activeImSession];
+      const session = BeeState.get().imSessions[BeeState.get().activeImSession];
       if (!session || !session.participant) return;
-      FSTeleportUI.requestFrom(session.participant.id, session.participant.name, session.participant);
+      BeeTeleportUI.requestFrom(session.participant.id, session.participant.name, session.participant);
     });
     document.getElementById('im-pay').addEventListener('click', function () {
       const participant = getActiveParticipant();
       if (!participant) return;
       openPayDialog(participant);
     });
-    FSTransport.on('mute-list', function () { syncImLayout(); });
+    BeeTransport.on('mute-list', function () { syncImLayout(); });
 
     const imBlockBtn = document.getElementById('im-block');
     if (imBlockBtn) {
       imBlockBtn.addEventListener('click', async function () {
         const participant = getActiveParticipant();
-        if (!participant || !participant.id || typeof FSBuddies === 'undefined') return;
+        if (!participant || !participant.id || typeof BeeBuddies === 'undefined') return;
         const names = nameLines(participant);
         const label = names.title || participant.name || 'this resident';
-        if (FSBuddies.isBlocked && FSBuddies.isBlocked(participant.id)) {
-          await FSBuddies.unblock(participant.id, label);
+        if (BeeBuddies.isBlocked && BeeBuddies.isBlocked(participant.id)) {
+          await BeeBuddies.unblock(participant.id, label);
           syncImLayout();
           return;
         }
-        const ok = await FSUtils.confirm({
+        const ok = await BeeUtils.confirm({
           title: 'Block this resident?',
           message: 'Block ' + label + '? You will stop seeing their chat and messages, ' +
             'on this and any other viewer you use.',
@@ -827,7 +827,7 @@ const FSIm = (function () {
           danger: true
         });
         if (!ok) return;
-        await FSBuddies.block(participant.id, label);
+        await BeeBuddies.block(participant.id, label);
         syncImLayout();
       });
     }
@@ -836,22 +836,22 @@ const FSIm = (function () {
       if (!participant || !participant.id) return;
       const names = nameLines(participant);
       const label = names.title || participant.name || 'this resident';
-      const ok = await FSUtils.confirm({
+      const ok = await BeeUtils.confirm({
         title: 'Offer friendship?',
         message: 'Send a friendship offer to ' + label + '?',
         confirmLabel: 'Send offer'
       });
       if (!ok) return;
-      FSTransport.offerFriendship(participant.id).then(function (result) {
+      BeeTransport.offerFriendship(participant.id).then(function (result) {
         if (result && result.alreadyFriend) {
-          FSUtils.showToast('Already friends.', 'warning');
+          BeeUtils.showToast('Already friends.', 'warning');
           syncImLayout();
           return;
         }
         if (result && result.sent) {
-          FSUtils.showToast('Friendship offer sent.', 'success');
+          BeeUtils.showToast('Friendship offer sent.', 'success');
         } else {
-          FSUtils.showToast('Could not send friendship offer.', 'warning');
+          BeeUtils.showToast('Could not send friendship offer.', 'warning');
         }
       });
     });
@@ -860,7 +860,7 @@ const FSIm = (function () {
     const payCancel = document.getElementById('pay-cancel');
     if (payCancel && payDialog) {
       payCancel.addEventListener('click', function () {
-        FSUtils.dismissDialog(payDialog);
+        BeeUtils.dismissDialog(payDialog);
       });
     }
     if (payForm && payDialog) {
@@ -870,46 +870,46 @@ const FSIm = (function () {
         const amount = parseInt(document.getElementById('pay-amount').value, 10);
         const note = document.getElementById('pay-note').value.trim();
         if (!targetId || !amount || amount < 1) return;
-        FSTransport.payResident(targetId, amount, note).then(function (result) {
+        BeeTransport.payResident(targetId, amount, note).then(function (result) {
           if (result && result.sent) {
-            FSUtils.showToast('Payment sent.', 'success');
-            FSUtils.dismissDialog(payDialog);
+            BeeUtils.showToast('Payment sent.', 'success');
+            BeeUtils.dismissDialog(payDialog);
           } else {
-            FSUtils.showToast('Payment failed.', 'warning');
+            BeeUtils.showToast('Payment failed.', 'warning');
           }
         }).catch(function (err) {
-          FSUtils.showToast('Payment failed: ' + (err.message || err), 'warning');
+          BeeUtils.showToast('Payment failed: ' + (err.message || err), 'warning');
         });
       });
     }
 
-    FSState.on('im-session-new', function () {
+    BeeState.on('im-session-new', function () {
       renderSessions();
     });
-    FSState.on('im-session-reopened', function (data) {
+    BeeState.on('im-session-reopened', function (data) {
       if (data && data.sessionId) refreshIncomingImUi(data.sessionId);
-      else if (FSNavigation.isTabActive('im')) renderSessions();
+      else if (BeeNavigation.isTabActive('im')) renderSessions();
     });
-    FSState.on('im-sessions-updated', function () {
+    BeeState.on('im-sessions-updated', function () {
       renderSessions();
-      const active = FSState.get().activeImSession;
-      if (active && FSNavigation.isTabActive('im')) renderThread(active);
+      const active = BeeState.get().activeImSession;
+      if (active && BeeNavigation.isTabActive('im')) renderThread(active);
     });
-    FSState.on('im', function (data) {
+    BeeState.on('im', function (data) {
       if (!data || !data.message) return;
-      if (!FSNavigation.isTabActive('im')) return;
-      if (FSState.get().activeImSession === data.sessionId) {
+      if (!BeeNavigation.isTabActive('im')) return;
+      if (BeeState.get().activeImSession === data.sessionId) {
         appendImMessage(data.message);
         return;
       }
       if (!data.message.outgoing) refreshIncomingImUi(data.sessionId);
     });
-    FSState.on('im-roster-updated', function (data) {
-      if (!FSNavigation.isTabActive('im')) return;
+    BeeState.on('im-roster-updated', function (data) {
+      if (!BeeNavigation.isTabActive('im')) return;
       renderSessions();
-      const active = FSState.get().activeImSession;
+      const active = BeeState.get().activeImSession;
       if (active && data && active === data.sessionId) {
-        const session = FSState.get().imSessions[active];
+        const session = BeeState.get().imSessions[active];
         // Roster or presence change: refresh the header and roster only, never
         // rebuild the message list (that would wipe scrollback).
         if (session) updateThreadHeader(session);
@@ -918,21 +918,21 @@ const FSIm = (function () {
 
     // Names resolve only after the roster/session list first renders; repaint
     // here so members show real names instead of the "?" placeholder.
-    FSTransport.on('names-updated', function () {
-      if (!FSNavigation.isTabActive('im')) return;
+    BeeTransport.on('names-updated', function () {
+      if (!BeeNavigation.isTabActive('im')) return;
       renderSessions();
-      const active = FSState.get().activeImSession;
-      const session = active && FSState.get().imSessions[active];
+      const active = BeeState.get().activeImSession;
+      const session = active && BeeState.get().imSessions[active];
       if (session) updateThreadHeader(session);
     });
     // A group-chat tab's group name and insignia also resolve asynchronously.
-    if (typeof FSProfiles !== 'undefined' && FSProfiles.onChange) {
-      FSProfiles.onChange(function (evt) {
-        if (!FSNavigation.isTabActive('im')) return;
+    if (typeof BeeProfiles !== 'undefined' && BeeProfiles.onChange) {
+      BeeProfiles.onChange(function (evt) {
+        if (!BeeNavigation.isTabActive('im')) return;
         if (evt && (evt.kind === 'group' || evt.kind === 'membership')) renderSessions();
       });
     }
-    FSState.on('im-typing-changed', function (data) {
+    BeeState.on('im-typing-changed', function (data) {
       if (!data || !data.sessionId) return;
       if (incomingTypingTimers[data.sessionId]) {
         clearTimeout(incomingTypingTimers[data.sessionId]);
@@ -941,33 +941,33 @@ const FSIm = (function () {
       if (data.typing) {
         incomingTypingTimers[data.sessionId] = setTimeout(function () {
           delete incomingTypingTimers[data.sessionId];
-          FSState.setSessionTyping(data.sessionId, false);
+          BeeState.setSessionTyping(data.sessionId, false);
         }, OTHER_TYPING_TIMEOUT_MS);
       }
-      if (!FSNavigation.isTabActive('im')) return;
+      if (!BeeNavigation.isTabActive('im')) return;
       renderSessions();
-      if (FSState.get().activeImSession === data.sessionId) renderTyping();
+      if (BeeState.get().activeImSession === data.sessionId) renderTyping();
     });
 
-    FSTransport.on('buddies-updated', function () {
-      if (!FSNavigation.isTabActive('im')) return;
+    BeeTransport.on('buddies-updated', function () {
+      if (!BeeNavigation.isTabActive('im')) return;
       syncImLayout();
-      const active = FSState.get().activeImSession;
+      const active = BeeState.get().activeImSession;
       if (active) renderThread(active);
       renderSessions();
     });
 
-    FSState.on('im-session-closed', function () {
+    BeeState.on('im-session-closed', function () {
       syncImLayout();
       renderSessions();
     });
 
-    FSState.on('im-session-dismissed', function () {
+    BeeState.on('im-session-dismissed', function () {
       syncImLayout();
       renderSessions();
     });
 
-    FSState.on('reset', function () {
+    BeeState.on('reset', function () {
       Object.keys(incomingTypingTimers).forEach(function (sid) {
         clearTimeout(incomingTypingTimers[sid]);
         delete incomingTypingTimers[sid];

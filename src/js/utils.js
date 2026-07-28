@@ -1,7 +1,7 @@
 /**
  * Shared helpers used throughout the Minibee Viewer.
  */
-const FSUtils = (function () {
+const BeeUtils = (function () {
   'use strict';
 
   function uuid() {

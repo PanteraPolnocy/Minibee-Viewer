@@ -183,7 +183,7 @@ pub fn linkify(text: &str) -> Vec<Segment> {
         Regex::new(r#"(?i)\[\s*((?:secondlife://|https?://)[^\s\]]+)[ \t]+([^\]]*?)\s*\]"#).unwrap()
     });
     // SLURLs: either the secondlife:// scheme, or maps.secondlife.com / slurl.com
-    // map links (the reference viewer's LLUrlEntrySLURL recognizes both map hosts).
+    // map links - both map hosts appear in the wild.
     static SLURL: Lazy<Regex> = Lazy::new(|| {
         Regex::new(
             r#"(?i)(?:secondlife://[^\s<>\]"]+|https?://(?:maps\.secondlife\.com|slurl\.com)/secondlife/[^\s<>\]"]+)"#,

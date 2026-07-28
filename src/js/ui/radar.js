@@ -1,7 +1,7 @@
 /**
- * Radar - the nearby-avatar list (enumerated client-side in the real viewer).
+ * Radar - the nearby-avatar list, built from CoarseLocationUpdate.
  */
-const FSRadar = (function () {
+const BeeRadar = (function () {
   'use strict';
 
   let filter = '';
@@ -11,17 +11,17 @@ const FSRadar = (function () {
   // resolve asynchronously (names-updated), so prefer a resolved name when
   // one is cached.
   function nameLines(agent) {
-    const info = agent && agent.id && typeof FSTransport.getCachedNameInfo === 'function'
-      ? FSTransport.getCachedNameInfo(agent.id)
+    const info = agent && agent.id && typeof BeeTransport.getCachedNameInfo === 'function'
+      ? BeeTransport.getCachedNameInfo(agent.id)
       : null;
     if (info && (info.userName || info.label || info.displayName)) {
-      return FSUtils.agentNameLines({
+      return BeeUtils.agentNameLines({
         displayName: info.displayName || '',
         userName: info.userName || info.label || '',
         name: info.label || (agent && agent.name) || ''
       });
     }
-    return FSUtils.agentNameLines(agent);
+    return BeeUtils.agentNameLines(agent);
   }
 
   // Turn a born-on date into a compact account age, e.g. "12d", "5mo", "3y".
@@ -39,11 +39,11 @@ const FSRadar = (function () {
   // lazily and dedupe (queueAvatarThumb -> sl_request_avatar_properties).
   // Deliberately not the extended AgentProfile cap - that stays profile-open only.
   function ageFor(entry) {
-    const p = (typeof FSProfiles !== 'undefined' && FSProfiles.getAvatarProfile)
-      ? FSProfiles.getAvatarProfile(entry.id) : null;
+    const p = (typeof BeeProfiles !== 'undefined' && BeeProfiles.getAvatarProfile)
+      ? BeeProfiles.getAvatarProfile(entry.id) : null;
     if (p && p.bornOn) return compactAge(p.bornOn);
-    if (typeof FSProfiles !== 'undefined' && FSProfiles.queueAvatarThumb && entry.id) {
-      FSProfiles.queueAvatarThumb(entry.id); // deduped; bornOn will be ready for the next render
+    if (typeof BeeProfiles !== 'undefined' && BeeProfiles.queueAvatarThumb && entry.id) {
+      BeeProfiles.queueAvatarThumb(entry.id); // deduped; bornOn will be ready for the next render
     }
     return (entry.age && entry.age !== '?') ? entry.age : '';
   }
@@ -58,8 +58,8 @@ const FSRadar = (function () {
   }
 
   function openIm(entry) {
-    const region = FSState.get().region;
-    FSIm.startImWith({
+    const region = BeeState.get().region;
+    BeeIm.startImWith({
       id: entry.id,
       name: entry.name,
       online: true,
@@ -94,15 +94,15 @@ const FSRadar = (function () {
     const age = ageFor(entry);
     const ageText = age ? ('Age: ' + age) : 'Age: ...';
     li.innerHTML =
-      '<div class="entity-item__avatar" data-agent-id="' + FSUtils.escapeHtml(entry.id) +
-        '" data-resolve-image="0" data-label="' + FSUtils.escapeHtml(names.title) + '"></div>' +
+      '<div class="entity-item__avatar" data-agent-id="' + BeeUtils.escapeHtml(entry.id) +
+        '" data-resolve-image="0" data-label="' + BeeUtils.escapeHtml(names.title) + '"></div>' +
       '<div class="entity-item__body">' +
-        '<div class="entity-item__name">' + FSUtils.escapeHtml(names.title) + '</div>' +
+        '<div class="entity-item__name">' + BeeUtils.escapeHtml(names.title) + '</div>' +
         (names.subtitle
-          ? '<div class="entity-item__legacy">' + FSUtils.escapeHtml(names.subtitle) + '</div>'
+          ? '<div class="entity-item__legacy">' + BeeUtils.escapeHtml(names.subtitle) + '</div>'
           : '') +
-        '<div class="entity-item__sub">' + FSUtils.escapeHtml(ageText) +
-          ' · ' + FSUtils.escapeHtml(String(entry.range)) + 'm' + FSUtils.escapeHtml(status) + '</div>' +
+        '<div class="entity-item__sub">' + BeeUtils.escapeHtml(ageText) +
+          ' · ' + BeeUtils.escapeHtml(String(entry.range)) + 'm' + BeeUtils.escapeHtml(status) + '</div>' +
       '</div>' +
       '<div class="entity-item__actions">' +
         '<button type="button" class="icon-btn" data-action="profile" title="Profile" aria-label="Profile">' +
@@ -117,7 +117,7 @@ const FSRadar = (function () {
     li.addEventListener('click', function (e) {
       if (e.target.closest('[data-action="profile"]')) {
         e.stopPropagation();
-        FSProfile.openAvatar(entry.id, { agent: entry });
+        BeeProfile.openAvatar(entry.id, { agent: entry });
         return;
       }
       if (e.target.closest('[data-action="im"]')) {
@@ -136,21 +136,24 @@ const FSRadar = (function () {
     return li;
   }
 
+  function copyToClipboard(text, what) {
+    if (!text || !navigator.clipboard) return;
+    navigator.clipboard.writeText(text).then(function () {
+      BeeUtils.showToast(what + ' copied', 'success');
+    }).catch(function () {});
+  }
+
   function showContextMenu(e, entry) {
     const menu = document.getElementById('context-menu');
     menu.innerHTML = '';
     menu.hidden = false;
 
+    const names = nameLines(entry);
     const actions = [
       { label: 'Send IM', fn: function () { openIm(entry); } },
-      { label: 'Profile', fn: function () { FSProfile.openAvatar(entry.id, { agent: entry }); } },
-      { label: 'Track on map', fn: function () { FSUtils.showToast('Map tracking: ' + entry.name); } },
-      { label: 'Copy UUID', fn: function () {
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(entry.id);
-          FSUtils.showToast('UUID copied', 'success');
-        }
-      }}
+      { label: 'Profile', fn: function () { BeeProfile.openAvatar(entry.id, { agent: entry }); } },
+      { label: 'Copy name', fn: function () { copyToClipboard(names.title || entry.name || '', 'Name'); } },
+      { label: 'Copy UUID', fn: function () { copyToClipboard(entry.id, 'UUID'); } }
     ];
 
     actions.forEach(function (action) {
@@ -174,7 +177,7 @@ const FSRadar = (function () {
     const regionEl = document.getElementById('radar-region');
     if (!list) return;
 
-    const s = FSState.get();
+    const s = BeeState.get();
     let entries = s.radar.slice();
     const totalInRegion = entries.length;
 
@@ -199,7 +202,7 @@ const FSRadar = (function () {
       if (totalInRegion && filter) {
         msg = 'No avatars match your search.';
       }
-      empty.innerHTML = '<div class="entity-item__sub">' + FSUtils.escapeHtml(msg) + '</div>';
+      empty.innerHTML = '<div class="entity-item__sub">' + BeeUtils.escapeHtml(msg) + '</div>';
       list.appendChild(empty);
     } else {
       entries.forEach(function (entry) {
@@ -208,7 +211,7 @@ const FSRadar = (function () {
         list.appendChild(renderItem(entry, { outOfRange: outOfRange, highlightAlert: highlightAlert }));
       });
       list.querySelectorAll('.entity-item__avatar[data-agent-id]').forEach(function (node) {
-        FSAvatarThumb.refresh(node);
+        BeeAvatarThumb.refresh(node);
       });
     }
 
@@ -228,9 +231,9 @@ const FSRadar = (function () {
     const rangeLabel = document.getElementById('radar-range-label');
     const alertInput = document.getElementById('radar-alert');
 
-    if (typeof FSSettings !== 'undefined') {
-      const savedRange = FSSettings.get('radarRange');
-      const savedAlerts = FSSettings.get('radarAlerts');
+    if (typeof BeeSettings !== 'undefined') {
+      const savedRange = BeeSettings.get('radarRange');
+      const savedAlerts = BeeSettings.get('radarAlerts');
       if (rangeInput) rangeInput.value = String(savedRange);
       if (rangeLabel) rangeLabel.textContent = savedRange + 'm';
       if (alertInput) alertInput.checked = !!savedAlerts;
@@ -239,28 +242,28 @@ const FSRadar = (function () {
     rangeInput.addEventListener('input', function () {
       const val = parseInt(rangeInput.value, 10);
       rangeLabel.textContent = val + 'm';
-      if (typeof FSSettings !== 'undefined') {
-        FSSettings.set('radarRange', val);
+      if (typeof BeeSettings !== 'undefined') {
+        BeeSettings.set('radarRange', val);
       } else {
-        FSState.patch({ radarRange: val });
+        BeeState.patch({ radarRange: val });
       }
       render();
-      if (typeof FSNavigation.noteRadarUpdate === 'function') {
-        FSNavigation.noteRadarUpdate(FSState.get().radar);
+      if (typeof BeeNavigation.noteRadarUpdate === 'function') {
+        BeeNavigation.noteRadarUpdate(BeeState.get().radar);
       }
-      FSNavigation.updateBadges();
+      BeeNavigation.updateBadges();
     });
 
-    document.getElementById('radar-search').addEventListener('input', FSUtils.debounce(function (e) {
+    document.getElementById('radar-search').addEventListener('input', BeeUtils.debounce(function (e) {
       filter = e.target.value.trim();
       render();
     }, 200));
 
     alertInput.addEventListener('change', function (e) {
-      if (typeof FSSettings !== 'undefined') {
-        FSSettings.set('radarAlerts', e.target.checked);
+      if (typeof BeeSettings !== 'undefined') {
+        BeeSettings.set('radarAlerts', e.target.checked);
       } else {
-        FSState.patch({ radarAlerts: e.target.checked });
+        BeeState.patch({ radarAlerts: e.target.checked });
       }
       render();
     });
@@ -270,36 +273,36 @@ const FSRadar = (function () {
       if (!menu.hidden && !menu.contains(e.target)) menu.hidden = true;
     });
 
-    FSState.on('change', function (partial) {
-      if (partial.radar && FSNavigation.isTabActive('radar')) scheduleRender();
+    BeeState.on('change', function (partial) {
+      if (partial.radar && BeeNavigation.isTabActive('radar')) scheduleRender();
     });
 
-    FSState.on('radar-update', function () {
-      if (FSNavigation.isTabActive('radar')) scheduleRender();
+    BeeState.on('radar-update', function () {
+      if (BeeNavigation.isTabActive('radar')) scheduleRender();
     });
 
     // Repaint once names resolve, so entries show the real name rather than the UUID/"?".
-    FSTransport.on('names-updated', function () {
-      if (FSNavigation.isTabActive('radar')) scheduleRender();
+    BeeTransport.on('names-updated', function () {
+      if (BeeNavigation.isTabActive('radar')) scheduleRender();
     });
     // Repaint when the avatar properties (age/born-on) come in.
-    if (typeof FSProfiles !== 'undefined' && FSProfiles.onChange) {
-      FSProfiles.onChange(function (evt) {
-        if (evt && evt.kind === 'avatar' && FSNavigation.isTabActive('radar')) scheduleRender();
+    if (typeof BeeProfiles !== 'undefined' && BeeProfiles.onChange) {
+      BeeProfiles.onChange(function (evt) {
+        if (evt && evt.kind === 'avatar' && BeeNavigation.isTabActive('radar')) scheduleRender();
       });
     }
 
     // When range or alerts are changed elsewhere (e.g. the Settings tab), mirror
     // those changes back into the radar controls and list.
-    if (typeof FSSettings !== 'undefined' && FSSettings.onChange) {
-      FSSettings.onChange(function (key, value) {
+    if (typeof BeeSettings !== 'undefined' && BeeSettings.onChange) {
+      BeeSettings.onChange(function (key, value) {
         if (key === 'radarRange') {
           if (rangeInput) rangeInput.value = String(value);
           if (rangeLabel) rangeLabel.textContent = value + 'm';
-          if (FSNavigation.isTabActive('radar')) scheduleRender();
+          if (BeeNavigation.isTabActive('radar')) scheduleRender();
         } else if (key === 'radarAlerts') {
           if (alertInput) alertInput.checked = !!value;
-          if (FSNavigation.isTabActive('radar')) scheduleRender();
+          if (BeeNavigation.isTabActive('radar')) scheduleRender();
         }
       });
     }

@@ -2,7 +2,7 @@
  * The world map panel: renders tiles, lets you click to pick a spot, and
  * handles manual teleports.
  */
-const FSMap = (function () {
+const BeeMap = (function () {
   'use strict';
 
   const TILE_PX_MIN = 80;
@@ -14,7 +14,7 @@ const FSMap = (function () {
   const SIM_ACCESS_ADULT = 42;
   const AGENT_REFRESH_MS = 30000;
 
-  let mapServerUrl = FSSlurl.DEFAULT_MAP_SERVER;
+  let mapServerUrl = BeeSlurl.DEFAULT_MAP_SERVER;
   let centerGridX = 1000;
   let centerGridY = 1000;
   // Once the user pans, we stop auto-following the agent's position so the
@@ -30,13 +30,16 @@ const FSMap = (function () {
   const tileImageCache = new Map();
   let renderToken = 0;
   let tilePx = 128;
+  // The last renderTiles() geometry, so overlay-only refreshes can redraw
+  // markers without refetching tiles.
+  let lastLayout = null;
   const TELEPORT_BTN_LABEL = 'Teleport Here';
   let mapTeleportBusy = false;
   let mapTeleportPct = 0;
 
   function formatMapProgress(message, fallbackShort) {
-    if (typeof FSTeleportUI !== 'undefined' && FSTeleportUI.formatProgressLabel) {
-      return FSTeleportUI.formatProgressLabel(message, mapTeleportPct, fallbackShort);
+    if (typeof BeeTeleportUI !== 'undefined' && BeeTeleportUI.formatProgressLabel) {
+      return BeeTeleportUI.formatProgressLabel(message, mapTeleportPct, fallbackShort);
     }
     const text = String(message || fallbackShort || 'Teleporting');
     return { text: text, pct: mapTeleportPct || 50, short: fallbackShort || 'Teleporting' };
@@ -56,13 +59,13 @@ const FSMap = (function () {
     const r = Object.assign({}, region || {});
     if (r.globalX === undefined && r.x !== undefined && r.y !== undefined &&
         (r.x > 4096 || r.y > 4096)) {
-      const grid = FSSlurl.globalToGrid(r.x, r.y);
+      const grid = BeeSlurl.globalToGrid(r.x, r.y);
       r.globalX = grid.globalX;
       r.globalY = grid.globalY;
       r.x = grid.gridX;
       r.y = grid.gridY;
     } else if (r.globalX !== undefined && (r.x === undefined || r.x <= 4096)) {
-      const grid = FSSlurl.globalToGrid(r.globalX, r.globalY);
+      const grid = BeeSlurl.globalToGrid(r.globalX, r.globalY);
       r.x = grid.gridX;
       r.y = grid.gridY;
     }
@@ -70,7 +73,7 @@ const FSMap = (function () {
   }
 
   function currentAgentMarker() {
-    const s = FSState.get();
+    const s = BeeState.get();
     const region = normalizeRegion(s.region || {});
     const pos = s.position || circuitPosition();
     if (region.x === undefined || region.y === undefined || !pos) return null;
@@ -85,7 +88,7 @@ const FSMap = (function () {
   }
 
   function circuitPosition() {
-    return FSState.get().position || null;
+    return BeeState.get().position || null;
   }
 
   function setSelection(loc) {
@@ -101,7 +104,7 @@ const FSMap = (function () {
       info.textContent = 'Tap the map to pick coordinates, or paste a SLURL / region name.';
       return;
     }
-    info.textContent = FSSlurl.formatLocation(selection);
+    info.textContent = BeeSlurl.formatLocation(selection);
   }
 
   function tileKey(gridX, gridY) {
@@ -121,7 +124,7 @@ const FSMap = (function () {
   function markRegionEmpty(gridX, gridY) {
     regionInfo.set(tileKey(gridX, gridY), { name: '', empty: true });
     const canvas = el('map-canvas');
-    if (canvas && FSState.get().activeTab === 'map') {
+    if (canvas && BeeState.get().activeTab === 'map') {
       refreshTileLabels(canvas);
     }
   }
@@ -188,7 +191,7 @@ const FSMap = (function () {
       if (parts.agents !== undefined && parts.agents !== null && parts.agents > 0) {
         html += '<span class="map-tile-label__agents">' + parts.agents + '</span> ';
       }
-      html += FSUtils.escapeHtml(parts.name);
+      html += BeeUtils.escapeHtml(parts.name);
       labelEl.innerHTML = html;
     } else {
       labelEl.textContent = parts.name;
@@ -223,7 +226,7 @@ const FSMap = (function () {
       agentsAt: Date.now()
     }));
     const canvas = el('map-canvas');
-    if (canvas && FSState.get().activeTab === 'map') {
+    if (canvas && BeeState.get().activeTab === 'map') {
       refreshTileLabels(canvas);
     }
   }
@@ -258,19 +261,19 @@ const FSMap = (function () {
         updateInfo();
         const input = el('map-location-input');
         if (input) {
-          input.value = FSSlurl.buildMapsUrl(name, selection);
+          input.value = BeeSlurl.buildMapsUrl(name, selection);
         }
       }
     }
     const canvas = el('map-canvas');
-    if (canvas && FSState.get().activeTab === 'map') {
+    if (canvas && BeeState.get().activeTab === 'map') {
       refreshTileLabels(canvas);
     }
     return true;
   }
 
   function seedKnownRegions() {
-    const s = FSState.get();
+    const s = BeeState.get();
     const region = normalizeRegion(s.region || {});
     if (region.name && region.x !== undefined && region.y !== undefined) {
       applyRegionInfo(region.x, region.y, region.name, region.access, 'state');
@@ -297,7 +300,7 @@ const FSMap = (function () {
     const tiles = batch.map(function (item) {
       return item.gridX + ',' + item.gridY;
     }).join(';');
-    FSBridge.mapRegions(tiles).then(function (data) {
+    BeeBridge.mapRegions(tiles).then(function (data) {
       const regions = data && data.regions ? data.regions : [];
       regions.forEach(function (row) {
         if (!row) return;
@@ -346,7 +349,7 @@ const FSMap = (function () {
       }
     });
     const canvas = el('map-canvas');
-    if (canvas && FSState.get().activeTab === 'map') {
+    if (canvas && BeeState.get().activeTab === 'map') {
       refreshTileLabels(canvas);
     }
   }
@@ -366,7 +369,7 @@ const FSMap = (function () {
   }
 
   function requestNamesIfNeeded(startX, startY, endX, endY) {
-    if (!FSState.gridOnline()) return;
+    if (!BeeState.gridOnline()) return;
     let needUdp = false;
     for (let x = startX; x <= endX; x++) {
       for (let y = startY; y <= endY; y++) {
@@ -380,13 +383,13 @@ const FSMap = (function () {
       }
     }
     if (needUdp) {
-      FSTransport.requestMapArea(startX, startY, endX, endY);
+      BeeTransport.requestMapArea(startX, startY, endX, endY);
     }
     requestAgentCountsIfNeeded(startX, startY, endX, endY);
   }
 
   function requestAgentCountsIfNeeded(startX, startY, endX, endY) {
-    if (!FSState.gridOnline() || !FSTransport.requestMapAgentCounts) return;
+    if (!BeeState.gridOnline() || !BeeTransport.requestMapAgentCounts) return;
     const tiles = [];
     for (let x = startX; x <= endX; x++) {
       for (let y = startY; y <= endY; y++) {
@@ -400,26 +403,26 @@ const FSMap = (function () {
       }
     }
     if (tiles.length) {
-      FSTransport.requestMapAgentCounts(tiles);
+      BeeTransport.requestMapAgentCounts(tiles);
     }
   }
 
   function syncAvatarOnMap(data) {
     const region = data && data.region
       ? normalizeRegion(data.region)
-      : normalizeRegion(FSState.get().region || {});
-    const pos = (data && data.position) || FSState.get().position;
+      : normalizeRegion(BeeState.get().region || {});
+    const pos = (data && data.position) || BeeState.get().position;
     if (data && data.region && region.name &&
         region.x !== undefined && region.y !== undefined) {
       applyRegionInfo(region.x, region.y, region.name, region.access, 'state');
     }
     if (region.x !== undefined && region.y !== undefined && pos) {
-      FSState.patch({
-        region: Object.assign({}, FSState.get().region, region),
+      BeeState.patch({
+        region: Object.assign({}, BeeState.get().region, region),
         position: pos
       });
     }
-    if (FSState.get().activeTab === 'map') {
+    if (BeeState.get().activeTab === 'map') {
       if (!userPanned && region.x !== undefined && region.y !== undefined) {
         centerGridX = region.x;
         centerGridY = region.y;
@@ -460,7 +463,7 @@ const FSMap = (function () {
       }
     }
 
-    const directUrl = FSSlurl.tileUrl(mapServerUrl, MAP_LEVEL, gridX, gridY, '');
+    const directUrl = BeeSlurl.tileUrl(mapServerUrl, MAP_LEVEL, gridX, gridY, '');
 
     const entry = { state: 'pending', waiters: [], revokeBlob: false, blobUrl: '', loadToken: token };
     tileImageCache.set(key, entry);
@@ -483,7 +486,7 @@ const FSMap = (function () {
     // Fallback path: pull the tile bytes through the native core (which sidesteps
     // any cross-origin restriction on the map server) and wrap them in a blob URL.
     function loadViaBackend() {
-      FSBridge.mapTile(MAP_LEVEL, gridX, gridY, mapServerUrl).then(function (data) {
+      BeeBridge.mapTile(MAP_LEVEL, gridX, gridY, mapServerUrl).then(function (data) {
         if (!data || !data.b64) throw new Error('no tile');
         const bin = atob(data.b64);
         const bytes = new Uint8Array(bin.length);
@@ -515,14 +518,14 @@ const FSMap = (function () {
   }
 
   function localYToScreen(localY, tileSize) {
-    return ((256 - FSUtils.clamp(localY, 0, 256)) / 256) * tileSize;
+    return ((256 - BeeUtils.clamp(localY, 0, 256)) / 256) * tileSize;
   }
 
   function measureTileSize(viewport) {
     if (!viewport) return 128;
     const rect = viewport.getBoundingClientRect();
     const size = Math.floor(Math.min(rect.width, rect.height) / VIEW_TILES);
-    return FSUtils.clamp(size, TILE_PX_MIN, TILE_PX_MAX);
+    return BeeUtils.clamp(size, TILE_PX_MIN, TILE_PX_MAX);
   }
 
   function renderTiles() {
@@ -573,27 +576,97 @@ const FSMap = (function () {
       }
     }
 
-    const marker = currentAgentMarker();
-    if (marker &&
-        marker.gridX >= startX && marker.gridX < startX + VIEW_TILES &&
-        marker.gridY >= startY && marker.gridY < startY + VIEW_TILES) {
-      addMarker(canvas, 'map-marker map-marker--self', marker, startX, startY, tilePx);
-    }
-    if (selection &&
-        selection.gridX >= startX && selection.gridX < startX + VIEW_TILES &&
-        selection.gridY >= startY && selection.gridY < startY + VIEW_TILES) {
-      addMarker(canvas, 'map-marker map-marker--target', selection, startX, startY, tilePx);
-    }
+    lastLayout = { startX: startX, startY: startY, size: tilePx };
+    drawOverlays(canvas, startX, startY, tilePx);
 
     refreshTileLabels(canvas);
     requestNamesIfNeeded(startX, startY, startX + VIEW_TILES - 1, startY + VIEW_TILES - 1);
   }
 
+  // Markers, chat rings, and radar dots, drawn over the tiles.
+  function drawOverlays(canvas, startX, startY, size) {
+    const marker = currentAgentMarker();
+    if (marker &&
+        marker.gridX >= startX && marker.gridX < startX + VIEW_TILES &&
+        marker.gridY >= startY && marker.gridY < startY + VIEW_TILES) {
+      addChatRings(canvas, marker, startX, startY, size);
+      addMarker(canvas, 'map-marker map-marker--self', marker, startX, startY, size);
+    }
+    addRadarDots(canvas, marker, startX, startY, size);
+    if (selection &&
+        selection.gridX >= startX && selection.gridX < startX + VIEW_TILES &&
+        selection.gridY >= startY && selection.gridY < startY + VIEW_TILES) {
+      addMarker(canvas, 'map-marker map-marker--target', selection, startX, startY, size);
+    }
+  }
+
+  // Redraw only the overlay layer (radar moved, we moved), leaving the tile
+  // images alone - a full renderTiles refetch for a dot move would be waste.
+  function refreshOverlays() {
+    const canvas = el('map-canvas');
+    if (!canvas || !lastLayout || !canvas.offsetParent) return;
+    canvas.querySelectorAll('.map-ring, .map-marker').forEach(function (n) { n.remove(); });
+    drawOverlays(canvas, lastLayout.startX, lastLayout.startY, lastLayout.size);
+  }
+
+  // Chat ranges (SL defaults): whisper 10m, say 20m, shout 100m.
+  const CHAT_RINGS = [
+    { meters: 10, cls: 'map-ring--whisper' },
+    { meters: 20, cls: 'map-ring--say' },
+    { meters: 100, cls: 'map-ring--shout' }
+  ];
+
+  // Rings around our own marker showing how far chat carries. Same
+  // metres-to-pixels rule as the markers: one region = 256m = one tile.
+  function addChatRings(canvas, marker, startX, startY, size) {
+    const localX = BeeUtils.clamp(marker.x !== undefined ? marker.x : 128, 0, 256);
+    const localY = BeeUtils.clamp(marker.y !== undefined ? marker.y : 128, 0, 256);
+    const col = marker.gridX - startX;
+    const row = screenDy(marker.gridY, startY);
+    const cx = (col * size) + (localX / 256) * size;
+    const cy = (row * size) + localYToScreen(localY, size);
+    CHAT_RINGS.forEach(function (ring) {
+      const radius = (ring.meters / 256) * size;
+      const span = document.createElement('span');
+      span.className = 'map-ring ' + ring.cls;
+      span.style.left = (cx - radius) + 'px';
+      span.style.top = (cy - radius) + 'px';
+      span.style.width = (radius * 2) + 'px';
+      span.style.height = (radius * 2) + 'px';
+      canvas.appendChild(span);
+    });
+  }
+
+  // Nearby residents from the radar (CoarseLocationUpdate), as dots. Those
+  // positions are region-local to OUR region, so they only plot there.
+  function addRadarDots(canvas, marker, startX, startY, size) {
+    const region = BeeState.get().region;
+    const gridX = marker ? marker.gridX : (region && region.x);
+    const gridY = marker ? marker.gridY : (region && region.y);
+    if (gridX === undefined || gridY === undefined) return;
+    if (gridX < startX || gridX >= startX + VIEW_TILES ||
+        gridY < startY || gridY >= startY + VIEW_TILES) return;
+    const radar = BeeState.get().radar || [];
+    radar.forEach(function (entry) {
+      if (!entry || !entry.pos) return;
+      const dot = document.createElement('span');
+      dot.className = 'map-marker map-marker--avatar';
+      dot.title = entry.name || '';
+      const localX = BeeUtils.clamp(entry.pos.x !== undefined ? entry.pos.x : 128, 0, 256);
+      const localY = BeeUtils.clamp(entry.pos.y !== undefined ? entry.pos.y : 128, 0, 256);
+      const col = gridX - startX;
+      const row = screenDy(gridY, startY);
+      dot.style.left = ((col * size) + (localX / 256) * size) + 'px';
+      dot.style.top = ((row * size) + localYToScreen(localY, size)) + 'px';
+      canvas.appendChild(dot);
+    });
+  }
+
   function addMarker(canvas, className, loc, startX, startY, size) {
     const dot = document.createElement('span');
     dot.className = className;
-    const localX = FSUtils.clamp(loc.x !== undefined ? loc.x : 128, 0, 256);
-    const localY = FSUtils.clamp(loc.y !== undefined ? loc.y : 128, 0, 256);
+    const localX = BeeUtils.clamp(loc.x !== undefined ? loc.x : 128, 0, 256);
+    const localY = BeeUtils.clamp(loc.y !== undefined ? loc.y : 128, 0, 256);
     const col = loc.gridX - startX;
     const row = screenDy(loc.gridY, startY);
     dot.style.left = ((col * size) + (localX / 256) * size) + 'px';
@@ -611,8 +684,8 @@ const FSMap = (function () {
     const tile = e.target.closest('.map-tile');
     if (!tile || !el('map-canvas')) return;
     const rect = tile.getBoundingClientRect();
-    const localX = FSUtils.clamp(((e.clientX - rect.left) / rect.width) * 256, 0, 255.9);
-    const localY = FSUtils.clamp((1 - ((e.clientY - rect.top) / rect.height)) * 256, 0, 255.9);
+    const localX = BeeUtils.clamp(((e.clientX - rect.left) / rect.width) * 256, 0, 255.9);
+    const localY = BeeUtils.clamp((1 - ((e.clientY - rect.top) / rect.height)) * 256, 0, 255.9);
     const gridX = parseInt(tile.dataset.gridX, 10);
     const gridY = parseInt(tile.dataset.gridY, 10);
     const regionName = getRegionName(gridX, gridY) || ('Region ' + gridX + ',' + gridY);
@@ -627,7 +700,7 @@ const FSMap = (function () {
     });
     const input = el('map-location-input');
     if (input) {
-      input.value = FSSlurl.buildMapsUrl(regionName, { x: localX, y: localY, z: z });
+      input.value = BeeSlurl.buildMapsUrl(regionName, { x: localX, y: localY, z: z });
     }
   }
 
@@ -645,7 +718,7 @@ const FSMap = (function () {
     const input = el('map-location-input');
     const text = input ? input.value.trim() : '';
     if (!text) return;
-    const parsed = FSSlurl.parse(text);
+    const parsed = BeeSlurl.parse(text);
     const needsLookup = parsed && parsed.regionName &&
       parsed.gridX === undefined && parsed.globalX === undefined && !parsed.isGlobalCoord;
     const info = el('map-info');
@@ -654,11 +727,11 @@ const FSMap = (function () {
       info.textContent = 'Looking up region...';
     }
     try {
-      const loc = await FSTransport.resolveLocation(text);
+      const loc = await BeeTransport.resolveLocation(text);
       centerOn(loc.gridX, loc.gridY);
       setSelection(loc);
       if (input) {
-        input.value = FSSlurl.buildMapsUrl(loc.regionName, loc);
+        input.value = BeeSlurl.buildMapsUrl(loc.regionName, loc);
       }
     } catch (err) {
       const badName = parsed && parsed.regionName ? parsed.regionName : text;
@@ -670,7 +743,7 @@ const FSMap = (function () {
           selection.regionName.toLowerCase() === String(parsed.regionName).toLowerCase()) {
         setSelection(null);
       }
-      FSUtils.showToast(regionErrorMessage(err, badName), 'error');
+      BeeUtils.showToast(regionErrorMessage(err, badName), 'error');
     }
   }
 
@@ -706,37 +779,37 @@ const FSMap = (function () {
     const text = input ? input.value.trim() : '';
     let target = selection;
     if (!target && !text) {
-      FSUtils.showToast('Select a destination on the map first', 'warning');
+      BeeUtils.showToast('Select a destination on the map first', 'warning');
       return;
     }
     beginMapTeleport('requesting');
-    if (text && FSState.gridOnline()) {
-      const parsed = FSSlurl.parse(text);
+    if (text && BeeState.gridOnline()) {
+      const parsed = BeeSlurl.parse(text);
       try {
-        target = await FSTransport.resolveLocation(text);
+        target = await BeeTransport.resolveLocation(text);
         setSelection(target);
         centerOn(target.gridX, target.gridY);
         if (input) {
-          input.value = FSSlurl.buildMapsUrl(target.regionName, target);
+          input.value = BeeSlurl.buildMapsUrl(target.regionName, target);
         }
       } catch (err) {
         resetTeleportButton();
         const badName = parsed && parsed.regionName ? parsed.regionName : text;
-        FSUtils.showToast(regionErrorMessage(err, badName), 'error');
+        BeeUtils.showToast(regionErrorMessage(err, badName), 'error');
         return;
       }
     } else if (!target) {
       resetTeleportButton();
-      FSUtils.showToast('Select a destination on the map first', 'warning');
+      BeeUtils.showToast('Select a destination on the map first', 'warning');
       return;
     }
     try {
-      const loc = await FSTransport.teleportTo(target);
+      const loc = await BeeTransport.teleportTo(target);
       setSelection(loc);
       applyMapTeleportProgress('starting', 'Starting');
     } catch (err) {
       resetTeleportButton();
-      FSUtils.showToast(err.message || 'Teleport failed', 'error');
+      BeeUtils.showToast(err.message || 'Teleport failed', 'error');
     }
   }
 
@@ -744,7 +817,7 @@ const FSMap = (function () {
     if (mapTeleportBusy) return;
     beginMapTeleport('requesting');
     try {
-      const loc = await FSTransport.teleportHome();
+      const loc = await BeeTransport.teleportHome();
       if (loc && loc.alreadyHome) {
         resetTeleportButton();
         return;
@@ -752,25 +825,25 @@ const FSMap = (function () {
       applyMapTeleportProgress('starting', 'Starting');
     } catch (err) {
       resetTeleportButton();
-      FSUtils.showToast(err.message || 'Teleport home failed', 'error');
+      BeeUtils.showToast(err.message || 'Teleport home failed', 'error');
     }
   }
 
   function openDestinationGuide() {
-    if (typeof FSNavigation !== 'undefined' && FSNavigation.switchTab) {
-      FSNavigation.switchTab('destinations');
+    if (typeof BeeNavigation !== 'undefined' && BeeNavigation.switchTab) {
+      BeeNavigation.switchTab('destinations');
     }
   }
 
   function showLocation(input) {
     const parsed = typeof input === 'object' && input !== null
       ? input
-      : FSSlurl.parse(String(input || '').trim());
+      : BeeSlurl.parse(String(input || '').trim());
     if (!parsed) {
-      FSUtils.showToast('Could not parse SLURL', 'error');
+      BeeUtils.showToast('Could not parse SLURL', 'error');
       return;
     }
-    FSNavigation.switchTab('map');
+    BeeNavigation.switchTab('map');
     const hasGrid = parsed.gridX !== undefined && parsed.gridY !== undefined;
     const regionName = String(parsed.regionName || '').trim();
     // Grid coords alone are enough to center; the region name is optional (a pick
@@ -779,37 +852,37 @@ const FSMap = (function () {
       centerOn(parsed.gridX, parsed.gridY);
       setSelection(parsed);
       const field = el('map-location-input');
-      if (field && regionName) field.value = FSSlurl.buildMapsUrl(regionName, parsed);
-      if (FSState.gridOnline() && typeof FSTransport.requestMapArea === 'function') {
-        FSTransport.requestMapArea(parsed.gridX, parsed.gridY, parsed.gridX, parsed.gridY)
+      if (field && regionName) field.value = BeeSlurl.buildMapsUrl(regionName, parsed);
+      if (BeeState.gridOnline() && typeof BeeTransport.requestMapArea === 'function') {
+        BeeTransport.requestMapArea(parsed.gridX, parsed.gridY, parsed.gridX, parsed.gridY)
           .catch(function () { /* tile refresh is optional - ignore errors */ });
       }
       return;
     }
-    if (!FSState.gridOnline()) {
+    if (!BeeState.gridOnline()) {
       if (hasGrid) {
         centerOn(parsed.gridX, parsed.gridY);
         setSelection(parsed);
       }
       return;
     }
-    FSTransport.resolveLocation(parsed).then(function (loc) {
+    BeeTransport.resolveLocation(parsed).then(function (loc) {
       centerOn(loc.gridX, loc.gridY);
       setSelection(loc);
       const field = el('map-location-input');
-      if (field) field.value = FSSlurl.buildMapsUrl(loc.regionName, loc);
+      if (field) field.value = BeeSlurl.buildMapsUrl(loc.regionName, loc);
     }).catch(function (err) {
       const badName = parsed.regionName ||
         (typeof input === 'string' ? input : '');
-      FSUtils.showToast(regionErrorMessage(err, badName), 'error');
+      BeeUtils.showToast(regionErrorMessage(err, badName), 'error');
     });
   }
 
   function onConnected(payload) {
-    mapServerUrl = FSSlurl.normalizeMapServerUrl(
-      (payload && payload.mapServerUrl) || FSTransport.getMapServerUrl()
+    mapServerUrl = BeeSlurl.normalizeMapServerUrl(
+      (payload && payload.mapServerUrl) || BeeTransport.getMapServerUrl()
     );
-    const region = normalizeRegion((payload && payload.region) || FSState.get().region || {});
+    const region = normalizeRegion((payload && payload.region) || BeeState.get().region || {});
     if (region.x !== undefined && region.y !== undefined) {
       centerGridX = region.x;
       centerGridY = region.y;
@@ -880,7 +953,7 @@ const FSMap = (function () {
         if (!marker) return;
         centerOn(marker.gridX, marker.gridY);
         setSelection({
-          regionName: marker.regionName || (FSState.get().region && FSState.get().region.name) || '',
+          regionName: marker.regionName || (BeeState.get().region && BeeState.get().region.name) || '',
           gridX: marker.gridX,
           gridY: marker.gridY,
           x: marker.x,
@@ -924,17 +997,17 @@ const FSMap = (function () {
 
     let resizeTimer = null;
     window.addEventListener('resize', function () {
-      if (FSState.get().activeTab !== 'map') return;
+      if (BeeState.get().activeTab !== 'map') return;
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(renderTiles, 150);
     });
 
-    FSTransport.on('map-blocks', rememberBlocks);
-    FSTransport.on('map-agents', function (data) {
+    BeeTransport.on('map-blocks', rememberBlocks);
+    BeeTransport.on('map-agents', function (data) {
       if (!data || data.gridX === undefined || data.gridY === undefined) return;
       applyRegionAgents(data.gridX, data.gridY, data.agents);
     });
-    FSTransport.on('teleport-started', function (loc) {
+    BeeTransport.on('teleport-started', function (loc) {
       if (!loc || loc.gridX === undefined || loc.gridY === undefined) return;
       if (mapTeleportBusy) {
         applyMapTeleportProgress('starting', 'Starting');
@@ -945,11 +1018,11 @@ const FSMap = (function () {
       centerOn(loc.gridX, loc.gridY);
       setSelection(loc);
     });
-    FSTransport.on('teleport-progress', function (data) {
+    BeeTransport.on('teleport-progress', function (data) {
       if (!mapTeleportBusy) return;
       applyMapTeleportProgress(data && data.message, 'Teleporting');
     });
-    FSTransport.on('region', function (data) {
+    BeeTransport.on('region', function (data) {
       if (!data || !data.name || data.handshakeOnly) return;
       if (data.x === undefined || data.y === undefined) return;
       const region = normalizeRegion(data);
@@ -957,22 +1030,26 @@ const FSMap = (function () {
         applyRegionInfo(region.x, region.y, region.name, region.access, 'state');
       }
     });
-    FSState.on('reset', function () {
+    BeeState.on('reset', function () {
       selection = null;
       clearTileCache();
       resetTeleportButton();
       updateInfo();
     });
-    FSTransport.on('position', function (data) {
+    BeeTransport.on('position', function (data) {
       syncAvatarOnMap(data);
     });
-    FSTransport.on('teleport-failed', function () {
+    // Nearby residents moved: repaint the dots (cheap, overlay-only).
+    BeeState.on('radar-update', BeeUtils.debounce(function () {
+      refreshOverlays();
+    }, 400));
+    BeeTransport.on('teleport-failed', function () {
       resetTeleportButton();
     });
-    FSTransport.on('teleport-cancelled', function () {
+    BeeTransport.on('teleport-cancelled', function () {
       resetTeleportButton();
     });
-    FSTransport.on('teleport-finish', function (data) {
+    BeeTransport.on('teleport-finish', function (data) {
       if (mapTeleportBusy) {
         applyMapTeleportProgress('arriving', 'Arriving');
         window.setTimeout(resetTeleportButton, 400);
@@ -1037,4 +1114,4 @@ const FSMap = (function () {
   };
 })();
 
-window.FSMap = FSMap;
+window.BeeMap = BeeMap;

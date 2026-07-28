@@ -6,7 +6,7 @@
  * subscribe to, and forwards UI actions to whichever adapter is wired up
  * (sl-bridge.js, which turns them into invoke() calls).
  */
-const FSTransport = (function () {
+const BeeTransport = (function () {
   'use strict';
 
   let adapter = null;
@@ -25,10 +25,10 @@ const FSTransport = (function () {
     const set = handlers.get(event);
     if (!set) return;
     // Keep each subscriber isolated: one handler that throws must not block
-    // delivery to the other subscribers of the same event (mirrors FSState.emit).
+    // delivery to the other subscribers of the same event (mirrors BeeState.emit).
     set.forEach(function (fn) {
       try { fn(data); } catch (e) {
-        if (typeof console !== 'undefined') console.error('FSTransport handler for "' + event + '" threw', e);
+        if (typeof console !== 'undefined') console.error('BeeTransport handler for "' + event + '" threw', e);
       }
     });
   }
@@ -204,11 +204,11 @@ const FSTransport = (function () {
     return adapter.payResident(destId, amount, description);
   }
 
-  function searchDirectory(kind, query) {
+  function searchDirectory(kind, query, start) {
     if (!adapter || !adapter.searchDirectory) {
-      return Promise.resolve([]);
+      return Promise.resolve({ rows: [], hasMore: false, nextStart: 0, statusText: '' });
     }
-    return adapter.searchDirectory(kind, query);
+    return adapter.searchDirectory(kind, query, start);
   }
 
   function updateParcel(data) {
@@ -314,13 +314,13 @@ const FSTransport = (function () {
   }
 
   function getMapServerUrl() {
-    if (!adapter || !adapter.getMapServerUrl) return FSSlurl.DEFAULT_MAP_SERVER;
+    if (!adapter || !adapter.getMapServerUrl) return BeeSlurl.DEFAULT_MAP_SERVER;
     return adapter.getMapServerUrl();
   }
 
   function getMapTileUrl(level, gridX, gridY) {
     if (!adapter || !adapter.getMapTileUrl) {
-      return FSSlurl.tileUrl(FSSlurl.DEFAULT_MAP_SERVER, level, gridX, gridY);
+      return BeeSlurl.tileUrl(BeeSlurl.DEFAULT_MAP_SERVER, level, gridX, gridY);
     }
     return adapter.getMapTileUrl(level, gridX, gridY);
   }

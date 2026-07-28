@@ -116,6 +116,12 @@ pub struct AppState {
     /// `confirm_close` refuses to quit unless this is set, so no other code path
     /// (say, a malicious in-world link) can close the app.
     pub close_pending: AtomicBool,
+    /// The Current Outfit folder id from the login inventory skeleton, kept so
+    /// the outfit restore can re-rez attachments the sim didn't bring back.
+    pub cof_folder: Mutex<String>,
+    /// The inventory root folder id from login; accepting a task inventory
+    /// offer has to name a folder to file the item into.
+    pub inv_root: Mutex<String>,
 }
 
 /// Parse `major.minor.patch` from a three-part semver string.
@@ -284,6 +290,8 @@ impl AppState {
             creds: SecretStore::new(),
             close_guard: AtomicBool::new(false),
             close_pending: AtomicBool::new(false),
+            cof_folder: Mutex::new(String::new()),
+            inv_root: Mutex::new(String::new()),
         })
     }
 

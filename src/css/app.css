@@ -1710,6 +1710,22 @@ html.require-http #app {
 
 .im-roster__mute--active { color: var(--danger, #f85149); }
 
+@media (max-width: 640px) {
+  .im-thread__body { position: relative; }
+
+  .im-roster {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(280px, 85%);
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+    z-index: 5;
+  }
+
+  .im-roster__item .im-roster__mute { opacity: 1; }
+}
+
 .im-typing[hidden] { display: none; }
 
 .im-typing {
@@ -2486,6 +2502,68 @@ html.require-http #app {
     width: 100%;
     height: 120px;
   }
+}
+
+/* Events subtabs: same shape as the land tabs, plus unread badges. The bar
+   scrolls horizontally on narrow screens and the targets stay finger-sized. */
+.events-subtabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.events-subtab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.events-subtab--active {
+  color: var(--accent);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.events-subtab__badge {
+  background: var(--accent);
+  color: var(--bg-deep, #000);
+  border-radius: 999px;
+  min-width: 18px;
+  padding: 1px 5px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Group notice card details. */
+.group-notice__subject {
+  margin: 8px 0 2px;
+  font-weight: 700;
+}
+
+.group-notice__attachment {
+  margin: 8px 0 4px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.script-dialog__badge--notice {
+  background: var(--accent);
+  color: var(--bg-deep, #000);
 }
 
 .land-tabs {
@@ -3930,6 +4008,50 @@ html.require-http #app {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
 }
 
+/* Impending doom deserves to look like it. */
+.region-restart-dialog {
+  border: 2px solid var(--danger, #f85149);
+}
+
+.region-restart-dialog__title {
+  color: var(--danger, #f85149);
+}
+
+.region-restart-dialog__text {
+  margin: 10px 0 4px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.region-restart-dialog__hint {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.map-marker--avatar {
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  margin-top: -4px;
+  border-width: 1px;
+  background: #e8ff59;
+  z-index: 3;
+}
+
+/* Chat range rings around the self marker: whisper 10m, say 20m, shout 100m. */
+.map-ring {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 2;
+  box-sizing: border-box;
+}
+
+.map-ring--whisper { border: 1px solid rgba(120, 200, 255, 0.9); }
+.map-ring--say { border: 1px solid rgba(76, 175, 80, 0.9); }
+.map-ring--shout { border: 1px dashed rgba(245, 166, 35, 0.9); }
+
 .map-actions {
   padding: 0;
   flex-shrink: 0;
@@ -4090,6 +4212,16 @@ html.require-http #app {
 .search-results .search-result {
   flex-wrap: wrap;
   align-items: stretch;
+}
+
+.search-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 10px 16px 16px;
+}
+
+.search-load-more__btn {
+  min-width: 60%;
 }
 
 .search-result__toggle {
@@ -5038,7 +5170,7 @@ html.require-http #app {
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* ============================================================
-   Confirm dialog (FSUtils.confirm) - padded, themed, and dark/light aware
+   Confirm dialog (BeeUtils.confirm) - padded, themed, and dark/light aware
    ============================================================ */
 .confirm-dialog { max-width: min(400px, calc(100vw - 32px)); }
 .confirm-dialog::backdrop { background: var(--overlay); }

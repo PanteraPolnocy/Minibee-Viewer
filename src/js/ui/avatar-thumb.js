@@ -1,14 +1,14 @@
 /**
  * A single profile image element shared across the list surfaces.
  */
-const FSAvatarThumb = (function () {
+const BeeAvatarThumb = (function () {
   'use strict';
 
   const GROUP_GLYPH = 'G';
 
   function fallbackLabel(agentId, options) {
     const opts = options || {};
-    if (opts.label) return FSUtils.initials(opts.label);
+    if (opts.label) return BeeUtils.initials(opts.label);
     if (opts.kind === 'group') return GROUP_GLYPH;
     if (opts.kind === 'place') return 'P';
     return '?';
@@ -71,21 +71,21 @@ const FSAvatarThumb = (function () {
     const online = el.dataset.online === '1';
     const resolve = shouldResolveImage(el);
     if (kind === 'group') {
-      const insigniaId = el.dataset.imageId || FSProfiles.getGroupInsigniaId(agentId);
-      const url = insigniaId && !FSProfiles.isZero(insigniaId)
-        ? FSProfiles.textureImageUrl(insigniaId, 64)
+      const insigniaId = el.dataset.imageId || BeeProfiles.getGroupInsigniaId(agentId);
+      const url = insigniaId && !BeeProfiles.isZero(insigniaId)
+        ? BeeProfiles.textureImageUrl(insigniaId, 64)
         : '';
       if (url) setImage(el, url, agentId, { kind: 'group', label: label });
       else setInitials(el, GROUP_GLYPH);
       return;
     }
-    const imageId = FSProfiles.getImageId(agentId);
-    const url = imageId ? FSProfiles.textureImageUrl(imageId, 64) : '';
+    const imageId = BeeProfiles.getImageId(agentId);
+    const url = imageId ? BeeProfiles.textureImageUrl(imageId, 64) : '';
     if (url) {
       setImage(el, url, agentId, { label: label, online: online });
     } else {
       setInitials(el, fallbackLabel(agentId, { label: label }));
-      if (agentId && resolve) FSProfiles.queueAvatarThumb(agentId);
+      if (agentId && resolve) BeeProfiles.queueAvatarThumb(agentId);
     }
   }
 
@@ -96,7 +96,7 @@ const FSAvatarThumb = (function () {
     el.dataset.kind = opts.kind || 'avatar';
     if (opts.label) el.dataset.label = opts.label;
     if (opts.online) el.dataset.online = '1';
-    if (opts.imageId && !FSProfiles.isZero(opts.imageId)) el.dataset.imageId = FSProfiles.normId(opts.imageId);
+    if (opts.imageId && !BeeProfiles.isZero(opts.imageId)) el.dataset.imageId = BeeProfiles.normId(opts.imageId);
     else delete el.dataset.imageId;
     if (opts.resolveImage) el.dataset.resolveImage = '1';
     else delete el.dataset.resolveImage;
@@ -120,7 +120,7 @@ const FSAvatarThumb = (function () {
     else delete el.dataset.label;
     if (opts.online) el.dataset.online = '1';
     else delete el.dataset.online;
-    if (opts.imageId && !FSProfiles.isZero(opts.imageId)) el.dataset.imageId = FSProfiles.normId(opts.imageId);
+    if (opts.imageId && !BeeProfiles.isZero(opts.imageId)) el.dataset.imageId = BeeProfiles.normId(opts.imageId);
     else delete el.dataset.imageId;
     if (opts.resolveImage) el.dataset.resolveImage = '1';
     else delete el.dataset.resolveImage;
@@ -154,15 +154,15 @@ const FSAvatarThumb = (function () {
   // normalized id, so a case difference between the DOM attribute and the event id
   // still lines up.
   function refreshFor(id) {
-    const key = FSProfiles.normId(id || '');
+    const key = BeeProfiles.normId(id || '');
     if (!key) return;
     document.querySelectorAll('[data-agent-id].avatar-thumb, .entity-item__avatar[data-agent-id]').forEach(function (el) {
-      if (FSProfiles.normId(el.dataset.agentId) === key) refreshElement(el);
+      if (BeeProfiles.normId(el.dataset.agentId) === key) refreshElement(el);
     });
   }
 
   function init() {
-    FSProfiles.onChange(function (evt) {
+    BeeProfiles.onChange(function (evt) {
       if (!evt) return;
       // Only two kinds can change a thumbnail: an avatar image or a group insignia.
       // ('group' used to be refreshed only as a side effect of refreshAll running on

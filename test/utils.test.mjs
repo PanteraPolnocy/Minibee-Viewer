@@ -11,21 +11,21 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const src = fs.readFileSync(path.join(here, '..', 'src', 'js', 'utils.js'), 'utf8');
 const stubDoc = { createElement: () => ({}) };
 // eslint-disable-next-line no-new-func
-const FSUtils = new Function('window', 'document', 'navigator', 'localStorage',
-  src + '\n;return FSUtils;')({}, stubDoc, {}, {});
+const BeeUtils = new Function('window', 'document', 'navigator', 'localStorage',
+  src + '\n;return BeeUtils;')({}, stubDoc, {}, {});
 
 test('escapeHtml escapes the five HTML-significant characters', () => {
-  assert.equal(FSUtils.escapeHtml('a<b>&"\''), 'a&lt;b&gt;&amp;&quot;&#39;');
+  assert.equal(BeeUtils.escapeHtml('a<b>&"\''), 'a&lt;b&gt;&amp;&quot;&#39;');
 });
 
 test('escapeHtml neutralises an attribute-breakout payload', () => {
   const evil = '" onmouseover=alert(1) x="';
-  const out = FSUtils.escapeHtml(evil);
+  const out = BeeUtils.escapeHtml(evil);
   assert.ok(!out.includes('"'), 'double quotes must be encoded');
   assert.ok(out.includes('&quot;'));
 });
 
 test('escapeHtml handles null/undefined without throwing', () => {
-  assert.equal(FSUtils.escapeHtml(null), '');
-  assert.equal(FSUtils.escapeHtml(undefined), '');
+  assert.equal(BeeUtils.escapeHtml(null), '');
+  assert.equal(BeeUtils.escapeHtml(undefined), '');
 });

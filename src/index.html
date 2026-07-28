@@ -484,6 +484,13 @@
 
         <!-- Events feed -->
         <div id="panel-events" class="panel" data-panel="events" role="tabpanel" aria-label="Events" hidden>
+          <div class="events-subtabs" role="tablist" aria-label="Event categories">
+            <button type="button" class="events-subtab events-subtab--active" data-events-sub="all" role="tab" aria-selected="true">All</button>
+            <button type="button" class="events-subtab" data-events-sub="notices" role="tab" aria-selected="false">Notices<span class="events-subtab__badge" hidden></span></button>
+            <button type="button" class="events-subtab" data-events-sub="offers" role="tab" aria-selected="false">Offers<span class="events-subtab__badge" hidden></span></button>
+            <button type="button" class="events-subtab" data-events-sub="scripts" role="tab" aria-selected="false">Scripts<span class="events-subtab__badge" hidden></span></button>
+            <button type="button" class="events-subtab" data-events-sub="payments" role="tab" aria-selected="false">Money<span class="events-subtab__badge" hidden></span></button>
+          </div>
           <div id="event-messages" class="message-list message-list--events" role="log" aria-live="polite" aria-relevant="additions" hidden></div>
           <p id="events-empty" class="events-empty">Script dialogs, payment notices, and other prompts appear here.</p>
         </div>
@@ -965,7 +972,7 @@
       </div>
     </section>
 
-    <!-- Degraded-capabilities banner (FSCapsBanner). We show it when the Rust
+    <!-- Degraded-capabilities banner (BeeCapsBanner). We show it when the Rust
          core reports the region's caps / EventQueue never came up; it stays
          hidden by default and is painted purely from the core's caps-status read. -->
     <div id="caps-banner" class="caps-banner" role="alert" aria-live="assertive" hidden>
@@ -987,7 +994,7 @@
     <!-- Toast notifications -->
     <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
 
-    <!-- Teleport-progress lock dialog (FSTeleportProgress) -->
+    <!-- Teleport-progress lock dialog (BeeTeleportProgress) -->
     <dialog id="teleport-progress-dialog" class="login-challenge tp-progress-dialog">
       <div class="login-challenge__body tp-progress">
         <h2 class="login-challenge__title">Teleporting</h2>
@@ -996,7 +1003,7 @@
       </div>
     </dialog>
 
-    <!-- Reusable confirmation dialog (FSUtils.confirm) -->
+    <!-- Reusable confirmation dialog (BeeUtils.confirm) -->
     <dialog id="confirm-dialog" class="login-challenge confirm-dialog">
       <div class="login-challenge__body">
         <h2 id="confirm-title" class="login-challenge__title">Please confirm</h2>
@@ -1105,6 +1112,31 @@
         <div class="pay-dialog__actions">
           <button type="button" class="btn btn--ghost" id="conference-cancel">Cancel</button>
           <button type="submit" class="btn btn--primary" id="conference-submit">Start</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="region-restart-dialog" class="pay-dialog region-restart-dialog">
+      <h2 class="pay-dialog__title region-restart-dialog__title">Region restart imminent</h2>
+      <p id="region-restart-text" class="region-restart-dialog__text"></p>
+      <p class="region-restart-dialog__hint">Teleport somewhere else now, or you will be logged out when the region goes down.</p>
+      <div class="pay-dialog__actions">
+        <button type="button" class="btn btn--secondary" id="region-restart-map">Open map</button>
+        <button type="button" class="btn btn--primary" id="region-restart-ok">Understood</button>
+      </div>
+    </dialog>
+
+    <dialog id="group-invite-dialog" class="pay-dialog">
+      <form id="group-invite-form" method="dialog">
+        <h2 class="pay-dialog__title">Invite to group</h2>
+        <p id="group-invite-target" class="pay-dialog__target"></p>
+        <label class="field">
+          <span>Group</span>
+          <select id="group-invite-select"></select>
+        </label>
+        <div class="pay-dialog__actions">
+          <button type="button" class="btn btn--ghost" id="group-invite-cancel">Cancel</button>
+          <button type="submit" class="btn btn--primary" id="group-invite-submit">Send invitation</button>
         </div>
       </form>
     </dialog>

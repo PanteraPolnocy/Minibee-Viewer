@@ -1,7 +1,7 @@
 /**
  * Parses SLURLs and map URLs, converts region handles, and linkifies chat.
  */
-const FSSlurl = (function () {
+const BeeSlurl = (function () {
   'use strict';
 
   const REGION_WIDTH = 256;
@@ -350,18 +350,18 @@ const FSSlurl = (function () {
   function openExternalUrlPrompted(url) {
     const raw = String(url || '').trim();
     if (!raw) return Promise.resolve(false);
-    if (typeof FSBridge === 'undefined' || typeof FSBridge.invoke !== 'function') {
+    if (typeof BeeBridge === 'undefined' || typeof BeeBridge.invoke !== 'function') {
       return Promise.resolve(false);
     }
-    return FSBridge.invoke('bridge_classify_url', { url: raw }).then(function (policy) {
+    return BeeBridge.invoke('bridge_classify_url', { url: raw }).then(function (policy) {
       if (!policy || !policy.allowed) return false;
       const normalized = policy.normalized || raw;
       if (policy.trusted) {
         openExternalUrl(normalized);
         return true;
       }
-      const ask = (typeof FSUtils !== 'undefined' && FSUtils.confirm)
-        ? FSUtils.confirm({
+      const ask = (typeof BeeUtils !== 'undefined' && BeeUtils.confirm)
+        ? BeeUtils.confirm({
             title: 'Open external link?',
             message: 'This link leaves Second Life and opens in your browser:\n' + normalized,
             confirmLabel: 'Open',
@@ -386,12 +386,12 @@ const FSSlurl = (function () {
         e.preventDefault();
         const target = link.dataset.slurl || link.textContent;
         const parsed = parse(target);
-        if (parsed && parsed.type === 'app-agent' && typeof FSProfile !== 'undefined') {
-          FSProfile.openAvatar(parsed.id);
-        } else if (parsed && parsed.type === 'app-group' && typeof FSProfile !== 'undefined') {
-          FSProfile.openGroup(parsed.id);
-        } else if (typeof FSMap !== 'undefined' && FSMap.showLocation) {
-          FSMap.showLocation(target);
+        if (parsed && parsed.type === 'app-agent' && typeof BeeProfile !== 'undefined') {
+          BeeProfile.openAvatar(parsed.id);
+        } else if (parsed && parsed.type === 'app-group' && typeof BeeProfile !== 'undefined') {
+          BeeProfile.openGroup(parsed.id);
+        } else if (typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
+          BeeMap.showLocation(target);
         }
       });
     });
@@ -405,8 +405,8 @@ const FSSlurl = (function () {
           openExternalUrl(url);
           return;
         }
-        const ask = (typeof FSUtils !== 'undefined' && FSUtils.confirm)
-          ? FSUtils.confirm({
+        const ask = (typeof BeeUtils !== 'undefined' && BeeUtils.confirm)
+          ? BeeUtils.confirm({
               title: 'Open external link?',
               message: 'This link leaves Second Life and opens in your browser:\n' + url,
               confirmLabel: 'Open',
@@ -428,7 +428,7 @@ const FSSlurl = (function () {
     return out;
   }
 
-  // Region-name lookup goes through the native core only (`FSBridge.regionByName`).
+  // Region-name lookup goes through the native core only (`BeeBridge.regionByName`).
 
   return {
     REGION_WIDTH: REGION_WIDTH,

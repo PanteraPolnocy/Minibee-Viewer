@@ -1,7 +1,7 @@
 /**
  * The floater that shows avatar and group profiles.
  */
-const FSProfile = (function () {
+const BeeProfile = (function () {
   'use strict';
 
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
@@ -92,30 +92,30 @@ const FSProfile = (function () {
 
   function closeDialog() {
     current = null;
-    FSUtils.dismissDialog(dialog);
+    BeeUtils.dismissDialog(dialog);
   }
 
   function teleportFromProfileDetail(loc) {
     if (!loc) return;
-    if (!FSState.gridOnline()) {
-      FSUtils.showToast('Not connected to the grid', 'warning');
+    if (!BeeState.gridOnline()) {
+      BeeUtils.showToast('Not connected to the grid', 'warning');
       return;
     }
-    if (typeof FSMap !== 'undefined') {
-      if (FSMap.showLocation) FSMap.showLocation(loc);
-      if (FSMap.beginMapTeleport) FSMap.beginMapTeleport('requesting');
+    if (typeof BeeMap !== 'undefined') {
+      if (BeeMap.showLocation) BeeMap.showLocation(loc);
+      if (BeeMap.beginMapTeleport) BeeMap.beginMapTeleport('requesting');
     }
     closeDialog();
-    if (typeof FSTransport.teleportTo !== 'function') return;
-    FSTransport.teleportTo(loc).then(function () {
-      if (typeof FSMap !== 'undefined' && FSMap.beginMapTeleport) {
-        FSMap.beginMapTeleport('starting');
+    if (typeof BeeTransport.teleportTo !== 'function') return;
+    BeeTransport.teleportTo(loc).then(function () {
+      if (typeof BeeMap !== 'undefined' && BeeMap.beginMapTeleport) {
+        BeeMap.beginMapTeleport('starting');
       }
     }).catch(function (err) {
-      if (typeof FSMap !== 'undefined' && FSMap.resetTeleportButton) {
-        FSMap.resetTeleportButton();
+      if (typeof BeeMap !== 'undefined' && BeeMap.resetTeleportButton) {
+        BeeMap.resetTeleportButton();
       }
-      FSUtils.showToast(err.message || 'Teleport failed', 'error');
+      BeeUtils.showToast(err.message || 'Teleport failed', 'error');
     });
   }
 
@@ -125,7 +125,7 @@ const FSProfile = (function () {
   }
 
   function profileTitleText(profile) {
-    const clean = function (v) { const s = String(v || '').trim(); return FSUtils.isUuid(s) ? '' : s; };
+    const clean = function (v) { const s = String(v || '').trim(); return BeeUtils.isUuid(s) ? '' : s; };
     const displayName = clean(profile.displayName);
     const userName = clean(profile.userName || profile.legacyName);
     const fallback = clean(profile.name);
@@ -135,8 +135,8 @@ const FSProfile = (function () {
     if (displayName) return displayName;
     if (userName) return userName;
     if (fallback && fallback !== '?') return fallback;
-    if (typeof FSTransport.getCachedName === 'function') {
-      const cached = FSTransport.getCachedName(profile.avatarId);
+    if (typeof BeeTransport.getCachedName === 'function') {
+      const cached = BeeTransport.getCachedName(profile.avatarId);
       if (cached) return cached;
     }
     return shortUuid(profile.avatarId) || 'Resident';
@@ -183,10 +183,10 @@ const FSProfile = (function () {
     const parts = [];
     if (profile.memberCount !== undefined && profile.memberCount !== null) {
       parts.push('<strong class="profile-subtitle__emphasis">' +
-        FSUtils.escapeHtml(String(profile.memberCount.toLocaleString('en-US'))) + ' members</strong>');
+        BeeUtils.escapeHtml(String(profile.memberCount.toLocaleString('en-US'))) + ' members</strong>');
     }
-    parts.push(FSUtils.escapeHtml(profile.openEnrollment ? 'Open enrollment' : 'Closed enrollment'));
-    parts.push(FSUtils.escapeHtml(profile.maturePublish ? 'Mature' : 'General'));
+    parts.push(BeeUtils.escapeHtml(profile.openEnrollment ? 'Open enrollment' : 'Closed enrollment'));
+    parts.push(BeeUtils.escapeHtml(profile.maturePublish ? 'Mature' : 'General'));
     return parts.join(' \u00b7 ');
   }
 
@@ -226,44 +226,44 @@ const FSProfile = (function () {
       '<div class="profile-meta-item">' +
       '<span class="profile-meta-item__label">Key</span>' +
       '<span class="profile-meta-item__value"><code class="profile-uuid">' +
-      FSUtils.escapeHtml(profile.avatarId) + '</code></span></div></div>';
+      BeeUtils.escapeHtml(profile.avatarId) + '</code></span></div></div>';
   }
 
   function renderResidentSideMeta(profile) {
     let html = '';
-    const born = FSProfiles.formatBornLabel(profile.bornOn, profile.hideAge);
+    const born = BeeProfiles.formatBornLabel(profile.bornOn, profile.hideAge);
     if (born) {
       html += '<div class="profile-field"><span class="profile-field__label">Born</span><span>' +
-        FSUtils.escapeHtml(born) + '</span></div>';
+        BeeUtils.escapeHtml(born) + '</span></div>';
     }
     if (profile.partnerId && profile.partnerId !== ZERO_UUID) {
       const partnerLabel = profile.partnerName || 'View profile';
       html += '<div class="profile-field"><span class="profile-field__label">Partner</span>' +
         '<span><button type="button" class="profile-link" data-avatar-id="' +
-        FSUtils.escapeHtml(profile.partnerId) + '">' + FSUtils.escapeHtml(partnerLabel) +
+        BeeUtils.escapeHtml(profile.partnerId) + '">' + BeeUtils.escapeHtml(partnerLabel) +
         '</button></span></div>';
     }
     return html;
   }
 
   function findKnownAgent(agentId) {
-    const id = FSProfiles.normId(agentId);
-    if (FSProfiles.isZero(id)) return null;
-    const buddies = FSState.get().buddies || [];
+    const id = BeeProfiles.normId(agentId);
+    if (BeeProfiles.isZero(id)) return null;
+    const buddies = BeeState.get().buddies || [];
     let i;
     for (i = 0; i < buddies.length; i++) {
-      if (FSProfiles.normId(buddies[i].id) === id) return buddies[i];
+      if (BeeProfiles.normId(buddies[i].id) === id) return buddies[i];
     }
-    const radar = FSState.get().radar || [];
+    const radar = BeeState.get().radar || [];
     for (i = 0; i < radar.length; i++) {
-      if (FSProfiles.normId(radar[i].id) === id) return radar[i];
+      if (BeeProfiles.normId(radar[i].id) === id) return radar[i];
     }
-    const sessions = FSState.get().imSessions || {};
+    const sessions = BeeState.get().imSessions || {};
     const keys = Object.keys(sessions);
     for (i = 0; i < keys.length; i++) {
       const session = sessions[keys[i]];
       if (session && session.participant &&
-          FSProfiles.normId(session.participant.id) === id) {
+          BeeProfiles.normId(session.participant.id) === id) {
         return session.participant;
       }
     }
@@ -274,7 +274,7 @@ const FSProfile = (function () {
     if (!profile || !hint) return profile;
     // A hint that came from a buddy/radar object keeps the UUID in `name` until
     // GetDisplayNames resolves it. Never let a UUID slip into a name field
-    const clean = function (v) { const s = String(v || '').trim(); return FSUtils.isUuid(s) ? '' : s; };
+    const clean = function (v) { const s = String(v || '').trim(); return BeeUtils.isUuid(s) ? '' : s; };
     const hintName = clean(hint.name);
     profile.displayName = clean(hint.displayName) || clean(profile.displayName) || '';
     if (!profile.displayName && hintName) profile.displayName = hintName;
@@ -294,25 +294,25 @@ const FSProfile = (function () {
   }
 
   function queueProfileNames(profile) {
-    if (!profile || typeof FSTransport.queueNameResolve !== 'function') return;
+    if (!profile || typeof BeeTransport.queueNameResolve !== 'function') return;
     const ids = [];
     if (profile.avatarId) ids.push(profile.avatarId);
     if (profile.partnerId && profile.partnerId !== ZERO_UUID) ids.push(profile.partnerId);
-    if (ids.length) FSTransport.queueNameResolve(ids);
+    if (ids.length) BeeTransport.queueNameResolve(ids);
   }
 
   function ensureProfileExtras(profile) {
-    if (!profile || !profile.avatarId || typeof FSProfiles.ensureAvatarExtras !== 'function') return;
-    FSProfiles.ensureAvatarExtras(profile.avatarId, profile);
+    if (!profile || !profile.avatarId || typeof BeeProfiles.ensureAvatarExtras !== 'function') return;
+    BeeProfiles.ensureAvatarExtras(profile.avatarId, profile);
   }
 
   function openImagePreview(imageId, label) {
-    const id = FSProfiles.normId(imageId);
-    if (FSProfiles.isZero(id) || !imageDialog) return;
+    const id = BeeProfiles.normId(imageId);
+    if (BeeProfiles.isZero(id) || !imageDialog) return;
     const img = el('profile-image-full');
     if (!img) return;
     img.alt = label || 'Profile image';
-    img.src = FSProfiles.textureImageUrl(id, 512);
+    img.src = BeeProfiles.textureImageUrl(id, 512);
     if (typeof imageDialog.showModal === 'function') imageDialog.showModal();
   }
 
@@ -322,15 +322,15 @@ const FSProfile = (function () {
     }
     if (!html) {
       return '<div class="profile-scroll profile-about profile-about--empty">' +
-        FSUtils.escapeHtml(emptyText || 'No profile text.') + '</div>';
+        BeeUtils.escapeHtml(emptyText || 'No profile text.') + '</div>';
     }
     return '<div class="profile-scroll profile-about" tabindex="0">' + html + '</div>';
   }
 
   function profileCapAboutReady(profile) {
     if (!profile || profile.source !== 'cap') return false;
-    if (typeof FSProfiles.needsCapProfileFetch === 'function') {
-      return !FSProfiles.needsCapProfileFetch(profile);
+    if (typeof BeeProfiles.needsCapProfileFetch === 'function') {
+      return !BeeProfiles.needsCapProfileFetch(profile);
     }
     return String(profile.about || '').length > 0;
   }
@@ -338,8 +338,8 @@ const FSProfile = (function () {
   function profileAboutPending(profile) {
     if (!profile) return true;
     if (profileCapAboutReady(profile)) return false;
-    if (typeof FSProfiles.isCapFetchActive === 'function' &&
-        FSProfiles.isCapFetchActive(profile.avatarId)) {
+    if (typeof BeeProfiles.isCapFetchActive === 'function' &&
+        BeeProfiles.isCapFetchActive(profile.avatarId)) {
       return true;
     }
     return false;
@@ -360,17 +360,17 @@ const FSProfile = (function () {
     if (!groups || !groups.length) {
       return html + '<p class="profile-section__empty">No groups listed</p>';
     }
-    const activeId = FSProfiles.normId(activeGroupId || '');
+    const activeId = BeeProfiles.normId(activeGroupId || '');
     html += '<div class="profile-groups-list">' + groups.map(function (g) {
       const hidden = g.listInProfile === false;
       const baseLabel = g.name || 'Group';
-      const label = FSUtils.escapeHtml(baseLabel);
-      const isActive = activeId && FSProfiles.normId(g.id) === activeId;
+      const label = BeeUtils.escapeHtml(baseLabel);
+      const isActive = activeId && BeeProfiles.normId(g.id) === activeId;
       const cls = 'profile-link profile-groups-list__item' +
         (isActive ? ' profile-groups-list__item--active' : '') +
         (hidden ? ' profile-groups-list__item--hidden' : '');
       return '<button type="button" class="' + cls + '" data-group-id="' +
-        FSUtils.escapeHtml(g.id) + '">' + label + '</button>';
+        BeeUtils.escapeHtml(g.id) + '">' + label + '</button>';
     }).join('') + '</div>';
     return html;
   }
@@ -381,10 +381,10 @@ const FSProfile = (function () {
     const h3 = section.querySelector('.profile-section__title');
     const titleHtml = h3 ? h3.outerHTML : '<h3 class="profile-section__title">Groups</h3>';
     section.innerHTML = titleHtml + renderGroupsList(
-      typeof FSProfiles.getProfileGroupsForDisplay === 'function'
-        ? FSProfiles.getProfileGroupsForDisplay(profile.avatarId, profile)
+      typeof BeeProfiles.getProfileGroupsForDisplay === 'function'
+        ? BeeProfiles.getProfileGroupsForDisplay(profile.avatarId, profile)
         : (profile.groups || []),
-      FSProfiles.getActiveGroupId(),
+      BeeProfiles.getActiveGroupId(),
       true
     );
     bindAvatarContent(profile, el('profile-content'));
@@ -392,21 +392,21 @@ const FSProfile = (function () {
   }
 
   function highlightActiveGroupInList() {
-    const activeId = typeof FSProfiles.getActiveGroupId === 'function'
-      ? FSProfiles.normId(FSProfiles.getActiveGroupId())
+    const activeId = typeof BeeProfiles.getActiveGroupId === 'function'
+      ? BeeProfiles.normId(BeeProfiles.getActiveGroupId())
       : '';
     document.querySelectorAll('.profile-groups-list__item').forEach(function (btn) {
-      const id = FSProfiles.normId(btn.getAttribute('data-group-id') || '');
+      const id = BeeProfiles.normId(btn.getAttribute('data-group-id') || '');
       btn.classList.toggle('profile-groups-list__item--active', !!(activeId && id === activeId));
     });
   }
 
   function renderSplitList(rows, emptyText, itemClass, layout) {
     if (!rows || !rows.length) {
-      return '<p class="profile-section__empty">' + FSUtils.escapeHtml(emptyText || 'None') + '</p>';
+      return '<p class="profile-section__empty">' + BeeUtils.escapeHtml(emptyText || 'None') + '</p>';
     }
     const list = rows.map(function (row, index) {
-      const label = FSUtils.escapeHtml(row.name || row.title || 'Item');
+      const label = BeeUtils.escapeHtml(row.name || row.title || 'Item');
       return '<button type="button" class="profile-split__item ' + (itemClass || '') + '" data-item-index="' +
         index + '">' + label + '</button>';
     }).join('');
@@ -420,8 +420,8 @@ const FSProfile = (function () {
   }
 
   function isSelfProfile(profile) {
-    const selfId = FSProfiles.normId((FSState.get().agent || {}).id);
-    return !!(profile && profile.avatarId && FSProfiles.normId(profile.avatarId) === selfId);
+    const selfId = BeeProfiles.normId((BeeState.get().agent || {}).id);
+    return !!(profile && profile.avatarId && BeeProfiles.normId(profile.avatarId) === selfId);
   }
 
   function profileDetailLocation(detail) {
@@ -444,14 +444,14 @@ const FSProfile = (function () {
       };
     }
     // Picks and classifieds carry PosGlobal even when SimName is empty, so we
-    // derive the location from it (the reference viewer resolves the region from
-    // the global coords). A missing name shouldn't hide the location row or buttons.
+    // derive the location from the global coords instead. A missing name
+    // shouldn't hide the location row or buttons.
     if (!detail.posGlobal) return null;
     const pos = detail.posGlobal;
     if (!pos || (!pos.x && !pos.y)) return null; // this pick has no location set
     const rw = 256;
-    const grid = typeof FSSlurl !== 'undefined' && FSSlurl.globalToGrid
-      ? FSSlurl.globalToGrid(pos.x, pos.y)
+    const grid = typeof BeeSlurl !== 'undefined' && BeeSlurl.globalToGrid
+      ? BeeSlurl.globalToGrid(pos.x, pos.y)
       : null;
     return {
       regionName: regionName,
@@ -469,12 +469,12 @@ const FSProfile = (function () {
     const name = detail.name || 'Item';
     const descHtml = sanitizeProfileHtml(detail.description || '');
     let snap = '';
-    if (detail.snapshotId && !FSProfiles.isZero(detail.snapshotId)) {
+    if (detail.snapshotId && !BeeProfiles.isZero(detail.snapshotId)) {
       snap = '<button type="button" class="profile-detail__snapshot-btn" data-image-id="' +
-        FSUtils.escapeHtml(detail.snapshotId) + '"><img class="profile-detail__snapshot" src="' +
-        FSProfiles.textureImageUrl(detail.snapshotId, 256) + '" alt=""></button>';
+        BeeUtils.escapeHtml(detail.snapshotId) + '"><img class="profile-detail__snapshot" src="' +
+        BeeProfiles.textureImageUrl(detail.snapshotId, 256) + '" alt=""></button>';
     }
-    let html = snap + '<h4 class="profile-split__title">' + FSUtils.escapeHtml(name) + '</h4>';
+    let html = snap + '<h4 class="profile-split__title">' + BeeUtils.escapeHtml(name) + '</h4>';
     if (descHtml) {
       html += '<div class="profile-detail__desc">' + descHtml + '</div>';
     }
@@ -486,7 +486,7 @@ const FSProfile = (function () {
       let locText = (parcelName ? parcelName + ' ' : '') + '(' + coords + ')';
       if (loc.regionName) locText += ' - ' + loc.regionName;
       html += '<div class="profile-field"><span class="profile-field__label">Location</span><span>' +
-        FSUtils.escapeHtml(locText) + '</span></div>';
+        BeeUtils.escapeHtml(locText) + '</span></div>';
     }
     if (kind === 'classified' && detail.priceForListing) {
       html += '<div class="profile-field"><span class="profile-field__label">Listing price</span><span>L$ ' +
@@ -509,8 +509,8 @@ const FSProfile = (function () {
       btn.addEventListener('click', function () {
         const action = btn.getAttribute('data-detail-action');
         if (action === 'map') {
-          if (typeof FSMap !== 'undefined' && FSMap.showLocation) {
-            FSMap.showLocation(loc);
+          if (typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
+            BeeMap.showLocation(loc);
           }
           return;
         }
@@ -558,12 +558,12 @@ const FSProfile = (function () {
   // pick's own PosGlobal stays the teleport target.
   function enrichItemLocation(detailEl, item, kind, rowId) {
     if (!item || !item.parcelId || item.simName || item.regionName) return;
-    if (FSProfiles.isZero && FSProfiles.isZero(item.parcelId)) return;
-    const key = FSProfiles.normId(item.parcelId);
+    if (BeeProfiles.isZero && BeeProfiles.isZero(item.parcelId)) return;
+    const key = BeeProfiles.normId(item.parcelId);
     const cached = parcelInfoCache.get(key);
     if (cached) { applyResolvedParcel(detailEl, item, kind, rowId, cached); return; }
-    if (typeof FSTransport.fetchParcelInfo !== 'function') return;
-    FSTransport.fetchParcelInfo(item.parcelId).then(function (info) {
+    if (typeof BeeTransport.fetchParcelInfo !== 'function') return;
+    BeeTransport.fetchParcelInfo(item.parcelId).then(function (info) {
       if (!info || (!info.simName && !info.name)) return;
       parcelInfoCache.set(key, info);
       applyResolvedParcel(detailEl, item, kind, rowId, info);
@@ -578,8 +578,8 @@ const FSProfile = (function () {
   }
 
   function profileWebUrl(profile) {
-    if (typeof FSProfiles.resolveWebProfileUrl === 'function') {
-      return FSProfiles.resolveWebProfileUrl(profile);
+    if (typeof BeeProfiles.resolveWebProfileUrl === 'function') {
+      return BeeProfiles.resolveWebProfileUrl(profile);
     }
     return String(profile && profile.profileUrl || '').trim();
   }
@@ -603,10 +603,10 @@ const FSProfile = (function () {
       '<button type="button" class="profile-avatar-btn" id="profile-avatar-btn" title="View larger image" aria-label="View larger profile image">' +
       '<span id="profile-avatar-slot" class="profile-avatar-btn__slot"></span></button>' +
       '<div class="profile-field"><span class="profile-field__label">Account</span><span>' +
-        FSUtils.escapeHtml(formatAccountInfo(profile)) + '</span></div>' +
+        BeeUtils.escapeHtml(formatAccountInfo(profile)) + '</span></div>' +
       '<div class="profile-field profile-field--payment"><span class="profile-field__label">Payment</span>' +
       '<span class="profile-payment' + paymentInfoClass(profile) + '">' +
-        FSUtils.escapeHtml(paymentText) + '</span></div>' +
+        BeeUtils.escapeHtml(paymentText) + '</span></div>' +
       renderResidentSideMeta(profile) +
       '</div>' +
       '<div class="profile-resident__about">' +
@@ -616,10 +616,10 @@ const FSProfile = (function () {
       '<section class="profile-section profile-section--groups">' +
       '<h3 class="profile-section__title">Groups</h3>' +
       renderGroupsList(
-        typeof FSProfiles.getProfileGroupsForDisplay === 'function'
-          ? FSProfiles.getProfileGroupsForDisplay(profile.avatarId, profile)
+        typeof BeeProfiles.getProfileGroupsForDisplay === 'function'
+          ? BeeProfiles.getProfileGroupsForDisplay(profile.avatarId, profile)
           : (profile.groups || []),
-        isSelfProfile(profile) ? FSProfiles.getActiveGroupId() : '',
+        isSelfProfile(profile) ? BeeProfiles.getActiveGroupId() : '',
         isSelfProfile(profile)
       ) +
       '</section></div>';
@@ -630,7 +630,7 @@ const FSProfile = (function () {
       return '<p class="profile-section__empty">None selected.</p>';
     }
     return '<ul class="profile-interests__tags">' + labels.map(function (label) {
-      return '<li class="profile-interests__tag">' + FSUtils.escapeHtml(label) + '</li>';
+      return '<li class="profile-interests__tag">' + BeeUtils.escapeHtml(label) + '</li>';
     }).join('') + '</ul>';
   }
 
@@ -638,21 +638,21 @@ const FSProfile = (function () {
     const value = String(text || '').trim();
     if (!value) return '';
     return '<div class="profile-field profile-field--interests">' +
-      '<span class="profile-field__label">' + FSUtils.escapeHtml(label) + '</span>' +
-      '<p class="profile-interests__text">' + FSUtils.escapeHtml(value) + '</p></div>';
+      '<span class="profile-field__label">' + BeeUtils.escapeHtml(label) + '</span>' +
+      '<p class="profile-interests__text">' + BeeUtils.escapeHtml(value) + '</p></div>';
   }
 
   function renderInterestsTab(profile) {
     if (!profile.interestsLoaded && !profile.interests) {
-      if (typeof FSState !== 'undefined' && !FSState.gridOnline()) {
+      if (typeof BeeState !== 'undefined' && !BeeState.gridOnline()) {
         return '<div class="profile-pane profile-pane--interests">' +
           '<p class="profile-section__empty">Interests are not available offline.</p></div>';
       }
       return '<div class="profile-pane profile-pane--interests">' +
         '<p class="profile-section__empty">Loading...</p></div>';
     }
-    const row = typeof FSProfiles.formatAvatarInterests === 'function'
-      ? FSProfiles.formatAvatarInterests(profile.interests)
+    const row = typeof BeeProfiles.formatAvatarInterests === 'function'
+      ? BeeProfiles.formatAvatarInterests(profile.interests)
       : { hasContent: false, wantTo: [], skills: [], wantToText: '', skillsText: '', languagesText: '' };
     if (!row.hasContent) {
       return '<div class="profile-pane profile-pane--interests">' +
@@ -672,7 +672,7 @@ const FSProfile = (function () {
       (row.languagesText
         ? '<section class="profile-section profile-section--interests">' +
           '<h3 class="profile-section__title">Languages</h3>' +
-          '<p class="profile-interests__text">' + FSUtils.escapeHtml(row.languagesText) + '</p>' +
+          '<p class="profile-interests__text">' + BeeUtils.escapeHtml(row.languagesText) + '</p>' +
           '</section>'
         : '') +
       '</div>';
@@ -683,7 +683,7 @@ const FSProfile = (function () {
     if (!url) {
       return '<div class="profile-pane"><p class="profile-section__empty">No web profile URL.</p></div>';
     }
-    const safeUrl = FSUtils.escapeHtml(url);
+    const safeUrl = BeeUtils.escapeHtml(url);
     return '<div class="profile-pane"><div class="profile-field">' +
       '<span class="profile-field__label">Profile URL</span>' +
       '<a class="profile-inline-link" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">' +
@@ -720,10 +720,10 @@ const FSProfile = (function () {
     const notes = String(profile.notes || '');
     return '<div class="profile-pane profile-pane--notes">' +
       '<p class="profile-notes-hint">Your private notes about this person. Only you can see them.</p>' +
-      '<textarea id="profile-notes-input" class="profile-notes-input" rows="10" maxlength="65535" ' +
+      '<textarea id="profile-notes-input" class="profile-notes-input" rows="10" maxlength="65530" ' +
         (loaded ? '' : 'readonly ') +
         'placeholder="' + (loaded ? 'Add private notes...' : 'Loading notes...') + '">' +
-        FSUtils.escapeHtml(notes) + '</textarea>' +
+        BeeUtils.escapeHtml(notes) + '</textarea>' +
       '<div class="profile-notes-actions">' +
       '<button type="button" class="btn btn--primary" id="profile-notes-save"' +
         (loaded ? '' : ' disabled') + '>Save notes</button>' +
@@ -742,7 +742,7 @@ const FSProfile = (function () {
     const nav = tabs.map(function (tab) {
       const active = tab.id === activeTab ? ' profile-tab--active' : '';
       return '<button type="button" class="profile-tab' + active + '" data-profile-tab="' +
-        tab.id + '">' + FSUtils.escapeHtml(tab.label) + '</button>';
+        tab.id + '">' + BeeUtils.escapeHtml(tab.label) + '</button>';
     }).join('');
 
     const panes = {
@@ -774,8 +774,8 @@ const FSProfile = (function () {
     function showRow(row) {
       if (!detail || !row || !row.id) return;
       const cached = kind === 'pick'
-        ? FSProfiles.getPickDetail(row.id)
-        : FSProfiles.getClassifiedDetail(row.id);
+        ? BeeProfiles.getPickDetail(row.id)
+        : BeeProfiles.getClassifiedDetail(row.id);
       if (cached) {
         paintItemDetail(detail, cached, kind);
         enrichItemLocation(detail, cached, kind, row.id);
@@ -783,8 +783,8 @@ const FSProfile = (function () {
         detail.innerHTML = '<p class="profile-section__empty">Loading...</p>';
       }
       const task = kind === 'pick'
-        ? FSProfiles.fetchPickInfo(profile.avatarId, row.id)
-        : FSProfiles.fetchClassifiedInfo(row.id);
+        ? BeeProfiles.fetchPickInfo(profile.avatarId, row.id)
+        : BeeProfiles.fetchClassifiedInfo(row.id);
       task.then(function (loaded) {
         if (!current || current.type !== 'avatar') return;
         const selectedId = kind === 'pick' ? current.selectedPickId : current.selectedClassifiedId;
@@ -793,7 +793,7 @@ const FSProfile = (function () {
         enrichItemLocation(detail, loaded, kind, row.id);
       }).catch(function () {
         if (!detail || cached) return;
-        detail.innerHTML = '<h4 class="profile-split__title">' + FSUtils.escapeHtml(row.name || 'Item') + '</h4>' +
+        detail.innerHTML = '<h4 class="profile-split__title">' + BeeUtils.escapeHtml(row.name || 'Item') + '</h4>' +
           '<p class="profile-section__empty">Could not load details.</p>';
       });
     }
@@ -870,7 +870,7 @@ const FSProfile = (function () {
     notesSave.addEventListener('click', function () {
       if (notesSave.disabled) return;
       const text = notesInput.value || '';
-      if (typeof FSTransport.saveAvatarNotes !== 'function') return;
+      if (typeof BeeTransport.saveAvatarNotes !== 'function') return;
       const token = ++notesSaveToken;
       clearNotesTimers();
       notesSave.disabled = true;
@@ -880,14 +880,14 @@ const FSProfile = (function () {
         timeoutTimer = null;
         releaseNotesSave('Save timed out. Try again.', 'error');
       }, NOTES_SAVE_TIMEOUT_MS);
-      FSTransport.saveAvatarNotes(profile.avatarId, text).then(function (result) {
+      BeeTransport.saveAvatarNotes(profile.avatarId, text).then(function (result) {
         if (token !== notesSaveToken) return;
         if (timeoutTimer) {
           clearTimeout(timeoutTimer);
           timeoutTimer = null;
         }
         if (result && result.sent) {
-          FSProfiles.mergeAvatarProfile(profile.avatarId, {
+          BeeProfiles.mergeAvatarProfile(profile.avatarId, {
             notes: text,
             source: 'notes-local'
           }, { silent: true });
@@ -910,16 +910,16 @@ const FSProfile = (function () {
     if (!root) return;
 
     const title = profileTitleText(profile);
-    FSAvatarThumb.mountIn(root.querySelector('#profile-avatar-slot'), profile.avatarId, {
+    BeeAvatarThumb.mountIn(root.querySelector('#profile-avatar-slot'), profile.avatarId, {
       label: title,
       className: 'profile-avatar-btn__thumb avatar-thumb--profile',
-      resolveImage: !(profile.imageId && !FSProfiles.isZero(profile.imageId))
+      resolveImage: !(profile.imageId && !BeeProfiles.isZero(profile.imageId))
     });
 
     const avatarBtn = root.querySelector('#profile-avatar-btn');
     if (avatarBtn) {
       avatarBtn.addEventListener('click', function () {
-        const imageId = profile.imageId || FSProfiles.getImageId(profile.avatarId);
+        const imageId = profile.imageId || BeeProfiles.getImageId(profile.avatarId);
         openImagePreview(imageId, title);
       });
     }
@@ -927,7 +927,7 @@ const FSProfile = (function () {
     const flBtn = root.querySelector('#profile-fl-image-btn');
     if (flBtn && profile.flImageId && profile.flImageId !== ZERO_UUID) {
       const preview = root.querySelector('#profile-fl-image-preview');
-      if (preview) preview.src = FSProfiles.textureImageUrl(profile.flImageId, 256);
+      if (preview) preview.src = BeeProfiles.textureImageUrl(profile.flImageId, 256);
       flBtn.addEventListener('click', function () {
         openImagePreview(profile.flImageId, title + ' profile image');
       });
@@ -942,14 +942,14 @@ const FSProfile = (function () {
     const clearActiveBtn = root.querySelector('[data-clear-active-group]');
     if (clearActiveBtn && isSelfProfile(profile)) {
       clearActiveBtn.addEventListener('click', function () {
-        if (typeof FSTransport.activateGroup !== 'function') return;
-        FSTransport.activateGroup(ZERO_UUID).then(function (result) {
+        if (typeof BeeTransport.activateGroup !== 'function') return;
+        BeeTransport.activateGroup(ZERO_UUID).then(function (result) {
           if (result && result.sent) {
-            FSUtils.showToast('Active group cleared.', 'success');
+            BeeUtils.showToast('Active group cleared.', 'success');
             highlightActiveGroupInList();
             return;
           }
-          FSUtils.showToast('Could not clear active group.', 'warning');
+          BeeUtils.showToast('Could not clear active group.', 'warning');
         });
       });
     }
@@ -979,15 +979,15 @@ const FSProfile = (function () {
     const agentId = profile.avatarId;
     if (!agentId || agentId === ZERO_UUID) return;
     const isSelf = isSelfProfile(profile);
-    const isFriend = typeof FSTransport.isBuddy === 'function' && FSTransport.isBuddy(agentId);
-    const tpOnline = typeof FSTransport.isAgentOnline === 'function'
-      ? FSTransport.isAgentOnline(agentId, profile)
+    const isFriend = typeof BeeTransport.isBuddy === 'function' && BeeTransport.isBuddy(agentId);
+    const tpOnline = typeof BeeTransport.isAgentOnline === 'function'
+      ? BeeTransport.isAgentOnline(agentId, profile)
       : true;
     const tpDisabled = { disabled: true, title: 'Resident is offline' };
 
     addAction('IM', function () {
       closeDialog();
-      FSIm.startImWith({
+      BeeIm.startImWith({
         id: agentId,
         name: profile.displayName || profile.userName || profile.name || 'Resident',
         displayName: profile.displayName || '',
@@ -1005,51 +1005,57 @@ const FSProfile = (function () {
         if (typeof payDialog.showModal === 'function') payDialog.showModal();
       });
       addAction('Offer teleport', function () {
-        FSTeleportUI.offerTo(agentId, profile.displayName || profile.userName || profile.name, profile);
+        BeeTeleportUI.offerTo(agentId, profile.displayName || profile.userName || profile.name, profile);
       }, tpOnline ? undefined : tpDisabled);
       addAction('Request teleport', function () {
-        FSTeleportUI.requestFrom(agentId, profile.displayName || profile.userName || profile.name, profile);
+        BeeTeleportUI.requestFrom(agentId, profile.displayName || profile.userName || profile.name, profile);
       }, tpOnline ? undefined : tpDisabled);
+      const invitable = groupsICanInviteTo();
+      if (invitable.length) {
+        addAction('Invite to group', function () {
+          openGroupInviteDialog(agentId, profileTitleText(profile), invitable);
+        });
+      }
       addAction(isFriend ? 'Remove friend' : 'Add friend', async function () {
         const name = profileTitleText(profile) || 'this resident';
         if (isFriend) {
-          const ok = await FSUtils.confirm({
+          const ok = await BeeUtils.confirm({
             title: 'Remove friend?',
             message: 'Remove ' + name + ' from your friends list?',
             confirmLabel: 'Remove',
             danger: true
           });
           if (!ok) return;
-          FSTransport.removeFriendship(agentId).then(function (result) {
+          BeeTransport.removeFriendship(agentId).then(function (result) {
             if (result && result.sent) {
-              FSUtils.showToast('Friend removed.', 'success');
+              BeeUtils.showToast('Friend removed.', 'success');
               renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
             }
           });
           return;
         }
-        const ok = await FSUtils.confirm({
+        const ok = await BeeUtils.confirm({
           title: 'Offer friendship?',
           message: 'Send a friendship offer to ' + name + '?',
           confirmLabel: 'Send offer'
         });
         if (!ok) return;
-        FSTransport.offerFriendship(agentId).then(function (result) {
-          if (result && result.sent) FSUtils.showToast('Friendship offer sent.', 'success');
+        BeeTransport.offerFriendship(agentId).then(function (result) {
+          if (result && result.sent) BeeUtils.showToast('Friendship offer sent.', 'success');
         });
       });
 
-      const blockedNow = typeof FSBuddies !== 'undefined' && FSBuddies.isBlocked
-        ? FSBuddies.isBlocked(agentId)
+      const blockedNow = typeof BeeBuddies !== 'undefined' && BeeBuddies.isBlocked
+        ? BeeBuddies.isBlocked(agentId)
         : false;
       addAction(blockedNow ? 'Unblock' : 'Block', async function () {
         const name = profileTitleText(profile) || 'this resident';
         if (blockedNow) {
-          await FSBuddies.unblock(agentId, name);
+          await BeeBuddies.unblock(agentId, name);
           renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
           return;
         }
-        const ok = await FSUtils.confirm({
+        const ok = await BeeUtils.confirm({
           title: 'Block this resident?',
           message: 'Block ' + name + '? You will stop seeing their chat and messages, ' +
             'on this and any other viewer you use.',
@@ -1057,20 +1063,80 @@ const FSProfile = (function () {
           danger: true
         });
         if (!ok) return;
-        await FSBuddies.block(agentId, name);
+        await BeeBuddies.block(agentId, name);
         renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
       });
     }
   }
 
+  // Groups where we hold GP_MEMBER_INVITE (bit 1). Powers is a 64-bit mask
+  // serialized as a string, so compare through BigInt - a plain & would
+  // truncate to 32 bits.
+  function groupsICanInviteTo() {
+    const GP_MEMBER_INVITE = 2n;
+    const groups = (typeof BeeProfiles.getAgentGroups === 'function')
+      ? BeeProfiles.getAgentGroups() : [];
+    return groups.filter(function (g) {
+      if (!g || !g.id) return false;
+      try {
+        return (BigInt(g.powers || 0) & GP_MEMBER_INVITE) !== 0n;
+      } catch (_e) {
+        return false;
+      }
+    }).sort(function (a, b) {
+      return String(a.name || '').toLowerCase().localeCompare(String(b.name || '').toLowerCase());
+    });
+  }
+
+  let groupInviteBound = false;
+
+  function openGroupInviteDialog(agentId, displayName, groups) {
+    const dlg = el('group-invite-dialog');
+    const select = el('group-invite-select');
+    const target = el('group-invite-target');
+    if (!dlg || !select) return;
+    if (!groupInviteBound) {
+      groupInviteBound = true;
+      const cancel = el('group-invite-cancel');
+      if (cancel) cancel.addEventListener('click', function () { BeeUtils.dismissDialog(dlg); });
+      const form = el('group-invite-form');
+      if (form) {
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          const groupId = select.value;
+          const inviteeId = dlg.dataset.inviteeId;
+          if (!groupId || !inviteeId) return;
+          BeeBridge.invoke('sl_group_invite', { groupId: groupId, inviteeIds: [inviteeId], roleId: null })
+            .then(function () {
+              BeeUtils.showToast('Group invitation sent.', 'success');
+              BeeUtils.dismissDialog(dlg);
+            })
+            .catch(function (err) {
+              BeeUtils.showToast('Could not send the invitation: ' + (err.message || err), 'warning');
+            });
+        });
+      }
+    }
+    select.innerHTML = '';
+    groups.forEach(function (g) {
+      const opt = document.createElement('option');
+      opt.value = g.id;
+      opt.textContent = g.name || g.id;
+      select.appendChild(opt);
+    });
+    if (target) target.textContent = 'Invite ' + (displayName || 'this resident');
+    dlg.dataset.inviteeId = agentId;
+    if (typeof dlg.showModal === 'function') dlg.showModal();
+  }
+
   function profileShowsAsMember(profile) {
     if (!profile || !profile.groupId) return false;
-    if (typeof FSProfiles.isAgentInGroup === 'function' &&
-        FSProfiles.isAgentInGroup(profile.groupId)) {
+    if (typeof BeeProfiles.isAgentInGroup === 'function' &&
+        BeeProfiles.isAgentInGroup(profile.groupId)) {
       return true;
     }
     return !!(current && current.type === 'group' &&
-      FSProfiles.normId(current.id) === FSProfiles.normId(profile.groupId) &&
+      BeeProfiles.normId(current.id) === BeeProfiles.normId(profile.groupId) &&
       current.isMemberHint);
   }
 
@@ -1079,12 +1145,12 @@ const FSProfile = (function () {
     const next = Object.assign({}, profile);
     next.isMember = profileShowsAsMember(next);
     if (!next.isMember) next.memberTitle = '';
-    next.isActive = typeof FSProfiles.isActiveGroup === 'function' && FSProfiles.isActiveGroup(next.groupId);
+    next.isActive = typeof BeeProfiles.isActiveGroup === 'function' && BeeProfiles.isActiveGroup(next.groupId);
     // getGroupTitles returns { titles, complete } or null - never a bare array.
     // Handing that straight to .find() used to crash group profiles with
     // "Cannot read properties of null (reading 'find')".
-    const gt = typeof FSProfiles.getGroupTitles === 'function'
-      ? FSProfiles.getGroupTitles(next.groupId)
+    const gt = typeof BeeProfiles.getGroupTitles === 'function'
+      ? BeeProfiles.getGroupTitles(next.groupId)
       : null;
     next.titles = gt && Array.isArray(gt.titles) ? gt.titles : (Array.isArray(gt) ? gt : []);
     const selectedTitle = next.titles.find(function (row) { return row.selected; });
@@ -1095,21 +1161,21 @@ const FSProfile = (function () {
       if (hintName && !next.name) next.name = hintName;
     }
     if (next.founderId && next.founderId !== ZERO_UUID) {
-      if (typeof FSTransport.getCachedNameInfo === 'function') {
-        const info = FSTransport.getCachedNameInfo(next.founderId);
+      if (typeof BeeTransport.getCachedNameInfo === 'function') {
+        const info = BeeTransport.getCachedNameInfo(next.founderId);
         if (info) next.founderName = info.displayName || info.label || '';
       }
-      if (!next.founderName && typeof FSTransport.getCachedName === 'function') {
-        next.founderName = FSTransport.getCachedName(next.founderId) || '';
+      if (!next.founderName && typeof BeeTransport.getCachedName === 'function') {
+        next.founderName = BeeTransport.getCachedName(next.founderId) || '';
       }
     }
     return next;
   }
 
   function queueGroupNames(profile) {
-    if (!profile || typeof FSTransport.queueNameResolve !== 'function') return;
+    if (!profile || typeof BeeTransport.queueNameResolve !== 'function') return;
     if (profile.founderId && profile.founderId !== ZERO_UUID) {
-      FSTransport.queueNameResolve([profile.founderId]);
+      BeeTransport.queueNameResolve([profile.founderId]);
     }
   }
 
@@ -1118,7 +1184,7 @@ const FSProfile = (function () {
       '<div class="profile-meta-item">' +
       '<span class="profile-meta-item__label">Key</span>' +
       '<span class="profile-meta-item__value"><code class="profile-uuid">' +
-      FSUtils.escapeHtml(profile.groupId) + '</code></span></div></div>';
+      BeeUtils.escapeHtml(profile.groupId) + '</code></span></div></div>';
   }
 
   function renderGroupFounderField(profile) {
@@ -1126,14 +1192,14 @@ const FSProfile = (function () {
     const label = profile.founderName || 'View profile';
     return '<div class="profile-field"><span class="profile-field__label">Founder</span>' +
       '<span><button type="button" class="profile-link" data-avatar-id="' +
-      FSUtils.escapeHtml(profile.founderId) + '">' + FSUtils.escapeHtml(label) + '</button></span></div>';
+      BeeUtils.escapeHtml(profile.founderId) + '">' + BeeUtils.escapeHtml(label) + '</button></span></div>';
   }
 
   function renderGroupTitleSection(profile) {
     if (!profile.isMember) return '';
     const titles = profile.titles || [];
-    const settled = typeof FSProfiles.isGroupTitlesFetchSettled === 'function' &&
-      FSProfiles.isGroupTitlesFetchSettled(profile.groupId);
+    const settled = typeof BeeProfiles.isGroupTitlesFetchSettled === 'function' &&
+      BeeProfiles.isGroupTitlesFetchSettled(profile.groupId);
     const wrap = function (body) {
       return '<section class="profile-section profile-section--title">' +
         '<h3 class="profile-section__title">Active title</h3>' +
@@ -1144,7 +1210,7 @@ const FSProfile = (function () {
     if (!titles.length) {
       const fallback = String(profile.memberTitle || '').trim();
       if (settled && fallback) {
-        return wrap('<div class="profile-field"><span>' + FSUtils.escapeHtml(fallback) + '</span></div>');
+        return wrap('<div class="profile-field"><span>' + BeeUtils.escapeHtml(fallback) + '</span></div>');
       }
       return wrap('<p class="profile-section__empty">' +
         (settled ? 'No titles available for this group.' : 'Loading titles...') + '</p>');
@@ -1155,8 +1221,8 @@ const FSProfile = (function () {
       // A group's default/Everyone title can be blank, so show a placeholder to
       // keep it selectable rather than an empty, invisible option.
       const label = row.title && row.title.trim() ? row.title : '(no title)';
-      return '<option value="' + FSUtils.escapeHtml(row.roleId) + '"' + selected + '>' +
-        FSUtils.escapeHtml(label) + '</option>';
+      return '<option value="' + BeeUtils.escapeHtml(row.roleId) + '"' + selected + '>' +
+        BeeUtils.escapeHtml(label) + '</option>';
     }).join('');
     const disabled = titles.length <= 1 ? ' disabled' : '';
     // Title dropdown plus Save, with the current title preselected.
@@ -1172,7 +1238,7 @@ const FSProfile = (function () {
 
   function renderGroupSideMeta(profile) {
     let html = '<div class="profile-field"><span class="profile-field__label">Join fee</span><span>' +
-      FSUtils.escapeHtml(formatGroupJoinFee(profile)) + '</span></div>';
+      BeeUtils.escapeHtml(formatGroupJoinFee(profile)) + '</span></div>';
     if (profile.money !== undefined && profile.money !== null) {
       html += '<div class="profile-field"><span class="profile-field__label">Treasury</span><span>L$ ' +
         Number(profile.money).toLocaleString('en-US') + '</span></div>';
@@ -1180,11 +1246,11 @@ const FSProfile = (function () {
     if (profile.rolesCount !== undefined && profile.rolesCount !== null) {
       // The reply's count leaves out the implicit Everyone role.
       html += '<div class="profile-field"><span class="profile-field__label">Roles</span><span>' +
-        FSUtils.escapeHtml(String(Number(profile.rolesCount) + 1)) + '</span></div>';
+        BeeUtils.escapeHtml(String(Number(profile.rolesCount) + 1)) + '</span></div>';
     }
     if (profile.showInList !== undefined) {
       html += '<div class="profile-field"><span class="profile-field__label">Search</span><span>' +
-        FSUtils.escapeHtml(profile.showInList ? 'Visible in search' : 'Hidden from search') + '</span></div>';
+        BeeUtils.escapeHtml(profile.showInList ? 'Visible in search' : 'Hidden from search') + '</span></div>';
     }
     return html;
   }
@@ -1198,9 +1264,9 @@ const FSProfile = (function () {
         'title="View larger image" aria-label="View larger group insignia">' +
       '<span id="profile-group-insignia-slot" class="profile-avatar-btn__slot"></span></button>' +
       '<div class="profile-field"><span class="profile-field__label">Enrollment</span><span>' +
-        FSUtils.escapeHtml(profile.openEnrollment ? 'Open enrollment' : 'Closed enrollment') + '</span></div>' +
+        BeeUtils.escapeHtml(profile.openEnrollment ? 'Open enrollment' : 'Closed enrollment') + '</span></div>' +
       '<div class="profile-field"><span class="profile-field__label">Content</span><span>' +
-        FSUtils.escapeHtml(profile.maturePublish ? 'Mature' : 'General') + '</span></div>' +
+        BeeUtils.escapeHtml(profile.maturePublish ? 'Mature' : 'General') + '</span></div>' +
       renderGroupSideMeta(profile) +
       renderGroupFounderField(profile) +
       '</div>' +
@@ -1217,8 +1283,8 @@ const FSProfile = (function () {
   function bindGroupContent(profile, root) {
     if (!root) return;
     const title = profile.name || 'Group';
-    const insigniaId = profile.insigniaId || FSProfiles.getGroupInsigniaId(profile.groupId);
-    FSAvatarThumb.mountIn(root.querySelector('#profile-group-insignia-slot'), profile.groupId, {
+    const insigniaId = profile.insigniaId || BeeProfiles.getGroupInsigniaId(profile.groupId);
+    BeeAvatarThumb.mountIn(root.querySelector('#profile-group-insignia-slot'), profile.groupId, {
       kind: 'group',
       label: title,
       imageId: insigniaId,
@@ -1228,8 +1294,8 @@ const FSProfile = (function () {
     const insigniaBtn = root.querySelector('#profile-group-insignia-btn');
     if (insigniaBtn) {
       insigniaBtn.addEventListener('click', function () {
-        const imageId = profile.insigniaId || FSProfiles.getGroupInsigniaId(profile.groupId);
-        if (imageId && !FSProfiles.isZero(imageId)) openImagePreview(imageId, title + ' insignia');
+        const imageId = profile.insigniaId || BeeProfiles.getGroupInsigniaId(profile.groupId);
+        if (imageId && !BeeProfiles.isZero(imageId)) openImagePreview(imageId, title + ' insignia');
       });
     }
     root.querySelectorAll('[data-avatar-id]').forEach(function (btn) {
@@ -1269,8 +1335,8 @@ const FSProfile = (function () {
 
     saveBtn.addEventListener('click', function () {
       if (saveBtn.disabled) return;
-      if (typeof FSProfiles.isAgentInGroup === 'function' &&
-          !FSProfiles.isAgentInGroup(profile.groupId)) {
+      if (typeof BeeProfiles.isAgentInGroup === 'function' &&
+          !BeeProfiles.isAgentInGroup(profile.groupId)) {
         setStatus('You are not a member of this group.', 'error');
         return;
       }
@@ -1278,20 +1344,20 @@ const FSProfile = (function () {
       if (!roleId) return;
       saveBtn.disabled = true;
       setStatus('Saving...', 'pending');
-      const save = typeof FSTransport.saveGroupTitle === 'function'
-        ? FSTransport.saveGroupTitle(profile.groupId, roleId)
+      const save = typeof BeeTransport.saveGroupTitle === 'function'
+        ? BeeTransport.saveGroupTitle(profile.groupId, roleId)
         : Promise.resolve({ sent: false });
       save.then(function (result) {
         if (!current || current.type !== 'group' || current.id !== profile.groupId) return;
         if (result && result.notMember) {
           setStatus('You are not a member of this group.', 'error');
-          const cached = FSProfiles.getGroupProfile(profile.groupId);
+          const cached = BeeProfiles.getGroupProfile(profile.groupId);
           renderGroup(enrichGroupProfile(Object.assign({}, cached || profile, { isMember: false })));
           return;
         }
         if (result && result.sent) {
           setStatus('Title saved.', 'success');
-          const cached = FSProfiles.getGroupProfile(profile.groupId);
+          const cached = BeeProfiles.getGroupProfile(profile.groupId);
           renderGroup(enrichGroupProfile(Object.assign({}, cached || profile)));
           return;
         }
@@ -1312,7 +1378,7 @@ const FSProfile = (function () {
     if (profile.isMember) {
       addAction('Open group chat', function () {
         closeDialog();
-        FSIm.openGroupChat(groupId, profile.name || '');
+        BeeIm.openGroupChat(groupId, profile.name || '');
       }, { primary: true });
       if (profile.isActive) {
         addAction('Active group', function () {}, {
@@ -1321,50 +1387,50 @@ const FSProfile = (function () {
         });
       } else {
         addAction('Activate', function () {
-          if (typeof FSTransport.activateGroup !== 'function') return;
-          FSTransport.activateGroup(groupId).then(function (result) {
+          if (typeof BeeTransport.activateGroup !== 'function') return;
+          BeeTransport.activateGroup(groupId).then(function (result) {
             if (result && result.alreadyActive) {
-              FSUtils.showToast('Group is already active.', 'warning');
+              BeeUtils.showToast('Group is already active.', 'warning');
               renderGroup(enrichGroupProfile(Object.assign({}, profile)));
               return;
             }
             if (result && result.sent) {
-              FSUtils.showToast('Active group updated.', 'success');
+              BeeUtils.showToast('Active group updated.', 'success');
               renderGroup(enrichGroupProfile(Object.assign({}, profile, { isActive: true })));
               return;
             }
             if (result && result.notMember) {
-              FSUtils.showToast('You are not a member of this group.', 'warning');
+              BeeUtils.showToast('You are not a member of this group.', 'warning');
               const next = enrichGroupProfile(Object.assign({}, profile, { isMember: false }));
               renderGroup(next);
               return;
             }
-            FSUtils.showToast('Could not activate group.', 'warning');
+            BeeUtils.showToast('Could not activate group.', 'warning');
           });
         });
       }
       addAction('Leave group', async function () {
-        const ok = await FSUtils.confirm({
+        const ok = await BeeUtils.confirm({
           title: 'Leave group?',
           message: 'Leave ' + groupName + '?',
           confirmLabel: 'Leave',
           danger: true
         });
         if (!ok) return;
-        FSTransport.leaveGroup(groupId).then(function (result) {
+        BeeTransport.leaveGroup(groupId).then(function (result) {
           if (result && result.success) {
-            FSUtils.showToast('Left ' + groupName + '.', 'success');
+            BeeUtils.showToast('Left ' + groupName + '.', 'success');
             const next = enrichGroupProfile(Object.assign({}, profile, { isMember: false }));
             renderGroup(next);
             return;
           }
           if (result && result.notMember) {
-            FSUtils.showToast('You are not a member of this group.', 'warning');
+            BeeUtils.showToast('You are not a member of this group.', 'warning');
             const next = enrichGroupProfile(Object.assign({}, profile, { isMember: false }));
             renderGroup(next);
             return;
           }
-          FSUtils.showToast('Could not leave group.', 'warning');
+          BeeUtils.showToast('Could not leave group.', 'warning');
         });
       }, { danger: true });
       return;
@@ -1376,26 +1442,26 @@ const FSProfile = (function () {
         const feeMsg = fee > 0
           ? 'Join ' + groupName + ' for L$ ' + fee.toLocaleString('en-US') + '?'
           : 'Join ' + groupName + '?';
-        const ok = await FSUtils.confirm({
+        const ok = await BeeUtils.confirm({
           title: 'Join group?',
           message: feeMsg,
           confirmLabel: 'Join'
         });
         if (!ok) return;
-        FSTransport.joinGroup(groupId).then(function (result) {
+        BeeTransport.joinGroup(groupId).then(function (result) {
           if (result && result.success) {
-            FSUtils.showToast('Joined ' + groupName + '.', 'success');
+            BeeUtils.showToast('Joined ' + groupName + '.', 'success');
             const next = enrichGroupProfile(Object.assign({}, profile, { isMember: true }));
             renderGroup(next);
             return;
           }
           if (result && result.alreadyMember) {
-            FSUtils.showToast('You are already a member.', 'warning');
+            BeeUtils.showToast('You are already a member.', 'warning');
             const next = enrichGroupProfile(Object.assign({}, profile, { isMember: true }));
             renderGroup(next);
             return;
           }
-          FSUtils.showToast('Could not join group.', 'warning');
+          BeeUtils.showToast('Could not join group.', 'warning');
         });
       });
     }
@@ -1425,30 +1491,53 @@ const FSProfile = (function () {
 
     const content = el('profile-content');
     if (!content) return;
+    // Profile data keeps arriving async (picks, classifieds, names, the cap
+    // fetch), and each arrival re-renders this whole pane. Preserve an
+    // in-progress notes draft across the rebuild - otherwise typing gets
+    // silently wiped by whichever reply lands next.
+    const oldNotes = content.querySelector('#profile-notes-input');
+    const draft = oldNotes && oldNotes.value !== String(profile.notes || '')
+      ? {
+          value: oldNotes.value,
+          focused: document.activeElement === oldNotes,
+          start: oldNotes.selectionStart,
+          end: oldNotes.selectionEnd
+        }
+      : null;
     content.innerHTML = renderAvatarTabs(profile);
     bindAvatarContent(profile, content);
+    if (draft) {
+      const newNotes = content.querySelector('#profile-notes-input');
+      if (newNotes && !newNotes.disabled) {
+        newNotes.value = draft.value;
+        if (draft.focused) {
+          newNotes.focus();
+          try { newNotes.setSelectionRange(draft.start, draft.end); } catch (_e) { /* ok */ }
+        }
+      }
+    }
     renderAvatarActions(profile);
     setLoading(false);
   }
 
   function queueGroupTitles(profile) {
     if (!profile || !profile.groupId || !profileShowsAsMember(profile)) return;
-    if (typeof FSProfiles.fetchGroupTitles !== 'function') return;
+    if (typeof BeeProfiles.fetchGroupTitles !== 'function') return;
     const groupId = profile.groupId;
-    const settled = typeof FSProfiles.isGroupTitlesFetchSettled === 'function' &&
-      FSProfiles.isGroupTitlesFetchSettled(groupId);
-    const hasTitles = typeof FSProfiles.hasGroupTitlesCache === 'function' &&
-      FSProfiles.hasGroupTitlesCache(groupId);
+    const settled = typeof BeeProfiles.isGroupTitlesFetchSettled === 'function' &&
+      BeeProfiles.isGroupTitlesFetchSettled(groupId);
+    const hasTitles = typeof BeeProfiles.hasGroupTitlesCache === 'function' &&
+      BeeProfiles.hasGroupTitlesCache(groupId);
     if (current && current.titlesRequested === groupId && (hasTitles || settled)) {
       return;
     }
     if (current) current.titlesRequested = groupId;
     const opts = { isMember: true };
     if (settled && !hasTitles) opts.force = true;
-    FSProfiles.fetchGroupTitles(groupId, opts).then(function (titles) {
-      if (!current || current.type !== 'group' || current.id !== FSProfiles.normId(groupId)) return;
+    BeeProfiles.fetchGroupTitles(groupId, opts).then(function (titles) {
+      if (!current || current.type !== 'group' || current.id !== BeeProfiles.normId(groupId)) return;
       if (titles && titles.length) {
-        const cached = FSProfiles.getGroupProfile(groupId);
+        const cached = BeeProfiles.getGroupProfile(groupId);
         if (cached) patchGroupTitles(cached);
       }
     }).catch(function () {});
@@ -1476,8 +1565,8 @@ const FSProfile = (function () {
   function patchGroupTitles(profile) {
     const enriched = enrichGroupProfile(Object.assign({}, profile));
     const titles = enriched.titles || [];
-    const settled = typeof FSProfiles.isGroupTitlesFetchSettled === 'function' &&
-      FSProfiles.isGroupTitlesFetchSettled(enriched.groupId);
+    const settled = typeof BeeProfiles.isGroupTitlesFetchSettled === 'function' &&
+      BeeProfiles.isGroupTitlesFetchSettled(enriched.groupId);
     if (!titles.length && !settled) return false;
     const content = el('profile-content');
     if (!content) return false;
@@ -1513,7 +1602,7 @@ const FSProfile = (function () {
     groupRefreshTimer = setTimeout(function () {
       groupRefreshTimer = null;
       if (!current || current.type !== 'group' || !dialog || !dialog.open) return;
-      const profile = FSProfiles.getGroupProfile(current.id);
+      const profile = BeeProfiles.getGroupProfile(current.id);
       if (profile) renderGroup(Object.assign({}, profile));
     }, 100);
   }
@@ -1554,24 +1643,24 @@ const FSProfile = (function () {
     const id = profile.avatarId;
     const hint = (current && current.nameHint) || findKnownAgent(id);
     applyNameHint(profile, hint);
-    const nameInfo = typeof FSTransport.getCachedNameInfo === 'function'
-      ? FSTransport.getCachedNameInfo(id)
+    const nameInfo = typeof BeeTransport.getCachedNameInfo === 'function'
+      ? BeeTransport.getCachedNameInfo(id)
       : null;
     if (nameInfo) {
       profile.displayName = nameInfo.displayName || profile.displayName || '';
       profile.userName = nameInfo.userName || profile.userName || '';
       profile.name = nameInfo.label || profile.name || '';
-    } else if (typeof FSTransport.getCachedName === 'function') {
-      const cached = FSTransport.getCachedName(id);
+    } else if (typeof BeeTransport.getCachedName === 'function') {
+      const cached = BeeTransport.getCachedName(id);
       if (cached) profile.name = profile.name || cached;
     }
     if (profile.partnerId && profile.partnerId !== ZERO_UUID) {
-      const partnerInfo = typeof FSTransport.getCachedNameInfo === 'function'
-        ? FSTransport.getCachedNameInfo(profile.partnerId)
+      const partnerInfo = typeof BeeTransport.getCachedNameInfo === 'function'
+        ? BeeTransport.getCachedNameInfo(profile.partnerId)
         : null;
       profile.partnerName = partnerInfo
         ? (partnerInfo.displayName || partnerInfo.label || '')
-        : (typeof FSTransport.getCachedName === 'function' ? FSTransport.getCachedName(profile.partnerId) : '');
+        : (typeof BeeTransport.getCachedName === 'function' ? BeeTransport.getCachedName(profile.partnerId) : '');
     }
     return profile;
   }
@@ -1579,8 +1668,8 @@ const FSProfile = (function () {
   function finishAvatarProfile(profile) {
     if (!current || current.type !== 'avatar' || !profile) return;
     const id = profile.avatarId || current.id;
-    const capActive = typeof FSProfiles.isCapFetchActive === 'function' &&
-      FSProfiles.isCapFetchActive(id);
+    const capActive = typeof BeeProfiles.isCapFetchActive === 'function' &&
+      BeeProfiles.isCapFetchActive(id);
     const capReady = profileCapAboutReady(profile);
     current.capFetchPending = capActive;
     const next = enrichAvatarProfile(Object.assign({}, profile));
@@ -1593,13 +1682,13 @@ const FSProfile = (function () {
   function scheduleCapProfileRetry(id, attempt) {
     if (attempt >= 12) {
       if (!current || current.id !== id || current.type !== 'avatar') return;
-      const row = FSProfiles.getAvatarProfile(id) || { avatarId: id };
+      const row = BeeProfiles.getAvatarProfile(id) || { avatarId: id };
       finishAvatarProfile(enrichAvatarProfile(Object.assign({}, row)));
       return;
     }
     setTimeout(function () {
       if (!current || current.id !== id || current.type !== 'avatar') return;
-      FSProfiles.fetchAvatarProfile(id, { force: true, quiet: true })
+      BeeProfiles.fetchAvatarProfile(id, { force: true, quiet: true })
         .then(function (fresh) { finishAvatarProfile(fresh); })
         .catch(function () { scheduleCapProfileRetry(id, attempt + 1); });
     }, 2000);
@@ -1622,7 +1711,7 @@ const FSProfile = (function () {
     const opts = {};
     let hint = null;
     if (context && context.founderId &&
-        FSProfiles.normId(context.founderId) === FSProfiles.normId(avatarId)) {
+        BeeProfiles.normId(context.founderId) === BeeProfiles.normId(avatarId)) {
       const founderName = String(context.founderName || '').trim();
       if (founderName && founderName !== 'View profile' && !looksLikeUuidLabel(founderName)) {
         hint = { id: avatarId, name: founderName, displayName: founderName };
@@ -1640,8 +1729,8 @@ const FSProfile = (function () {
   }
 
   function openAvatar(agentId, options) {
-    const id = FSProfiles.normId(agentId);
-    if (FSProfiles.isZero(id)) return;
+    const id = BeeProfiles.normId(agentId);
+    if (BeeProfiles.isZero(id)) return;
     if (!dialog) return;
     const keepTab = current && current.type === 'avatar' && current.id === id ? current.tab : 'resident';
     const nameHint = (options && options.agent) || findKnownAgent(id);
@@ -1656,15 +1745,19 @@ const FSProfile = (function () {
     };
     setLoading(true);
     clearActions();
+    // Right-click anywhere in the dialog offers "Copy UUID"/"Copy name" via
+    // the shared context menu.
+    dialog.dataset.agentId = id;
+    delete dialog.dataset.groupId;
     if (typeof dialog.showModal === 'function') dialog.showModal();
     if (nameHint) {
       updateProfileHeader(enrichAvatarProfile({ avatarId: id }));
     }
     queueProfileNames({ avatarId: id });
 
-    const cached = FSProfiles.getAvatarProfile(id);
-    const needsCap = typeof FSProfiles.needsCapProfileFetch === 'function'
-      ? FSProfiles.needsCapProfileFetch(cached)
+    const cached = BeeProfiles.getAvatarProfile(id);
+    const needsCap = typeof BeeProfiles.needsCapProfileFetch === 'function'
+      ? BeeProfiles.needsCapProfileFetch(cached)
       : true;
     const mustFetch = needsCap || !cached || !!(options && options.force);
     current.capFetchPending = mustFetch;
@@ -1675,39 +1768,39 @@ const FSProfile = (function () {
     queueProfileNames(profile);
     // Fetch picks/classifieds/notes on every open, not just when cached -
     // otherwise the first time a profile is opened they never load and the user
-    // has to reopen it. The reply re-renders through the FSProfiles onChange.
+    // has to reopen it. The reply re-renders through the BeeProfiles onChange.
     ensureProfileExtras({ avatarId: id });
     renderAvatar(profile);
 
     if (!mustFetch) return;
 
-    FSProfiles.fetchAvatarProfile(id, { force: true, quiet: true }).then(function (fresh) {
+    BeeProfiles.fetchAvatarProfile(id, { force: true, quiet: true }).then(function (fresh) {
       if (!current || current.id !== id || current.type !== 'avatar') return;
       finishAvatarProfile(fresh);
-      if (typeof FSTransport.getCachedNameInfo === 'function') {
-        const info = FSTransport.getCachedNameInfo(id);
+      if (typeof BeeTransport.getCachedNameInfo === 'function') {
+        const info = BeeTransport.getCachedNameInfo(id);
         if (info && info.label) updateProfileHeader(enrichAvatarProfile(Object.assign({}, fresh)));
       }
-      if (typeof FSProfiles.needsCapProfileFetch === 'function' &&
-          FSProfiles.needsCapProfileFetch(fresh) &&
-          typeof FSProfiles.hasAgentProfileCap === 'function' &&
-          FSProfiles.hasAgentProfileCap()) {
+      if (typeof BeeProfiles.needsCapProfileFetch === 'function' &&
+          BeeProfiles.needsCapProfileFetch(fresh) &&
+          typeof BeeProfiles.hasAgentProfileCap === 'function' &&
+          BeeProfiles.hasAgentProfileCap()) {
         scheduleCapProfileRetry(id, 0);
       }
     }).catch(function (err) {
       if (!current || current.id !== id || current.type !== 'avatar') return;
-      if (typeof FSProfiles.hasAgentProfileCap === 'function' && FSProfiles.hasAgentProfileCap()) {
+      if (typeof BeeProfiles.hasAgentProfileCap === 'function' && BeeProfiles.hasAgentProfileCap()) {
         scheduleCapProfileRetry(id, 0);
         return;
       }
-      const fallback = enrichAvatarProfile(Object.assign({}, FSProfiles.getAvatarProfile(id) || cached || { avatarId: id }));
+      const fallback = enrichAvatarProfile(Object.assign({}, BeeProfiles.getAvatarProfile(id) || cached || { avatarId: id }));
       finishAvatarProfile(fallback);
     });
   }
 
   function openGroup(groupId, options) {
-    const id = FSProfiles.normId(groupId);
-    if (FSProfiles.isZero(id)) return;
+    const id = BeeProfiles.normId(groupId);
+    if (BeeProfiles.isZero(id)) return;
     if (!dialog) return;
     const nameHint = (options && options.group) || null;
     current = {
@@ -1720,18 +1813,20 @@ const FSProfile = (function () {
     lastGroupViewKey = '';
     setLoading(true);
     clearActions();
+    dialog.dataset.groupId = id;
+    delete dialog.dataset.agentId;
     if (typeof dialog.showModal === 'function') dialog.showModal();
     if (nameHint && nameHint.name) {
       updateGroupHeader(enrichGroupProfile({ groupId: id, name: nameHint.name }));
     }
 
-    const cached = FSProfiles.getGroupProfile(id);
+    const cached = BeeProfiles.getGroupProfile(id);
     if (cached && !(options && options.force)) {
       renderGroup(Object.assign({}, cached));
       return;
     }
 
-    FSProfiles.fetchGroupProfile(id, options).then(function (profile) {
+    BeeProfiles.fetchGroupProfile(id, options).then(function (profile) {
       if (!current || current.id !== id || current.type !== 'group') return;
       renderGroup(Object.assign({}, profile));
     }).catch(function (err) {
@@ -1740,7 +1835,7 @@ const FSProfile = (function () {
       if (content) {
         content.hidden = false;
         content.innerHTML = '<p class="profile-section__empty">' +
-          FSUtils.escapeHtml(err.message || 'Could not load group profile') + '</p>';
+          BeeUtils.escapeHtml(err.message || 'Could not load group profile') + '</p>';
       }
       setLoading(false);
     });
@@ -1749,13 +1844,13 @@ const FSProfile = (function () {
   function refreshCurrentProfile() {
     if (!current || !dialog || !dialog.open) return;
     if (current.type === 'avatar') {
-      const profile = FSProfiles.getAvatarProfile(current.id);
+      const profile = BeeProfiles.getAvatarProfile(current.id);
       if (!profile) return;
       finishAvatarProfile(profile);
       return;
     }
     if (current.type === 'group') {
-      const profile = FSProfiles.getGroupProfile(current.id);
+      const profile = BeeProfiles.getGroupProfile(current.id);
       if (profile) renderGroup(Object.assign({}, profile));
     }
   }
@@ -1769,7 +1864,7 @@ const FSProfile = (function () {
       closeBtn.addEventListener('click', function () { closeDialog(); });
     }
     if (imageCloseBtn && imageDialog) {
-      imageCloseBtn.addEventListener('click', function () { FSUtils.dismissDialog(imageDialog); });
+      imageCloseBtn.addEventListener('click', function () { BeeUtils.dismissDialog(imageDialog); });
     }
     if (dialog) {
       dialog.addEventListener('close', function () { current = null; });
@@ -1777,18 +1872,18 @@ const FSProfile = (function () {
     }
     if (imageDialog) {
       imageDialog.addEventListener('click', function (evt) {
-        if (evt.target === imageDialog) FSUtils.dismissDialog(imageDialog);
+        if (evt.target === imageDialog) BeeUtils.dismissDialog(imageDialog);
       });
     }
-    FSProfiles.onChange(function (evt) {
+    BeeProfiles.onChange(function (evt) {
       if (!current || !dialog || !dialog.open) return;
       if (current.type === 'avatar' && evt.id === current.id &&
           (evt.kind === 'avatar' || evt.kind === 'avatar-fetching')) {
         if (evt.kind === 'avatar-fetching') {
-          const base = FSProfiles.getAvatarProfile(current.id) || { avatarId: current.id };
+          const base = BeeProfiles.getAvatarProfile(current.id) || { avatarId: current.id };
           const profile = enrichAvatarProfile(Object.assign({}, base));
-          if (typeof FSProfiles.isCapFetchActive === 'function' &&
-              FSProfiles.isCapFetchActive(current.id) &&
+          if (typeof BeeProfiles.isCapFetchActive === 'function' &&
+              BeeProfiles.isCapFetchActive(current.id) &&
               !profileCapAboutReady(profile)) {
             profile.aboutFetching = true;
             profile.about = '';
@@ -1800,19 +1895,19 @@ const FSProfile = (function () {
         return;
       }
       if (current.type === 'group' && evt.kind === 'group' && evt.id === current.id) {
-        const profile = FSProfiles.getGroupProfile(current.id);
+        const profile = BeeProfiles.getGroupProfile(current.id);
         if (!profile) return;
         if (patchGroupTitles(profile)) return;
         scheduleGroupRefresh();
         return;
       }
       if (current.type === 'group' && evt.kind === 'group-titles' && evt.id === current.id) {
-        const profile = FSProfiles.getGroupProfile(current.id);
+        const profile = BeeProfiles.getGroupProfile(current.id);
         if (profile && patchGroupTitles(profile)) return;
         return;
       }
       if (current.type === 'group' && evt.kind === 'active-group') {
-        const profile = FSProfiles.getGroupProfile(current.id);
+        const profile = BeeProfiles.getGroupProfile(current.id);
         if (!profile) return;
         renderGroupActions(enrichGroupProfile(Object.assign({}, profile)));
         return;
@@ -1820,7 +1915,7 @@ const FSProfile = (function () {
       if (current.type === 'group' && evt.kind === 'membership') {
         lastGroupViewKey = '';
         if (current.id) {
-          const openProfile = FSProfiles.getGroupProfile(current.id);
+          const openProfile = BeeProfiles.getGroupProfile(current.id);
           if (openProfile) {
             queueGroupTitles(enrichGroupProfile(Object.assign({}, openProfile)));
           }
@@ -1830,12 +1925,12 @@ const FSProfile = (function () {
       }
       if (current.type === 'avatar' && evt.kind === 'membership' &&
           isSelfProfile({ avatarId: current.id })) {
-        const profile = FSProfiles.getAvatarProfile(current.id);
+        const profile = BeeProfiles.getAvatarProfile(current.id);
         if (profile && !patchSelfGroupsSection(profile)) refreshCurrentProfile();
         return;
       }
       if (current.type === 'avatar' && evt.kind === 'active-group' && isSelfProfile({ avatarId: current.id })) {
-        const profile = FSProfiles.getAvatarProfile(current.id);
+        const profile = BeeProfiles.getAvatarProfile(current.id);
         if (profile && !patchSelfGroupsSection(profile)) highlightActiveGroupInList();
         else highlightActiveGroupInList();
         return;
@@ -1843,7 +1938,7 @@ const FSProfile = (function () {
       if (current.type !== 'avatar') return;
       if (evt.kind === 'pick-detail' && current.selectedPickId === evt.id) {
         const detailEl = findDetailPane('places');
-        const detail = FSProfiles.getPickDetail(evt.id);
+        const detail = BeeProfiles.getPickDetail(evt.id);
         if (detailEl && detail) {
           paintItemDetail(detailEl, detail, 'pick');
         }
@@ -1851,28 +1946,28 @@ const FSProfile = (function () {
       }
       if (evt.kind === 'classified-detail' && current.selectedClassifiedId === evt.id) {
         const detailEl = findDetailPane('classifieds');
-        const detail = FSProfiles.getClassifiedDetail(evt.id);
+        const detail = BeeProfiles.getClassifiedDetail(evt.id);
         if (detailEl && detail) {
           paintItemDetail(detailEl, detail, 'classified');
         }
       }
     });
-    if (typeof FSTransport.on === 'function') {
-      FSTransport.on('names-updated', function () {
+    if (typeof BeeTransport.on === 'function') {
+      BeeTransport.on('names-updated', function () {
         if (!current || !dialog || !dialog.open) return;
         if (current.type === 'avatar') {
-          const profile = FSProfiles.getAvatarProfile(current.id);
+          const profile = BeeProfiles.getAvatarProfile(current.id);
           if (profile) updateProfileHeader(enrichAvatarProfile(Object.assign({}, profile)));
           return;
         }
         if (current.type === 'group') {
-          const profile = FSProfiles.getGroupProfile(current.id);
+          const profile = BeeProfiles.getGroupProfile(current.id);
           if (profile) refreshGroupLabels(profile);
         }
       });
-      FSTransport.on('buddies-updated', function () {
+      BeeTransport.on('buddies-updated', function () {
         if (!current || current.type !== 'avatar' || !dialog || !dialog.open) return;
-        const profile = FSProfiles.getAvatarProfile(current.id);
+        const profile = BeeProfiles.getAvatarProfile(current.id);
         if (!profile) return;
         const enriched = enrichAvatarProfile(Object.assign({}, profile));
         updateProfileHeader(enriched);

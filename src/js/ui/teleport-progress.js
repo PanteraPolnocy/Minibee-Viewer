@@ -5,7 +5,7 @@
  * failure, or disconnect, with a safety timeout so the screen can never stay
  * locked forever.
  */
-const FSTeleportProgress = (function () {
+const BeeTeleportProgress = (function () {
   'use strict';
 
   const MAX_MS = 120000; // mirrors the sim's teleport timeout; lets the lock release itself
@@ -66,7 +66,7 @@ const FSTeleportProgress = (function () {
     if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
     const dialog = el('teleport-progress-dialog');
-    if (dialog && dialog.open) FSUtils.dismissDialog(dialog);
+    if (dialog && dialog.open) BeeUtils.dismissDialog(dialog);
   }
 
   function init() {
@@ -74,15 +74,15 @@ const FSTeleportProgress = (function () {
     // Hold the lock open: Escape must not dismiss it - only finish, failure, or the timeout should.
     if (dialog) dialog.addEventListener('cancel', function (e) { e.preventDefault(); });
 
-    if (typeof FSTransport === 'undefined') return;
-    FSTransport.on('teleport-started', function () { open('starting'); });
-    FSTransport.on('teleport-progress', function (data) { open(data && data.message); });
-    FSTransport.on('teleport-finish', finish);
-    FSTransport.on('teleport-failed', close);
-    FSTransport.on('teleport-cancelled', close);
-    FSTransport.on('session-lost', close);
-    FSTransport.on('disconnected', close);
-    if (typeof FSState !== 'undefined' && FSState.on) FSState.on('reset', close);
+    if (typeof BeeTransport === 'undefined') return;
+    BeeTransport.on('teleport-started', function () { open('starting'); });
+    BeeTransport.on('teleport-progress', function (data) { open(data && data.message); });
+    BeeTransport.on('teleport-finish', finish);
+    BeeTransport.on('teleport-failed', close);
+    BeeTransport.on('teleport-cancelled', close);
+    BeeTransport.on('session-lost', close);
+    BeeTransport.on('disconnected', close);
+    if (typeof BeeState !== 'undefined' && BeeState.on) BeeState.on('reset', close);
   }
 
   return {

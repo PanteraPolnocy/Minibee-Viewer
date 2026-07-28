@@ -1,7 +1,7 @@
 /**
  * Search panel for avatars, places, and groups.
  */
-const FSSearch = (function () {
+const BeeSearch = (function () {
   'use strict';
 
   let activeKind = 'avatars';
@@ -12,9 +12,9 @@ const FSSearch = (function () {
 
   const SEARCH_LOCK_MS = 10000;
   const resultCache = {
-    avatars: { query: '', rows: [], status: '' },
-    groups: { query: '', rows: [], status: '' },
-    places: { query: '', rows: [], status: '' }
+    avatars: { query: '', rows: [], status: '', hasMore: false, nextStart: 0 },
+    groups: { query: '', rows: [], status: '', hasMore: false, nextStart: 0 },
+    places: { query: '', rows: [], status: '', hasMore: false, nextStart: 0 }
   };
 
   function el(id) {
@@ -115,7 +115,7 @@ const FSSearch = (function () {
       participant.online = true;
       if (row.region) participant.region = row.region;
     }
-    FSIm.startImWith(participant);
+    BeeIm.startImWith(participant);
   }
 
   async function ensurePlaceDetails(row) {
@@ -123,8 +123,8 @@ const FSSearch = (function () {
     // row, so gating on row.kind here always failed and details never loaded.
     // Callers already guarantee this is a place with a parcelId.
     if (!row || !row.parcelId || row.detailLoaded) return row;
-    if (typeof FSTransport.fetchParcelInfo !== 'function') return row;
-    const info = await FSTransport.fetchParcelInfo(row.parcelId);
+    if (typeof BeeTransport.fetchParcelInfo !== 'function') return row;
+    const info = await BeeTransport.fetchParcelInfo(row.parcelId);
     if (!info) return row;
     Object.assign(row, info, { detailLoaded: true });
     return row;
@@ -134,8 +134,8 @@ const FSSearch = (function () {
     if (!row) return;
     // Grid coords come straight from the enriched parcel info (computed in the
     // Rust core), so they center the map directly - no region-name lookup needed.
-    if ((row.gridX || row.gridY) && typeof FSMap !== 'undefined' && FSMap.showLocation) {
-      FSMap.showLocation({
+    if ((row.gridX || row.gridY) && typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
+      BeeMap.showLocation({
         regionName: row.simName || row.name || '',
         gridX: row.gridX,
         gridY: row.gridY,
@@ -145,12 +145,12 @@ const FSSearch = (function () {
       });
       return;
     }
-    if (row.slurl && typeof FSMap !== 'undefined' && FSMap.showLocation) {
-      FSMap.showLocation(row.slurl);
+    if (row.slurl && typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
+      BeeMap.showLocation(row.slurl);
       return;
     }
-    if (row.simName && typeof FSMap !== 'undefined' && FSMap.showLocation) {
-      FSMap.showLocation({
+    if (row.simName && typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
+      BeeMap.showLocation({
         regionName: row.simName,
         x: row.x !== undefined ? row.x : 128,
         y: row.y !== undefined ? row.y : 128,
@@ -158,8 +158,8 @@ const FSSearch = (function () {
       });
       return;
     }
-    if (row.kind === 'region' && row.name && typeof FSMap !== 'undefined' && FSMap.showLocation) {
-      FSMap.showLocation({
+    if (row.kind === 'region' && row.name && typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
+      BeeMap.showLocation({
         regionName: row.name,
         gridX: row.gridX,
         gridY: row.gridY,
@@ -169,26 +169,26 @@ const FSSearch = (function () {
       });
       return;
     }
-    if (row.kind === 'destination' && row.slurl && typeof FSMap !== 'undefined' && FSMap.showLocation) {
-      FSMap.showLocation(row.slurl);
+    if (row.kind === 'destination' && row.slurl && typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
+      BeeMap.showLocation(row.slurl);
     }
   }
 
   function renderPlaceDetail(detail, row, kind) {
     let textHtml = '';
     if (row.description) {
-      textHtml += '<p class="search-result__desc">' + FSUtils.escapeHtml(row.description) + '</p>';
+      textHtml += '<p class="search-result__desc">' + BeeUtils.escapeHtml(row.description) + '</p>';
     }
     if (kind === 'region' && row.gridX !== undefined) {
       textHtml += '<p class="search-result__meta">Grid: ' +
-        FSUtils.escapeHtml(String(row.gridX) + ', ' + String(row.gridY)) + '</p>';
+        BeeUtils.escapeHtml(String(row.gridX) + ', ' + String(row.gridY)) + '</p>';
     } else if (kind === 'place' && row.location) {
-      textHtml += '<p class="search-result__meta">' + FSUtils.escapeHtml(row.location) + '</p>';
+      textHtml += '<p class="search-result__meta">' + BeeUtils.escapeHtml(row.location) + '</p>';
       if (row.dwell !== undefined && row.dwell !== null) {
         textHtml += '<p class="search-result__meta">Traffic: ' + Math.round(row.dwell) + '</p>';
       }
       if (row.maturity) {
-        textHtml += '<p class="search-result__meta">Rating: ' + FSUtils.escapeHtml(row.maturity) + '</p>';
+        textHtml += '<p class="search-result__meta">Rating: ' + BeeUtils.escapeHtml(row.maturity) + '</p>';
       }
       if (row.auction) {
         textHtml += '<p class="search-result__meta">Auction</p>';
@@ -196,10 +196,10 @@ const FSSearch = (function () {
         textHtml += '<p class="search-result__meta">For sale</p>';
       }
     } else if (kind === 'destination' && row.maturity) {
-      textHtml += '<p class="search-result__meta">Rating: ' + FSUtils.escapeHtml(String(row.maturity)) + '</p>';
+      textHtml += '<p class="search-result__meta">Rating: ' + BeeUtils.escapeHtml(String(row.maturity)) + '</p>';
     }
     if (row.slurl) {
-      textHtml += '<p class="search-result__slurl">' + FSUtils.escapeHtml(row.slurl) + '</p>';
+      textHtml += '<p class="search-result__slurl">' + BeeUtils.escapeHtml(row.slurl) + '</p>';
     }
     textHtml += '<div class="search-result__detail-actions">' +
       '<button type="button" class="btn btn--primary btn--sm" data-action="detail-map">Show on map</button>' +
@@ -207,7 +207,7 @@ const FSSearch = (function () {
 
     let html = '<div class="search-result__detail-body">';
     if (row.image) {
-      html += '<img class="search-result__image" src="' + FSUtils.escapeHtml(row.image) +
+      html += '<img class="search-result__image" src="' + BeeUtils.escapeHtml(row.image) +
         '" alt="" loading="lazy" decoding="async">';
     }
     html += '<div class="search-result__detail-text">' + textHtml + '</div></div>';
@@ -224,13 +224,16 @@ const FSSearch = (function () {
     const li = document.createElement('li');
     li.className = 'entity-item search-result';
     const name = row.name || row.displayName || row.userName || 'Resident';
+    // Feeds the shared context menu's "Copy name" / "Copy UUID".
+    if (row.id) li.dataset.agentId = row.id;
+    li.dataset.label = name;
     li.innerHTML =
-      '<div class="entity-item__avatar" data-agent-id="' + FSUtils.escapeHtml(row.id || '') +
-        '" data-resolve-image="0" data-label="' + FSUtils.escapeHtml(name) + '"></div>' +
+      '<div class="entity-item__avatar" data-agent-id="' + BeeUtils.escapeHtml(row.id || '') +
+        '" data-resolve-image="0" data-label="' + BeeUtils.escapeHtml(name) + '"></div>' +
       '<div class="entity-item__body">' +
-        '<div class="entity-item__name">' + FSUtils.escapeHtml(name) + '</div>' +
+        '<div class="entity-item__name">' + BeeUtils.escapeHtml(name) + '</div>' +
         (row.userName && row.userName !== name
-          ? '<div class="entity-item__legacy">' + FSUtils.escapeHtml(row.userName) + '</div>'
+          ? '<div class="entity-item__legacy">' + BeeUtils.escapeHtml(row.userName) + '</div>'
           : '') +
       '</div>' +
       '<div class="entity-item__actions">' +
@@ -245,31 +248,34 @@ const FSSearch = (function () {
     });
     li.querySelector('[data-action="profile"]').addEventListener('click', function (e) {
       e.stopPropagation();
-      if (row.id) FSProfile.openAvatar(row.id, { agent: row });
+      if (row.id) BeeProfile.openAvatar(row.id, { agent: row });
     });
     // Clicking the row (like a radar entry) opens the profile; the action buttons
     // call stopPropagation so they still do their own thing.
     const body = li.querySelector('.entity-item__body');
     if (body && row.id) {
       body.classList.add('entity-item__body--clickable');
-      body.addEventListener('click', function () { FSProfile.openAvatar(row.id, { agent: row }); });
+      body.addEventListener('click', function () { BeeProfile.openAvatar(row.id, { agent: row }); });
     }
     const thumb = li.querySelector('.entity-item__avatar[data-agent-id]');
-    if (thumb) FSAvatarThumb.refresh(thumb);
+    if (thumb) BeeAvatarThumb.refresh(thumb);
     return li;
   }
 
   function renderGroupRow(row) {
     const li = document.createElement('li');
     li.className = 'entity-item search-result';
+    // Feeds the shared context menu's "Copy name" / "Copy UUID".
+    if (row.id) li.dataset.groupId = row.id;
+    li.dataset.label = row.name || 'Group';
     const members = row.members !== undefined ? (row.members + ' members') : '';
     li.innerHTML =
       '<div class="entity-item__avatar entity-item__avatar--group" data-agent-id="' +
-        FSUtils.escapeHtml(row.id || '') + '" data-kind="group" data-resolve-image="0" data-label="' +
-        FSUtils.escapeHtml(row.name || 'Group') + '">G</div>' +
+        BeeUtils.escapeHtml(row.id || '') + '" data-kind="group" data-resolve-image="0" data-label="' +
+        BeeUtils.escapeHtml(row.name || 'Group') + '">G</div>' +
       '<div class="entity-item__body">' +
-        '<div class="entity-item__name">' + FSUtils.escapeHtml(row.name || 'Group') + '</div>' +
-        (members ? '<div class="entity-item__sub">' + FSUtils.escapeHtml(members) + '</div>' : '') +
+        '<div class="entity-item__name">' + BeeUtils.escapeHtml(row.name || 'Group') + '</div>' +
+        (members ? '<div class="entity-item__sub">' + BeeUtils.escapeHtml(members) + '</div>' : '') +
       '</div>' +
       '<div class="entity-item__actions">' +
         '<button type="button" class="icon-btn" data-action="profile" title="Group profile" aria-label="Group profile">' +
@@ -277,16 +283,16 @@ const FSSearch = (function () {
       '</div>';
     li.querySelector('[data-action="profile"]').addEventListener('click', function (e) {
       e.stopPropagation();
-      if (row.id) FSProfile.openGroup(row.id, { group: row });
+      if (row.id) BeeProfile.openGroup(row.id, { group: row });
     });
     // Clicking the row opens the group profile.
     const groupBody = li.querySelector('.entity-item__body');
     if (groupBody && row.id) {
       groupBody.classList.add('entity-item__body--clickable');
-      groupBody.addEventListener('click', function () { FSProfile.openGroup(row.id, { group: row }); });
+      groupBody.addEventListener('click', function () { BeeProfile.openGroup(row.id, { group: row }); });
     }
     const groupThumb = li.querySelector('.entity-item__avatar[data-agent-id]');
-    if (groupThumb) FSAvatarThumb.refresh(groupThumb);
+    if (groupThumb) BeeAvatarThumb.refresh(groupThumb);
     return li;
   }
 
@@ -303,8 +309,8 @@ const FSSearch = (function () {
       '<button type="button" class="search-result__toggle" aria-expanded="false">' +
         '<div class="entity-item__avatar entity-item__avatar--place">P</div>' +
         '<div class="entity-item__body">' +
-          '<div class="entity-item__name">' + FSUtils.escapeHtml(title) + '</div>' +
-          '<div class="entity-item__sub">' + FSUtils.escapeHtml(subtitle) + '</div>' +
+          '<div class="entity-item__name">' + BeeUtils.escapeHtml(title) + '</div>' +
+          '<div class="entity-item__sub">' + BeeUtils.escapeHtml(subtitle) + '</div>' +
         '</div>' +
       '</button>' +
       '<div class="entity-item__actions">' +
@@ -326,7 +332,7 @@ const FSSearch = (function () {
           ensurePlaceDetails(row).then(function (enriched) {
             showPlaceOnMap(enriched);
           }).catch(function (err) {
-            FSUtils.showToast(err.message || 'Could not load place location', 'error');
+            BeeUtils.showToast(err.message || 'Could not load place location', 'error');
           }).finally(function () {
             mapBtn.disabled = false;
           });
@@ -350,7 +356,7 @@ const FSSearch = (function () {
           refreshPlaceSubtitle(li, enriched);
         }).catch(function (err) {
           detail.innerHTML = '<p class="search-result__desc">' +
-            FSUtils.escapeHtml(err.message || 'Could not load place details') + '</p>';
+            BeeUtils.escapeHtml(err.message || 'Could not load place details') + '</p>';
         });
       } else {
         detail.hidden = true;
@@ -359,15 +365,7 @@ const FSSearch = (function () {
     return li;
   }
 
-  function renderResults(rows) {
-    const list = el('search-results');
-    if (!list) return;
-    list.innerHTML = '';
-    if (!rows.length) {
-      setStatus('No results.');
-      return;
-    }
-    setStatus(rows.length + ' result' + (rows.length === 1 ? '' : 's'));
+  function appendRows(list, rows) {
     rows.forEach(function (row) {
       if (activeKind === 'avatars') {
         list.appendChild(renderAvatarRow(row));
@@ -379,12 +377,49 @@ const FSSearch = (function () {
     });
   }
 
+  function renderLoadMore(list) {
+    const cached = resultCache[activeKind];
+    if (!cached || !cached.hasMore) return;
+    const li = document.createElement('li');
+    li.className = 'search-load-more';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn--sm search-load-more__btn';
+    btn.textContent = 'Load more results';
+    btn.addEventListener('click', function () {
+      if (searching) return;
+      li.remove();
+      runSearch(true);
+    });
+    li.appendChild(btn);
+    list.appendChild(li);
+  }
+
+  function renderResults(rows, statusOverride) {
+    const list = el('search-results');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!rows.length) {
+      setStatus(statusOverride || 'No results.');
+      return;
+    }
+    const cached = resultCache[activeKind];
+    setStatus(rows.length + (cached && cached.hasMore ? '+' : '') +
+      ' result' + (rows.length === 1 ? '' : 's'));
+    appendRows(list, rows);
+    renderLoadMore(list);
+  }
+
   const MIN_SEARCH_LEN = 3;
 
-  async function runSearch() {
+  // `loadMore` re-runs the cached query at the next page offset and appends;
+  // otherwise this is a fresh page-0 search of whatever is in the input.
+  async function runSearch(loadMore) {
     if (searching) return;
+    const cached = resultCache[activeKind];
     const input = el('search-input');
-    const query = input ? input.value.trim() : '';
+    const query = loadMore ? (cached && cached.query) || '' : (input ? input.value.trim() : '');
+    const start = loadMore ? (cached && cached.nextStart) || 0 : 0;
     const searchQuery = query;
     if (!searchQuery) {
       setStatus('Enter a search term.');
@@ -401,25 +436,29 @@ const FSSearch = (function () {
       setStatus('Enter letters or numbers to search.');
       return;
     }
-    if (!FSState.gridOnline()) {
+    if (!BeeState.gridOnline()) {
       setStatus('Log in to search.');
       return;
     }
     const token = ++searchToken;
     setSearching(true);
-    setStatus('Searching...');
+    setStatus(loadMore ? 'Loading more...' : 'Searching...');
     try {
-      const rows = await FSTransport.searchDirectory(activeKind, searchQuery);
+      const res = await BeeTransport.searchDirectory(activeKind, searchQuery, start);
       if (token !== searchToken) return;
-      const list = rows || [];
+      const page = (res && res.rows) || [];
+      const rows = loadMore ? ((cached && cached.rows) || []).concat(page) : page;
+      const statusText = rows.length
+        ? (rows.length + (res && res.hasMore ? '+' : '') + ' result' + (rows.length === 1 ? '' : 's'))
+        : ((res && res.statusText) || 'No results.');
       resultCache[activeKind] = {
         query: query,
-        rows: list,
-        status: list.length
-          ? (list.length + ' result' + (list.length === 1 ? '' : 's'))
-          : 'No results.'
+        rows: rows,
+        status: statusText,
+        hasMore: !!(res && res.hasMore),
+        nextStart: (res && res.nextStart) || 0
       };
-      renderResults(list);
+      renderResults(rows, statusText);
     } catch (err) {
       if (token !== searchToken) return;
       setStatus('Search failed: ' + (err.message || String(err)));
@@ -473,7 +512,7 @@ const FSSearch = (function () {
       });
     }
     if (runBtn) {
-      runBtn.addEventListener('click', runSearch);
+      runBtn.addEventListener('click', function () { runSearch(); });
     }
     document.querySelectorAll('.search-kind').forEach(function (btn) {
       btn.addEventListener('click', function () {

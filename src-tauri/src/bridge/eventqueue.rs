@@ -16,10 +16,10 @@ use crate::codec;
 
 /// The sim is supposed to hold a poll open for ~20-30s. If a "no events" signal
 /// (timeout, 499, 5xx, or empty body) comes back sooner than that, we treat it as a
-/// real error and back off instead of hammering the sim (mirrors the reference viewer's MIN_SECONDS_PASSED).
+/// real error and back off instead of hammering the sim.
 const MIN_HOLD_SECS: f64 = 10.0;
 /// The backoff after an error grows as 1 + n*3 seconds, and we give up after 15
-/// tries (~5 minutes), matching the reference viewer's EVENT_POLL_ERROR constants.
+/// tries (~5 minutes).
 const MAX_ERRORS: u32 = 15;
 
 /// Sleep through the backoff for the current error count. Returns false once we've
@@ -89,9 +89,8 @@ pub fn spawn(
             };
 
             // A 404 means the cap is gone, which is normally benign: the region
-            // changed and the sim canceled the old poll (the reference viewer's
-            // lleventpoll.cpp does the same, quietly stopping the poll on a 404 with
-            // no user alarm). So instead of raising the scary banner here, we try a
+            // changed and the sim canceled the old poll, so it doesn't warrant
+            // any user alarm. Instead of raising the scary banner here, we try a
             // bounded, gentle self-heal (re-fetch the current region's caps and
             // restart) in case it really was a main-region cap expiring. If recovery
             // isn't possible, or we've exhausted it, we stop quietly - a truly lost

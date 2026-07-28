@@ -1,7 +1,7 @@
 /**
  * Our own right-click menu.
  */
-const FSContextMenu = (function () {
+const BeeContextMenu = (function () {
   'use strict';
 
   let menu = null;
@@ -44,6 +44,43 @@ const FSContextMenu = (function () {
       el = el.parentElement;
     }
     return '';
+  }
+
+  // Context-aware copy entries gathered from the element under the pointer.
+  // Two conventions feed this:
+  //  - data-copy="<value>" (+ optional data-copy-label="Copy stream URL")
+  //    on anything whose "copy" has one obvious meaning;
+  //  - the id conventions the lists already use (data-agent-id /
+  //    data-avatar-id / data-profile-id / data-group-id / data-object-id),
+  //    which yield "Copy name" and "Copy UUID".
+  function copyEntriesFor(node) {
+    const entries = [];
+    const seen = new Set();
+    let el = node;
+    while (el && el !== document.body) {
+      const d = el.dataset || {};
+      if (d.copy && !seen.has('copy')) {
+        seen.add('copy');
+        entries.push({ label: d.copyLabel || 'Copy', value: d.copy });
+      }
+      const agentId = d.agentId || d.avatarId || d.profileId;
+      const anyId = agentId || d.groupId || d.objectId || d.id;
+      // data-id is only trusted when it looks like a UUID - lists reuse it
+      // for all sorts of keys.
+      const idish = anyId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(anyId)
+        ? anyId : (agentId || d.groupId || d.objectId || '');
+      if (idish && !seen.has('uuid')) {
+        seen.add('uuid');
+        const nameNode = el.querySelector
+          ? el.querySelector('.entity-item__name, .im-roster__name, #profile-title')
+          : null;
+        const label = (d.label || (nameNode ? nameNode.textContent : '') || '').trim();
+        if (label) entries.push({ label: 'Copy name', value: label });
+        entries.push({ label: 'Copy UUID', value: idish });
+      }
+      el = el.parentElement;
+    }
+    return entries;
   }
 
   function hide() {
@@ -133,6 +170,8 @@ const FSContextMenu = (function () {
     const selection = inField ? fieldSelection(target) : pageSelection();
     const link = linkFor(target);
 
+    const contextual = editable ? [] : copyEntriesFor(target);
+
     if (editable) {
       addItem('Cut', !!selection && inField, function () { cut(target); });
       addItem('Copy', !!selection, function () { copyText(selection); });
@@ -141,6 +180,16 @@ const FSContextMenu = (function () {
         target.focus();
         if (target.select) target.select();
       });
+    } else if (contextual.length) {
+      // Something under the pointer knows what "copy" should mean here; a bare
+      // disabled "Copy" would be noise next to it.
+      if (selection) addItem('Copy selection', true, function () { copyText(selection); });
+      contextual.forEach(function (entry) {
+        addItem(entry.label, true, function () {
+          copyText(entry.value);
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) BeeUtils.showToast('Copied', 'success');
+        });
+      });
     } else {
       addItem('Copy', !!selection, function () { copyText(selection); });
     }
@@ -148,7 +197,7 @@ const FSContextMenu = (function () {
     if (link) {
       addItem('Copy link address', true, function () { copyText(link); });
       addItem('Open link in browser', true, function () {
-        if (typeof FSSlurl !== 'undefined' && FSSlurl.openExternalUrl) FSSlurl.openExternalUrl(link);
+        if (typeof BeeSlurl !== 'undefined' && BeeSlurl.openExternalUrl) BeeSlurl.openExternalUrl(link);
         else window.open(link, '_blank', 'noopener,noreferrer');
       });
     }
@@ -188,4 +237,4 @@ const FSContextMenu = (function () {
   return { init: init, hide: hide };
 })();
 
-window.FSContextMenu = FSContextMenu;
+window.BeeContextMenu = BeeContextMenu;

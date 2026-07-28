@@ -6,7 +6,7 @@
  * names-updated, ...) and hands it to the UI synchronously. Fetches are thin
  * `invoke` calls, and the cache fills in once the matching event arrives.
  */
-const FSProfiles = (function () {
+const BeeProfiles = (function () {
   'use strict';
 
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
@@ -25,7 +25,7 @@ const FSProfiles = (function () {
   let active = { id: '', name: '', title: '' };
   let attached = false;
 
-  function normId(id) { return FSUtils.normUuid(id); }
+  function normId(id) { return BeeUtils.normUuid(id); }
   function isZero(id) { const k = normId(id); return !k || k === ZERO_UUID; }
 
   function textureImageUrl(uuid, size) {
@@ -101,10 +101,10 @@ const FSProfiles = (function () {
   // --- ingesting events (the structured data coming from Rust) ---
 
   function attach() {
-    if (attached || typeof FSBridge === 'undefined' || !FSBridge.listen) return;
+    if (attached || typeof BeeBridge === 'undefined' || !BeeBridge.listen) return;
     attached = true;
 
-    FSBridge.listen('minibee-viewer://avatar-profile', function (p) {
+    BeeBridge.listen('minibee-viewer://avatar-profile', function (p) {
       if (!p || isZero(p.avatarId)) return;
       const id = normId(p.avatarId);
       pendingThumbs.delete(id);
@@ -120,7 +120,7 @@ const FSProfiles = (function () {
       emitChange('avatar', id);
       resolveWaiters('profile:' + id, profiles.get(id));
     });
-    FSBridge.listen('minibee-viewer://avatar-interests', function (p) {
+    BeeBridge.listen('minibee-viewer://avatar-interests', function (p) {
       if (!p || isZero(p.avatarId)) return;
       const id = normId(p.avatarId);
       const cur = profiles.get(id) || { avatarId: id };
@@ -128,7 +128,7 @@ const FSProfiles = (function () {
       profiles.set(id, cur);
       emitChange('avatar', id);
     });
-    FSBridge.listen('minibee-viewer://avatar-groups', function (p) {
+    BeeBridge.listen('minibee-viewer://avatar-groups', function (p) {
       if (!p || isZero(p.avatarId)) return;
       const id = normId(p.avatarId);
       const cur = profiles.get(id) || { avatarId: id };
@@ -150,7 +150,7 @@ const FSProfiles = (function () {
       (p.groups || []).forEach(function (g) { if (g.id && g.name) groupNames.set(normId(g.id), { name: g.name, insigniaId: g.insigniaId || '' }); });
       emitChange('avatar', id);
     });
-    FSBridge.listen('minibee-viewer://avatar-notes', function (p) {
+    BeeBridge.listen('minibee-viewer://avatar-notes', function (p) {
       if (!p || isZero(p.targetId)) return;
       const id = normId(p.targetId);
       const cur = profiles.get(id) || { avatarId: id };
@@ -158,7 +158,7 @@ const FSProfiles = (function () {
       profiles.set(id, cur);
       emitChange('avatar', id);
     });
-    FSBridge.listen('minibee-viewer://avatar-picks', function (p) {
+    BeeBridge.listen('minibee-viewer://avatar-picks', function (p) {
       if (!p || isZero(p.avatarId)) return;
       const id = normId(p.avatarId);
       const cur = profiles.get(id) || { avatarId: id };
@@ -166,7 +166,7 @@ const FSProfiles = (function () {
       profiles.set(id, cur);
       emitChange('avatar', id);
     });
-    FSBridge.listen('minibee-viewer://avatar-classifieds', function (p) {
+    BeeBridge.listen('minibee-viewer://avatar-classifieds', function (p) {
       if (!p || isZero(p.avatarId)) return;
       const id = normId(p.avatarId);
       const cur = profiles.get(id) || { avatarId: id };
@@ -174,19 +174,19 @@ const FSProfiles = (function () {
       profiles.set(id, cur);
       emitChange('avatar', id);
     });
-    FSBridge.listen('minibee-viewer://pick-info', function (p) {
+    BeeBridge.listen('minibee-viewer://pick-info', function (p) {
       if (!p || isZero(p.pickId)) return;
       pickDetails.set(normId(p.pickId), p);
       emitChange('pick-detail', p.pickId);
       resolveWaiters('pick:' + normId(p.pickId), p);
     });
-    FSBridge.listen('minibee-viewer://classified-info', function (p) {
+    BeeBridge.listen('minibee-viewer://classified-info', function (p) {
       if (!p || isZero(p.classifiedId)) return;
       classifiedDetails.set(normId(p.classifiedId), p);
       emitChange('classified-detail', p.classifiedId);
       resolveWaiters('classified:' + normId(p.classifiedId), p);
     });
-    FSBridge.listen('minibee-viewer://group-profile', function (p) {
+    BeeBridge.listen('minibee-viewer://group-profile', function (p) {
       if (!p || isZero(p.groupId)) return;
       const id = normId(p.groupId);
       pendingGroups.delete(id);
@@ -195,26 +195,26 @@ const FSProfiles = (function () {
       emitChange('group', id);
       resolveWaiters('group:' + id, p);
     });
-    FSBridge.listen('minibee-viewer://group-titles', function (p) {
+    BeeBridge.listen('minibee-viewer://group-titles', function (p) {
       if (!p || isZero(p.groupId)) return;
       const id = normId(p.groupId);
       groupTitlesMap.set(id, { titles: p.titles || [], complete: true });
       emitChange('group-titles', id);
       resolveWaiters('titles:' + id, groupTitlesMap.get(id));
     });
-    FSBridge.listen('minibee-viewer://group-membership', function (p) {
+    BeeBridge.listen('minibee-viewer://group-membership', function (p) {
       membership.clear();
       (p && p.groups || []).forEach(function (g) {
         if (g.id) { membership.set(normId(g.id), g); if (g.name) groupNames.set(normId(g.id), { name: g.name, insigniaId: g.insigniaId || '' }); }
       });
       emitChange('membership', '');
     });
-    FSBridge.listen('minibee-viewer://active-group', function (p) {
+    BeeBridge.listen('minibee-viewer://active-group', function (p) {
       active = { id: normId((p && p.id) || ''), name: (p && p.name) || '', title: (p && p.title) || '' };
       if (p && p.id && p.name) groupNames.set(normId(p.id), { name: p.name, insigniaId: '' });
       emitChange('active-group', active.id);
     });
-    FSBridge.listen('minibee-viewer://names-updated', function (data) {
+    BeeBridge.listen('minibee-viewer://names-updated', function (data) {
       // Group names can show up here too; avatar names live in the transport mirror.
       (data && data.names || []).forEach(function (n) { /* the transport mirror handles names */ });
     });
@@ -238,6 +238,8 @@ const FSProfiles = (function () {
   function getActiveGroupInfo() { return active.id ? { id: active.id, name: active.name || getGroupName(active.id), title: active.title } : null; }
   function isActiveGroup(id) { return !!active.id && active.id === normId(id); }
   function isAgentInGroup(id) { return membership.has(normId(id)); }
+  /// Every group we belong to, as the raw membership rows (id, name, powers...).
+  function getAgentGroups() { return Array.from(membership.values()); }
   function hasAgentProfileCap() { return true; }    // yes, we rely on the AgentProfile HTTP cap
   function isCapFetchActive() { return false; }
   // An avatar in a list gets cached from its thumbnail with UDP data only
@@ -247,8 +249,8 @@ const FSProfiles = (function () {
 
   function isSelfAvatarId(id) {
     try {
-      const me = (typeof FSState !== 'undefined' && FSState.get && FSState.get().agent)
-        ? FSState.get().agent.id : '';
+      const me = (typeof BeeState !== 'undefined' && BeeState.get && BeeState.get().agent)
+        ? BeeState.get().agent.id : '';
       return !!me && normId(me) === normId(id);
     } catch (_e) { return false; }
   }
@@ -288,7 +290,7 @@ const FSProfiles = (function () {
 
   // --- fetches (a thin invoke; the cache fills in from the reply event) ---
 
-  function invoke(cmd, args) { return FSBridge.invoke(cmd, args || {}).catch(function () {}); }
+  function invoke(cmd, args) { return BeeBridge.invoke(cmd, args || {}).catch(function () {}); }
 
   function fetchAvatarProfile(id) {
     const key = normId(id);
@@ -364,6 +366,7 @@ const FSProfiles = (function () {
     getPickDetail: getPickDetail, getClassifiedDetail: getClassifiedDetail,
     getActiveGroupId: getActiveGroupId, getActiveGroupInfo: getActiveGroupInfo,
     isActiveGroup: isActiveGroup, isAgentInGroup: isAgentInGroup,
+    getAgentGroups: getAgentGroups,
     hasAgentProfileCap: hasAgentProfileCap, isCapFetchActive: isCapFetchActive,
     needsCapProfileFetch: needsCapProfileFetch,
     getProfileGroupsForDisplay: getProfileGroupsForDisplay, mergeAvatarProfile: mergeAvatarProfile,

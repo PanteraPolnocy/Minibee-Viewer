@@ -1,16 +1,16 @@
 /**
  * Native-engine transport adapter.
  *
- * Implements the FSTransport interface by talking straight to the Rust core:
+ * Implements the BeeTransport interface by talking straight to the Rust core:
  * inbound Tauri events (`minibee-viewer://<event>`) get re-emitted on the
- * FSTransport bus the UI is already listening to, and every method here fires a
+ * BeeTransport bus the UI is already listening to, and every method here fires a
  * Rust command. The real login parsing (XML-RPC, classify, normalize, buddies,
  * payload) all lives in Rust (`bridge_login`); this file only drives the
  * MFA/TOS challenge loop. The circuit and protocol engine live in Rust too
  * (src-tauri/src/bridge/{circuit,session,eventqueue,caps}.rs,
  * src-tauri/src/{codec,bridge/login}.rs).
  */
-const FSSLBridge = (function () {
+const BeeSLBridge = (function () {
   'use strict';
 
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
@@ -23,7 +23,6 @@ const FSSLBridge = (function () {
   const buddyOnline = new Map(); // id -> bool
   let buddyRoster = [];          // keep the full buddy objects so a presence change can re-emit the list
   const groupNames = new Map();  // id -> name
-  const searchWaiters = new Map(); // queryId -> resolve (directory search)
   const groupActionWaiters = new Map(); // "action:groupId" -> [resolve,...] (join/leave replies)
   const parcelInfoWaiters = new Map(); // parcelId -> [resolve, ...] (concurrent lookups)
 
@@ -31,14 +30,14 @@ const FSSLBridge = (function () {
     return String(id || '').toLowerCase();
   }
 
-  // These events are forwarded to the FSTransport bus untouched.
+  // These events are forwarded to the BeeTransport bus untouched.
   const PASSTHROUGH = [
     'connected', 'disconnected', 'session-lost', 'caps-status', 'region', 'position', 'parcel',
     'chat', 'event', 'im', 'im-typing', 'im-roster', 'im-session-force-close', 'im-session-remap',
     'money-balance', 'radar-update', 'map-blocks', 'map-agents', 'stats',
     'teleport-started', 'teleport-progress', 'teleport-finish', 'teleport-failed',
     'teleport-offer', 'teleport-request', 'teleport-accepted', 'teleport-declined',
-    'sit-state', 'object-properties', 'pay-price',
+    'sit-state', 'object-properties', 'pay-price', 'mute-list', 'region-restart',
     'close-requested'
   ];
 
@@ -50,13 +49,13 @@ const FSSLBridge = (function () {
     const pending = [];
 
     PASSTHROUGH.forEach(function (name) {
-      pending.push(FSBridge.listen('minibee-viewer://' + name, function (payload) {
+      pending.push(BeeBridge.listen('minibee-viewer://' + name, function (payload) {
         if (name === 'connected') seedFromConnected(payload);
-        FSTransport.emit(name, payload);
+        BeeTransport.emit(name, payload);
       }));
     });
 
-    pending.push(FSBridge.listen('minibee-viewer://names-updated', function (data) {
+    pending.push(BeeBridge.listen('minibee-viewer://names-updated', function (data) {
       (data && data.names || []).forEach(function (n) {
         if (n && n.id) names.set(normId(n.id), {
           label: n.name || n.userName || '',
@@ -64,16 +63,16 @@ const FSSLBridge = (function () {
           userName: n.userName || n.name || ''
         });
       });
-      FSTransport.emit('names-updated', data);
+      BeeTransport.emit('names-updated', data);
     }));
 
-    pending.push(FSBridge.listen('minibee-viewer://group-membership', function (data) {
+    pending.push(BeeBridge.listen('minibee-viewer://group-membership', function (data) {
       (data && data.groups || []).forEach(function (g) {
         if (g && g.id && g.name) groupNames.set(normId(g.id), g.name);
       });
     }));
 
-    pending.push(FSBridge.listen('minibee-viewer://group-names', function (data) {
+    pending.push(BeeBridge.listen('minibee-viewer://group-names', function (data) {
       let added = false;
       (data && data.groups || []).forEach(function (g) {
         if (g && g.id && g.name && !groupNames.has(normId(g.id))) {
@@ -81,46 +80,34 @@ const FSSLBridge = (function () {
           added = true;
         }
       });
-      if (added) FSTransport.emit('group-names', data);
+      if (added) BeeTransport.emit('group-names', data);
     }));
 
     // Join/leave replies come back asynchronously as group-action: resolve the
     // pending joinGroup/leaveGroup promise and forward it to the bus for the UI.
-    pending.push(FSBridge.listen('minibee-viewer://group-action', function (data) {
-      FSTransport.emit('group-action', data);
+    pending.push(BeeBridge.listen('minibee-viewer://group-action', function (data) {
+      BeeTransport.emit('group-action', data);
       const key = (data && data.action) + ':' + normId(data && data.groupId);
       const list = groupActionWaiters.get(key);
       if (list) { groupActionWaiters.delete(key); list.forEach(function (r) { r(data); }); }
     }));
 
-    pending.push(FSBridge.listen('minibee-viewer://buddy-online', function (data) {
+    pending.push(BeeBridge.listen('minibee-viewer://buddy-online', function (data) {
       applyPresence(data && data.ids, true);
     }));
-    pending.push(FSBridge.listen('minibee-viewer://buddy-offline', function (data) {
+    pending.push(BeeBridge.listen('minibee-viewer://buddy-offline', function (data) {
       applyPresence(data && data.ids, false);
     }));
 
-    // Directory search: hand the result to the waiting searchDirectory() promise.
-    ['dir-people-reply', 'dir-places-reply', 'dir-groups-reply'].forEach(function (name) {
-      pending.push(FSBridge.listen('minibee-viewer://' + name, function (data) {
-        const q = data && data.queryId;
-        const waiter = q && searchWaiters.get(q);
-        if (waiter) {
-          searchWaiters.delete(q);
-          waiter(data);
-        }
-      }));
-    });
-
     // Parcel-info lookup (about-land): resolve every pending fetchParcelInfo()
     // for this parcel, so concurrent lookups of the same id each get the reply.
-    pending.push(FSBridge.listen('minibee-viewer://parcel-info', function (data) {
+    pending.push(BeeBridge.listen('minibee-viewer://parcel-info', function (data) {
       const key = normId(data && data.parcelId);
       const waiters = key && parcelInfoWaiters.get(key);
       if (waiters) { parcelInfoWaiters.delete(key); waiters.forEach(function (r) { r(data); }); }
       // Also surface it on the bus so the Land tab can merge in the extras
       // (UUID, dwell) for the parcel the agent is standing on.
-      FSTransport.emit('parcel-info', data);
+      BeeTransport.emit('parcel-info', data);
     }));
 
     return Promise.all(pending);
@@ -158,11 +145,11 @@ const FSSLBridge = (function () {
     buddyRoster.forEach(function (b) {
       if (b && b.id && buddyOnline.has(normId(b.id))) b.online = buddyOnline.get(normId(b.id));
     });
-    FSTransport.emit('buddies-updated', buddyRoster.slice());
+    BeeTransport.emit('buddies-updated', buddyRoster.slice());
   }
 
   function invoke(cmd, args) {
-    return FSBridge.invoke(cmd, args || {});
+    return BeeBridge.invoke(cmd, args || {});
   }
 
   function findCap(caps, name) {
@@ -314,7 +301,7 @@ const FSSLBridge = (function () {
 
   // --- chat / IM ---
 
-  // ChatType on the wire is numeric (llchat.h EChatType): whisper 0, normal 1,
+  // ChatType on the wire is numeric: whisper 0, normal 1,
   // shout 2. The UI hands us the volume as a string, so we map it here - a raw
   // string would fail serde's i64 deserialize and silently drop the whole send.
   const CHAT_TYPES = { whisper: 0, normal: 1, shout: 2 };
@@ -327,12 +314,12 @@ const FSSLBridge = (function () {
   }
 
   function imTarget(sessionId) {
-    const session = (typeof FSState !== 'undefined' && FSState.get().imSessions) ? FSState.get().imSessions[sessionId] : null;
+    const session = (typeof BeeState !== 'undefined' && BeeState.get().imSessions) ? BeeState.get().imSessions[sessionId] : null;
     if (session && session.type && session.type !== 'p2p') {
       return { toId: ZERO_UUID, imId: sessionId, dialog: 17, fromGroup: session.type === 'group' };
     }
     // P2P: the session id is agentId XOR otherId, so XOR it back to recover the peer.
-    return { toId: FSUtils.xorSessionId(agentId, sessionId), imId: '', dialog: 0, fromGroup: false };
+    return { toId: BeeUtils.xorSessionId(agentId, sessionId), imId: '', dialog: 0, fromGroup: false };
   }
 
   function sendIm(sessionId, text) {
@@ -400,7 +387,7 @@ const FSSLBridge = (function () {
       buddyOnline.delete(key);
       const before = buddyRoster.length;
       buddyRoster = buddyRoster.filter(function (b) { return b && normId(b.id) !== key; });
-      if (buddyRoster.length !== before) FSTransport.emit('buddies-updated', buddyRoster.slice());
+      if (buddyRoster.length !== before) BeeTransport.emit('buddies-updated', buddyRoster.slice());
       return r;
     });
   }
@@ -421,15 +408,15 @@ const FSSLBridge = (function () {
     // IM dialog 15 (IM_SESSION_GROUP_START) starts the group session, and its id
     // IS the group id. Emit im-session-open so the UI shows the tab right away.
     invoke('sl_im_send', { toId: groupId, imId: groupId, dialog: 15, text: '', fromGroup: true }).catch(function () {});
-    FSTransport.emit('im-session-open', { sessionId: groupId, type: 'group', title: groupName || '' });
+    BeeTransport.emit('im-session-open', { sessionId: groupId, type: 'group', title: groupName || '' });
     return { sessionId: groupId, type: 'group', title: groupName || '' };
   }
   function startConference(agentIds, title) {
-    const tempId = FSUtils.uuid();
+    const tempId = BeeUtils.uuid();
     // Open the tab SYNCHRONOUSLY (before the cap POST) so it already exists when
     // the sim's ChatterBoxSessionStartReply arrives to remap temp->real id.
     // Otherwise the remap runs first, no-ops, and the roster spawns a 2nd tab.
-    FSTransport.emit('im-session-open', { sessionId: tempId, type: 'conference', title: title || 'Conference' });
+    BeeTransport.emit('im-session-open', { sessionId: tempId, type: 'conference', title: title || 'Conference' });
     invoke('sl_chat_session_start_conference', { tempSessionId: tempId, agentIds: agentIds || [] })
       .catch(function () { /* the start reply / force-close will surface any failure */ });
     return { sessionId: tempId, type: 'conference', title: title || 'Conference' };
@@ -441,7 +428,7 @@ const FSSLBridge = (function () {
     return invoke('sl_chat_session_moderate', { sessionId: sessionId, agentId: agentId, muteText: !!muteText }).then(function () { return { sent: true }; });
   }
   function leaveImSession(sessionId) {
-    const session = (typeof FSState !== 'undefined' && FSState.get().imSessions) ? FSState.get().imSessions[sessionId] : null;
+    const session = (typeof BeeState !== 'undefined' && BeeState.get().imSessions) ? BeeState.get().imSessions[sessionId] : null;
     if (!session || session.type === 'p2p') return; // P2P has no server-side session, so there's nothing to leave
     invoke('sl_chat_session_decline', { sessionId: sessionId }).catch(function () {});
   }
@@ -449,11 +436,11 @@ const FSSLBridge = (function () {
   // --- parcel ---
 
   function updateParcel(data) {
-    FSTransport.emit('parcel-updated', data); // optimistic echo so the land tab updates right away
+    BeeTransport.emit('parcel-updated', data); // optimistic echo so the land tab updates right away
     return invoke('sl_update_parcel', { parcel: data });
   }
   function refreshParcel() {
-    const pos = (typeof FSState !== 'undefined' && FSState.get().position) || { x: 128, y: 128 };
+    const pos = (typeof BeeState !== 'undefined' && BeeState.get().position) || { x: 128, y: 128 };
     return invoke('sl_request_parcel', { x: pos.x || 128, y: pos.y || 128 });
   }
   // RemoteParcelRequest: map (region grid, local pos) -> parcel UUID, then fire
@@ -484,17 +471,18 @@ const FSSLBridge = (function () {
     return invoke('sl_save_notes', { targetId: targetId, notes: notes || '' }).then(function () { return { sent: true }; });
   }
 
-  function searchDirectory(kind, query) {
+  // The Rust command now gathers every reply packet of the query (one page =
+  // up to 100 rows) before returning, so this is a plain call: no waiters.
+  // Returns { rows, hasMore, nextStart, statusText }.
+  function searchDirectory(kind, query, start) {
     const cmd = kind === 'places' ? 'sl_search_places' : (kind === 'groups' ? 'sl_search_groups' : 'sl_search_people');
-    return invoke(cmd, { query: query }).then(function (res) {
-      const qid = res && res.queryId;
-      if (!qid) return [];
-      return new Promise(function (resolve) {
-        searchWaiters.set(qid, function (data) { resolve((data && (data.people || data.places || data.groups)) || []); });
-        setTimeout(function () {
-          if (searchWaiters.get(qid)) { searchWaiters.delete(qid); resolve([]); }
-        }, 8000);
-      });
+    return invoke(cmd, { query: query, start: start || 0 }).then(function (res) {
+      return {
+        rows: (res && res.results) || [],
+        hasMore: !!(res && res.hasMore),
+        nextStart: (res && res.nextStart) || 0,
+        statusText: (res && res.statusText) || ''
+      };
     });
   }
 
@@ -561,7 +549,7 @@ const FSSLBridge = (function () {
     // The sim gives us no reliable confirmation for a cancel, so tell the UI to
     // tear down its progress dialogs as soon as the request goes out.
     return invoke('sl_teleport_cancel').then(function () {
-      FSTransport.emit('teleport-cancelled', {});
+      BeeTransport.emit('teleport-cancelled', {});
       return true;
     }).catch(function () { return false; });
   }
@@ -573,11 +561,11 @@ const FSSLBridge = (function () {
     // "http://maps.secondlife.com/..." into a region name of "http:".
     let regionName = '';
     let local = { x: 128, y: 128, z: 25 };
-    // Accept a pre-parsed location OBJECT (e.g. from FSMap.showLocation) as well
+    // Accept a pre-parsed location OBJECT (e.g. from BeeMap.showLocation) as well
     // as a string - otherwise String(object) would just become "[object Object]".
     const parsed = (input && typeof input === 'object')
       ? input
-      : ((typeof FSSlurl !== 'undefined' && FSSlurl.parse) ? FSSlurl.parse(String(input || '').trim()) : null);
+      : ((typeof BeeSlurl !== 'undefined' && BeeSlurl.parse) ? BeeSlurl.parse(String(input || '').trim()) : null);
     // A pre-resolved location that already carries grid coords (e.g. a pick, whose
     // SimName can be empty) teleports straight there - no region-name lookup and
     // no name needed. This has to come before the regionName check, since a pick's
@@ -612,7 +600,7 @@ const FSSLBridge = (function () {
       local = { x: num(1, 128), y: num(2, 128), z: num(3, 25) };
     }
     if (!regionName) throw new Error('Enter a region name or SLURL');
-    const info = await FSBridge.regionByName(regionName);
+    const info = await BeeBridge.regionByName(regionName);
     if (!info || (info.x == null && info.gridX == null)) throw new Error('Region not found: ' + regionName);
     const gridX = info.gridX != null ? info.gridX : info.x;
     const gridY = info.gridY != null ? info.gridY : info.y;
@@ -631,8 +619,8 @@ const FSSLBridge = (function () {
     });
     return Promise.resolve();
   }
-  function getMapServerUrl() { return FSSlurl.DEFAULT_MAP_SERVER; }
-  function getMapTileUrl(level, gridX, gridY) { return FSSlurl.tileUrl(FSSlurl.DEFAULT_MAP_SERVER, level, gridX, gridY); }
+  function getMapServerUrl() { return BeeSlurl.DEFAULT_MAP_SERVER; }
+  function getMapTileUrl(level, gridX, gridY) { return BeeSlurl.tileUrl(BeeSlurl.DEFAULT_MAP_SERVER, level, gridX, gridY); }
 
   // --- synchronous accessors (backed by the mirror) ---
 

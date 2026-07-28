@@ -1,7 +1,7 @@
 /**
  * Application bootstrap - brings the viewer up and wires the modules together.
  */
-const FSApp = (function () {
+const BeeApp = (function () {
   'use strict';
 
   let allowUnload = false;
@@ -15,7 +15,7 @@ const FSApp = (function () {
 
   function shouldConfirmUnload() {
     if (allowUnload) return false;
-    const s = FSState.get();
+    const s = BeeState.get();
     return !!(s.connected || s.connecting);
   }
 
@@ -31,8 +31,8 @@ const FSApp = (function () {
   // Let the Rust core know whether to intercept a window-close so we can
   // confirm the logout first (only while a session is live).
   function setCloseGuard(on) {
-    if (typeof FSBridge !== 'undefined' && FSBridge.invoke) {
-      FSBridge.invoke('set_close_guard', { guard: !!on }).catch(function () {});
+    if (typeof BeeBridge !== 'undefined' && BeeBridge.invoke) {
+      BeeBridge.invoke('set_close_guard', { guard: !!on }).catch(function () {});
     }
   }
 
@@ -43,8 +43,8 @@ const FSApp = (function () {
   }
 
   function autoReconnectEnabled() {
-    return typeof FSSettings !== 'undefined' && !!FSSettings.get('autoReconnect') &&
-      typeof FSTransport.reconnect === 'function';
+    return typeof BeeSettings !== 'undefined' && !!BeeSettings.get('autoReconnect') &&
+      typeof BeeTransport.reconnect === 'function';
   }
 
   // Auto-reconnect: the Rust core replays the cached login (bridge_relogin).
@@ -58,17 +58,17 @@ const FSApp = (function () {
 
   function runReconnectAttempt() {
     reconnectTimer = null;
-    const s = FSState.get();
+    const s = BeeState.get();
     if (s.connected && !s.sessionLost) { cancelReconnect(); return; }
     if (reconnecting) { scheduleReconnect(RECONNECT_INTERVAL); return; }
     reconnecting = true;
     reconnectAttempt += 1;
-    FSUtils.showToast('Connection lost - reconnecting (attempt ' + reconnectAttempt + ')...',
+    BeeUtils.showToast('Connection lost - reconnecting (attempt ' + reconnectAttempt + ')...',
       'warning', 4000);
-    Promise.resolve(FSTransport.reconnect()).then(function () {
+    Promise.resolve(BeeTransport.reconnect()).then(function () {
       reconnecting = false;
       // 'connected' normally cancels the loop; guard here in case it doesn't fire.
-      if (!FSState.get().connected) scheduleReconnect(RECONNECT_INTERVAL);
+      if (!BeeState.get().connected) scheduleReconnect(RECONNECT_INTERVAL);
     }).catch(function () {
       reconnecting = false;
       scheduleReconnect(RECONNECT_INTERVAL); // keep trying, there's no limit
@@ -78,21 +78,21 @@ const FSApp = (function () {
   function startReconnect() {
     if (reconnectTimer || reconnecting) return; // we're already looping
     reconnectAttempt = 0;
-    FSState.patch({ connecting: true });
+    BeeState.patch({ connecting: true });
     scheduleReconnect(RECONNECT_FIRST_DELAY);
   }
 
   // Confirm before quitting the app - this is raised by the Rust window-close
   // intercept. Distinct from the logout button, which returns to the login screen.
   async function confirmAppClose() {
-    const s = FSState.get();
+    const s = BeeState.get();
     if (!(s.connected || s.connecting)) {
-      if (typeof FSBridge !== 'undefined' && FSBridge.invoke) {
-        FSBridge.invoke('confirm_close').catch(function () {});
+      if (typeof BeeBridge !== 'undefined' && BeeBridge.invoke) {
+        BeeBridge.invoke('confirm_close').catch(function () {});
       }
       return;
     }
-    const ok = await FSUtils.confirm({
+    const ok = await BeeUtils.confirm({
       title: 'Close Minibee?',
       message: 'You are still connected to Second Life. Closing will log you out and quit the viewer.',
       confirmLabel: 'Log out & quit',
@@ -101,14 +101,14 @@ const FSApp = (function () {
     if (!ok) {
       // Tell the core the question was answered with "no", so the next press of X asks
       // again instead of being taken for a confirming second press.
-      if (typeof FSBridge !== 'undefined' && FSBridge.invoke) {
-        FSBridge.invoke('cancel_close').catch(function () {});
+      if (typeof BeeBridge !== 'undefined' && BeeBridge.invoke) {
+        BeeBridge.invoke('cancel_close').catch(function () {});
       }
       return;
     }
     allowUnload = true;
-    if (typeof FSBridge !== 'undefined' && FSBridge.invoke) {
-      FSBridge.invoke('confirm_close').catch(function () {});
+    if (typeof BeeBridge !== 'undefined' && BeeBridge.invoke) {
+      BeeBridge.invoke('confirm_close').catch(function () {});
     }
   }
 
@@ -117,24 +117,24 @@ const FSApp = (function () {
   // the region - and we check we're still connected before asking.
   const AUTO_SIT_DELAY = 2500;
   function maybeAutoSit() {
-    if (typeof FSSettings === 'undefined' || !FSSettings.get('autoSitAfterLogin')) return;
+    if (typeof BeeSettings === 'undefined' || !BeeSettings.get('autoSitAfterLogin')) return;
     window.setTimeout(function () {
-      const s = FSState.get();
+      const s = BeeState.get();
       if (!s.connected || s.sessionLost) return;
-      if (typeof FSBridge === 'undefined' || !FSBridge.invoke) return;
-      FSBridge.invoke('sl_sit_ground').then(function () {
-        if (typeof FSInteract !== 'undefined' && FSInteract.refreshState) FSInteract.refreshState();
+      if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke) return;
+      BeeBridge.invoke('sl_sit_ground').then(function () {
+        if (typeof BeeInteract !== 'undefined' && BeeInteract.refreshState) BeeInteract.refreshState();
       }).catch(function () { /* nothing worth interrupting the user for */ });
     }, AUTO_SIT_DELAY);
   }
 
   function bindTransport() {
-    FSTransport.on('connected', function (payload) {
+    BeeTransport.on('connected', function (payload) {
       allowUnload = false;
       wasConnected = true;
       cancelReconnect();
       setCloseGuard(true);
-      FSState.patch({
+      BeeState.patch({
         connected: true,
         connecting: false,
         sessionLost: false,
@@ -148,20 +148,20 @@ const FSApp = (function () {
         position: payload.position
       });
 
-      FSMap.onConnected(payload);
-      FSState.patch({ unreadChat: 0, unreadIm: 0, unreadEvents: 0 });
+      BeeMap.onConnected(payload);
+      BeeState.patch({ unreadChat: 0, unreadIm: 0, unreadEvents: 0 });
       // Grab the current parcel up front so the top-bar parcel line resolves
       // without waiting for the user to open the Land tab.
-      if (typeof FSTransport.refreshParcel === 'function') FSTransport.refreshParcel();
-      FSNavigation.switchTab('chat');
-      FSUtils.showToast('Welcome, ' + payload.agent.displayName, 'success');
+      if (typeof BeeTransport.refreshParcel === 'function') BeeTransport.refreshParcel();
+      BeeNavigation.switchTab('chat');
+      BeeUtils.showToast('Welcome, ' + payload.agent.displayName, 'success');
       maybeAutoSit();
 
       // Show the login Message-of-the-Day as a system line (see renderMotdMessage).
       const motd = payload.motd ? String(payload.motd).trim() : '';
       if (motd) {
-        FSState.addChatMessage({
-          id: FSUtils.uuid(),
+        BeeState.addChatMessage({
+          id: BeeUtils.uuid(),
           kind: 'motd',
           fromId: '00000000-0000-0000-0000-000000000000',
           fromName: 'Second Life',
@@ -174,125 +174,229 @@ const FSApp = (function () {
       }
     });
 
-    FSTransport.on('session-lost', function (data) {
+    BeeTransport.on('session-lost', function (data) {
       const reason = data && data.reason;
       // Auto-reconnect if it's enabled and we actually had a session; otherwise
       // fall back to the manual session-lost overlay.
       if (wasConnected && autoReconnectEnabled()) {
         startReconnect();
       } else {
-        FSSessionLost.show(reason);
+        BeeSessionLost.show(reason);
       }
     });
 
     // Rust intercepted a window-close while a session is live - confirm before we quit.
-    FSTransport.on('close-requested', function () {
+    BeeTransport.on('close-requested', function () {
       confirmAppClose();
     });
 
     // Region capability health, as assessed by the Rust core (see caps::assess_caps).
     // Raises the degraded-features banner when caps or the EventQueue fail to come
     // up, and clears it once a region is healthy again.
-    FSTransport.on('caps-status', function (data) {
-      FSCapsBanner.update(data);
+    BeeTransport.on('caps-status', function (data) {
+      BeeCapsBanner.update(data);
     });
 
-    FSTransport.on('disconnected', function () {
+    BeeTransport.on('disconnected', function () {
       wasConnected = false;
       cancelReconnect();
       setCloseGuard(false);
-      FSSessionLost.hide();
-      FSState.reset();
-      FSLogin.showScreen(false);
+      BeeSessionLost.hide();
+      BeeState.reset();
+      BeeLogin.showScreen(false);
     });
 
-    FSTransport.on('region', function (data) {
+    BeeTransport.on('region', function (data) {
       if (!data) return;
-      FSState.patch({
-        region: Object.assign({}, FSState.get().region, data)
+      BeeState.patch({
+        region: Object.assign({}, BeeState.get().region, data)
       });
     });
 
-    FSTransport.on('chat', function (msg) {
-      FSState.addChatMessage(msg);
+    BeeTransport.on('chat', function (msg) {
+      BeeState.addChatMessage(msg);
     });
 
-    FSTransport.on('event', function (msg) {
-      FSState.addEventMessage(msg);
+    BeeTransport.on('event', function (msg) {
+      BeeState.addEventMessage(msg);
     });
 
-    FSTransport.on('im', function (data) {
+    BeeTransport.on('im', function (data) {
       const isSession = data.session && data.session.type && data.session.type !== 'p2p';
       if (data.participant && !isSession) {
-        FSState.ensureImSession(data.participant);
+        BeeState.ensureImSession(data.participant);
       }
-      FSState.addImMessage(data.sessionId, data.message, data.participant, data.session);
+      BeeState.addImMessage(data.sessionId, data.message, data.participant, data.session);
     });
 
-    FSTransport.on('im-session-open', function (data) {
+    BeeTransport.on('im-session-open', function (data) {
       if (!data || !data.sessionId) return;
-      FSState.ensureKeyedSession(data.sessionId, { type: data.type, title: data.title });
+      BeeState.ensureKeyedSession(data.sessionId, { type: data.type, title: data.title });
     });
 
     // A conference we started just got its real session id back from the sim, so
     // rebind the tab we opened under the client temp id (see route_eq
     // ChatterBoxSessionStartReply).
-    FSTransport.on('im-session-remap', function (data) {
+    BeeTransport.on('im-session-remap', function (data) {
       if (!data || !data.tempId || !data.sessionId) return;
-      if (data.success !== false) FSState.remapImSession(data.tempId, data.sessionId);
+      if (data.success !== false) BeeState.remapImSession(data.tempId, data.sessionId);
     });
 
-    FSTransport.on('im-roster', function (data) {
+    BeeTransport.on('im-roster', function (data) {
       if (!data || !data.sessionId) return;
-      FSState.ensureKeyedSession(data.sessionId, { type: data.type, title: data.title });
-      if (data.title) FSState.renameSession(data.sessionId, data.title);
-      if (data.type) FSState.setSessionType(data.sessionId, data.type);
-      FSState.updateSessionRoster(data.sessionId, data.participants || [], data.moderator);
+      BeeState.ensureKeyedSession(data.sessionId, { type: data.type, title: data.title });
+      if (data.title) BeeState.renameSession(data.sessionId, data.title);
+      if (data.type) BeeState.setSessionType(data.sessionId, data.type);
+      BeeState.updateSessionRoster(data.sessionId, data.participants || [], data.moderator);
     });
 
-    FSTransport.on('im-typing', function (data) {
+    BeeTransport.on('im-typing', function (data) {
       if (!data || !data.sessionId) return;
-      const session = FSState.get().imSessions[data.sessionId];
+      const session = BeeState.get().imSessions[data.sessionId];
       if (!session) return;
       if (session.dismissed) {
         session.dismissed = false;
-        FSState.emit('im-sessions-updated');
+        BeeState.emit('im-sessions-updated');
       }
-      FSState.setSessionTyping(data.sessionId, data.typing, data.fromName);
+      BeeState.setSessionTyping(data.sessionId, data.typing, data.fromName);
     });
 
-    FSTransport.on('im-session-force-close', function (data) {
+    BeeTransport.on('im-session-force-close', function (data) {
       if (!data || !data.sessionId) return;
-      const session = FSState.get().imSessions[data.sessionId];
+      const session = BeeState.get().imSessions[data.sessionId];
       const label = session ? (session.title || 'chat session') : 'chat session';
-      FSState.closeImSession(data.sessionId);
-      FSUtils.showToast((data.reason || 'The chat session was closed') +
+      BeeState.closeImSession(data.sessionId);
+      BeeUtils.showToast((data.reason || 'The chat session was closed') +
         ' (' + label + ')', 'warning', 5000);
     });
 
-    FSTransport.on('radar-update', function (entries) {
-      FSState.patch({ radar: entries });
-      FSState.emit('radar-update', entries);
+    BeeTransport.on('radar-update', function (entries) {
+      BeeState.patch({ radar: entries });
+      BeeState.emit('radar-update', entries);
     });
 
-    FSState.on('radar-alert', function (entry) {
-      if (!FSState.get().radarAlerts || !entry) return;
-      const names = FSUtils.agentNameLines(entry);
+    // A region restart is impending doom: modal, not a chat line, with a live
+    // countdown so nobody misreads how long they have.
+    let restartTimer = null;
+    let restartDeadline = 0;
+    let restartRegion = '';
+    let restartBound = false;
+
+    function paintRestartCountdown() {
+      const textEl = document.getElementById('region-restart-text');
+      if (!textEl) return;
+      const left = Math.max(0, Math.round((restartDeadline - Date.now()) / 1000));
+      const when = left >= 120
+        ? ('about ' + Math.round(left / 60) + ' minutes')
+        : left > 0
+          ? (left + ' seconds')
+          : 'any moment now';
+      textEl.textContent = 'The region ' + (restartRegion ? '"' + restartRegion + '" ' : '') +
+        'is restarting in ' + when + '.';
+      if (left <= 0 && restartTimer) {
+        window.clearInterval(restartTimer);
+        restartTimer = null;
+      }
+    }
+
+    BeeTransport.on('region-restart', function (data) {
+      const dlg = document.getElementById('region-restart-dialog');
+      if (!dlg) return;
+      restartDeadline = Date.now() + (Math.max(0, (data && data.seconds) || 0) * 1000);
+      restartRegion = (data && data.regionName) || '';
+      if (!restartBound) {
+        restartBound = true;
+        const ok = document.getElementById('region-restart-ok');
+        if (ok) ok.addEventListener('click', function () { BeeUtils.dismissDialog(dlg); });
+        const map = document.getElementById('region-restart-map');
+        if (map) {
+          map.addEventListener('click', function () {
+            BeeUtils.dismissDialog(dlg);
+            if (typeof BeeNavigation !== 'undefined' && BeeNavigation.setTab) BeeNavigation.setTab('map');
+          });
+        }
+      }
+      paintRestartCountdown();
+      if (restartTimer) window.clearInterval(restartTimer);
+      restartTimer = window.setInterval(paintRestartCountdown, 1000);
+      if (typeof dlg.showModal === 'function' && !dlg.open) dlg.showModal();
+    });
+
+    // Leaving the doomed region - a teleport of our own, being teleported, or
+    // a region crossing - makes the warning moot, so it closes on any region
+    // change. Same when the session ends.
+    function clearRestartWarning() {
+      const dlg = document.getElementById('region-restart-dialog');
+      if (dlg && dlg.open) BeeUtils.dismissDialog(dlg);
+      if (restartTimer) { window.clearInterval(restartTimer); restartTimer = null; }
+      restartRegion = '';
+      restartDeadline = 0;
+    }
+    BeeTransport.on('teleport-finish', clearRestartWarning);
+    BeeTransport.on('disconnected', clearRestartWarning);
+    BeeTransport.on('region', function (data) {
+      if (!restartRegion && !restartDeadline) return;
+      const name = (data && (data.name || data.regionName)) || '';
+      // A region event for somewhere else means we left the doomed sim.
+      if (name && restartRegion && name.toLowerCase() !== restartRegion.toLowerCase()) {
+        clearRestartWarning();
+      }
+    });
+
+    // Radar alerts whose avatar name hasn't resolved yet: hold the toast until
+    // the name lands (or a short timeout), instead of announcing "?".
+    const pendingRadarAlerts = new Map(); // lowercased id -> { entry, timer }
+
+    function showRadarToast(entry) {
+      const names = BeeUtils.agentNameLines(entry);
       const label = names.title || entry.name || entry.id || 'Someone';
-      FSUtils.showToast('Radar: ' + label + ' (' + entry.range + 'm)', 'warning', 4500);
+      BeeUtils.showToast('Radar: ' + label + ' (' + entry.range + 'm)', 'warning', 4500);
+    }
+
+    BeeTransport.on('names-updated', function (data) {
+      if (!pendingRadarAlerts.size) return;
+      ((data && data.names) || []).forEach(function (n) {
+        const key = n && n.id ? String(n.id).toLowerCase() : '';
+        const waiting = key && pendingRadarAlerts.get(key);
+        if (!waiting) return;
+        pendingRadarAlerts.delete(key);
+        clearTimeout(waiting.timer);
+        showRadarToast(Object.assign({}, waiting.entry, {
+          name: n.name || n.displayName || n.userName || waiting.entry.name,
+          displayName: n.displayName || '',
+          userName: n.userName || ''
+        }));
+      });
+    });
+
+    BeeState.on('radar-alert', function (entry) {
+      if (!BeeState.get().radarAlerts || !entry) return;
+      const cached = entry.name ||
+        (BeeTransport.getCachedName ? BeeTransport.getCachedName(entry.id) : '');
+      if (cached) {
+        showRadarToast(entry.name ? entry : Object.assign({}, entry, { name: cached }));
+        return;
+      }
+      const key = String(entry.id || '').toLowerCase();
+      if (!key || pendingRadarAlerts.has(key)) return;
+      const timer = setTimeout(function () {
+        pendingRadarAlerts.delete(key);
+        showRadarToast(entry);
+      }, 3000);
+      pendingRadarAlerts.set(key, { entry: entry, timer: timer });
     });
 
     // The sim sends SimStats roughly once a second; coalesce fps patches so the top bar doesn't churn.
     let lastFpsValue = null;
     let lastFpsPatchAt = 0;
     const FPS_PATCH_MIN_MS = 3000;
-    FSTransport.on('stats', function (stats) {
+    BeeTransport.on('stats', function (stats) {
       if (!stats || !stats.fps) return;
       const now = Date.now();
       if (stats.fps === lastFpsValue || now - lastFpsPatchAt < FPS_PATCH_MIN_MS) return;
       lastFpsValue = stats.fps;
       lastFpsPatchAt = now;
-      FSState.patch({ fps: stats.fps });
+      BeeState.patch({ fps: stats.fps });
     });
 
     // Payment/transaction events: the sim sometimes sends the same MoneyBalanceReply
@@ -300,9 +404,9 @@ const FSApp = (function () {
     // refresh the existing card in place rather than stacking duplicates.
     const recentPayments = new Map(); // keyed by signature -> { id, at }
     const PAYMENT_TTL_MS = 15000;
-    FSTransport.on('money-balance', function (data) {
+    BeeTransport.on('money-balance', function (data) {
       if (!data || data.balance === undefined || data.balance === null) return;
-      FSState.patch({ lindenBalance: data.balance });
+      BeeState.patch({ lindenBalance: data.balance });
       const desc = (data.description || '').trim();
       if (!desc) return; // balance-only update, so there's nothing to post as a transaction
       const now = Date.now();
@@ -310,13 +414,13 @@ const FSApp = (function () {
       const sig = (data.transactionType != null ? data.transactionType : '') + '|' + desc + '|' + data.balance;
       const existing = recentPayments.get(sig);
       if (existing) {
-        FSState.patchEventMessage(existing.id, { payment: { balance: data.balance } });
+        BeeState.patchEventMessage(existing.id, { payment: { balance: data.balance } });
         existing.at = now;
         return;
       }
-      const id = FSUtils.uuid();
+      const id = BeeUtils.uuid();
       recentPayments.set(sig, { id: id, at: now });
-      FSState.addEventMessage({
+      BeeState.addEventMessage({
         id: id,
         kind: 'payment',
         text: desc,
@@ -325,85 +429,85 @@ const FSApp = (function () {
       });
     });
 
-    FSTransport.on('parcel', function (parcel) {
+    BeeTransport.on('parcel', function (parcel) {
       if (!parcel) return;
-      const prev = FSState.get().parcel || {};
+      const prev = BeeState.get().parcel || {};
       if (parcel.stub && prev.stub) {
-        FSState.patch({ parcel: parcel });
+        BeeState.patch({ parcel: parcel });
       } else {
         const next = Object.assign({}, prev, parcel);
         if (parcel.stub !== true) next.stub = false;
-        FSState.patch({ parcel: next });
+        BeeState.patch({ parcel: next });
       }
-      if (!parcel.stub && !FSNavigation.isTabActive('land')) {
-        FSState.patch({ landUpdated: true });
-      }
-    });
-
-    FSTransport.on('parcel-updated', function (data) {
-      const merged = Object.assign({}, FSState.get().parcel, data, { stub: false });
-      FSState.patch({ parcel: merged });
-      if (!FSNavigation.isTabActive('land')) {
-        FSState.patch({ landUpdated: true });
+      if (!parcel.stub && !BeeNavigation.isTabActive('land')) {
+        BeeState.patch({ landUpdated: true });
       }
     });
 
-    FSTransport.on('buddies-updated', function (buddies) {
-      FSState.patch({ buddies: buddies });
-      if (FSNavigation.isTabActive('buddies')) {
-        FSBuddies.render();
+    BeeTransport.on('parcel-updated', function (data) {
+      const merged = Object.assign({}, BeeState.get().parcel, data, { stub: false });
+      BeeState.patch({ parcel: merged });
+      if (!BeeNavigation.isTabActive('land')) {
+        BeeState.patch({ landUpdated: true });
+      }
+    });
+
+    BeeTransport.on('buddies-updated', function (buddies) {
+      BeeState.patch({ buddies: buddies });
+      if (BeeNavigation.isTabActive('buddies')) {
+        BeeBuddies.render();
       }
     });
 
 
-    FSTransport.on('teleport-finish', function (data) {
+    BeeTransport.on('teleport-finish', function (data) {
       const patch = {};
       if (data && data.position) patch.position = data.position;
       if (data && data.region) {
-        patch.region = Object.assign({}, FSState.get().region, data.region);
+        patch.region = Object.assign({}, BeeState.get().region, data.region);
       }
       const resolvedName = (data && data.region && data.region.name) ||
         (data && data.regionName) || '';
       if (resolvedName && !/^(home|region)$/i.test(String(resolvedName).trim())) {
-        patch.region = Object.assign({}, patch.region || FSState.get().region, {
+        patch.region = Object.assign({}, patch.region || BeeState.get().region, {
           name: resolvedName
         });
       }
-      if (Object.keys(patch).length) FSState.patch(patch);
+      if (Object.keys(patch).length) BeeState.patch(patch);
       // Refresh the parcel for the new region so the top-bar parcel line updates
       // without opening Land, delayed a touch so the retargeted circuit has settled.
-      if (typeof FSTransport.refreshParcel === 'function') {
+      if (typeof BeeTransport.refreshParcel === 'function') {
         window.setTimeout(function () {
-          if (!FSState.get().sessionLost) FSTransport.refreshParcel();
+          if (!BeeState.get().sessionLost) BeeTransport.refreshParcel();
         }, 1500);
       }
       // teleport.js owns the arrival toast, so we don't raise a second one here.
     });
 
-    FSTransport.on('position', function (data) {
+    BeeTransport.on('position', function (data) {
       if (data && data.position) {
-        FSState.patch({ position: data.position });
+        BeeState.patch({ position: data.position });
       }
       if (data && data.region) {
-        FSState.patch({ region: Object.assign({}, FSState.get().region, data.region) });
+        BeeState.patch({ region: Object.assign({}, BeeState.get().region, data.region) });
       }
     });
   }
 
   async function login(credentials) {
     allowUnload = false;
-    FSState.patch({ connecting: true });
-    FSTransport.use(FSSLBridge);
-    const result = await FSTransport.login(credentials);
-    FSTransport.start();
+    BeeState.patch({ connecting: true });
+    BeeTransport.use(BeeSLBridge);
+    const result = await BeeTransport.login(credentials);
+    BeeTransport.start();
     return result;
   }
 
   async function logout(options) {
     const opts = options || {};
-    const s = FSState.get();
+    const s = BeeState.get();
     if (!opts.skipConfirm && (s.connected || s.connecting)) {
-      const ok = await FSUtils.confirm({
+      const ok = await BeeUtils.confirm({
         title: 'Log out?',
         message: 'You will be disconnected from Second Life.',
         confirmLabel: 'Log out',
@@ -412,46 +516,46 @@ const FSApp = (function () {
       if (!ok) return;
     }
     allowUnload = true;
-    await FSTransport.logout();
-    FSState.reset();
-    FSLogin.showScreen(false);
+    await BeeTransport.logout();
+    BeeState.reset();
+    BeeLogin.showScreen(false);
   }
 
   function init() {
     if (window.MINIBEE_BLOCKED) return;
     try {
       setCloseGuard(false);
-      if (typeof FSDiag !== 'undefined') FSDiag.init();
+      if (typeof BeeDiag !== 'undefined') BeeDiag.init();
       installContextMenu();
-      if (typeof FSSettings !== 'undefined') FSSettings.init();
+      if (typeof BeeSettings !== 'undefined') BeeSettings.init();
       bindUnloadGuard();
       bindTransport();
-      FSLogin.init();
-      FSNavigation.init();
-      FSChat.init();
-      FSIm.init();
-      FSEvents.init();
-      FSBuddies.init();
-      FSSearch.init();
-      FSRadar.init();
-      FSMap.init();
-      FSLand.init();
-      FSDestinations.init();
-      FSTeleportUI.init();
-      FSTeleportProgress.init();
-      FSAvatarThumb.init();
-      FSProfile.init();
-      FSSettingsUI.init();
-      FSNews.init();
-      FSInteract.init();
-      FSSessionLost.init();
-      FSCapsBanner.init();
-      if (typeof FSParcelMusic !== 'undefined') FSParcelMusic.init();
+      BeeLogin.init();
+      BeeNavigation.init();
+      BeeChat.init();
+      BeeIm.init();
+      BeeEvents.init();
+      BeeBuddies.init();
+      BeeSearch.init();
+      BeeRadar.init();
+      BeeMap.init();
+      BeeLand.init();
+      BeeDestinations.init();
+      BeeTeleportUI.init();
+      BeeTeleportProgress.init();
+      BeeAvatarThumb.init();
+      BeeProfile.init();
+      BeeSettingsUI.init();
+      BeeNews.init();
+      BeeInteract.init();
+      BeeSessionLost.init();
+      BeeCapsBanner.init();
+      if (typeof BeeParcelMusic !== 'undefined') BeeParcelMusic.init();
       if (typeof MinibeeVersion !== 'undefined' && MinibeeVersion.load) {
         MinibeeVersion.load().catch(function () {});
       }
-      if (typeof FSUpdater !== 'undefined' && FSUpdater.checkStartup) {
-        window.setTimeout(function () { FSUpdater.checkStartup(); }, 2500);
+      if (typeof BeeUpdater !== 'undefined' && BeeUpdater.checkStartup) {
+        window.setTimeout(function () { BeeUpdater.checkStartup(); }, 2500);
       }
     } catch (err) {
       console.error('Minibee init failed:', err);
@@ -464,12 +568,12 @@ const FSApp = (function () {
   }
 
   function installContextMenu() {
-    if (typeof FSContextMenu !== 'undefined' && FSContextMenu.init) {
-      FSContextMenu.init();
+    if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.init) {
+      BeeContextMenu.init();
       return;
     }
-    if (typeof FSBridge === 'undefined' || !FSBridge.invoke) return;
-    FSBridge.invoke('bridge_health').then(function (h) {
+    if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke) return;
+    BeeBridge.invoke('bridge_health').then(function (h) {
       if (h && h.dev === false) {
         window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
       }
@@ -485,4 +589,4 @@ const FSApp = (function () {
   return { login: login, logout: logout, init: init };
 })();
 
-window.FSApp = FSApp;
+window.BeeApp = BeeApp;

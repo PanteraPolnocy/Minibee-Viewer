@@ -51,6 +51,15 @@ pub enum Action {
     /// a camera frustum we don't have. Sent on arrival, since each region decides this
     /// for itself. See `caps::interest_list_360`.
     InterestList360,
+    /// A transient sim-driven animation (landing, standing up...) is playing on
+    /// our avatar. A rendering viewer plays the clip and reports back when it
+    /// ends; we wait roughly a clip length, then send AGENT_CONTROL_FINISH_ANIM
+    /// and re-assert the default stand. Without that reply the sim's avatar
+    /// state machine parks mid-transition ("about to land, forever").
+    FinishAnim { delay_ms: u64 },
+    /// Rez any Current Outfit Folder attachments the sim didn't restore by
+    /// itself, a little while after arriving in a region. See `outfit::restore`.
+    RestoreOutfit { delay_ms: u64 },
 }
 
 impl Action {
@@ -105,6 +114,10 @@ pub struct SessionState {
     pub sitting: bool,
     /// The object we're sitting on, when we are.
     pub sit_object: String,
+    /// True between sending AgentRequestSit and hearing back. A named alert
+    /// (CantSitNoRoom and friends) arriving while this is set means the sim
+    /// refused the sit; a timeout in `sl_object_sit` covers the silent refusals.
+    pub sit_pending: bool,
     /// Whether we've asked to fly. Unlike the one-shot sit/stand requests, the sim
     /// expects AGENT_CONTROL_FLY on every AgentUpdate, so we have to remember it.
     pub flying: bool,
@@ -134,6 +147,42 @@ pub struct SessionState {
     /// True once we've asked for the mute list, so `UseCachedMuteList` - which we can
     /// never honour, having no disk cache - can't bounce us into asking forever.
     pub mute_asked: bool,
+    /// Directory search results accumulated per QueryID. One DirFindQuery answer
+    /// arrives as several UDP reply packets (~30 rows each); the search command
+    /// polls this until a page is complete, then takes the whole batch at once.
+    pub dir_searches: HashMap<String, DirSearch>,
+}
+
+/// One in-flight directory search: every reply packet appends its rows here.
+#[derive(Debug, Default, Clone)]
+pub struct DirSearch {
+    pub rows: Vec<Value>,
+    /// Status bits from the reply's StatusData block (banned word, none found...).
+    pub status: u64,
+    /// When the last packet for this query arrived (state.now_ms), for idle detection.
+    pub last_ms: u64,
+}
+
+/// A confused or hostile sim must not grow the search accumulator without bound.
+const MAX_DIR_ROWS: usize = 1000;
+
+/// Append one reply packet's rows into the per-query accumulator.
+fn dir_accumulate(state: &mut SessionState, decoded: &Value, rows: Vec<Value>) -> String {
+    let query_id = inst_str(block0(decoded, "QueryData").unwrap_or(&Value::Null), "QueryID");
+    let status = block_instances(decoded, "StatusData")
+        .first()
+        .and_then(|s| s.get("Status"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let now = state.now_ms;
+    // Drop stale finished searches so abandoned queries can't pile up.
+    state.dir_searches.retain(|_, s| now.saturating_sub(s.last_ms) < 30_000);
+    let entry = state.dir_searches.entry(query_id.clone()).or_default();
+    let room = MAX_DIR_ROWS.saturating_sub(entry.rows.len());
+    entry.rows.extend(rows.into_iter().take(room));
+    entry.status |= status;
+    entry.last_ms = now;
+    query_id
 }
 
 /// A file the sim is sending us a packet at a time.
@@ -150,12 +199,39 @@ pub struct XferIn {
 /// from feeding us a file until we run out of memory.
 const MAX_XFER_BYTES: usize = 1 << 20;
 
-/// LLMute::EType. Only agents belong in a "blocked people" list.
+/// Mute-entry types. Only agents belong in a "blocked people" list.
 const MUTE_TYPE_BY_NAME: i64 = 0;
 const MUTE_TYPE_AGENT: i64 = 1;
 
 /// AgentUpdate has to carry it or the sim quietly lands us.
 pub const AGENT_CONTROL_FLY: u64 = 0x1 << 13;
+
+/// "The transient animation you started on me has finished." The sim starts
+/// landing/standup clips and then waits for the owning viewer to say so; this
+/// bit on an AgentUpdate is that reply.
+pub const AGENT_CONTROL_FINISH_ANIM: u64 = 0x1 << 15;
+
+/// The built-in default standing animation.
+pub const ANIM_AGENT_STAND: &str = "2408fe9e-df1d-1d7d-f4ff-1384fa7b350f";
+
+/// Sim-driven transient locomotion clips: after starting one of these on our
+/// avatar the sim waits for a FINISH_ANIM before moving on to stand.
+const TRANSIENT_ANIMS: &[&str] = &[
+    "7a17b059-12b2-41b1-570a-186368b6aa6f", // land
+    "f4f00d6e-b9fe-9292-f4cb-0ae06ea58d57", // soft (medium) land
+    "7a4e87fe-de39-6fcb-6223-024b00893244", // prejump
+    "3da1d753-028a-5446-24f3-9c9b856d9422", // standup
+    "666307d9-a860-572d-6fd4-c3ab8865c094", // falldown
+];
+
+/// Build an AgentAnimation request starting or stopping one animation.
+pub fn build_agent_animation(agent: &str, sess: &str, anim_id: &str, start: bool) -> Value {
+    json!({
+        "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+        "AnimationList": [{ "AnimID": anim_id, "StartAnim": start }],
+        "PhysicalAvatarEventList": [],
+    })
+}
 
 /// How much of the region around us we ask the sim to describe, in metres.
 pub const INTEREST_FAR: f64 = 128.0;
@@ -239,6 +315,19 @@ impl SessionState {
         self.im_dedup.insert(key.to_string(), now);
         false
     }
+}
+
+/// Friendly wording for the named sit-refusal alerts the sim can send
+/// (notification ids, also seen with a legacy "NOTIFY: " prefix).
+fn sit_failure_text(alert_id: &str) -> Option<&'static str> {
+    Some(match alert_id {
+        "CantSitNoRoom" => "No room to sit there - try another spot.",
+        "CantSitNoSuitableSurface" => "There is no suitable surface to sit on - try another spot.",
+        "SitFailCantMove" => "You cannot sit because you cannot move right now.",
+        "SitFailNotAllowedOnLand" => "You cannot sit there: you are not allowed on that land.",
+        "SitFailNotSameRegion" => "That seat is in a different region - move closer first.",
+        _ => return None,
+    })
 }
 
 /// Join a legacy "First Last" name; a "Resident" last name collapses to just the first.
@@ -558,6 +647,43 @@ fn strip_slurl(text: &str) -> String {
     out.trim().to_string()
 }
 
+/// A group notice's message is "Subject|Body" - split at the first pipe.
+fn split_notice_text(text: &str) -> (String, String) {
+    match text.split_once('|') {
+        Some((subject, body)) => (subject.trim().to_string(), body.trim().to_string()),
+        None => (String::new(), text.trim().to_string()),
+    }
+}
+
+/// A group notice's binary bucket: `[has_attachment u8][asset_type u8]
+/// [group_id 16 bytes][attachment name, NUL-terminated]`. Returns
+/// (has_attachment, group_id, attachment_name); empty/short buckets mean
+/// "no attachment, group unknown".
+fn parse_group_notice_bucket(raw: &[u8]) -> (bool, String, String) {
+    if raw.len() < 18 {
+        return (false, String::new(), String::new());
+    }
+    let has_attachment = raw[0] != 0;
+    let mut gid = [0u8; 16];
+    gid.copy_from_slice(&raw[2..18]);
+    let group_id = crate::bridge::objects::id_string(&gid);
+    let name_bytes = &raw[18..];
+    let end = name_bytes.iter().position(|&b| b == 0).unwrap_or(name_bytes.len());
+    let item = String::from_utf8_lossy(&name_bytes[..end]).trim().to_string();
+    (has_attachment, group_id, item)
+}
+
+/// The item name of an inventory-offer IM. Object offers arrive as
+/// "'Item name'  ( http://slurl.com/... )" - one line, location in parens -
+/// while resident offers are just the item name (sometimes with a trailing
+/// SLURL line). Both reduce to the bare name.
+fn offer_item_name(text: &str) -> String {
+    let t = text.trim();
+    let t = t.find("( http").or_else(|| t.find("(http")).map_or(t, |i| &t[..i]);
+    let t = t.find("\nhttp").map_or(t, |i| &t[..i]);
+    t.trim().trim_matches('\'').trim().to_string()
+}
+
 /// Parse a teleport-lure BinaryBucket of the form `gx|gy|x|y|z|lx|ly|lz[|access]`.
 fn parse_lure_bucket(text: &str) -> Option<Value> {
     let parts: Vec<&str> = text.split('|').collect();
@@ -617,6 +743,14 @@ fn inst_text(inst: &Value, name: &str) -> String {
 
 fn inst_str(inst: &Value, name: &str) -> String {
     inst.get(name).and_then(|v| v.as_str()).unwrap_or("").to_string()
+}
+
+/// Raw bytes of a Variable field (no NUL trimming - some buckets are binary).
+fn inst_bytes(inst: &Value, name: &str) -> Vec<u8> {
+    inst.get(name)
+        .and_then(|v| v.as_str())
+        .and_then(|s| B64.decode(s).ok())
+        .unwrap_or_default()
 }
 
 fn inst_i64(inst: &Value, name: &str) -> i64 {
@@ -934,8 +1068,9 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 json!({ "XferID": [{
                     "ID": id.to_string(),
                     "Filename": B64.encode(format!("{filename}\0").as_bytes()),
-                    // Cache path (FilePath 5).
-                    "FilePath": 5,
+                    // LL_PATH_CACHE. The sim's xfer manager only serves path 0 (none)
+                    // or 4 (cache) and silently drops anything else, mute list included.
+                    "FilePath": 4,
                     "DeleteOnCompletion": true,
                     "UseBigPackets": false,
                     "VFileID": "00000000-0000-0000-0000-000000000000",
@@ -1011,6 +1146,22 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
         }
 
+        // The sim refused or dropped a transfer we asked for. Without this the
+        // failure is invisible and a mute-list fetch just never finishes.
+        "AbortXfer" => {
+            let x = block0(decoded, "XferID").cloned().unwrap_or(Value::Null);
+            let id: u64 = inst_str(&x, "ID").parse().unwrap_or(0);
+            if let Some(x) = state.xfers.remove(&id) {
+                crate::dlog!("xfer {id} ({}) aborted by sim, result {}", x.kind, inst_i64(block0(decoded, "XferID").unwrap_or(&Value::Null), "Result"));
+                if x.kind == "mute-list" {
+                    actions.push(Action::emit(
+                        "mute-list",
+                        json!({ "people": [], "error": "The region refused to send the block list." }),
+                    ));
+                }
+            }
+        }
+
         // A group's name, for a group we aren't in.
         "UUIDGroupNameReply" => {
             let mut groups = Vec::new();
@@ -1030,8 +1181,73 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         // AgentAlertMessage carries the same AlertData.Message as AlertMessage
         // (agent-directed notices like "not allowed on this land").
         "AlertMessage" | "AgentAlertMessage" => {
-            let text = field_text(decoded, "AlertData", "Message").unwrap_or_default();
-            let text = text.trim();
+            let raw = field_text(decoded, "AlertData", "Message").unwrap_or_default();
+            let raw = raw.trim().to_string();
+            // Modern sims name the notification in AlertInfo; older ones prefix
+            // AlertData with "ALERT: "/"NOTIFY: ". Normalise both into an id.
+            let info_id = block_instances(decoded, "AlertInfo")
+                .first()
+                .map(|i| inst_text(i, "Message"))
+                .unwrap_or_default();
+            let alert_id = if info_id.trim().is_empty() {
+                raw.strip_prefix("ALERT: ")
+                    .or_else(|| raw.strip_prefix("NOTIFY: "))
+                    .unwrap_or("")
+                    .trim()
+                    .to_string()
+            } else {
+                info_id.trim().to_string()
+            };
+            // A region restart countdown. It deserves more than a chat line -
+            // the UI raises a modal - so it gets its own event, with the chat
+            // line kept as the record.
+            if alert_id == "RegionRestartMinutes" || alert_id == "RegionRestartSeconds" {
+                let extra = block_instances(decoded, "AlertInfo")
+                    .first()
+                    .map(|i| inst_text(i, "ExtraParams"))
+                    .unwrap_or_default();
+                let parsed = crate::codec::llsd::parse(&extra, "application/llsd+xml").unwrap_or(Value::Null);
+                let n = as_i64(parsed.get(if alert_id == "RegionRestartMinutes" { "MINUTES" } else { "SECONDS" }));
+                let seconds = if alert_id == "RegionRestartMinutes" { n * 60 } else { n };
+                let region = parsed
+                    .get("NAME")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(&state.region_name)
+                    .to_string();
+                actions.push(Action::emit(
+                    "region-restart",
+                    json!({ "seconds": seconds, "regionName": region }),
+                ));
+                let when = if seconds >= 120 {
+                    format!("{} minutes", seconds / 60)
+                } else {
+                    format!("{seconds} seconds")
+                };
+                actions.push(system_chat(&format!(
+                    "The region '{region}' is about to restart (in roughly {when}). Teleport out or you will be logged off."
+                )));
+                return actions;
+            }
+            // A sit refusal while our request is in flight: stop pretending the
+            // sit might still land, and tell the user why it didn't.
+            let sit_reason = sit_failure_text(&alert_id);
+            if state.sit_pending {
+                if let Some(reason) = sit_reason {
+                    state.sit_pending = false;
+                    actions.push(Action::emit(
+                        "sit-state",
+                        json!({ "sitting": false, "objectId": "", "error": reason }),
+                    ));
+                }
+            }
+            // Prefer the friendly wording for ids we know; otherwise show the raw
+            // text (when there is any - AlertInfo-only alerts used to vanish here).
+            let text = match sit_reason {
+                Some(t) => t.to_string(),
+                None if !raw.is_empty() => raw,
+                None => String::new(),
+            };
             if !text.is_empty() {
                 actions.push(Action::emit(
                     "chat",
@@ -1041,6 +1257,24 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                         "source": "system", "ownerId": "", "channel": 0,
                     }),
                 ));
+            }
+        }
+
+        // Our own animation state, echoed back by the sim. When it starts a
+        // transient locomotion clip (landing, standing up) it waits for the
+        // owning viewer to report the clip finished; we have no renderer, so we
+        // wait roughly a clip length and reply. See Action::FinishAnim.
+        "AvatarAnimation" => {
+            let sender = inst_str(block0(decoded, "Sender").unwrap_or(&Value::Null), "ID");
+            if !same_uuid(&sender, &state.agent_id) {
+                return actions;
+            }
+            let transient = block_instances(decoded, "AnimationList").iter().any(|a| {
+                let id = inst_str(a, "AnimID").to_ascii_lowercase();
+                TRANSIENT_ANIMS.contains(&id.as_str())
+            });
+            if transient {
+                actions.push(Action::FinishAnim { delay_ms: 1000 });
             }
         }
 
@@ -1155,7 +1389,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             let group_id = inst_str(&pd, "GroupID");
             let snapshot = inst_str(&pd, "SnapshotID");
             let (ux, uy, uz) = vec3(pd.get("UserLocation"));
-            let (lx, ly, _lz) = vec3(pd.get("UserLookAt"));
+            let (lx, ly, lz) = vec3(pd.get("UserLookAt"));
             // Landing heading in degrees (0-360), derived from the look-at vector for
             // the About Land Options tab; 0 when no landing direction is set.
             let landing_heading = if lx == 0.0 && ly == 0.0 {
@@ -1169,8 +1403,8 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             // group. The sim enforces the actual land powers, and our update just
             // round-trips the current data, so a rejected attempt changes nothing.
             const GOVERNOR_LINDEN: &str = "3d6181b0-6a4b-97ef-18d8-722652995cf1";
-            // GP_LAND_CHANGE_IDENTITY (roles_constants.h) is the group power that lets
-            // you edit a parcel's identity/options in About Land.
+            // GP_LAND_CHANGE_IDENTITY is the group power that lets you edit a
+            // parcel's identity/options in About Land.
             const GP_LAND_CHANGE_IDENTITY: u64 = 1 << 18;
             let can_edit = if owner_id.is_empty() || same_uuid(&owner_id, GOVERNOR_LINDEN) {
                 false
@@ -1237,9 +1471,18 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "snapshotUrl": snapshot_url,
                     "landingPoint": { "x": ux.round(), "y": uy.round(), "z": uz.round() },
                     "landingHeading": landing_heading.round(),
+                    // Exact vectors for the save round-trip; the rounded
+                    // landingPoint/heading above are display-only. Rebuilding
+                    // them from the rounded forms drifted the landing point by
+                    // up to half a metre per save.
+                    "userLocation": { "x": ux, "y": uy, "z": uz },
+                    "userLookAt": { "x": lx, "y": ly, "z": lz },
                     "landingType": inst_i64(&pd, "LandingType"),
                     "claimDate": inst_i64(&pd, "ClaimDate"),
                     "otherCleanTime": inst_i64(&pd, "OtherCleanTime"),
+                    // A LocalID is only unique per region; the save checks this
+                    // so a pre-teleport baseline can't edit a same-id stranger.
+                    "regionId": state.region_id,
                     "canEdit": can_edit,
                     "source": "udp",
                     "stub": false,
@@ -1785,12 +2028,19 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             ));
         }
 
-        // The sim seated us on something. Worth tracking because a seated avatar
-        // can't teleport - the teleport commands stand us up first.
+        // The sim approved our sit request. Complete the two-phase handshake by
+        // sending AgentSit (only now - sending it up front races the approval),
+        // and track the seat because a seated avatar can't teleport.
         "AvatarSitResponse" => {
             let obj = inst_str(block0(decoded, "SitObject").unwrap_or(&Value::Null), "ID");
+            state.sit_pending = false;
             state.sitting = true;
             state.sit_object = obj.clone();
+            actions.push(Action::send(
+                "AgentSit",
+                json!({ "AgentData": [{ "AgentID": state.agent_id, "SessionID": state.session_uuid }] }),
+                true,
+            ));
             actions.push(Action::emit(
                 "sit-state",
                 json!({ "sitting": true, "objectId": obj }),
@@ -2056,6 +2306,13 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             ));
             actions.push(Action::InterestList360);
             actions.extend(stand_up_on_arrival(state));
+            // Belt and braces for the landing clip: the sim drops us slightly
+            // above ground on arrival and plays land/soft-land, and if that
+            // AvatarAnimation packet is lost our FINISH_ANIM reply never fires.
+            actions.push(Action::FinishAnim { delay_ms: 2000 });
+            // A little later, rez whatever Current Outfit attachments the sim
+            // didn't restore by itself (the delay lets its own restore finish).
+            actions.push(Action::RestoreOutfit { delay_ms: 8000 });
             if !state.agent_id.is_empty() {
                 actions.push(Action::send(
                     "MoneyBalanceRequest",
@@ -2364,9 +2621,10 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     }))
                 })
                 .collect();
+            let query_id = dir_accumulate(state, decoded, people.clone());
             actions.push(Action::emit(
                 "dir-people-reply",
-                json!({ "queryId": inst_str(block0(decoded, "QueryData").unwrap_or(&Value::Null), "QueryID"), "people": people }),
+                json!({ "queryId": query_id, "people": people }),
             ));
         }
         "DirPlacesReply" => {
@@ -2385,9 +2643,10 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     }))
                 })
                 .collect();
+            let query_id = dir_accumulate(state, decoded, places.clone());
             actions.push(Action::emit(
                 "dir-places-reply",
-                json!({ "queryId": inst_str(block0(decoded, "QueryData").unwrap_or(&Value::Null), "QueryID"), "places": places }),
+                json!({ "queryId": query_id, "places": places }),
             ));
         }
         "DirGroupsReply" => {
@@ -2405,9 +2664,10 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     }))
                 })
                 .collect();
+            let query_id = dir_accumulate(state, decoded, groups.clone());
             actions.push(Action::emit(
                 "dir-groups-reply",
-                json!({ "queryId": inst_str(block0(decoded, "QueryData").unwrap_or(&Value::Null), "QueryID"), "groups": groups }),
+                json!({ "queryId": query_id, "groups": groups }),
             ));
         }
         // First contact with a region: record it, tell the UI, and ack exactly once.
@@ -2420,7 +2680,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if let Some(id) = field(decoded, "RegionInfo2", "RegionID").and_then(|v| v.as_str()) {
                 state.region_id = id.to_string();
             }
-            // SimAccess (RegionInfo, U8) is PG=13, Mature=21, Adult=42 (indra_constants.h).
+            // SimAccess (RegionInfo, U8) is PG=13, Mature=21, Adult=42.
             let access = as_i64(field(decoded, "RegionInfo", "SimAccess"));
             if access != 0 {
                 state.region_access = access;
@@ -2499,7 +2759,7 @@ fn parcel_from_eq(state: &SessionState, body: &Value) -> Option<Action> {
     let group_id = inst_str(pd, "GroupID");
     let snapshot = inst_str(pd, "SnapshotID");
     let (ux, uy, uz) = vec3(pd.get("UserLocation"));
-    let (lx, ly, _lz) = vec3(pd.get("UserLookAt"));
+    let (lx, ly, lz) = vec3(pd.get("UserLookAt"));
     let landing_heading = if lx == 0.0 && ly == 0.0 {
         0.0
     } else {
@@ -2577,9 +2837,13 @@ fn parcel_from_eq(state: &SessionState, body: &Value) -> Option<Action> {
             "snapshotUrl": snapshot_url,
             "landingPoint": { "x": ux.round(), "y": uy.round(), "z": uz.round() },
             "landingHeading": landing_heading.round(),
+            // Exact vectors for the save round-trip (see the UDP handler).
+            "userLocation": { "x": ux, "y": uy, "z": uz },
+            "userLookAt": { "x": lx, "y": ly, "z": lz },
             "landingType": inst_i64(pd, "LandingType"),
             "claimDate": inst_i64(pd, "ClaimDate"),
             "otherCleanTime": inst_i64(pd, "OtherCleanTime"),
+            "regionId": state.region_id,
             "canEdit": can_edit,
             "source": "eq",
             "stub": false,
@@ -2980,6 +3244,96 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 "teleport-request",
                 json!({ "fromId": &from_id, "fromName": &display, "message": text.trim(), "lureId": &im_id }),
             ));
+            return actions;
+        }
+        // A group notice (62): "Subject|Body" in the message text, the group id
+        // and an optional inventory attachment in the binary bucket. It gets an
+        // Events-tab card of its own instead of drowning in group chat.
+        62 => {
+            let raw_bucket = inst_bytes(&msg, "BinaryBucket");
+            let (has_attachment, bucket_group, item_name) = parse_group_notice_bucket(&raw_bucket);
+            // The sender rides in the AgentData/FromAgentName fields; the group
+            // is named by the bucket (fall back to the from id, which some
+            // grids set to the group).
+            let group_id = if is_zero_uuid(&bucket_group) || bucket_group.is_empty() {
+                from_id.clone()
+            } else {
+                bucket_group
+            };
+            let (subject, body) = split_notice_text(&text);
+            // Notices can replay (online + offline delivery); one card is enough.
+            if state.is_duplicate_im(&format!("group-notice\0{im_id}\0{text}")) {
+                return actions;
+            }
+            actions.push(Action::ResolveNames(vec![from_id.clone()]));
+            let mut payload = json!({
+                "kind": "group-notice",
+                "fromId": &from_id, "fromName": &display,
+                "groupId": &group_id, "groupName": group_name_of(state, &group_id),
+                "subject": subject, "text": body,
+                "type": "group-notice", "source": "system", "channel": 0,
+            });
+            if has_attachment {
+                // The accept/decline reply (dialog 63/64) is addressed to the
+                // group id, carrying this IM's id as the transaction.
+                payload["prompt"] = json!({
+                    "type": "group-notice-attachment",
+                    "fromId": &group_id, "fromName": &display,
+                    "itemName": item_name,
+                    "transactionId": &im_id, "resolved": false, "response": "",
+                });
+            }
+            actions.push(Action::emit("event", payload));
+            return actions;
+        }
+
+        // Inventory offered by a resident (4) or by an object's script (9).
+        // These used to fall through to the plain-IM path, so the offer showed
+        // up as a message with the location blob in it and no way to answer.
+        // The IM ID is the transaction id the accept/decline reply must carry.
+        4 | 9 => {
+            let from_task = dialog == 9;
+            let item = offer_item_name(&text);
+            // A resident offer's bucket is binary: asset type (1 byte) then the
+            // item's UUID - the item is already in our inventory, and a decline
+            // is supposed to move it to Trash. Task offers only carry the type.
+            let raw_bucket = inst_bytes(&msg, "BinaryBucket");
+            let item_id = if !from_task && raw_bucket.len() >= 17 {
+                let mut b = [0u8; 16];
+                b.copy_from_slice(&raw_bucket[1..17]);
+                crate::bridge::objects::id_string(&b)
+            } else {
+                String::new()
+            };
+            let item_label = if item.is_empty() { "an item".to_string() } else { format!("'{item}'") };
+            let text_line = if from_task {
+                format!("The object '{display}' has offered you {item_label}.")
+            } else {
+                format!("{display} has offered you {item_label}.")
+            };
+            actions.push(Action::ResolveNames(vec![from_id.clone()]));
+            actions.push(Action::emit(
+                "event",
+                json!({
+                    "kind": "interactive-prompt", "fromId": &from_id, "fromName": &display,
+                    "text": text_line,
+                    "type": "inventory-offer", "source": "system", "channel": 0,
+                    "prompt": {
+                        "type": "inventory-offer", "fromId": &from_id, "fromName": &display,
+                        "fromTask": from_task, "itemName": item, "itemId": item_id,
+                        "transactionId": &im_id, "resolved": false, "response": "",
+                    }
+                }),
+            ));
+            return actions;
+        }
+        // The other party answered an inventory offer we sent.
+        5 => {
+            actions.push(system_chat(&format!("{display} accepted your inventory offer.")));
+            return actions;
+        }
+        6 => {
+            actions.push(system_chat(&format!("{display} declined your inventory offer.")));
             return actions;
         }
         // Friendship offer (38): here the IM ID is the transaction id to accept or decline.
@@ -3572,6 +3926,153 @@ mod tests {
         assert_eq!(p["lureId"], "33333333-3333-3333-3333-333333333333");
         assert_eq!(p["location"]["gridX"], 1000.0);
         assert_eq!(p["location"]["regionAccess"], "Mature");
+    }
+
+    #[test]
+    fn inventory_offer_from_resident_prompts() {
+        let mut st = me_state();
+        let tx = "33333333-3333-3333-3333-333333333333";
+        let a = route(&mut st, &im_packet(4, OTHER, ME, false, tx, "Blue Hat", ""));
+        assert!(emit_of(&a, "im").is_none(), "an offer is a prompt, not a plain IM");
+        let e = emit_of(&a, "event").expect("interactive prompt");
+        assert_eq!(e["kind"], "interactive-prompt");
+        assert_eq!(e["prompt"]["type"], "inventory-offer");
+        assert_eq!(e["prompt"]["fromTask"], false);
+        assert_eq!(e["prompt"]["itemName"], "Blue Hat");
+        assert_eq!(e["prompt"]["transactionId"], tx);
+        assert_eq!(e["prompt"]["resolved"], false);
+    }
+
+    #[test]
+    fn inventory_offer_from_object_strips_location_blob() {
+        let mut st = me_state();
+        let tx = "33333333-3333-3333-3333-333333333333";
+        // Task offers arrive as "'Item'  ( http://slurl.com/... )" and the
+        // location used to leak into the visible message.
+        let a = route(&mut st, &im_packet(
+            9, OTHER, ME, false, tx,
+            "'Free Gift'  ( http://slurl.com/secondlife/Natoma/128/128/25 )", "",
+        ));
+        let e = emit_of(&a, "event").expect("interactive prompt");
+        assert_eq!(e["prompt"]["type"], "inventory-offer");
+        assert_eq!(e["prompt"]["fromTask"], true);
+        assert_eq!(e["prompt"]["itemName"], "Free Gift");
+        let text = e["text"].as_str().unwrap();
+        assert!(!text.contains("slurl.com"), "the location blob must not leak: {text}");
+    }
+
+    #[test]
+    fn offer_item_name_variants() {
+        assert_eq!(offer_item_name("Blue Hat"), "Blue Hat");
+        assert_eq!(offer_item_name("'Free Gift'  ( http://slurl.com/secondlife/Natoma/128/128/25 )"), "Free Gift");
+        assert_eq!(offer_item_name("'Free Gift'(http://slurl.com/secondlife/A/1/2/3)"), "Free Gift");
+        assert_eq!(offer_item_name("Landmark thing\nhttp://maps.secondlife.com/x"), "Landmark thing");
+        assert_eq!(offer_item_name("  'Quoted'  "), "Quoted");
+        assert_eq!(offer_item_name(""), "");
+    }
+
+    #[test]
+    fn split_notice_text_variants() {
+        assert_eq!(split_notice_text("Meeting tonight|Bring snacks."),
+            ("Meeting tonight".into(), "Bring snacks.".into()));
+        assert_eq!(split_notice_text("No subject separator here"),
+            (String::new(), "No subject separator here".into()));
+        assert_eq!(split_notice_text("Subject|Body|with|pipes"),
+            ("Subject".into(), "Body|with|pipes".into()));
+        assert_eq!(split_notice_text(""), (String::new(), String::new()));
+    }
+
+    #[test]
+    fn group_notice_bucket_parses_attachment_and_group() {
+        let mut raw = vec![1u8, 6u8]; // has attachment, asset type object
+        raw.extend_from_slice(&[0xAA; 16]);
+        raw.extend_from_slice(b"Free Hat\0");
+        let (has, group, item) = parse_group_notice_bucket(&raw);
+        assert!(has);
+        assert_eq!(group, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        assert_eq!(item, "Free Hat");
+        // No attachment, no name.
+        let mut raw2 = vec![0u8, 0u8];
+        raw2.extend_from_slice(&[0xBB; 16]);
+        let (has2, group2, item2) = parse_group_notice_bucket(&raw2);
+        assert!(!has2);
+        assert_eq!(group2, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        assert_eq!(item2, "");
+        // Too short to mean anything.
+        assert_eq!(parse_group_notice_bucket(&[1, 6]), (false, String::new(), String::new()));
+    }
+
+    #[test]
+    fn group_notice_becomes_event_card_with_attachment_prompt() {
+        let mut st = me_state();
+        let tx = "33333333-3333-3333-3333-333333333333";
+        let mut bucket = vec![1u8, 6u8];
+        bucket.extend_from_slice(&[0xAA; 16]);
+        bucket.extend_from_slice(b"Free Hat\0");
+        let pkt = json!({
+            "name": "ImprovedInstantMessage",
+            "blocks": {
+                "AgentData": [{ "AgentID": OTHER, "SessionID": "s" }],
+                "MessageBlock": [{
+                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 62,
+                    "ID": tx, "Timestamp": 0,
+                    "FromAgentName": B64.encode(b"Pantera\0"),
+                    "Message": B64.encode(b"Meeting|Bring snacks.\0"),
+                    "BinaryBucket": B64.encode(&bucket),
+                }]
+            }
+        });
+        let a = route(&mut st, &pkt);
+        assert!(emit_of(&a, "im").is_none(), "a notice is an event card, not a group IM");
+        let e = emit_of(&a, "event").expect("group-notice event");
+        assert_eq!(e["kind"], "group-notice");
+        assert_eq!(e["subject"], "Meeting");
+        assert_eq!(e["text"], "Bring snacks.");
+        assert_eq!(e["fromName"], "Pantera");
+        assert_eq!(e["groupId"], "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        assert_eq!(e["prompt"]["type"], "group-notice-attachment");
+        assert_eq!(e["prompt"]["itemName"], "Free Hat");
+        assert_eq!(e["prompt"]["transactionId"], tx);
+        // The reply must go to the group, so that's the prompt's target.
+        assert_eq!(e["prompt"]["fromId"], "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        // A replay of the same notice (offline + online delivery) is dropped.
+        assert!(route(&mut st, &pkt).is_empty(), "duplicate notice must not repeat");
+    }
+
+    #[test]
+    fn group_notice_without_attachment_has_no_prompt() {
+        let mut st = me_state();
+        let mut bucket = vec![0u8, 0u8];
+        bucket.extend_from_slice(&[0xAA; 16]);
+        let pkt = json!({
+            "name": "ImprovedInstantMessage",
+            "blocks": {
+                "AgentData": [{ "AgentID": OTHER, "SessionID": "s" }],
+                "MessageBlock": [{
+                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 62,
+                    "ID": "44444444-4444-4444-4444-444444444444", "Timestamp": 0,
+                    "FromAgentName": B64.encode(b"Pantera\0"),
+                    "Message": B64.encode(b"Just a note\0"),
+                    "BinaryBucket": B64.encode(&bucket),
+                }]
+            }
+        });
+        let a = route(&mut st, &pkt);
+        let e = emit_of(&a, "event").expect("group-notice event");
+        assert_eq!(e["subject"], "");
+        assert_eq!(e["text"], "Just a note");
+        assert!(e.get("prompt").is_none(), "no attachment, no Keep/Discard buttons");
+    }
+
+    #[test]
+    fn inventory_offer_replies_become_system_chat() {
+        let mut st = me_state();
+        let a = route(&mut st, &im_packet(5, OTHER, ME, false, "0", "", ""));
+        let p = emit_of(&a, "chat").expect("accepted notice");
+        assert!(p["text"].as_str().unwrap().contains("accepted"));
+        let a = route(&mut st, &im_packet(6, OTHER, ME, false, "0", "", ""));
+        let p = emit_of(&a, "chat").expect("declined notice");
+        assert!(p["text"].as_str().unwrap().contains("declined"));
     }
 
     #[test]
@@ -4201,6 +4702,47 @@ mod tests {
     }
 
     #[test]
+    fn parcel_event_round_trips_exact_landing_and_region() {
+        // The save path re-sends UserLocation/UserLookAt verbatim; the parcel
+        // event must therefore carry the EXACT vectors (the rounded
+        // landingPoint is display-only) plus the region the data belongs to.
+        let mut st = SessionState {
+            agent_id: "owner-1".into(),
+            region_id: "33333333-3333-3333-3333-333333333333".into(),
+            ..Default::default()
+        };
+        let pkt = json!({
+            "name": "ParcelProperties",
+            "blocks": { "ParcelData": [{
+                "RequestResult": 0, "LocalID": 5, "OwnerID": "owner-1", "IsGroupOwned": false,
+                "Area": 512, "ParcelFlags": 0, "SalePrice": 0,
+                "Name": B64.encode(b"Lot\0"), "Desc": B64.encode(b"\0"),
+                "MusicURL": B64.encode(b"\0"), "MediaURL": B64.encode(b"\0"),
+                "MediaID": "00000000-0000-0000-0000-000000000000",
+                "GroupID": "00000000-0000-0000-0000-000000000000",
+                "SnapshotID": "00000000-0000-0000-0000-000000000000",
+                "AuthBuyerID": "00000000-0000-0000-0000-000000000000",
+                "MaxPrims": 100, "ParcelPrimBonus": 1.0,
+                "OwnerPrims": 0, "GroupPrims": 0, "OtherPrims": 0, "SelectedPrims": 0,
+                "UserLocation": [10.5, 20.25, 30.75], "UserLookAt": [0.0, 0.0, 0.0],
+                "LandingType": 1,
+                "PassPrice": 0, "PassHours": 0.0, "Category": 0, "MediaAutoScale": 0,
+            }] }
+        });
+        let a = route(&mut st, &pkt);
+        let p = emit_of(&a, "parcel").expect("parcel");
+        // Display fields round, wire fields don't.
+        assert_eq!(p["landingPoint"]["x"], 11.0);
+        assert_eq!(p["userLocation"]["x"], 10.5);
+        assert_eq!(p["userLocation"]["y"], 20.25);
+        assert_eq!(p["userLocation"]["z"], 30.75);
+        // "No look-at set" must survive as exactly (0,0,0), not a made-up heading.
+        assert_eq!(p["userLookAt"]["x"], 0.0);
+        assert_eq!(p["userLookAt"]["y"], 0.0);
+        assert_eq!(p["regionId"], "33333333-3333-3333-3333-333333333333");
+    }
+
+    #[test]
     fn parcel_group_owned_canedit_needs_land_power() {
         // A group-owned parcel, so the owner id is the group id.
         let group = "g0000000-0000-0000-0000-0000000000aa";
@@ -4426,5 +4968,373 @@ mod tests {
         let again = route(&mut st, &pkt);
         assert_eq!(again.len(), 1);
         assert!(matches!(again[0], Action::Emit { .. }));
+    }
+
+    // --- directory search accumulation (the "32 results max" fix) ---
+
+    fn people_packet(query_id: &str, ids: &[&str]) -> Value {
+        let rows: Vec<Value> = ids
+            .iter()
+            .map(|id| {
+                json!({
+                    "AgentID": id,
+                    "FirstName": B64.encode(b"Ann\0"), "LastName": B64.encode(b"Lee\0"),
+                    "Group": B64.encode(b"\0"), "Online": false, "Reputation": 0
+                })
+            })
+            .collect();
+        json!({
+            "name": "DirPeopleReply",
+            "blocks": {
+                "AgentData": [{ "AgentID": "me" }],
+                "QueryData": [{ "QueryID": query_id }],
+                "QueryReplies": rows,
+            }
+        })
+    }
+
+    #[test]
+    fn dir_search_accumulates_across_packets() {
+        // One query's answer arrives split over several UDP packets; every row
+        // must land in the same per-query accumulator.
+        let mut st = SessionState { now_ms: 1_000, ..Default::default() };
+        route(&mut st, &people_packet("q1", &["p1", "p2"]));
+        route(&mut st, &people_packet("q1", &["p3"]));
+        let acc = st.dir_searches.get("q1").expect("accumulator");
+        assert_eq!(acc.rows.len(), 3);
+        assert_eq!(acc.last_ms, 1_000);
+        // A different query accumulates separately.
+        route(&mut st, &people_packet("q2", &["p9"]));
+        assert_eq!(st.dir_searches.get("q1").unwrap().rows.len(), 3);
+        assert_eq!(st.dir_searches.get("q2").unwrap().rows.len(), 1);
+    }
+
+    #[test]
+    fn dir_search_skips_placeholder_rows_but_still_stamps_time() {
+        // The sim pads empty results with a null-key row; it must not count.
+        let mut st = SessionState { now_ms: 5_000, ..Default::default() };
+        route(&mut st, &people_packet("q1", &["00000000-0000-0000-0000-000000000000"]));
+        let acc = st.dir_searches.get("q1").expect("accumulator");
+        assert_eq!(acc.rows.len(), 0);
+        assert_eq!(acc.last_ms, 5_000, "idle detection needs the packet time even when empty");
+    }
+
+    #[test]
+    fn dir_search_records_status_bits() {
+        let mut st = SessionState { now_ms: 1, ..Default::default() };
+        let pkt = json!({
+            "name": "DirPlacesReply",
+            "blocks": {
+                "AgentData": [{ "AgentID": "me" }],
+                "QueryData": [{ "QueryID": "q1" }],
+                "QueryReplies": [],
+                "StatusData": [{ "Status": 4u64 }], // STATUS_SEARCH_PLACES_FOUNDNONE
+            }
+        });
+        route(&mut st, &pkt);
+        assert_eq!(st.dir_searches.get("q1").unwrap().status, 4);
+    }
+
+    #[test]
+    fn dir_search_caps_accumulated_rows() {
+        let mut st = SessionState { now_ms: 1, ..Default::default() };
+        let ids: Vec<String> = (0..120).map(|i| format!("{i:08}-0000-0000-0000-000000000001")).collect();
+        let refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+        for _ in 0..12 {
+            route(&mut st, &people_packet("q1", &refs));
+        }
+        assert_eq!(st.dir_searches.get("q1").unwrap().rows.len(), MAX_DIR_ROWS);
+    }
+
+    #[test]
+    fn dir_search_prunes_stale_queries() {
+        let mut st = SessionState { now_ms: 1_000, ..Default::default() };
+        route(&mut st, &people_packet("old", &["p1"]));
+        // Half a minute later an unrelated query arrives; the abandoned one goes.
+        st.now_ms = 32_000;
+        route(&mut st, &people_packet("new", &["p2"]));
+        assert!(st.dir_searches.get("old").is_none(), "stale accumulators must be dropped");
+        assert!(st.dir_searches.get("new").is_some());
+    }
+
+    #[test]
+    fn dir_search_still_emits_per_packet_events() {
+        // The accumulator is additive: the existing per-packet events stay.
+        let mut st = SessionState::default();
+        let a = route(&mut st, &people_packet("q1", &["p1"]));
+        let p = emit_of(&a, "dir-people-reply").expect("event");
+        assert_eq!(p["queryId"], "q1");
+        assert_eq!(p["people"][0]["name"], "Ann Lee");
+    }
+
+    // --- transient animation handshake (the "about to land forever" fix) ---
+
+    fn anim_packet(sender: &str, anims: &[&str]) -> Value {
+        let list: Vec<Value> = anims.iter().map(|a| json!({ "AnimID": a, "AnimSequenceID": 1 })).collect();
+        json!({
+            "name": "AvatarAnimation",
+            "blocks": { "Sender": [{ "ID": sender }], "AnimationList": list }
+        })
+    }
+
+    #[test]
+    fn own_transient_animation_requests_finish() {
+        let me = "11111111-1111-1111-1111-111111111111";
+        let mut st = SessionState { agent_id: me.into(), ..Default::default() };
+        for anim in TRANSIENT_ANIMS {
+            let actions = route(&mut st, &anim_packet(me, &[anim]));
+            assert!(
+                actions.iter().any(|a| matches!(a, Action::FinishAnim { .. })),
+                "transient anim {anim} must schedule a FINISH_ANIM"
+            );
+        }
+    }
+
+    #[test]
+    fn own_stand_animation_needs_no_finish() {
+        let me = "11111111-1111-1111-1111-111111111111";
+        let mut st = SessionState { agent_id: me.into(), ..Default::default() };
+        let actions = route(&mut st, &anim_packet(me, &[ANIM_AGENT_STAND]));
+        assert!(actions.is_empty(), "stand is steady-state, nothing to finish");
+    }
+
+    #[test]
+    fn other_avatars_animations_are_ignored() {
+        let mut st = SessionState { agent_id: "11111111-1111-1111-1111-111111111111".into(), ..Default::default() };
+        let actions = route(
+            &mut st,
+            &anim_packet("22222222-2222-2222-2222-222222222222", &[TRANSIENT_ANIMS[0]]),
+        );
+        assert!(actions.is_empty(), "we only own our own animation state");
+    }
+
+    #[test]
+    fn transient_anim_id_match_is_case_insensitive() {
+        let me = "11111111-1111-1111-1111-111111111111";
+        let mut st = SessionState { agent_id: me.into(), ..Default::default() };
+        let upper = TRANSIENT_ANIMS[0].to_ascii_uppercase();
+        let actions = route(&mut st, &anim_packet(me, &[upper.as_str()]));
+        assert!(actions.iter().any(|a| matches!(a, Action::FinishAnim { .. })));
+    }
+
+    #[test]
+    fn build_agent_animation_shapes_the_message() {
+        let body = build_agent_animation("a", "s", ANIM_AGENT_STAND, true);
+        assert_eq!(body["AgentData"][0]["AgentID"], "a");
+        assert_eq!(body["AnimationList"][0]["AnimID"], ANIM_AGENT_STAND);
+        assert_eq!(body["AnimationList"][0]["StartAnim"], true);
+        assert!(body["PhysicalAvatarEventList"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn arrival_schedules_finish_anim_and_outfit_restore() {
+        let mut st = SessionState {
+            agent_id: "11111111-1111-1111-1111-111111111111".into(),
+            session_uuid: "22222222-2222-2222-2222-222222222222".into(),
+            ..Default::default()
+        };
+        let pkt = json!({
+            "name": "AgentMovementComplete",
+            "blocks": {
+                "AgentData": [{ "AgentID": st.agent_id, "SessionID": st.session_uuid }],
+                "Data": [{ "Position": [128.0, 128.0, 25.0], "LookAt": [1.0, 0.0, 0.0], "RegionHandle": "0", "Timestamp": 0 }],
+            }
+        });
+        let actions = route(&mut st, &pkt);
+        assert!(actions.iter().any(|a| matches!(a, Action::FinishAnim { .. })),
+            "the landing clip needs finishing even if its AvatarAnimation packet drops");
+        assert!(actions.iter().any(|a| matches!(a, Action::RestoreOutfit { .. })),
+            "arrival must schedule the outfit reconciliation");
+    }
+
+    // --- sit failure detection ---
+
+    #[test]
+    fn sit_failure_texts_cover_the_known_ids() {
+        for id in [
+            "CantSitNoRoom",
+            "CantSitNoSuitableSurface",
+            "SitFailCantMove",
+            "SitFailNotAllowedOnLand",
+            "SitFailNotSameRegion",
+        ] {
+            assert!(sit_failure_text(id).is_some(), "{id} must map to a friendly reason");
+        }
+        assert!(sit_failure_text("SomethingElse").is_none());
+        assert!(sit_failure_text("").is_none());
+    }
+
+    fn alert_packet(alert_data: &str, info_id: &str) -> Value {
+        let mut blocks = json!({
+            "AlertData": [{ "Message": B64.encode(format!("{alert_data}\0").as_bytes()) }],
+        });
+        if !info_id.is_empty() {
+            blocks["AlertInfo"] = json!([{
+                "Message": B64.encode(format!("{info_id}\0").as_bytes()),
+                "ExtraParams": B64.encode(b"\0"),
+            }]);
+        }
+        json!({ "name": "AlertMessage", "blocks": blocks })
+    }
+
+    #[test]
+    fn sit_refusal_via_alert_info_clears_pending_and_reports() {
+        let mut st = SessionState { sit_pending: true, ..Default::default() };
+        let actions = route(&mut st, &alert_packet("", "CantSitNoRoom"));
+        assert!(!st.sit_pending);
+        let sit = emit_of(&actions, "sit-state").expect("sit-state");
+        assert_eq!(sit["sitting"], false);
+        assert!(sit["error"].as_str().unwrap().contains("No room"));
+        let chat = emit_of(&actions, "chat").expect("chat line");
+        assert!(chat["text"].as_str().unwrap().contains("No room"));
+    }
+
+    #[test]
+    fn sit_refusal_via_legacy_notify_prefix() {
+        let mut st = SessionState { sit_pending: true, ..Default::default() };
+        let actions = route(&mut st, &alert_packet("NOTIFY: SitFailNotAllowedOnLand", ""));
+        assert!(!st.sit_pending);
+        let sit = emit_of(&actions, "sit-state").expect("sit-state");
+        assert_eq!(sit["sitting"], false);
+        assert!(sit["error"].as_str().unwrap().contains("not allowed"));
+    }
+
+    #[test]
+    fn unrelated_alert_keeps_sit_pending_and_shows_raw_text() {
+        let mut st = SessionState { sit_pending: true, ..Default::default() };
+        let actions = route(&mut st, &alert_packet("Region restart in 5 minutes.", ""));
+        assert!(st.sit_pending, "a generic alert is not a sit verdict");
+        assert!(emit_of(&actions, "sit-state").is_none());
+        let chat = emit_of(&actions, "chat").expect("chat line");
+        assert_eq!(chat["text"], "Region restart in 5 minutes.");
+    }
+
+    #[test]
+    fn sit_refusal_without_pending_sit_only_chats() {
+        // Someone else's script alert, or a stale refusal: no sit-state noise.
+        let mut st = SessionState { sit_pending: false, ..Default::default() };
+        let actions = route(&mut st, &alert_packet("", "CantSitNoRoom"));
+        assert!(emit_of(&actions, "sit-state").is_none());
+        assert!(emit_of(&actions, "chat").is_some(), "the friendly text still shows");
+    }
+
+    #[test]
+    fn sit_approval_completes_handshake_with_agent_sit() {
+        let mut st = SessionState {
+            agent_id: "11111111-1111-1111-1111-111111111111".into(),
+            session_uuid: "22222222-2222-2222-2222-222222222222".into(),
+            sit_pending: true,
+            ..Default::default()
+        };
+        let actions = route(&mut st, &json!({
+            "name": "AvatarSitResponse",
+            "blocks": {
+                "SitObject": [{ "ID": "33333333-3333-3333-3333-333333333333" }],
+                "SitTransform": [{ "AutoPilot": false, "SitPosition": [0.0,0.0,0.0], "SitRotation": [0.0,0.0,0.0,1.0],
+                    "CameraEyeOffset": [0.0,0.0,0.0], "CameraAtOffset": [0.0,0.0,0.0], "ForceMouselook": false }],
+            }
+        }));
+        assert!(st.sitting);
+        assert!(!st.sit_pending);
+        assert_eq!(st.sit_object, "33333333-3333-3333-3333-333333333333");
+        let sent = actions.iter().find_map(|a| match a {
+            Action::Send { name, blocks, reliable } if name == "AgentSit" => Some((blocks, reliable)),
+            _ => None,
+        });
+        let (blocks, reliable) = sent.expect("AgentSit completes the two-phase sit");
+        assert!(*reliable);
+        assert_eq!(blocks["AgentData"][0]["AgentID"], st.agent_id);
+        let sit = emit_of(&actions, "sit-state").expect("sit-state");
+        assert_eq!(sit["sitting"], true);
+    }
+
+    #[test]
+    fn region_restart_alert_raises_its_own_event() {
+        let mut st = SessionState { region_name: "Natoma".into(), ..Default::default() };
+        let extra = "<?xml version=\"1.0\"?><llsd><map><key>MINUTES</key><integer>5</integer><key>NAME</key><string>Natoma</string></map></llsd>";
+        let pkt = json!({
+            "name": "AlertMessage",
+            "blocks": {
+                "AlertData": [{ "Message": B64.encode(b"\0") }],
+                "AlertInfo": [{
+                    "Message": B64.encode(b"RegionRestartMinutes\0"),
+                    "ExtraParams": B64.encode(format!("{extra}\0").as_bytes()),
+                }],
+            }
+        });
+        let actions = route(&mut st, &pkt);
+        let e = emit_of(&actions, "region-restart").expect("region-restart event");
+        assert_eq!(e["seconds"], 300);
+        assert_eq!(e["regionName"], "Natoma");
+        let chat = emit_of(&actions, "chat").expect("chat record");
+        assert!(chat["text"].as_str().unwrap().contains("restart"));
+    }
+
+    #[test]
+    fn region_restart_seconds_variant() {
+        let mut st = SessionState { region_name: "Natoma".into(), ..Default::default() };
+        let extra = "<?xml version=\"1.0\"?><llsd><map><key>SECONDS</key><integer>30</integer></map></llsd>";
+        let pkt = json!({
+            "name": "AlertMessage",
+            "blocks": {
+                "AlertData": [{ "Message": B64.encode(b"\0") }],
+                "AlertInfo": [{
+                    "Message": B64.encode(b"RegionRestartSeconds\0"),
+                    "ExtraParams": B64.encode(format!("{extra}\0").as_bytes()),
+                }],
+            }
+        });
+        let actions = route(&mut st, &pkt);
+        let e = emit_of(&actions, "region-restart").expect("region-restart event");
+        assert_eq!(e["seconds"], 30);
+        assert_eq!(e["regionName"], "Natoma", "falls back to the current region name");
+    }
+
+    // --- mute list transfer ---
+
+    #[test]
+    fn mute_list_update_requests_xfer_from_cache_path() {
+        let mut st = SessionState {
+            agent_id: "11111111-1111-1111-1111-111111111111".into(),
+            now_ms: 42,
+            ..Default::default()
+        };
+        let actions = route(&mut st, &json!({
+            "name": "MuteListUpdate",
+            "blocks": { "MuteData": [{ "Filename": B64.encode(b"mute_agent.tmp\0") }] }
+        }));
+        let req = actions.iter().find_map(|a| match a {
+            Action::Send { name, blocks, .. } if name == "RequestXfer" => Some(blocks),
+            _ => None,
+        });
+        let blocks = req.expect("RequestXfer");
+        // LL_PATH_CACHE. Anything else (this used to say 5) is silently
+        // discarded by the sim's xfer manager and the list never arrives.
+        assert_eq!(blocks["XferID"][0]["FilePath"], 4);
+        assert_eq!(st.xfers.len(), 1, "the transfer must be tracked");
+    }
+
+    #[test]
+    fn abort_xfer_reports_mute_list_failure() {
+        let mut st = SessionState::default();
+        st.xfers.insert(7, XferIn { kind: "mute-list".into(), ..Default::default() });
+        let actions = route(&mut st, &json!({
+            "name": "AbortXfer",
+            "blocks": { "XferID": [{ "ID": "7", "Result": -1 }] }
+        }));
+        assert!(st.xfers.is_empty(), "the aborted transfer must be dropped");
+        let p = emit_of(&actions, "mute-list").expect("mute-list error event");
+        assert_eq!(p["people"], json!([]));
+        assert!(p["error"].as_str().unwrap().contains("refused"));
+    }
+
+    #[test]
+    fn abort_xfer_for_unknown_transfer_is_silent() {
+        let mut st = SessionState::default();
+        let actions = route(&mut st, &json!({
+            "name": "AbortXfer",
+            "blocks": { "XferID": [{ "ID": "99", "Result": -1 }] }
+        }));
+        assert!(actions.is_empty());
     }
 }

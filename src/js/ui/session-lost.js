@@ -1,7 +1,7 @@
 /**
  * Session lost overlay - lets us flag a sim disconnect without tearing down the app shell.
  */
-const FSSessionLost = (function () {
+const BeeSessionLost = (function () {
   'use strict';
 
   let modalOpen = false;
@@ -24,7 +24,7 @@ const FSSessionLost = (function () {
   function syncChrome() {
     const app = appEl();
     if (!app) return;
-    const s = FSState.get();
+    const s = BeeState.get();
     app.classList.toggle('app--offline', !!s.sessionLost);
     app.classList.toggle('app--session-lost-modal', modalOpen);
     app.classList.toggle(
@@ -37,7 +37,7 @@ const FSSessionLost = (function () {
     const text = String(reason || '').trim() || 'Disconnected from the simulator.';
     modalOpen = true;
 
-    FSState.patch({
+    BeeState.patch({
       sessionLost: true,
       sessionLostReason: text,
       sessionLostDismissed: false
@@ -49,16 +49,16 @@ const FSSessionLost = (function () {
     syncChrome();
 
     const teleportDlg = document.getElementById('teleport-prompt');
-    if (teleportDlg && teleportDlg.open) FSUtils.dismissDialog(teleportDlg);
+    if (teleportDlg && teleportDlg.open) BeeUtils.dismissDialog(teleportDlg);
 
-    FSUtils.showToast('Session ended', 'warning', 4500);
+    BeeUtils.showToast('Session ended', 'warning', 4500);
   }
 
   function dismiss() {
-    if (!modalOpen || !FSState.get().sessionLost) return;
+    if (!modalOpen || !BeeState.get().sessionLost) return;
     modalOpen = false;
     setBlockerVisible(false);
-    FSState.patch({ sessionLostDismissed: true });
+    BeeState.patch({ sessionLostDismissed: true });
     syncChrome();
   }
 
@@ -72,12 +72,12 @@ const FSSessionLost = (function () {
   }
 
   function returnToLogin() {
-    if (window.FSApp) window.FSApp.logout({ skipConfirm: true });
+    if (window.BeeApp) window.BeeApp.logout({ skipConfirm: true });
   }
 
   function onStateChange(partial) {
     if (partial.sessionLost === false || partial.connected === true) {
-      if (!FSState.get().sessionLost) {
+      if (!BeeState.get().sessionLost) {
         modalOpen = false;
         setBlockerVisible(false);
         syncChrome();
@@ -115,8 +115,8 @@ const FSSessionLost = (function () {
       dismiss();
     });
 
-    FSState.on('reset', hide);
-    FSState.on('change', onStateChange);
+    BeeState.on('reset', hide);
+    BeeState.on('change', onStateChange);
   }
 
   return { init: init, show: show, hide: hide, dismiss: dismiss };

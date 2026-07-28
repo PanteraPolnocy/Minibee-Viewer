@@ -5,7 +5,7 @@
  * parcel-wide with no positional audio. Autoplay is opt-in, and mixing http
  * with https may get the stream blocked.
  */
-const FSParcelMusic = (function () {
+const BeeParcelMusic = (function () {
   'use strict';
 
   let audio = null;
@@ -68,8 +68,8 @@ const FSParcelMusic = (function () {
   }
 
   function reportStreamProblem(detail) {
-    if (typeof FSErrors !== 'undefined' && FSErrors.warn) {
-      FSErrors.warn('parcel-music', detail + ' url=' + currentUrl);
+    if (typeof BeeErrors !== 'undefined' && BeeErrors.warn) {
+      BeeErrors.warn('parcel-music', detail + ' url=' + currentUrl);
     }
   }
 
@@ -159,6 +159,17 @@ const FSParcelMusic = (function () {
     currentUrl = next;
     triedSecureUrl = false;
     showRoot(!!next);
+    // Right-clicking the player should offer the one copy that makes sense
+    // here: the stream URL (picked up by the shared context menu).
+    if (els.root) {
+      if (next) {
+        els.root.dataset.copy = next;
+        els.root.dataset.copyLabel = 'Copy stream URL';
+      } else {
+        delete els.root.dataset.copy;
+        delete els.root.dataset.copyLabel;
+      }
+    }
     updateToggleUI();
     if (!next) {
       setNow('');
@@ -173,7 +184,7 @@ const FSParcelMusic = (function () {
 
   function setEnabled(on) {
     enabled = !!on;
-    if (typeof FSSettings !== 'undefined') FSSettings.set('parcelMusicEnabled', enabled);
+    if (typeof BeeSettings !== 'undefined') BeeSettings.set('parcelMusicEnabled', enabled);
     if (enabled) {
       if (currentUrl) play();
     } else {
@@ -200,7 +211,7 @@ const FSParcelMusic = (function () {
     volume = v / 100;
     if (audio) audio.volume = volume;
     if (els.volume) els.volume.value = String(v);
-    if (typeof FSSettings !== 'undefined') FSSettings.set('parcelMusicVolume', v);
+    if (typeof BeeSettings !== 'undefined') BeeSettings.set('parcelMusicVolume', v);
   }
 
   function init() {
@@ -211,9 +222,9 @@ const FSParcelMusic = (function () {
     els.volume = document.getElementById('parcel-music-volume');
     els.now = document.getElementById('parcel-music-now');
 
-    if (typeof FSSettings !== 'undefined') {
-      enabled = !!FSSettings.get('parcelMusicEnabled');
-      volume = Math.max(0, Math.min(100, Number(FSSettings.get('parcelMusicVolume')) || 50)) / 100;
+    if (typeof BeeSettings !== 'undefined') {
+      enabled = !!BeeSettings.get('parcelMusicEnabled');
+      volume = Math.max(0, Math.min(100, Number(BeeSettings.get('parcelMusicVolume')) || 50)) / 100;
     }
     if (els.volume) {
       els.volume.value = String(Math.round(volume * 100));
@@ -226,9 +237,9 @@ const FSParcelMusic = (function () {
     updateToggleUI();
 
     // Pick up enable/volume changes made over in the Settings tab. The guard
-    // keeps our own writes from looping back through FSSettings.set.
-    if (typeof FSSettings !== 'undefined' && FSSettings.onChange) {
-      FSSettings.onChange(function (key, value) {
+    // keeps our own writes from looping back through BeeSettings.set.
+    if (typeof BeeSettings !== 'undefined' && BeeSettings.onChange) {
+      BeeSettings.onChange(function (key, value) {
         if (key === 'parcelMusicEnabled') {
           const on = !!value;
           if (on === enabled) return;
@@ -247,8 +258,8 @@ const FSParcelMusic = (function () {
     }
 
     // React to parcel changes - music should follow the agent, not the Land tab.
-    if (typeof FSState !== 'undefined' && FSState.on) {
-      FSState.on('change', function (partial) {
+    if (typeof BeeState !== 'undefined' && BeeState.on) {
+      BeeState.on('change', function (partial) {
         if (partial && Object.prototype.hasOwnProperty.call(partial, 'parcel')) {
           const parcel = partial.parcel || {};
           applyUrl(parcel.musicUrl || '');
@@ -260,8 +271,8 @@ const FSParcelMusic = (function () {
       // Logout or disconnect clears the session through reset(), which doesn't
       // emit a 'change', so stop the stream here - music should never outlive
       // the session.
-      FSState.on('reset', function () { applyUrl(''); });
-      const parcel = (FSState.get() || {}).parcel;
+      BeeState.on('reset', function () { applyUrl(''); });
+      const parcel = (BeeState.get() || {}).parcel;
       if (parcel && parcel.musicUrl) applyUrl(parcel.musicUrl);
     }
   }

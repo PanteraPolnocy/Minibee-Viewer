@@ -2,7 +2,7 @@
  * News panel: the Linden blog, the SL calendar, grid status, and the blogger network.
  *
  */
-const FSNews = (function () {
+const BeeNews = (function () {
   'use strict';
 
   const DEFAULT_TAB = 'linden';
@@ -23,8 +23,8 @@ const FSNews = (function () {
   const items = {};    // feed key -> parsed items, so switching tabs is instant
 
   function openExternal(url) {
-    if (typeof FSSlurl !== 'undefined' && FSSlurl.openExternalUrl) {
-      FSSlurl.openExternalUrl(url);
+    if (typeof BeeSlurl !== 'undefined' && BeeSlurl.openExternalUrl) {
+      BeeSlurl.openExternalUrl(url);
       return;
     }
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -69,14 +69,14 @@ const FSNews = (function () {
       head.setAttribute('aria-expanded', 'false');
       head.innerHTML =
         (item.image
-          ? '<img class="news-item__thumb" src="' + FSUtils.escapeHtml(item.image) +
+          ? '<img class="news-item__thumb" src="' + BeeUtils.escapeHtml(item.image) +
             '" alt="" loading="lazy" decoding="async">'
           : '') +
         '<span class="news-item__headings">' +
-          '<span class="news-item__title">' + FSUtils.escapeHtml(item.title || 'Untitled') + '</span>' +
-          '<span class="news-item__meta">' + FSUtils.escapeHtml(metaLine(item)) + '</span>' +
+          '<span class="news-item__title">' + BeeUtils.escapeHtml(item.title || 'Untitled') + '</span>' +
+          '<span class="news-item__meta">' + BeeUtils.escapeHtml(metaLine(item)) + '</span>' +
           (item.summary
-            ? '<span class="news-item__summary">' + FSUtils.escapeHtml(item.summary) + '</span>'
+            ? '<span class="news-item__summary">' + BeeUtils.escapeHtml(item.summary) + '</span>'
             : '') +
         '</span>';
       card.appendChild(head);
@@ -126,17 +126,17 @@ const FSNews = (function () {
     if (loaded[tab] && !force) return;
     const list = document.getElementById('news-list-' + tab);
     if (list) list.innerHTML = '<p class="news-empty">Loading...</p>';
-    if (typeof FSBridge === 'undefined' || !FSBridge.invoke) {
+    if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke) {
       if (list) list.innerHTML = '<p class="news-empty">Native bridge unavailable.</p>';
       return;
     }
     loaded[tab] = true;
-    FSBridge.invoke('bridge_feed', { feed: key }).then(function (res) {
+    BeeBridge.invoke('bridge_feed', { feed: key }).then(function (res) {
       if (!res || res.error) {
         loaded[tab] = false;
         if (list) {
           list.innerHTML = '<p class="news-empty">' +
-            FSUtils.escapeHtml((res && res.error) || 'Could not load this feed.') + '</p>';
+            BeeUtils.escapeHtml((res && res.error) || 'Could not load this feed.') + '</p>';
         }
         return;
       }
@@ -146,7 +146,7 @@ const FSNews = (function () {
       loaded[tab] = false;
       if (list) {
         list.innerHTML = '<p class="news-empty">' +
-          FSUtils.escapeHtml((err && err.message) || 'Could not load this feed.') + '</p>';
+          BeeUtils.escapeHtml((err && err.message) || 'Could not load this feed.') + '</p>';
       }
     });
   }
@@ -218,4 +218,4 @@ const FSNews = (function () {
   return { init: init, activate: activate };
 })();
 
-window.FSNews = FSNews;
+window.BeeNews = BeeNews;

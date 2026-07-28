@@ -1,7 +1,7 @@
 /**
  * Talks to the native backend over Tauri IPC (`window.__TAURI__.core.invoke`).
  */
-const FSBridge = (function () {
+const BeeBridge = (function () {
   'use strict';
 
   function tauri() {

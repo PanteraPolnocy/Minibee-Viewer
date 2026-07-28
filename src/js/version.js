@@ -32,7 +32,7 @@ const MinibeeVersion = (function () {
   function load() {
     if (loaded) return Promise.resolve({ displayVersion: displayVersion });
     if (!loadPromise) {
-      loadPromise = FSBridge.version().then(function (data) {
+      loadPromise = BeeBridge.version().then(function (data) {
         if (!apply(data)) throw new Error('invalid version payload');
         return { displayVersion: displayVersion };
       }).catch(function (err) {

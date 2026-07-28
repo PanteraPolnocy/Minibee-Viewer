@@ -205,7 +205,7 @@ pub async fn exchange(
     guard_initial: bool,
 ) -> Result<ExchangeResult, String> {
     let method_upper = method.to_ascii_uppercase();
-    let is_post = method_upper == "POST";
+    let has_body = matches!(method_upper.as_str(), "POST" | "PUT" | "PATCH");
     let mut cur_url = url.to_string();
     let mut redirects = 0u32;
 
@@ -252,7 +252,7 @@ pub async fn exchange(
         for (k, v) in headers {
             req = req.header(k.as_str(), v.as_str());
         }
-        if is_post {
+        if has_body {
             req = req.header("Content-Type", content_type).body(payload.to_string());
         }
 

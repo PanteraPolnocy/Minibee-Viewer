@@ -1,7 +1,7 @@
 /**
  * In-memory client diagnostic log, with optional file output via `--enablelogfiles`.
  */
-const FSErrors = (function () {
+const BeeErrors = (function () {
   'use strict';
 
   const MAX = 200;
@@ -17,8 +17,8 @@ const FSErrors = (function () {
   function shouldRetain(level) {
     if (level === 'error') return true;
     try {
-      if (typeof FSSettings !== 'undefined' && FSSettings.get) {
-        return !!FSSettings.get('debugLogDiagnostics');
+      if (typeof BeeSettings !== 'undefined' && BeeSettings.get) {
+        return !!BeeSettings.get('debugLogDiagnostics');
       }
     } catch (_e) { /* if it throws, fall through */ }
     return false;
@@ -30,7 +30,7 @@ const FSErrors = (function () {
     if (!text) return;
     const level = opts.level || 'info';
     const row = {
-      id: FSUtils.uuid(),
+      id: BeeUtils.uuid(),
       source: String(source || 'app'),
       text: text,
       level: level,
@@ -42,8 +42,8 @@ const FSErrors = (function () {
       emit();
     }
     if (opts.chat) {
-      FSTransport.emit('chat', {
-        id: FSUtils.uuid(),
+      BeeTransport.emit('chat', {
+        id: BeeUtils.uuid(),
         fromId: '00000000-0000-0000-0000-000000000000',
         fromName: 'System',
         text: '[' + row.source + '] ' + text,

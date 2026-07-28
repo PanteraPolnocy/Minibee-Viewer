@@ -1,7 +1,7 @@
 /**
  * Shows a loading overlay inside a single panel while its tab content lazy-loads.
  */
-const FSPanelBusy = (function () {
+const BeePanelBusy = (function () {
   'use strict';
 
   function resolvePanel(panelOrId) {

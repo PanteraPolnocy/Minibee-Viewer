@@ -1,7 +1,7 @@
 /**
  * Land / parcel management panel - the Land tab's view and edit logic.
  */
-const FSLand = (function () {
+const BeeLand = (function () {
   'use strict';
 
   const PANEL_ID = 'panel-land';
@@ -33,15 +33,15 @@ const FSLand = (function () {
 
   function showLoading(message) {
     setLandPending(true);
-    if (typeof FSPanelBusy !== 'undefined') {
-      FSPanelBusy.show(PANEL_ID, message || LOADING_MESSAGE);
+    if (typeof BeePanelBusy !== 'undefined') {
+      BeePanelBusy.show(PANEL_ID, message || LOADING_MESSAGE);
     }
   }
 
   function hideLoading() {
     setLandPending(false);
-    if (typeof FSPanelBusy !== 'undefined') {
-      FSPanelBusy.hide(PANEL_ID);
+    if (typeof BeePanelBusy !== 'undefined') {
+      BeePanelBusy.hide(PANEL_ID);
     }
   }
 
@@ -144,13 +144,13 @@ const FSLand = (function () {
     const id = parcel.ownerId || '';
     if (groupOwned) {
       const label = parcel.groupName ||
-        (typeof FSTransport.getGroupName === 'function' ? FSTransport.getGroupName(id) : '') ||
-        (typeof FSProfiles !== 'undefined' && FSProfiles.getGroupName ? FSProfiles.getGroupName(id) : '') ||
+        (typeof BeeTransport.getGroupName === 'function' ? BeeTransport.getGroupName(id) : '') ||
+        (typeof BeeProfiles !== 'undefined' && BeeProfiles.getGroupName ? BeeProfiles.getGroupName(id) : '') ||
         'Group-owned';
       return { id: id, label: label, type: 'group', isGroup: true };
     }
     const label = parcel.ownerName ||
-      (typeof FSTransport.getCachedName === 'function' ? FSTransport.getCachedName(id) : '') ||
+      (typeof BeeTransport.getCachedName === 'function' ? BeeTransport.getCachedName(id) : '') ||
       (id ? 'Resident (resolving...)' : '');
     return { id: id, label: label, type: 'avatar', isGroup: false };
   }
@@ -175,8 +175,8 @@ const FSLand = (function () {
         const entityId = field.dataset.profileId;
         const entityType = field.dataset.profileType;
         if (!entityId) return;
-        if (entityType === 'group') FSProfile.openGroup(entityId);
-        else FSProfile.openAvatar(entityId);
+        if (entityType === 'group') BeeProfile.openGroup(entityId);
+        else BeeProfile.openAvatar(entityId);
       });
     });
   }
@@ -198,20 +198,20 @@ const FSLand = (function () {
     const owner = ownerFieldInfo(parcel);
     const ownerLabel = owner.label;
     const groupLabel = parcel.groupName ||
-      (typeof FSTransport.getGroupName === 'function' ? FSTransport.getGroupName(parcel.groupId) : '') ||
+      (typeof BeeTransport.getGroupName === 'function' ? BeeTransport.getGroupName(parcel.groupId) : '') ||
       parcel.groupId || '';
     setProfileField('land-owner', ownerLabel, owner.id, owner.type);
     setProfileField('land-group', groupLabel, parcel.groupId, 'group');
     // Kick off the right kind of name lookup so the field never shows a bare UUID.
     if (owner.isGroup && owner.id && owner.id !== ZERO_UUID && !parcel.groupName &&
-        FSProfiles.queueGroupName) {
-      FSProfiles.queueGroupName(owner.id);
+        BeeProfiles.queueGroupName) {
+      BeeProfiles.queueGroupName(owner.id);
     } else if (!owner.isGroup && owner.id && owner.id !== ZERO_UUID && !parcel.ownerName &&
-        typeof FSTransport.queueNameResolve === 'function') {
-      FSTransport.queueNameResolve([owner.id]);
+        typeof BeeTransport.queueNameResolve === 'function') {
+      BeeTransport.queueNameResolve([owner.id]);
     }
     if (parcel.groupId && parcel.groupId !== ZERO_UUID && !parcel.groupName) {
-      FSProfiles.queueGroupName(parcel.groupId);
+      BeeProfiles.queueGroupName(parcel.groupId);
     }
     updateGroupChatButton(parcel);
     setFieldValue('land-prims', formatPrimLine(primsUsed, primsTotal));
@@ -273,25 +273,25 @@ const FSLand = (function () {
     const owner = ownerFieldInfo(parcel);
     const ownerLabel = owner.label;
     const groupLabel = parcel.groupName ||
-      (typeof FSTransport.getGroupName === 'function' ? FSTransport.getGroupName(parcel.groupId) : '') ||
-      (FSProfiles.getGroupName ? FSProfiles.getGroupName(parcel.groupId) : '') ||
+      (typeof BeeTransport.getGroupName === 'function' ? BeeTransport.getGroupName(parcel.groupId) : '') ||
+      (BeeProfiles.getGroupName ? BeeProfiles.getGroupName(parcel.groupId) : '') ||
       parcel.groupId || '';
     const ownerLink = owner.id
       ? '<button type="button" class="profile-inline-link" data-profile-type="' + owner.type +
-        '" data-profile-id="' + FSUtils.escapeHtml(owner.id) + '">' +
-        FSUtils.escapeHtml(ownerLabel) + '</button>'
-      : FSUtils.escapeHtml(ownerLabel || 'Unknown');
+        '" data-profile-id="' + BeeUtils.escapeHtml(owner.id) + '">' +
+        BeeUtils.escapeHtml(ownerLabel) + '</button>'
+      : BeeUtils.escapeHtml(ownerLabel || 'Unknown');
     const groupLink = parcel.groupId && parcel.groupId !== ZERO_UUID
       ? '<button type="button" class="profile-inline-link" data-profile-type="group" data-profile-id="' +
-        FSUtils.escapeHtml(parcel.groupId) + '">' + FSUtils.escapeHtml(groupLabel) + '</button>'
+        BeeUtils.escapeHtml(parcel.groupId) + '">' + BeeUtils.escapeHtml(groupLabel) + '</button>'
       : '';
     let html =
-      'Standing on <strong>' + FSUtils.escapeHtml(parcel.name) + '</strong><br>' +
+      'Standing on <strong>' + BeeUtils.escapeHtml(parcel.name) + '</strong><br>' +
       'Owner: ' + ownerLink +
       (groupLink ? ' &middot; Group: ' + groupLink : '');
     if (!canEdit) {
       html += '<br><span class="land-summary__note">' +
-        FSUtils.escapeHtml(readOnlyNote(parcel)) + '</span>';
+        BeeUtils.escapeHtml(readOnlyNote(parcel)) + '</span>';
     }
     summary.innerHTML = html;
     summary.querySelectorAll('.profile-inline-link').forEach(function (btn) {
@@ -299,8 +299,8 @@ const FSLand = (function () {
         const entityId = btn.getAttribute('data-profile-id');
         const entityType = btn.getAttribute('data-profile-type');
         if (!entityId) return;
-        if (entityType === 'group') FSProfile.openGroup(entityId);
-        else FSProfile.openAvatar(entityId);
+        if (entityType === 'group') BeeProfile.openGroup(entityId);
+        else BeeProfile.openAvatar(entityId);
       });
     });
   }
@@ -313,8 +313,11 @@ const FSLand = (function () {
       return el ? el.checked : undefined;
     };
     return {
-      name: document.getElementById('land-name').value.trim(),
-      desc: document.getElementById('land-desc').value.trim(),
+      // Verbatim, no trim: a parcel named "Beach " must round-trip untouched
+      // when the user only toggled a checkbox - silently altering the name on
+      // an unrelated save is a wrong save.
+      name: document.getElementById('land-name').value,
+      desc: document.getElementById('land-desc').value,
       pushRestricted: checked('land-push'),
       allowBuildEveryone: checked('land-build-everyone'),
       allowBuildGroup: checked('land-build-group'),
@@ -347,13 +350,13 @@ const FSLand = (function () {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!FSState.gridOnline()) {
-      FSUtils.showToast('Not connected to the grid', 'warning');
+    if (!BeeState.gridOnline()) {
+      BeeUtils.showToast('Not connected to the grid', 'warning');
       return;
     }
-    const parcel = FSState.get().parcel;
+    const parcel = BeeState.get().parcel;
     if (!parcelCanEdit(parcel)) {
-      FSUtils.showToast('You cannot edit this parcel', 'error');
+      BeeUtils.showToast('You cannot edit this parcel', 'error');
       return;
     }
     // Send the FULL current parcel with the edits layered on top. The core needs
@@ -366,19 +369,19 @@ const FSLand = (function () {
     btn.textContent = 'Applying...';
 
     try {
-      await FSTransport.updateParcel(data);
-      FSUtils.showToast('Parcel updated', 'success');
+      await BeeTransport.updateParcel(data);
+      BeeUtils.showToast('Parcel updated', 'success');
       // Re-fetch the authoritative parcel data so the form and the next save's
       // baseline reflect what the sim actually stored.
-      if (typeof FSTransport.refreshParcel === 'function') {
-        FSTransport.refreshParcel({ force: true })
-          .then(function () { applyParcel(FSState.get().parcel); })
+      if (typeof BeeTransport.refreshParcel === 'function') {
+        BeeTransport.refreshParcel({ force: true })
+          .then(function () { applyParcel(BeeState.get().parcel); })
           .catch(function () { /* leave the optimistic values in place */ });
       }
     } catch (err) {
-      FSUtils.showToast(err.message || 'Update failed', 'error');
+      BeeUtils.showToast(err.message || 'Update failed', 'error');
     } finally {
-      btn.disabled = !parcelCanEdit(FSState.get().parcel);
+      btn.disabled = !parcelCanEdit(BeeState.get().parcel);
       btn.textContent = 'Apply Changes';
     }
   }
@@ -394,16 +397,16 @@ const FSLand = (function () {
   // The matching parcel-info event (correlated by id below) merges them back in.
   let expectedParcelInfoId = '';
   function requestParcelExtras() {
-    if (typeof FSTransport.remoteParcel !== 'function') return;
-    const region = FSState.get().region || {};
-    const pos = FSState.get().position || {};
+    if (typeof BeeTransport.remoteParcel !== 'function') return;
+    const region = BeeState.get().region || {};
+    const pos = BeeState.get().position || {};
     const gx = region.x != null ? region.x : region.gridX;
     const gy = region.y != null ? region.y : region.gridY;
     if (gx == null || gy == null) return;
-    FSTransport.remoteParcel(gx, gy,
+    BeeTransport.remoteParcel(gx, gy,
       pos.x != null ? pos.x : 128, pos.y != null ? pos.y : 128, pos.z != null ? pos.z : 25
     ).then(function (res) {
-      if (res && res.parcelId) expectedParcelInfoId = FSUtils.normUuid(res.parcelId);
+      if (res && res.parcelId) expectedParcelInfoId = BeeUtils.normUuid(res.parcelId);
     });
   }
 
@@ -411,14 +414,14 @@ const FSLand = (function () {
     if (!info || !info.parcelId) return;
     // Accept only the parcel we're standing on - its id came back from our own
     // request - never a place-search detail's parcel-info.
-    if (FSUtils.normUuid(info.parcelId) !== expectedParcelInfoId) return;
-    const parcel = FSState.get().parcel;
+    if (BeeUtils.normUuid(info.parcelId) !== expectedParcelInfoId) return;
+    const parcel = BeeState.get().parcel;
     if (!parcel || parcel.stub) return;
-    FSState.patch({ parcel: Object.assign({}, parcel, {
+    BeeState.patch({ parcel: Object.assign({}, parcel, {
       parcelId: info.parcelId,
       dwell: info.dwell
     }) });
-    if (FSNavigation.isTabActive('land')) {
+    if (BeeNavigation.isTabActive('land')) {
       setFieldValue('land-uuid', info.parcelId);
       if (info.dwell != null) setFieldValue('land-traffic', Math.round(info.dwell));
     }
@@ -433,7 +436,7 @@ const FSLand = (function () {
 
   async function activate() {
     const token = ++activateToken;
-    const parcel = FSState.get().parcel;
+    const parcel = BeeState.get().parcel;
     const pending = parcelNeedsLoad(parcel);
     requestParcelExtras(); // fetch the parcel UUID + Traffic, which ParcelProperties omits
 
@@ -444,14 +447,14 @@ const FSLand = (function () {
       populateForm(parcel);
     }
 
-    if (!FSState.get().sessionLost && typeof FSTransport.refreshParcel === 'function') {
-      const shouldRefresh = pending || !parcelIsRich(FSState.get().parcel);
+    if (!BeeState.get().sessionLost && typeof BeeTransport.refreshParcel === 'function') {
+      const shouldRefresh = pending || !parcelIsRich(BeeState.get().parcel);
       if (shouldRefresh) {
         try {
-          await FSTransport.refreshParcel();
-          if (token !== activateToken || !FSNavigation.isTabActive('land')) return;
-          applyParcel(FSState.get().parcel);
-          if (parcelNeedsLoad(FSState.get().parcel)) {
+          await BeeTransport.refreshParcel();
+          if (token !== activateToken || !BeeNavigation.isTabActive('land')) return;
+          applyParcel(BeeState.get().parcel);
+          if (parcelNeedsLoad(BeeState.get().parcel)) {
             clearDisplay();
           }
         } finally {
@@ -471,8 +474,8 @@ const FSLand = (function () {
     document.getElementById('land-refresh').addEventListener('click', async function () {
       showLoading('Refreshing land data...');
       try {
-        await FSTransport.refreshParcel({ force: true });
-        applyParcel(FSState.get().parcel);
+        await BeeTransport.refreshParcel({ force: true });
+        applyParcel(BeeState.get().parcel);
       } finally {
         hideLoading();
       }
@@ -485,15 +488,15 @@ const FSLand = (function () {
     });
 
     const groupChatBtn = document.getElementById('land-group-chat');
-    if (groupChatBtn && typeof FSIm !== 'undefined' && FSIm.openGroupChat) {
+    if (groupChatBtn && typeof BeeIm !== 'undefined' && BeeIm.openGroupChat) {
       groupChatBtn.addEventListener('click', function () {
         const groupId = groupChatBtn.dataset.groupId;
-        if (groupId) FSIm.openGroupChat(groupId, groupChatBtn.dataset.groupName || '');
+        if (groupId) BeeIm.openGroupChat(groupId, groupChatBtn.dataset.groupName || '');
       });
     }
 
-    FSState.on('change', function (partial) {
-      if (partial.parcel && FSNavigation.isTabActive('land')) {
+    BeeState.on('change', function (partial) {
+      if (partial.parcel && BeeNavigation.isTabActive('land')) {
         const parcel = partial.parcel;
         if (parcel.groupName) {
           setProfileField('land-group', parcel.groupName, parcel.groupId, 'group');
@@ -503,7 +506,7 @@ const FSLand = (function () {
           setProfileField('land-owner', owner.label, owner.id, owner.type);
         }
       }
-      if (!partial.parcel || !FSNavigation.isTabActive('land')) return;
+      if (!partial.parcel || !BeeNavigation.isTabActive('land')) return;
       if (parcelNeedsLoad(partial.parcel)) {
         clearDisplay();
         showLoading();
@@ -518,22 +521,22 @@ const FSLand = (function () {
     // the form first paints. Without this the fields stay stuck on the UUID or
     // "(resolving...)".
     function refreshOwnerGroupFields() {
-      const parcel = FSState.get().parcel;
+      const parcel = BeeState.get().parcel;
       if (!parcel || parcel.stub) return;
       const owner = ownerFieldInfo(parcel);
       setProfileField('land-owner', owner.label, owner.id, owner.type);
       const groupLabel = parcel.groupName ||
-        (typeof FSTransport.getGroupName === 'function' ? FSTransport.getGroupName(parcel.groupId) : '') ||
-        (FSProfiles.getGroupName ? FSProfiles.getGroupName(parcel.groupId) : '') ||
+        (typeof BeeTransport.getGroupName === 'function' ? BeeTransport.getGroupName(parcel.groupId) : '') ||
+        (BeeProfiles.getGroupName ? BeeProfiles.getGroupName(parcel.groupId) : '') ||
         parcel.groupId || '';
       setProfileField('land-group', groupLabel, parcel.groupId, 'group');
       // Re-render the summary line as well, since it shows the owner/group name too.
       renderSummary(parcel);
     }
 
-    if (typeof FSProfiles !== 'undefined') {
-      FSProfiles.onChange(function (evt) {
-        if (!FSNavigation.isTabActive('land')) return;
+    if (typeof BeeProfiles !== 'undefined') {
+      BeeProfiles.onChange(function (evt) {
+        if (!BeeNavigation.isTabActive('land')) return;
         // The group name resolves via 'group' (GroupProfileReply) or 'membership'
         // (AgentGroupDataUpdate). Older code watched for a 'group-name' kind that
         // is never emitted, so the field never refreshed.
@@ -542,21 +545,21 @@ const FSLand = (function () {
         }
       });
     }
-    if (typeof FSTransport !== 'undefined' && FSTransport.on) {
-      FSTransport.on('names-updated', function () {
-        if (FSNavigation.isTabActive('land')) refreshOwnerGroupFields();
+    if (typeof BeeTransport !== 'undefined' && BeeTransport.on) {
+      BeeTransport.on('names-updated', function () {
+        if (BeeNavigation.isTabActive('land')) refreshOwnerGroupFields();
       });
       // Parcel UUID + Traffic (dwell) come in via RemoteParcelRequest -> parcel-info.
-      FSTransport.on('parcel-info', mergeParcelExtras);
+      BeeTransport.on('parcel-info', mergeParcelExtras);
     }
 
-    if (typeof FSTransport !== 'undefined') {
-      FSTransport.on('teleport-finish', function () {
+    if (typeof BeeTransport !== 'undefined') {
+      BeeTransport.on('teleport-finish', function () {
         clearDisplay();
         showLoading();
-        if (typeof FSTransport.refreshParcel === 'function') {
-          FSTransport.refreshParcel().then(function () {
-            applyParcel(FSState.get().parcel);
+        if (typeof BeeTransport.refreshParcel === 'function') {
+          BeeTransport.refreshParcel().then(function () {
+            applyParcel(BeeState.get().parcel);
           }).finally(function () {
             hideLoading();
           });
@@ -566,7 +569,7 @@ const FSLand = (function () {
       });
     }
 
-    FSState.on('reset', function () {
+    BeeState.on('reset', function () {
       clearDisplay();
       hideLoading();
     });

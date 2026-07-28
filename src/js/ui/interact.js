@@ -2,20 +2,21 @@
  * Interactions panel: what's nearby, and what your avatar can do.
  *
  */
-const FSInteract = (function () {
+const BeeInteract = (function () {
   'use strict';
 
   let state = { sitting: false, flying: false };
 
   function invoke(cmd, args) {
-    if (typeof FSBridge === 'undefined' || !FSBridge.invoke) {
+    if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke) {
       return Promise.reject(new Error('Native bridge unavailable'));
     }
-    return FSBridge.invoke(cmd, args || {});
+    return BeeBridge.invoke(cmd, args || {});
   }
 
   function describe() {
     if (state.sitting) return 'sitting';
+    if (sitPendingOn) return 'sitting down...';
     if (state.flying) return 'flying';
     return 'standing';
   }
@@ -23,7 +24,7 @@ const FSInteract = (function () {
   function paint() {
     const label = document.getElementById('interact-state');
     if (label) label.textContent = describe();
-    const online = FSState.gridOnline();
+    const online = BeeState.gridOnline();
     const set = function (id, enabled) {
       const btn = document.getElementById(id);
       if (btn) btn.disabled = !(online && enabled);
@@ -43,12 +44,12 @@ const FSInteract = (function () {
   }
 
   function run(cmd, args, failure) {
-    if (!FSState.gridOnline()) {
-      FSUtils.showToast('Not connected to the grid', 'warning');
+    if (!BeeState.gridOnline()) {
+      BeeUtils.showToast('Not connected to the grid', 'warning');
       return;
     }
     invoke(cmd, args).then(applyResult).catch(function () {
-      FSUtils.showToast(failure, 'warning');
+      BeeUtils.showToast(failure, 'warning');
     });
   }
 
@@ -76,6 +77,21 @@ const FSInteract = (function () {
   let openDetailId = '';
   /// Which object we're sitting on, when we are - so "Sit on" can be out for that one row.
   let sittingOn = '';
+  /// Set while a sit request awaits the sim's verdict; the sit-state event
+  /// (success, refusal, or the Rust-side timeout) always clears it.
+  let sitPendingOn = '';
+
+  // Ask to sit and wait for the sim's answer instead of assuming it worked -
+  // the verdict arrives as a sit-state event (see init).
+  function requestSit(obj) {
+    sitPendingOn = obj.id;
+    paint();
+    invoke('sl_object_sit', { objectId: obj.id }).catch(function () {
+      sitPendingOn = '';
+      paint();
+      BeeUtils.showToast('Could not sit on that.', 'warning');
+    });
+  }
 
   function flattenEntries(list) {
     const out = [];
@@ -90,36 +106,36 @@ const FSInteract = (function () {
   // no placeholder text: `matchesFilter` compares against this, and a placeholder would
   // mean typing "res" matched every unresolved row.
   function nameOf(id) {
-    if (!id || FSProfiles.isZero(id)) return '';
-    const cached = FSTransport.getCachedName ? FSTransport.getCachedName(id) : '';
+    if (!id || BeeProfiles.isZero(id)) return '';
+    const cached = BeeTransport.getCachedName ? BeeTransport.getCachedName(id) : '';
     if (cached) return cached;
     // An object can belong to a group, and group names live in a different cache.
-    return FSTransport.getGroupName ? FSTransport.getGroupName(id) : '';
+    return BeeTransport.getGroupName ? BeeTransport.getGroupName(id) : '';
   }
 
   // What the list shows: "Display Name (username)" where the resident has set one, the
   // same shape the buddies and radar lists use.
   function ownerLabel(id) {
-    if (!id || FSProfiles.isZero(id)) return '';
-    const info = FSTransport.getCachedNameInfo ? FSTransport.getCachedNameInfo(id) : null;
+    if (!id || BeeProfiles.isZero(id)) return '';
+    const info = BeeTransport.getCachedNameInfo ? BeeTransport.getCachedNameInfo(id) : null;
     if (info && (info.displayName || info.userName || info.label)) {
-      const lines = FSUtils.agentNameLines({
+      const lines = BeeUtils.agentNameLines({
         displayName: info.displayName || '',
         userName: info.userName || info.label || '',
         name: info.label || ''
       });
       return lines.subtitle ? lines.title + ' (' + lines.subtitle + ')' : lines.title;
     }
-    const group = FSTransport.getGroupName ? FSTransport.getGroupName(id) : '';
+    const group = BeeTransport.getGroupName ? BeeTransport.getGroupName(id) : '';
     return group || 'resolving...';
   }
 
   function groupLabel(id) {
-    if (!id || FSProfiles.isZero(id)) return '';
-    const fromTransport = FSTransport.getGroupName ? FSTransport.getGroupName(id) : '';
+    if (!id || BeeProfiles.isZero(id)) return '';
+    const fromTransport = BeeTransport.getGroupName ? BeeTransport.getGroupName(id) : '';
     if (fromTransport) return fromTransport;
-    if (typeof FSProfiles !== 'undefined' && FSProfiles.getGroupName) {
-      const cached = FSProfiles.getGroupName(id);
+    if (typeof BeeProfiles !== 'undefined' && BeeProfiles.getGroupName) {
+      const cached = BeeProfiles.getGroupName(id);
       if (cached) return cached;
     }
     return 'resolving...';
@@ -127,12 +143,12 @@ const FSInteract = (function () {
 
   function queueGroupResolve(ids) {
     const list = (Array.isArray(ids) ? ids : [ids]).filter(function (id) {
-      return id && !FSProfiles.isZero(id);
+      return id && !BeeProfiles.isZero(id);
     });
     if (!list.length) return;
-    if (FSTransport.queueGroupNameResolve) FSTransport.queueGroupNameResolve(list);
-    else if (typeof FSProfiles !== 'undefined' && FSProfiles.queueGroupName) {
-      FSProfiles.queueGroupName(list);
+    if (BeeTransport.queueGroupNameResolve) BeeTransport.queueGroupNameResolve(list);
+    else if (typeof BeeProfiles !== 'undefined' && BeeProfiles.queueGroupName) {
+      BeeProfiles.queueGroupName(list);
     }
   }
 
@@ -159,8 +175,8 @@ const FSInteract = (function () {
   // Every name we hold for someone, for matching against. A resident with a display name
   // set should still be findable by their username, and the other way round.
   function nameHaystack(id) {
-    if (!id || FSProfiles.isZero(id)) return '';
-    const info = FSTransport.getCachedNameInfo ? FSTransport.getCachedNameInfo(id) : null;
+    if (!id || BeeProfiles.isZero(id)) return '';
+    const info = BeeTransport.getCachedNameInfo ? BeeTransport.getCachedNameInfo(id) : null;
     if (!info) return nameOf(id);
     return [info.label, info.userName, info.displayName].filter(Boolean).join(' ');
   }
@@ -263,7 +279,7 @@ const FSInteract = (function () {
       host.innerHTML = !loaded
         ? '<p class="settings-note">Press <strong>Load</strong> to list the objects around you.</p>'
         : filterText
-          ? '<p class="settings-note">Nothing here matches "' + FSUtils.escapeHtml(filterText) + '".</p>'
+          ? '<p class="settings-note">Nothing here matches "' + BeeUtils.escapeHtml(filterText) + '".</p>'
             : lastScan.cached > 0 && lastScan.tracked === 0
             ? '<p class="settings-note">The region listed ' + lastScan.cached +
               ' object' + (lastScan.cached === 1 ? '' : 's') +
@@ -363,7 +379,7 @@ const FSInteract = (function () {
   }
 
   function refreshObjects() {
-    if (!FSState.gridOnline()) return;
+    if (!BeeState.gridOnline()) return;
     if (objectsLoadBusy) return;
     objectsLoadBusy = true;
     setObjectsControlsBusy(true);
@@ -379,7 +395,7 @@ const FSInteract = (function () {
       renderObjects();
       const pending = lastScan.pending;
       if (pending > 0) {
-        FSUtils.showToast('Naming ' + pending + ' object' + (pending === 1 ? '' : 's') + '...', 'info');
+        BeeUtils.showToast('Naming ' + pending + ' object' + (pending === 1 ? '' : 's') + '...', 'info');
       }
       if (pending > 0 || entries.length === 0) {
         let followUpsLeft = 2;
@@ -390,7 +406,7 @@ const FSInteract = (function () {
         [2000, 5000].forEach(function (delayMs) {
           window.setTimeout(function () {
             if (!objectsLoadBusy) return;
-            if (!FSState.gridOnline()) {
+            if (!BeeState.gridOnline()) {
               followDone();
               return;
             }
@@ -406,7 +422,7 @@ const FSInteract = (function () {
         finishLoad();
       }
     }).catch(function () {
-      FSUtils.showToast('Could not read the nearby objects.', 'warning');
+      BeeUtils.showToast('Could not read the nearby objects.', 'warning');
       finishLoad();
     });
   }
@@ -416,7 +432,7 @@ const FSInteract = (function () {
     if (next === range) return;
     if (objectsLoadBusy) return;
     range = next;
-    if (typeof FSSettings !== 'undefined') FSSettings.set('objectsRange', range);
+    if (typeof BeeSettings !== 'undefined') BeeSettings.set('objectsRange', range);
     // A different radius is a different question, so ask it rather than filtering what
     // we happen to be holding - a wider one needs rows we never fetched.
     if (loaded) refreshObjects();
@@ -442,29 +458,36 @@ const FSInteract = (function () {
     if (obj.canTouch) {
       add('Touch', true, function () {
         invoke('sl_object_touch', { localId: obj.localId })
-          .catch(function () { FSUtils.showToast('Could not touch that.', 'warning'); });
+          .catch(function () { BeeUtils.showToast('Could not touch that.', 'warning'); });
       });
     }
     // Sit on anything except worn attachments.
     if (!isAttachmentObject(obj)) {
       add('Sit on', !(state.sitting && sittingOn === obj.id), function () {
-        invoke('sl_object_sit', { objectId: obj.id }).then(function () {
-          state.sitting = true;
-          sittingOn = obj.id;
-          paint();
-        }).catch(function () { FSUtils.showToast('Could not sit on that.', 'warning'); });
+        requestSit(obj);
       });
     }
     if (canPayNow(obj)) {
       add('Pay...', true, function () { payObject(obj); });
     }
     // Whoever it belongs to, and whoever made it, are people you may want to look up.
-    if (obj.ownerId && !FSProfiles.isZero(obj.ownerId)) {
+    if (obj.ownerId && !BeeProfiles.isZero(obj.ownerId)) {
       add('Owner profile', true, function () { openProfile(obj.ownerId); });
     }
-    if (obj.creatorId && !FSProfiles.isZero(obj.creatorId) && obj.creatorId !== obj.ownerId) {
+    if (obj.creatorId && !BeeProfiles.isZero(obj.creatorId) && obj.creatorId !== obj.ownerId) {
       add('Creator profile', true, function () { openProfile(obj.creatorId); });
     }
+    const copyItem = function (label, value, what) {
+      if (!value) return;
+      add(label, true, function () {
+        if (!navigator.clipboard) return;
+        navigator.clipboard.writeText(value).then(function () {
+          BeeUtils.showToast(what + ' copied', 'success');
+        }).catch(function () {});
+      });
+    };
+    copyItem('Copy name', obj.name, 'Name');
+    copyItem('Copy UUID', obj.id, 'UUID');
     menu.hidden = false;
     // At the pointer, the way the buddies and radar menus open, but kept on screen.
     const rect = menu.getBoundingClientRect();
@@ -494,39 +517,39 @@ const FSInteract = (function () {
   function detailRow(label, value) {
     if (value === undefined || value === null || value === '') return '';
     return '<div class="profile-field"><span class="profile-field__label">' +
-      FSUtils.escapeHtml(label) + '</span><span>' + FSUtils.escapeHtml(String(value)) + '</span></div>';
+      BeeUtils.escapeHtml(label) + '</span><span>' + BeeUtils.escapeHtml(String(value)) + '</span></div>';
   }
 
   // The same row, but the value opens a profile. Used for owner, creator and last owner:
   // a key on its own is no use, and a name you can't click is only half of one.
   function personRow(label, id) {
-    if (!id || FSProfiles.isZero(id)) return '';
+    if (!id || BeeProfiles.isZero(id)) return '';
     const text = ownerLabel(id) || id;
-    const isGroup = !!(FSTransport.getGroupName && FSTransport.getGroupName(id)) ||
-      (typeof FSProfiles !== 'undefined' && FSProfiles.getGroupName && FSProfiles.getGroupName(id));
+    const isGroup = !!(BeeTransport.getGroupName && BeeTransport.getGroupName(id)) ||
+      (typeof BeeProfiles !== 'undefined' && BeeProfiles.getGroupName && BeeProfiles.getGroupName(id));
     return '<div class="profile-field"><span class="profile-field__label">' +
-      FSUtils.escapeHtml(label) + '</span><span><a href="#" class="settings-link" ' +
-      'data-profile-id="' + FSUtils.escapeHtml(id) + '" ' +
+      BeeUtils.escapeHtml(label) + '</span><span><a href="#" class="settings-link" ' +
+      'data-profile-id="' + BeeUtils.escapeHtml(id) + '" ' +
       'data-profile-kind="' + (isGroup ? 'group' : 'avatar') + '">' +
-      FSUtils.escapeHtml(text) + '</a></span></div>';
+      BeeUtils.escapeHtml(text) + '</a></span></div>';
   }
 
   function groupRow(label, id) {
-    if (!id || FSProfiles.isZero(id)) return '';
+    if (!id || BeeProfiles.isZero(id)) return '';
     return '<div class="profile-field"><span class="profile-field__label">' +
-      FSUtils.escapeHtml(label) + '</span><span><a href="#" class="settings-link" ' +
-      'data-profile-id="' + FSUtils.escapeHtml(id) + '" data-profile-kind="group">' +
-      FSUtils.escapeHtml(groupLabel(id)) + '</a></span></div>';
+      BeeUtils.escapeHtml(label) + '</span><span><a href="#" class="settings-link" ' +
+      'data-profile-id="' + BeeUtils.escapeHtml(id) + '" data-profile-kind="group">' +
+      BeeUtils.escapeHtml(groupLabel(id)) + '</a></span></div>';
   }
 
   function openProfile(id, kind) {
-    if (!id || typeof FSProfile === 'undefined') return;
-    if (kind === 'group' || (FSTransport.getGroupName && FSTransport.getGroupName(id)) ||
-        (typeof FSProfiles !== 'undefined' && FSProfiles.getGroupName && FSProfiles.getGroupName(id))) {
-      if (FSProfile.openGroup) FSProfile.openGroup(id);
+    if (!id || typeof BeeProfile === 'undefined') return;
+    if (kind === 'group' || (BeeTransport.getGroupName && BeeTransport.getGroupName(id)) ||
+        (typeof BeeProfiles !== 'undefined' && BeeProfiles.getGroupName && BeeProfiles.getGroupName(id))) {
+      if (BeeProfile.openGroup) BeeProfile.openGroup(id);
       return;
     }
-    if (FSProfile.openAvatar) FSProfile.openAvatar(id);
+    if (BeeProfile.openAvatar) BeeProfile.openAvatar(id);
   }
 
   // Everything expensive happens here and nowhere else: the capability calls
@@ -576,11 +599,11 @@ const FSInteract = (function () {
     if (!price) {
       // Ask, then let the reply reopen this with real choices.
       invoke('sl_request_pay_price', { objectId: obj.id }).catch(function () {});
-      FSUtils.showToast('Asking the object what it charges...', 'info');
+      BeeUtils.showToast('Asking the object what it charges...', 'info');
       return;
     }
     if (!price.payable) {
-      FSUtils.showToast('This object is not asking for payment.', 'warning');
+      BeeUtils.showToast('This object is not asking for payment.', 'warning');
       return;
     }
     const amounts = [];
@@ -644,10 +667,10 @@ const FSInteract = (function () {
   async function sendPay(obj, amount) {
     const value = Math.floor(Number(amount));
     if (!Number.isFinite(value) || value < 1) {
-      FSUtils.showToast('Enter an amount of L$ 1 or more.', 'warning');
+      BeeUtils.showToast('Enter an amount of L$ 1 or more.', 'warning');
       return;
     }
-    const ok = await FSUtils.confirm({
+    const ok = await BeeUtils.confirm({
       title: 'Pay this object?',
       message: 'Pay L$ ' + value + ' to "' + (obj.name || 'object') + '"? This cannot be undone.',
       confirmLabel: 'Pay L$ ' + value,
@@ -655,9 +678,9 @@ const FSInteract = (function () {
     });
     if (!ok) return;
     invoke('sl_object_pay', { objectId: obj.id, amount: value, objectName: obj.name || '' })
-      .then(function () { FSUtils.showToast('Paid L$ ' + value + '.', 'success'); })
+      .then(function () { BeeUtils.showToast('Paid L$ ' + value + '.', 'success'); })
       .catch(function (err) {
-        FSUtils.showToast((err && err.message) || 'Payment failed.', 'error');
+        BeeUtils.showToast((err && err.message) || 'Payment failed.', 'error');
       });
   }
 
@@ -678,17 +701,17 @@ const FSInteract = (function () {
     const pos = obj.position || {};
     host.innerHTML =
       '<div class="objects-detail__head">' +
-        '<h4 class="profile-split__title">' + FSUtils.escapeHtml(p.name || obj.name || '(unnamed)') + '</h4>' +
+        '<h4 class="profile-split__title">' + BeeUtils.escapeHtml(p.name || obj.name || '(unnamed)') + '</h4>' +
         '<button type="button" class="btn btn--ghost btn--sm" id="objects-detail-close">Close</button>' +
       '</div>' +
       (p.description || obj.description
-        ? '<p class="objects-detail__desc">' + FSUtils.escapeHtml(p.description || obj.description) + '</p>'
+        ? '<p class="objects-detail__desc">' + BeeUtils.escapeHtml(p.description || obj.description) + '</p>'
         : '') +
       '<div class="objects-detail__fields">' +
         detailRow('Position', Math.round(pos.x) + ', ' + Math.round(pos.y) + ', ' + Math.round(pos.z)) +
         detailRow('Distance', obj.distance.toFixed(1) + ' m') +
         personRow('Owner', p.ownerId || obj.ownerId) +
-        (p.groupId && !FSProfiles.isZero(p.groupId) ? groupRow('Group', p.groupId) : '') +
+        (p.groupId && !BeeProfiles.isZero(p.groupId) ? groupRow('Group', p.groupId) : '') +
         personRow('Last owner', p.lastOwnerId) +
         detailRow('You may', props ? permText(p.everyoneMask, p.everyonePerms) : '') +
         detailRow('Next owner may', props ? permText(p.nextOwnerMask, p.nextOwnerPerms) : '') +
@@ -733,13 +756,9 @@ const FSInteract = (function () {
         const act = btn.dataset.objAction;
         if (act === 'touch') {
           invoke('sl_object_touch', { localId: obj.localId })
-            .catch(function () { FSUtils.showToast('Could not touch that.', 'warning'); });
+            .catch(function () { BeeUtils.showToast('Could not touch that.', 'warning'); });
         } else if (act === 'sit') {
-          invoke('sl_object_sit', { objectId: obj.id }).then(function () {
-            state.sitting = true;
-            sittingOn = obj.id;
-            paint();
-          }).catch(function () { FSUtils.showToast('Could not sit on that.', 'warning'); });
+          requestSit(obj);
         } else {
           payObject(obj);
         }
@@ -764,11 +783,11 @@ const FSInteract = (function () {
       link.addEventListener('click', function (e) {
         e.preventDefault();
         const url = link.dataset.mediaUrl;
-        if (typeof FSSlurl !== 'undefined' && FSSlurl.openExternalUrl) FSSlurl.openExternalUrl(url);
+        if (typeof BeeSlurl !== 'undefined' && BeeSlurl.openExternalUrl) BeeSlurl.openExternalUrl(url);
         else window.open(url, '_blank', 'noopener,noreferrer');
       });
     });
-    if (p.groupId && !FSProfiles.isZero(p.groupId)) queueGroupResolve(p.groupId);
+    if (p.groupId && !BeeProfiles.isZero(p.groupId)) queueGroupResolve(p.groupId);
   }
 
   // Media-on-a-prim entries arrive as "face|url" so we can say which side it's on.
@@ -779,9 +798,9 @@ const FSInteract = (function () {
       const face = split > 0 ? String(entry).slice(0, split) : '';
       const url = split > 0 ? String(entry).slice(split + 1) : String(entry);
       return '<div class="profile-field"><span class="profile-field__label">Media' +
-        (face ? ' (face ' + FSUtils.escapeHtml(face) + ')' : '') + '</span>' +
-        '<span><a href="#" class="settings-link" data-media-url="' + FSUtils.escapeHtml(url) + '">' +
-        FSUtils.escapeHtml(url) + '</a></span></div>';
+        (face ? ' (face ' + BeeUtils.escapeHtml(face) + ')' : '') + '</span>' +
+        '<span><a href="#" class="settings-link" data-media-url="' + BeeUtils.escapeHtml(url) + '">' +
+        BeeUtils.escapeHtml(url) + '</a></span></div>';
     });
     return rows.join('');
   }
@@ -789,7 +808,7 @@ const FSInteract = (function () {
   // Nothing loads or refreshes on its own - the user presses Load. The core tracks
   // objects continuously anyway, so this only reads the table it already has.
   function startScan() {
-    if (!FSState.gridOnline()) return;
+    if (!BeeState.gridOnline()) return;
     invoke('sl_object_scan', { enable: true }).catch(function () {});
   }
 
@@ -822,7 +841,7 @@ const FSInteract = (function () {
     // How far to look. Remembered, so it's set once rather than every session.
     const rangeBox = document.getElementById('objects-range');
     if (rangeBox) {
-      const saved = typeof FSSettings !== 'undefined' ? Number(FSSettings.get('objectsRange')) : 0;
+      const saved = typeof BeeSettings !== 'undefined' ? Number(BeeSettings.get('objectsRange')) : 0;
       if (RANGE_CHOICES.indexOf(saved) !== -1) range = saved;
       rangeBox.value = String(range);
       rangeBox.addEventListener('change', function () { setRange(rangeBox.value); });
@@ -831,7 +850,7 @@ const FSInteract = (function () {
     // Filtering is local to the rows we already have - it sends nothing.
     const filterBox = document.getElementById('objects-filter');
     if (filterBox) {
-      filterBox.addEventListener('input', FSUtils.debounce(function () {
+      filterBox.addEventListener('input', BeeUtils.debounce(function () {
         filterText = filterBox.value.trim();
         renderObjects();
       }, 150));
@@ -840,15 +859,15 @@ const FSInteract = (function () {
     function initTypeFilter(id, key, getValue, setValue) {
       const box = document.getElementById(id);
       if (!box) return;
-      if (typeof FSSettings !== 'undefined') {
-        const saved = FSSettings.get(key);
+      if (typeof BeeSettings !== 'undefined') {
+        const saved = BeeSettings.get(key);
         if (typeof saved === 'boolean') setValue(saved);
       }
       box.checked = getValue();
       box.addEventListener('change', function () {
         if (objectsLoadBusy) return;
         setValue(box.checked);
-        if (typeof FSSettings !== 'undefined') FSSettings.set(key, box.checked);
+        if (typeof BeeSettings !== 'undefined') BeeSettings.set(key, box.checked);
         if (loaded) refreshObjects();
         else renderObjects();
       });
@@ -868,8 +887,8 @@ const FSInteract = (function () {
     );
 
     // When range or type filters change in Bee -> Settings, mirror them here.
-    if (typeof FSSettings !== 'undefined' && FSSettings.onChange) {
-      FSSettings.onChange(function (key, value) {
+    if (typeof BeeSettings !== 'undefined' && BeeSettings.onChange) {
+      BeeSettings.onChange(function (key, value) {
         if (key === 'objectsRange') {
           const next = Number(value);
           if (RANGE_CHOICES.indexOf(next) === -1) return;
@@ -916,9 +935,9 @@ const FSInteract = (function () {
     // the one being examined, the open detail view. A batch of a hundred replies means a
     // hundred of these events, so the list repaint is coalesced - repainting per reply
     // would rebuild the whole table a hundred times over.
-    if (typeof FSTransport !== 'undefined' && FSTransport.on) {
-      const repaintSoon = FSUtils.debounce(renderObjects, 120);
-      FSTransport.on('object-properties', function (props) {
+    if (typeof BeeTransport !== 'undefined' && BeeTransport.on) {
+      const repaintSoon = BeeUtils.debounce(renderObjects, 120);
+      BeeTransport.on('object-properties', function (props) {
         if (!props || !props.id) return;
         const row = objects.find(function (o) {
           return o.id && o.id.toLowerCase() === String(props.id).toLowerCase();
@@ -928,7 +947,7 @@ const FSInteract = (function () {
         if (props.ownerId) row.ownerId = props.ownerId;
         if (props.creatorId) row.creatorId = props.creatorId;
         // An object's group is usually one we're not in, so membership never named it.
-        if (props.groupId && !FSProfiles.isZero(props.groupId)) {
+        if (props.groupId && !BeeProfiles.isZero(props.groupId)) {
           queueGroupResolve(props.groupId);
         }
         // Merge, because the Family reply and the full one carry different fields.
@@ -936,7 +955,7 @@ const FSInteract = (function () {
         repaintSoon();
         if (openDetailId === row.id) paintDetails(row, detailProps[row.id]);
       });
-      FSTransport.on('pay-price', function (price) {
+      BeeTransport.on('pay-price', function (price) {
         if (!price || !price.id) return;
         payPrices[price.id] = price;
         const row = objects.find(function (o) {
@@ -947,7 +966,7 @@ const FSInteract = (function () {
       // A teleport means a different set of objects, and the core drops its table on
       // arrival - so clear the list rather than leave the old region's rows sitting
       // there with distances that no longer mean anything.
-      FSTransport.on('teleport-finish', function () {
+      BeeTransport.on('teleport-finish', function () {
         objectsLoadBusy = false;
         setObjectsControlsBusy(false);
         entries = [];
@@ -966,12 +985,12 @@ const FSInteract = (function () {
         const row = objects.find(function (o) { return o.id === openDetailId; });
         if (row) paintDetails(row, detailProps[row.id] || null);
       };
-      FSTransport.on('names-updated', repaintNames);
+      BeeTransport.on('names-updated', repaintNames);
       // Group names arrive on their own event, and the details window shows one.
-      FSTransport.on('group-names', repaintNames);
+      BeeTransport.on('group-names', repaintNames);
     }
-    if (typeof FSProfiles !== 'undefined' && FSProfiles.onChange) {
-      FSProfiles.onChange(function (evt) {
+    if (typeof BeeProfiles !== 'undefined' && BeeProfiles.onChange) {
+      BeeProfiles.onChange(function (evt) {
         if (!evt || (evt.kind !== 'group' && evt.kind !== 'membership')) return;
         if (!openDetailId) return;
         const row = objects.find(function (o) { return o.id === openDetailId; });
@@ -980,30 +999,35 @@ const FSInteract = (function () {
     }
 
     // Stop scanning when the user navigates away from the Interactions panel.
-    FSState.on('tab', function (tab) {
+    BeeState.on('tab', function (tab) {
       if (tab !== 'interact') deactivate();
     });
 
     // The core tells us when something else seats us (AvatarSitResponse), e.g. an
     // object we clicked or a script that sat us down.
-    if (typeof FSTransport !== 'undefined' && FSTransport.on) {
-      FSTransport.on('sit-state', function (data) {
+    if (typeof BeeTransport !== 'undefined' && BeeTransport.on) {
+      BeeTransport.on('sit-state', function (data) {
         if (data && typeof data.sitting === 'boolean') {
           state.sitting = data.sitting;
           if (!data.sitting) sittingOn = '';
           else if (data.objectId) sittingOn = data.objectId;
+          // Any verdict ends the pending state; a refusal carries the reason.
+          sitPendingOn = '';
+          if (!data.sitting && data.error) {
+            BeeUtils.showToast(data.error, 'warning');
+          }
           paint();
         }
       });
     }
     // A fresh session starts standing, and losing one clears the buttons.
-    FSState.on('change', function (partial) {
+    BeeState.on('change', function (partial) {
       if (partial.connected === true) {
         state = { sitting: false, flying: false };
       }
       if (partial.connected !== undefined || partial.sessionLost !== undefined) paint();
     });
-    FSState.on('reset', function () {
+    BeeState.on('reset', function () {
       state = { sitting: false, flying: false };
       sittingOn = '';
       objects = [];
@@ -1022,4 +1046,4 @@ const FSInteract = (function () {
   return { init: init, activate: activate, refreshState: refreshState };
 })();
 
-window.FSInteract = FSInteract;
+window.BeeInteract = BeeInteract;

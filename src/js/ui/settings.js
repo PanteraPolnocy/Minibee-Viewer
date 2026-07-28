@@ -1,12 +1,12 @@
 /**
  * Settings tab: interactive viewer preferences, plus About / License / README.
  *
- * Every preference control wires straight into FSSettings, so a change made here
- * ripples out across the rest of the viewer (FSSettings.set fires its listeners
- * and patches FSState). The About / License / README text comes from the Rust
+ * Every preference control wires straight into BeeSettings, so a change made here
+ * ripples out across the rest of the viewer (BeeSettings.set fires its listeners
+ * and patches BeeState). The About / License / README text comes from the Rust
  * core (app_about / app_license / app_readme / app_help / app_privacy), fetched lazily
  */
-const FSSettingsUI = (function () {
+const BeeSettingsUI = (function () {
   'use strict';
 
   const DEFAULT_TAB = 'prefs';
@@ -20,7 +20,7 @@ const FSSettingsUI = (function () {
   };
 
   // Interactive preference controls, grouped for display. Numeric bounds and
-  // steps come from FSSettings.SCHEMA, so this list stays in sync with the schema.
+  // steps come from BeeSettings.SCHEMA, so this list stays in sync with the schema.
   const GROUPS = [
     { section: 'Appearance', items: [
       { key: 'theme', label: 'Theme', kind: 'select',
@@ -64,17 +64,17 @@ const FSSettingsUI = (function () {
   let memTimer = null;  // refreshes the memory figure every 5s while About is open
 
   function invoke(cmd) {
-    if (typeof FSBridge === 'undefined' || typeof FSBridge.invoke !== 'function') {
+    if (typeof BeeBridge === 'undefined' || typeof BeeBridge.invoke !== 'function') {
       return Promise.reject(new Error('Native bridge unavailable'));
     }
-    return FSBridge.invoke(cmd);
+    return BeeBridge.invoke(cmd);
   }
 
   function openExternal(url) {
     const raw = String(url || '').trim();
     if (!raw) return;
-    if (typeof FSSlurl !== 'undefined' && typeof FSSlurl.openExternalUrl === 'function') {
-      FSSlurl.openExternalUrl(raw);
+    if (typeof BeeSlurl !== 'undefined' && typeof BeeSlurl.openExternalUrl === 'function') {
+      BeeSlurl.openExternalUrl(raw);
       return;
     }
     try {
@@ -90,7 +90,7 @@ const FSSettingsUI = (function () {
   // --- Preference controls ---------------------------------------------------
 
   function schemaOf(key) {
-    return (typeof FSSettings !== 'undefined' && FSSettings.SCHEMA && FSSettings.SCHEMA[key]) || {};
+    return (typeof BeeSettings !== 'undefined' && BeeSettings.SCHEMA && BeeSettings.SCHEMA[key]) || {};
   }
 
   function formatValue(item, value) {
@@ -106,7 +106,7 @@ const FSSettingsUI = (function () {
     label.className = 'settings-control__label';
     label.textContent = item.label;
     label.setAttribute('for', id);
-    const current = FSSettings.get(item.key);
+    const current = BeeSettings.get(item.key);
 
     if (item.kind === 'toggle') {
       const input = document.createElement('input');
@@ -115,7 +115,7 @@ const FSSettingsUI = (function () {
       input.className = 'settings-control__toggle';
       input.checked = !!current;
       input.addEventListener('change', function () {
-        FSSettings.set(item.key, input.checked);
+        BeeSettings.set(item.key, input.checked);
       });
       row.appendChild(label);
       row.appendChild(input);
@@ -132,7 +132,7 @@ const FSSettingsUI = (function () {
       });
       select.value = String(current);
       select.addEventListener('change', function () {
-        FSSettings.set(item.key, select.value);
+        BeeSettings.set(item.key, select.value);
       });
       row.appendChild(label);
       row.appendChild(select);
@@ -152,7 +152,7 @@ const FSSettingsUI = (function () {
       valueEl.textContent = formatValue(item, current);
       input.addEventListener('input', function () {
         valueEl.textContent = formatValue(item, input.value);
-        FSSettings.set(item.key, input.value);
+        BeeSettings.set(item.key, input.value);
       });
       const head = document.createElement('div');
       head.className = 'settings-control__head';
@@ -168,7 +168,7 @@ const FSSettingsUI = (function () {
 
   function buildControls() {
     const root = document.getElementById('settings-controls');
-    if (!root || typeof FSSettings === 'undefined') return;
+    if (!root || typeof BeeSettings === 'undefined') return;
     root.innerHTML = '';
     Object.keys(rendered).forEach(function (k) { delete rendered[k]; });
     GROUPS.forEach(function (group) {
@@ -189,8 +189,8 @@ const FSSettingsUI = (function () {
   // radar tab's own range control) back into our own controls.
   function syncControl(key) {
     const entry = rendered[key];
-    if (!entry || typeof FSSettings === 'undefined') return;
-    const value = FSSettings.get(key);
+    if (!entry || typeof BeeSettings === 'undefined') return;
+    const value = BeeSettings.get(key);
     const el = entry.input;
     if (el.type === 'checkbox') {
       if (el.checked !== !!value) el.checked = !!value;
@@ -243,8 +243,8 @@ const FSSettingsUI = (function () {
   // Refresh the used-memory figure every 5s while the About tab is open, and
   // quietly stop once the user has navigated away from the Settings tab.
   function updateMemory() {
-    if (typeof FSNavigation !== 'undefined' && typeof FSNavigation.isTabActive === 'function' &&
-        !FSNavigation.isTabActive('settings')) {
+    if (typeof BeeNavigation !== 'undefined' && typeof BeeNavigation.isTabActive === 'function' &&
+        !BeeNavigation.isTabActive('settings')) {
       stopMemPoll();
       return;
     }
@@ -312,14 +312,18 @@ const FSSettingsUI = (function () {
       const contact = document.getElementById('about-contact');
       if (contact) {
         contact.innerHTML = '';
-        if (data.homepage) {
+        const person = data.contact || {};
+        if (person.agentId) {
           const link = document.createElement('a');
-          link.href = data.homepage;
+          link.href = '#';
           link.className = 'settings-link';
-          link.textContent = data.homepage;
+          link.textContent = person.label || person.agentId;
+          link.title = 'Open in-world profile';
           link.addEventListener('click', function (e) {
             e.preventDefault();
-            openExternal(data.homepage);
+            if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) {
+              BeeProfile.openAvatar(person.agentId);
+            }
           });
           contact.appendChild(link);
         } else {
@@ -352,8 +356,8 @@ const FSSettingsUI = (function () {
       linkCell(document.getElementById('about-source'), 'Source code', data.sourceUrl || data.homepage);
       const b = data.build || {};
       const updateBtn = document.getElementById('about-check-update');
-      if (updateBtn && typeof FSUpdater !== 'undefined' && FSUpdater.available) {
-        FSUpdater.available().then(function (canUpdate) {
+      if (updateBtn && typeof BeeUpdater !== 'undefined' && BeeUpdater.available) {
+        BeeUpdater.available().then(function (canUpdate) {
           updateBtn.hidden = !canUpdate;
         });
       }
@@ -503,13 +507,13 @@ const FSSettingsUI = (function () {
     const updateBtn = document.getElementById('about-check-update');
     if (updateBtn) {
       updateBtn.addEventListener('click', function () {
-        if (typeof FSUpdater === 'undefined' || !FSUpdater.checkManual) return;
-        FSUpdater.checkManual(document.getElementById('about-update-status'));
+        if (typeof BeeUpdater === 'undefined' || !BeeUpdater.checkManual) return;
+        BeeUpdater.checkManual(document.getElementById('about-update-status'));
       });
     }
     buildControls();
-    if (typeof FSSettings !== 'undefined' && typeof FSSettings.onChange === 'function') {
-      FSSettings.onChange(function (key) {
+    if (typeof BeeSettings !== 'undefined' && typeof BeeSettings.onChange === 'function') {
+      BeeSettings.onChange(function (key) {
         syncControl(key);
       });
     }

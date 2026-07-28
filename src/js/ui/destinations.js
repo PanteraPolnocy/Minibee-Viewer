@@ -1,7 +1,7 @@
 /**
  * Destination Guide panel - shows Linden Lab's curated destinations feed.
  */
-const FSDestinations = (function () {
+const BeeDestinations = (function () {
   'use strict';
 
   const FEEDS = [
@@ -20,7 +20,7 @@ const FSDestinations = (function () {
     events: true
   };
 
-  let activeFeed = (typeof FSSettings !== 'undefined' ? FSSettings.get('destFeed') : null) || 'mobile';
+  let activeFeed = (typeof BeeSettings !== 'undefined' ? BeeSettings.get('destFeed') : null) || 'mobile';
   const cache = new Map();
   let loadToken = 0;
   let bound = false;
@@ -128,8 +128,8 @@ const FSDestinations = (function () {
       return '<button type="button" class="dest-feedbar__item' +
         (active ? ' dest-feedbar__item--active' : '') +
         '" role="tab" aria-selected="' + (active ? 'true' : 'false') +
-        '" data-feed="' + FSUtils.escapeHtml(feed.id) + '">' +
-        FSUtils.escapeHtml(feed.label) + '</button>';
+        '" data-feed="' + BeeUtils.escapeHtml(feed.id) + '">' +
+        BeeUtils.escapeHtml(feed.label) + '</button>';
     }).join('');
   }
 
@@ -144,8 +144,8 @@ const FSDestinations = (function () {
       // `String()` on it produced "[object Object]", which then broke teleport.
       // So we log its shape (diag) and best-effort build a secondlife:// SLURL.
       const o = item.slurl;
-      if (typeof FSDiag !== 'undefined' && FSDiag.log) {
-        FSDiag.log('destinations', 'slurl is an object, keys: ' + Object.keys(o).join(','));
+      if (typeof BeeDiag !== 'undefined' && BeeDiag.log) {
+        BeeDiag.log('destinations', 'slurl is an object, keys: ' + Object.keys(o).join(','));
       }
       const rn = o.region_name || o.regionName || o.sim_name || o.region || o.name || '';
       if (rn) {
@@ -163,7 +163,7 @@ const FSDestinations = (function () {
 
     return '<article class="dest-card">' +
       (image
-        ? '<div class="dest-card__media"><img src="' + FSUtils.escapeHtml(image) +
+        ? '<div class="dest-card__media"><img src="' + BeeUtils.escapeHtml(image) +
           '" alt="" loading="lazy" decoding="async"></div>'
         : '') +
       '<div class="dest-card__body">' +
@@ -171,32 +171,32 @@ const FSDestinations = (function () {
           '<h4 class="dest-card__title">' +
             (slurl
               ? '<button type="button" class="dest-card__link dest-action" data-action="map" data-slurl="' +
-                FSUtils.escapeHtml(slurl) + '">' + FSUtils.escapeHtml(name) + '</button>'
-              : FSUtils.escapeHtml(name)) +
+                BeeUtils.escapeHtml(slurl) + '">' + BeeUtils.escapeHtml(name) + '</button>'
+              : BeeUtils.escapeHtml(name)) +
           '</h4>' +
           '<span class="dest-maturity ' + maturityClass(mat) + '" title="Maturity rating">' +
-            FSUtils.escapeHtml(maturityLabel(mat)) +
+            BeeUtils.escapeHtml(maturityLabel(mat)) +
           '</span>' +
         '</div>' +
         (desc
-          ? '<p class="dest-card__desc">' + FSUtils.escapeHtml(desc) + '</p>'
+          ? '<p class="dest-card__desc">' + BeeUtils.escapeHtml(desc) + '</p>'
           : '') +
         (slurl
           ? '<p class="dest-card__slurl">' +
             '<button type="button" class="dest-slurl-link dest-action" data-action="map" data-slurl="' +
-            FSUtils.escapeHtml(slurl) + '">' + FSUtils.escapeHtml(slurl) + '</button></p>'
+            BeeUtils.escapeHtml(slurl) + '">' + BeeUtils.escapeHtml(slurl) + '</button></p>'
           : '') +
         '<div class="dest-card__meta">' +
           (pop !== null && pop > 0
-            ? '<span class="badge">' + FSUtils.escapeHtml(String(pop)) + ' here</span>'
+            ? '<span class="badge">' + BeeUtils.escapeHtml(String(pop)) + ' here</span>'
             : '') +
         '</div>' +
         '<div class="dest-card__actions">' +
           (slurl
             ? '<button type="button" class="btn btn--ghost btn--sm dest-action" data-action="map" data-slurl="' +
-              FSUtils.escapeHtml(slurl) + '">Open in Map</button>' +
+              BeeUtils.escapeHtml(slurl) + '">Open in Map</button>' +
               '<button type="button" class="btn btn--primary btn--sm dest-action" data-action="tp" data-slurl="' +
-              FSUtils.escapeHtml(slurl) + '">Teleport</button>'
+              BeeUtils.escapeHtml(slurl) + '">Teleport</button>'
             : '') +
         '</div>' +
       '</div>' +
@@ -212,7 +212,7 @@ const FSDestinations = (function () {
       const title = formatCategoryName(group.category);
       const cards = group.items.map(renderCard).join('');
       return '<section class="dest-section">' +
-        '<h3 class="dest-section__title">' + FSUtils.escapeHtml(title) +
+        '<h3 class="dest-section__title">' + BeeUtils.escapeHtml(title) +
         ' <span class="dest-section__count">' + group.items.length + '</span></h3>' +
         '<div class="dest-section__list">' + cards + '</div>' +
       '</section>';
@@ -226,8 +226,8 @@ const FSDestinations = (function () {
   async function loadFeed(feedId, force) {
     const feed = feedId || activeFeed;
     activeFeed = feed;
-    if (typeof FSSettings !== 'undefined') {
-      FSSettings.set('destFeed', feed);
+    if (typeof BeeSettings !== 'undefined') {
+      BeeSettings.set('destFeed', feed);
     }
     renderFeedBar();
 
@@ -242,7 +242,7 @@ const FSDestinations = (function () {
     setContent('');
 
     try {
-      const data = await FSBridge.destinations(feed).catch(function () { return null; });
+      const data = await BeeBridge.destinations(feed).catch(function () { return null; });
       if (token !== loadToken) return;
       if (!data || !data.ok || !Array.isArray(data.items)) {
         const detail = data && (data.detail || data.error) ? String(data.detail || data.error) : '';
@@ -255,7 +255,7 @@ const FSDestinations = (function () {
       if (token !== loadToken) return;
       setStatus('');
       setContent(
-        '<p class="dest-error">' + FSUtils.escapeHtml(err.message || 'Could not load destinations') +
+        '<p class="dest-error">' + BeeUtils.escapeHtml(err.message || 'Could not load destinations') +
         '</p><button type="button" class="btn btn--ghost btn--sm" id="dest-retry">Retry</button>'
       );
       const retry = el('dest-retry');
@@ -273,8 +273,8 @@ const FSDestinations = (function () {
       pct: destTeleportPct || 50,
       short: fallbackShort || 'Teleporting'
     };
-    if (typeof FSTeleportUI !== 'undefined' && FSTeleportUI.formatProgressLabel) {
-      out = FSTeleportUI.formatProgressLabel(message, destTeleportPct, fallbackShort);
+    if (typeof BeeTeleportUI !== 'undefined' && BeeTeleportUI.formatProgressLabel) {
+      out = BeeTeleportUI.formatProgressLabel(message, destTeleportPct, fallbackShort);
     }
     destTeleportPct = out.pct;
     setDestTeleportBusy(true, out.text);
@@ -297,32 +297,32 @@ const FSDestinations = (function () {
     if (teleportEventsBound) return;
     teleportEventsBound = true;
 
-    FSTransport.on('teleport-progress', function (data) {
+    BeeTransport.on('teleport-progress', function (data) {
       if (!destTeleportBusy) return;
       applyDestTeleportProgress(data && data.message, 'Teleporting');
-      if (typeof FSMap !== 'undefined' && FSMap.beginMapTeleport) {
-        FSMap.beginMapTeleport(data && data.message);
+      if (typeof BeeMap !== 'undefined' && BeeMap.beginMapTeleport) {
+        BeeMap.beginMapTeleport(data && data.message);
       }
     });
 
-    FSTransport.on('teleport-started', function () {
+    BeeTransport.on('teleport-started', function () {
       if (!destTeleportBusy) return;
       applyDestTeleportProgress('starting', 'Starting');
     });
 
-    FSTransport.on('teleport-finish', function () {
+    BeeTransport.on('teleport-finish', function () {
       setDestTeleportBusy(false);
     });
 
-    FSTransport.on('teleport-failed', function () {
+    BeeTransport.on('teleport-failed', function () {
       setDestTeleportBusy(false);
     });
 
-    FSTransport.on('teleport-cancelled', function () {
+    BeeTransport.on('teleport-cancelled', function () {
       setDestTeleportBusy(false);
     });
 
-    FSState.on('reset', function () {
+    BeeState.on('reset', function () {
       setDestTeleportBusy(false);
     });
   }
@@ -335,36 +335,36 @@ const FSDestinations = (function () {
     const action = btn.dataset.action || 'map';
 
     if (action === 'map') {
-      if (typeof FSMap !== 'undefined' && FSMap.showLocation) {
-        FSMap.showLocation(slurl);
+      if (typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
+        BeeMap.showLocation(slurl);
       }
       return;
     }
 
     if (action === 'tp') {
-      if (!FSState.gridOnline()) {
-        FSUtils.showToast('Not connected to the grid', 'warning');
+      if (!BeeState.gridOnline()) {
+        BeeUtils.showToast('Not connected to the grid', 'warning');
         return;
       }
       if (destTeleportBusy) return;
 
       applyDestTeleportProgress('requesting', 'Requesting');
-      if (typeof FSMap !== 'undefined') {
-        if (FSMap.showLocation) FSMap.showLocation(slurl);
-        if (FSMap.beginMapTeleport) FSMap.beginMapTeleport('requesting');
+      if (typeof BeeMap !== 'undefined') {
+        if (BeeMap.showLocation) BeeMap.showLocation(slurl);
+        if (BeeMap.beginMapTeleport) BeeMap.beginMapTeleport('requesting');
       }
 
-      FSTransport.teleportTo(slurl).then(function () {
+      BeeTransport.teleportTo(slurl).then(function () {
         applyDestTeleportProgress('starting', 'Starting');
-        if (typeof FSMap !== 'undefined' && FSMap.beginMapTeleport) {
-          FSMap.beginMapTeleport('starting');
+        if (typeof BeeMap !== 'undefined' && BeeMap.beginMapTeleport) {
+          BeeMap.beginMapTeleport('starting');
         }
       }).catch(function (err) {
         setDestTeleportBusy(false);
-        if (typeof FSMap !== 'undefined' && FSMap.resetTeleportButton) {
-          FSMap.resetTeleportButton();
+        if (typeof BeeMap !== 'undefined' && BeeMap.resetTeleportButton) {
+          BeeMap.resetTeleportButton();
         }
-        FSUtils.showToast(err.message || 'Teleport failed', 'error');
+        BeeUtils.showToast(err.message || 'Teleport failed', 'error');
       });
     }
   }

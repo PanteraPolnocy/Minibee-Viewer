@@ -215,6 +215,52 @@ fn xml_text(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+/// The LLSD body for a notes save: a single-key map - the cap applies partial
+/// updates, so only the field being changed is sent.
+pub(crate) fn notes_put_body(notes: &str) -> String {
+    format!(
+        "<?xml version=\"1.0\"?><llsd><map><key>notes</key><string>{}</string></map></llsd>",
+        xml_text(notes)
+    )
+}
+
+/// Save the private notes about `target_id`: PUT <AgentProfile cap>/<target>
+/// with `{"notes": ...}`. This is the only save path Second Life still
+/// honours - the AvatarNotesUpdate UDP message is OpenSim-only legacy - and a
+/// refused PUT must surface as an error, never as a fake "saved".
+pub(crate) async fn save_avatar_notes(
+    state: &Arc<AppState>,
+    session: &Arc<crate::bridge::circuit::Session>,
+    target_id: &str,
+    notes: &str,
+) -> Result<(), String> {
+    let cap = session
+        .cap("AgentProfile")
+        .ok_or("AgentProfile capability unavailable")?;
+    let url = format!("{}{}", cap_endpoint(&cap), target_id);
+    let body = notes_put_body(notes);
+    let (pin, _) = proxy::simhost_pin(&url, "").await;
+    let ex = proxy::exchange(
+        &state.ua,
+        "PUT",
+        &url,
+        &body,
+        "application/llsd+xml",
+        &[],
+        pin,
+        Duration::from_secs(30),
+        true,
+    )
+    .await?;
+    if (200..300).contains(&ex.status) {
+        crate::dlog!("notes: saved for {} via AgentProfile cap (HTTP {})", target_id, ex.status);
+        Ok(())
+    } else {
+        crate::dlog!("notes: save for {} REFUSED: HTTP {} body={:.200}", target_id, ex.status, ex.body);
+        Err(format!("The server refused the notes update (HTTP {}).", ex.status))
+    }
+}
+
 /// Build the LLSD body for a ChatSessionRequest (mirrors `chatSessionBodyXml` in sl-caps.js).
 fn chat_session_body(method: &str, session_id: &str, params: &[String], mute: Option<(&str, bool)>) -> String {
     let mut inner = format!("<key>method</key><string>{}</string>", xml_text(method));
@@ -515,6 +561,13 @@ pub async fn sl_fetch_agent_profile(app: AppHandle, state: State<'_, Arc<AppStat
         let i = cap_str(&data, &["id", "agent_id"]);
         if i.is_empty() { avatar_id.clone() } else { i }
     };
+    // A reply about somebody else must not be filed under the requested id -
+    // notes especially, where a mixup could later overwrite the wrong person's
+    // notes.
+    if !id.eq_ignore_ascii_case(avatar_id.trim()) {
+        crate::dlog!("AgentProfile {}: reply carries mismatched id {} - discarded", avatar_id, id);
+        return Ok(json!({ "ok": false }));
+    }
     let about = cap_str(&data, &["sl_about_text", "about_text", "about"]);
     // Log the cap's field names once so we can pin down the exact keys for
     // account status / caption, which vary across the profile cap versions.
@@ -526,7 +579,7 @@ pub async fn sl_fetch_agent_profile(app: AppHandle, state: State<'_, Arc<AppStat
             about.len()
         );
     }
-    let profile = json!({
+    let mut profile = json!({
         "avatarId": id,
         "imageId": cap_str(&data, &["sl_image_id", "image_id"]),
         "flImageId": cap_str(&data, &["fl_image_id"]),
@@ -544,6 +597,9 @@ pub async fn sl_fetch_agent_profile(app: AppHandle, state: State<'_, Arc<AppStat
         "caption": cap_str(&data, &["charter_member", "caption", "account_caption"]),
         "source": "cap",
     });
+    if let Some(n) = data.get("notes").and_then(|v| v.as_str()) {
+        profile["notes"] = json!(n);
+    }
     let _ = app.emit("minibee-viewer://avatar-profile", profile);
     if let Some(rows) = data.get("groups").and_then(|v| v.as_array()) {
         let groups: Vec<Value> = rows
@@ -700,6 +756,18 @@ mod tests {
     fn cap_endpoint_adds_slash() {
         assert_eq!(cap_endpoint("https://x/cap/a"), "https://x/cap/a/");
         assert_eq!(cap_endpoint("https://x/cap/a/"), "https://x/cap/a/");
+    }
+
+    #[test]
+    fn notes_put_body_is_single_key_and_escaped() {
+        let body = notes_put_body("likes <cats> & \"dogs\"");
+        assert_eq!(
+            body,
+            "<?xml version=\"1.0\"?><llsd><map><key>notes</key><string>likes &lt;cats&gt; &amp; \"dogs\"</string></map></llsd>"
+        );
+        assert!(notes_put_body("").contains("<string></string>"));
+        let parsed = crate::codec::llsd::parse(&notes_put_body("hello"), "application/llsd+xml").unwrap();
+        assert_eq!(parsed["notes"], "hello");
     }
 
     #[test]

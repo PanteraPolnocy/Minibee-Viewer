@@ -4,7 +4,7 @@
  * switched on at startup (`--enablelogfiles`); otherwise the whole thing is a
  * cheap no-op. It also quietly captures any uncaught errors.
  */
-const FSDiag = (function () {
+const BeeDiag = (function () {
   'use strict';
 
   let enabled = false;
@@ -13,7 +13,7 @@ const FSDiag = (function () {
   function forward(source, message) {
     if (!enabled) return;
     try {
-      FSBridge.invoke('bridge_log', { source: String(source || 'js'), message: String(message) });
+      BeeBridge.invoke('bridge_log', { source: String(source || 'js'), message: String(message) });
     } catch (_e) { /* never let logging itself be the thing that throws */ }
   }
 
@@ -27,7 +27,7 @@ const FSDiag = (function () {
     ready = true;
     let probe;
     try {
-      probe = FSBridge.invoke('bridge_log_path');
+      probe = BeeBridge.invoke('bridge_log_path');
     } catch (_e) {
       return Promise.resolve(false);
     }

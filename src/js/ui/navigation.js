@@ -1,7 +1,7 @@
 /**
  * Tab navigation and the shell chrome around it - the top bar, nav badges, and status readouts.
  */
-const FSNavigation = (function () {
+const BeeNavigation = (function () {
   'use strict';
 
   const TABS = ['chat', 'im', 'interact', 'events', 'buddies', 'search', 'radar', 'map', 'land', 'destinations', 'news', 'settings'];
@@ -12,11 +12,11 @@ const FSNavigation = (function () {
   function updateSltClock() {
     const el = document.getElementById('slt-clock');
     if (!el) return;
-    if (!FSState.get().connected || FSState.get().sessionLost) {
+    if (!BeeState.get().connected || BeeState.get().sessionLost) {
       el.textContent = '--:-- SLT';
       return;
     }
-    el.textContent = FSUtils.formatSltTime(new Date());
+    el.textContent = BeeUtils.formatSltTime(new Date());
   }
 
   function startSltClock() {
@@ -34,16 +34,16 @@ const FSNavigation = (function () {
   }
 
   function isTabActive(tab) {
-    return FSState.get().activeTab === tab;
+    return BeeState.get().activeTab === tab;
   }
 
   function resetRadarTracking() {
     radarKnownIds.clear();
-    FSState.patch({ unreadRadar: 0 });
+    BeeState.patch({ unreadRadar: 0 });
   }
 
   function syncRadarKnown(entries) {
-    const s = FSState.get();
+    const s = BeeState.get();
     radarKnownIds.clear();
     (entries || s.radar || []).forEach(function (entry) {
       if (entry.range <= s.radarRange) {
@@ -60,14 +60,14 @@ const FSNavigation = (function () {
   }
 
   function noteRadarUpdate(entries) {
-    const s = FSState.get();
+    const s = BeeState.get();
     const list = entries || s.radar || [];
     const range = s.radarRange;
     pruneRadarDeparted(list);
 
     if (s.activeTab === 'radar') {
       syncRadarKnown(list);
-      if (s.unreadRadar) FSState.patch({ unreadRadar: 0 });
+      if (s.unreadRadar) BeeState.patch({ unreadRadar: 0 });
       return;
     }
 
@@ -87,10 +87,10 @@ const FSNavigation = (function () {
 
     if (!newEntries.length) return;
 
-    FSState.patch({ unreadRadar: (s.unreadRadar || 0) + newEntries.length });
+    BeeState.patch({ unreadRadar: (s.unreadRadar || 0) + newEntries.length });
     if (s.radarAlerts) {
       newEntries.forEach(function (entry) {
-        FSState.emit('radar-alert', entry);
+        BeeState.emit('radar-alert', entry);
       });
     }
   }
@@ -98,51 +98,51 @@ const FSNavigation = (function () {
   function activateTabPanel(tab) {
     switch (tab) {
       case 'chat':
-        if (typeof FSChat.renderAll === 'function') FSChat.renderAll();
+        if (typeof BeeChat.renderAll === 'function') BeeChat.renderAll();
         break;
       case 'im':
-        if (typeof FSIm.activate === 'function') FSIm.activate();
+        if (typeof BeeIm.activate === 'function') BeeIm.activate();
         break;
       case 'events':
-        if (typeof FSEvents.activate === 'function') FSEvents.activate();
+        if (typeof BeeEvents.activate === 'function') BeeEvents.activate();
         break;
       case 'buddies':
-        if (typeof FSBuddies.render === 'function') FSBuddies.render();
+        if (typeof BeeBuddies.render === 'function') BeeBuddies.render();
         break;
       case 'search':
-        if (typeof FSSearch.activate === 'function') FSSearch.activate();
+        if (typeof BeeSearch.activate === 'function') BeeSearch.activate();
         break;
       case 'radar':
-        if (typeof FSRadar.render === 'function') FSRadar.render();
+        if (typeof BeeRadar.render === 'function') BeeRadar.render();
         break;
       case 'map':
-        if (typeof FSMap.activate === 'function') {
-          FSMap.activate();
-        } else if (typeof FSMap.renderTiles === 'function') {
-          requestAnimationFrame(function () { FSMap.renderTiles(); });
+        if (typeof BeeMap.activate === 'function') {
+          BeeMap.activate();
+        } else if (typeof BeeMap.renderTiles === 'function') {
+          requestAnimationFrame(function () { BeeMap.renderTiles(); });
         }
         break;
       case 'land':
-        if (typeof FSLand.activate === 'function') FSLand.activate();
+        if (typeof BeeLand.activate === 'function') BeeLand.activate();
         break;
       case 'destinations':
-        if (typeof FSDestinations.loadFeed === 'function') {
-          FSDestinations.loadFeed(null, false);
+        if (typeof BeeDestinations.loadFeed === 'function') {
+          BeeDestinations.loadFeed(null, false);
         }
         break;
       case 'interact':
-        if (typeof FSInteract !== 'undefined' && typeof FSInteract.activate === 'function') {
-          FSInteract.activate();
+        if (typeof BeeInteract !== 'undefined' && typeof BeeInteract.activate === 'function') {
+          BeeInteract.activate();
         }
         break;
       case 'news':
-        if (typeof FSNews !== 'undefined' && typeof FSNews.activate === 'function') {
-          FSNews.activate();
+        if (typeof BeeNews !== 'undefined' && typeof BeeNews.activate === 'function') {
+          BeeNews.activate();
         }
         break;
       case 'settings':
-        if (typeof FSSettingsUI !== 'undefined' && typeof FSSettingsUI.activate === 'function') {
-          FSSettingsUI.activate();
+        if (typeof BeeSettingsUI !== 'undefined' && typeof BeeSettingsUI.activate === 'function') {
+          BeeSettingsUI.activate();
         }
         break;
       default:
@@ -157,15 +157,15 @@ const FSNavigation = (function () {
     if (tab === 'chat') patch.unreadChat = 0;
     if (tab === 'im') {
       patch.unreadIm = 0;
-      Object.keys(FSState.get().imSessions).forEach(function (sid) {
-        FSState.get().imSessions[sid].unread = 0;
+      Object.keys(BeeState.get().imSessions).forEach(function (sid) {
+        BeeState.get().imSessions[sid].unread = 0;
       });
     }
     if (tab === 'events') patch.unreadEvents = 0;
     if (tab === 'radar') patch.unreadRadar = 0;
     if (tab === 'land') patch.landUpdated = false;
 
-    FSState.patch(patch);
+    BeeState.patch(patch);
 
     document.querySelectorAll('.bottom-nav__item').forEach(function (btn) {
       const active = btn.dataset.tab === tab;
@@ -183,11 +183,11 @@ const FSNavigation = (function () {
 
     activateTabPanel(tab);
     updateBadges();
-    FSState.emit('tab', tab);
+    BeeState.emit('tab', tab);
   }
 
   function updateBadges() {
-    const s = FSState.get();
+    const s = BeeState.get();
     const chatUnread = s.activeTab === 'chat' ? 0 : s.unreadChat;
     const imUnread = s.activeTab === 'im' ? 0 : s.unreadIm;
     const eventsUnread = s.activeTab === 'events' ? 0 : (s.unreadEvents || 0);
@@ -238,16 +238,16 @@ const FSNavigation = (function () {
     const titleEl = document.getElementById('agent-group-title');
     const nameEl = document.getElementById('agent-group-name');
     if (!titleEl) return;
-    const s = FSState.get();
-    if (!s.connected || s.sessionLost || typeof FSProfiles === 'undefined' ||
-        typeof FSProfiles.getActiveGroupInfo !== 'function') {
+    const s = BeeState.get();
+    if (!s.connected || s.sessionLost || typeof BeeProfiles === 'undefined' ||
+        typeof BeeProfiles.getActiveGroupInfo !== 'function') {
       titleEl.textContent = 'No active group title';
       titleEl.classList.add('top-bar__group-title--empty');
       if (nameEl) nameEl.hidden = true;
       return;
     }
-    const active = FSProfiles.getActiveGroupInfo();
-    if (!active || !active.id || FSProfiles.isZero(active.id)) {
+    const active = BeeProfiles.getActiveGroupInfo();
+    if (!active || !active.id || BeeProfiles.isZero(active.id)) {
       titleEl.textContent = 'No active group title';
       titleEl.classList.add('top-bar__group-title--empty');
       if (nameEl) {
@@ -266,7 +266,7 @@ const FSNavigation = (function () {
   }
 
   function updateTopBar() {
-    const s = FSState.get();
+    const s = BeeState.get();
     const dot = document.getElementById('status-dot');
     const name = document.getElementById('agent-name');
     const region = document.getElementById('region-name');
@@ -315,7 +315,7 @@ const FSNavigation = (function () {
       stats.hidden = !(s.connected && !s.sessionLost);
     }
     if (balance) {
-      balance.textContent = FSUtils.formatLindenBalance(s.lindenBalance);
+      balance.textContent = BeeUtils.formatLindenBalance(s.lindenBalance);
       balance.title = 'Linden dollar balance';
     }
     if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '-- FPS';
@@ -325,16 +325,16 @@ const FSNavigation = (function () {
   }
 
   function updateBeeMenu() {
-    const s = FSState.get();
+    const s = BeeState.get();
     const balance = document.getElementById('bee-menu-balance');
     const fps = document.getElementById('bee-menu-fps');
-    if (balance) balance.textContent = FSUtils.formatLindenBalance(s.lindenBalance);
+    if (balance) balance.textContent = BeeUtils.formatLindenBalance(s.lindenBalance);
     if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '--';
     const slt = document.getElementById('bee-menu-slt');
     if (slt) {
       slt.textContent = (!s.connected || s.sessionLost)
         ? '--:-- SLT'
-        : FSUtils.formatSltTime(new Date());
+        : BeeUtils.formatSltTime(new Date());
     }
   }
 
@@ -359,7 +359,7 @@ const FSNavigation = (function () {
     if (logout) {
       logout.addEventListener('click', function () {
         setBeeMenuOpen(false);
-        if (window.FSApp) window.FSApp.logout();
+        if (window.BeeApp) window.BeeApp.logout();
       });
     }
     // Tapping anywhere else, or pressing Escape, puts it away.
@@ -380,13 +380,13 @@ const FSNavigation = (function () {
     });
 
     document.getElementById('btn-logout').addEventListener('click', function () {
-      if (window.FSApp) window.FSApp.logout();
+      if (window.BeeApp) window.BeeApp.logout();
     });
 
     const themeBtn = document.getElementById('btn-theme');
-    if (themeBtn && typeof FSSettings !== 'undefined') {
+    if (themeBtn && typeof BeeSettings !== 'undefined') {
       themeBtn.addEventListener('click', function () {
-        FSSettings.toggleTheme();
+        BeeSettings.toggleTheme();
       });
     }
 
@@ -395,43 +395,43 @@ const FSNavigation = (function () {
     const identity = document.querySelector('.top-bar__identity');
     if (identity) {
       identity.addEventListener('click', function () {
-        const s = FSState.get();
+        const s = BeeState.get();
         if (!s.connected || s.sessionLost || !s.agent || !s.agent.id) return;
-        if (typeof FSProfile !== 'undefined' && typeof FSProfile.openAvatar === 'function') {
-          FSProfile.openAvatar(s.agent.id, { agent: s.agent });
+        if (typeof BeeProfile !== 'undefined' && typeof BeeProfile.openAvatar === 'function') {
+          BeeProfile.openAvatar(s.agent.id, { agent: s.agent });
         }
       });
     }
 
-    FSState.on('change', function (partial) {
+    BeeState.on('change', function (partial) {
       updateTopBar();
       updateBadges();
       if (partial.connected === true) startSltClock();
       if (partial.connected === false || partial.sessionLost === true) stopSltClock();
     });
 
-    FSState.on('reset', function () {
+    BeeState.on('reset', function () {
       resetRadarTracking();
       stopSltClock();
       updateTopBar();
     });
 
-    FSState.on('chat', updateBadges);
-    FSState.on('im', updateBadges);
-    FSState.on('event', updateBadges);
-    FSState.on('radar-update', function (entries) {
+    BeeState.on('chat', updateBadges);
+    BeeState.on('im', updateBadges);
+    BeeState.on('event', updateBadges);
+    BeeState.on('radar-update', function (entries) {
       noteRadarUpdate(entries);
       updateBadges();
     });
 
-    FSState.on('teleport-finish', resetRadarTracking);
+    BeeState.on('teleport-finish', resetRadarTracking);
 
-    if (typeof FSTransport !== 'undefined') {
-      FSTransport.on('teleport-started', resetRadarTracking);
+    if (typeof BeeTransport !== 'undefined') {
+      BeeTransport.on('teleport-started', resetRadarTracking);
     }
 
-    if (typeof FSProfiles !== 'undefined' && typeof FSProfiles.onChange === 'function') {
-      FSProfiles.onChange(function (evt) {
+    if (typeof BeeProfiles !== 'undefined' && typeof BeeProfiles.onChange === 'function') {
+      BeeProfiles.onChange(function (evt) {
         if (evt && evt.kind === 'active-group') updateActiveGroupLines();
       });
     }

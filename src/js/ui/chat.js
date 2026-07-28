@@ -1,7 +1,7 @@
 /**
  * Nearby chat panel - renders the message stream along with the dialogs and prompts that come through it.
  */
-const FSChat = (function () {
+const BeeChat = (function () {
   'use strict';
 
   let resetChatInputHeight = function () {};
@@ -16,7 +16,7 @@ const FSChat = (function () {
     if (!msg || !msg.dialog || msg.dialog.resolved) return;
     const dialog = msg.dialog;
     const finish = function () {
-      FSState.patchMessage(msg.id, {
+      BeeState.patchMessage(msg.id, {
         dialog: {
           resolved: true,
           response: responseLabel || ''
@@ -42,7 +42,7 @@ const FSChat = (function () {
 
     const label = responseLabel || '';
     const index = dialog.isTextBox ? 0 : (sendReply && sendReply.index !== undefined ? sendReply.index : 0);
-    return FSTransport.replyScriptDialog(
+    return BeeTransport.replyScriptDialog(
       dialog.objectId,
       index,
       label,
@@ -53,8 +53,8 @@ const FSChat = (function () {
       }
       finish();
     }).catch(function () {
-      if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-        FSUtils.showToast('Could not send script dialog reply.', 'warning');
+      if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+        BeeUtils.showToast('Could not send script dialog reply.', 'warning');
       }
     });
   }
@@ -64,7 +64,7 @@ const FSChat = (function () {
     const perm = msg.permission;
     const responseLabel = granted ? 'Allowed' : 'Denied';
     const finish = function () {
-      FSState.patchMessage(msg.id, {
+      BeeState.patchMessage(msg.id, {
         permission: {
           resolved: true,
           response: responseLabel
@@ -83,7 +83,7 @@ const FSChat = (function () {
       }
     };
 
-    return FSTransport.replyScriptPermission(
+    return BeeTransport.replyScriptPermission(
       perm.taskId,
       perm.itemId,
       granted ? perm.questions : 0
@@ -93,8 +93,8 @@ const FSChat = (function () {
       }
       finish();
     }).catch(function () {
-      if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-        FSUtils.showToast('Could not send permission reply.', 'warning');
+      if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+        BeeUtils.showToast('Could not send permission reply.', 'warning');
       }
     });
   }
@@ -167,9 +167,9 @@ const FSChat = (function () {
       const buttonHtml = buttons.map(function (label, index) {
         return '<button type="button" class="btn btn--secondary script-dialog__btn"' +
           ' data-dialog-button="1" data-dialog-index="' + index + '"' +
-          ' data-dialog-label="' + FSUtils.escapeHtml(label) + '"' +
+          ' data-dialog-label="' + BeeUtils.escapeHtml(label) + '"' +
           (dialog.resolved ? ' disabled' : '') + '>' +
-          FSUtils.escapeHtml(label) + '</button>';
+          BeeUtils.escapeHtml(label) + '</button>';
       }).join('');
       actionsHtml =
         (buttonHtml
@@ -179,9 +179,9 @@ const FSChat = (function () {
           (dialog.resolved ? ' disabled' : '') + '>Ignore</button>';
     }
 
-    const body = FSUtils.escapeHtml(dialog.message || msg.text || '').replace(/\n/g, '<br>');
+    const body = BeeUtils.escapeHtml(dialog.message || msg.text || '').replace(/\n/g, '<br>');
     const responseNote = dialog.resolved && dialog.response
-      ? ('You chose: ' + FSUtils.escapeHtml(dialog.response))
+      ? ('You chose: ' + BeeUtils.escapeHtml(dialog.response))
       : '';
 
     const oo = objectOwnerAttrs(dialog.ownerId, dialog.isGroup);
@@ -190,10 +190,10 @@ const FSChat = (function () {
         '<span class="script-dialog__badge">Script</span>' +
         '<div class="script-dialog__titles">' +
           '<span class="script-dialog__object' + oo.cls + '"' + oo.attrs + '>' +
-            FSUtils.escapeHtml(dialog.objectName || msg.fromName || 'Object') + '</span>' +
-          (ownerLine ? '<span class="script-dialog__owner">' + FSUtils.escapeHtml(ownerLine) + '</span>' : '') +
+            BeeUtils.escapeHtml(dialog.objectName || msg.fromName || 'Object') + '</span>' +
+          (ownerLine ? '<span class="script-dialog__owner">' + BeeUtils.escapeHtml(ownerLine) + '</span>' : '') +
         '</div>' +
-        '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
       '</div>' +
       '<div class="msg__body script-dialog__body">' + body + '</div>' +
       actionsHtml +
@@ -212,7 +212,7 @@ const FSChat = (function () {
     if (!id || id === ZERO_UUID) return { cls: '', attrs: '' };
     return {
       cls: ' script-dialog__object--link',
-      attrs: ' data-owner-id="' + FSUtils.escapeHtml(id) + '"' +
+      attrs: ' data-owner-id="' + BeeUtils.escapeHtml(id) + '"' +
         ' data-owner-group="' + (isGroup ? '1' : '0') + '"' +
         ' title="View owner profile"'
     };
@@ -224,9 +224,9 @@ const FSChat = (function () {
         e.preventDefault();
         e.stopPropagation();
         const id = node.dataset.ownerId;
-        if (!id || typeof FSProfile === 'undefined') return;
-        if (node.dataset.ownerGroup === '1') FSProfile.openGroup(id);
-        else FSProfile.openAvatar(id);
+        if (!id || typeof BeeProfile === 'undefined') return;
+        if (node.dataset.ownerGroup === '1') BeeProfile.openGroup(id);
+        else BeeProfile.openAvatar(id);
       });
     });
   }
@@ -235,7 +235,7 @@ const FSChat = (function () {
     if (!msg || !msg.prompt || msg.prompt.resolved) return Promise.resolve();
     const prompt = msg.prompt;
     const finish = function (label) {
-      FSState.patchMessage(msg.id, {
+      BeeState.patchMessage(msg.id, {
         prompt: {
           resolved: true,
           response: label || responseLabel || ''
@@ -257,13 +257,13 @@ const FSChat = (function () {
 
     if (prompt.type === 'load-url') {
       if (action === 'open') {
-        const opener = (typeof FSSlurl !== 'undefined' && FSSlurl.openExternalUrlPrompted)
-          ? FSSlurl.openExternalUrlPrompted(prompt.url)
+        const opener = (typeof BeeSlurl !== 'undefined' && BeeSlurl.openExternalUrlPrompted)
+          ? BeeSlurl.openExternalUrlPrompted(prompt.url)
           : Promise.resolve(false);
         return opener.then(function (opened) {
           if (!opened) {
-            if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-              FSUtils.showToast('Blocked unsafe or invalid URL.', 'warning');
+            if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+              BeeUtils.showToast('Blocked unsafe or invalid URL.', 'warning');
             }
             return;
           }
@@ -278,7 +278,7 @@ const FSChat = (function () {
       if (action === 'teleport') {
         const pos = prompt.position || { x: 128, y: 128, z: 25 };
         const regionName = prompt.regionName || 'Region';
-        return FSTransport.teleportTo({
+        return BeeTransport.teleportTo({
           regionName: regionName,
           x: pos.x,
           y: pos.y,
@@ -286,15 +286,15 @@ const FSChat = (function () {
         }).then(function () {
           finish('Teleporting');
         }).catch(function (err) {
-          if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-            FSUtils.showToast(err.message || 'Teleport failed', 'error');
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+            BeeUtils.showToast(err.message || 'Teleport failed', 'error');
           }
         });
       }
       if (action === 'show-map') {
         const pos = prompt.position || { x: 128, y: 128, z: 25 };
-        if (typeof FSMap !== 'undefined' && FSMap.showLocation) {
-          FSMap.showLocation({
+        if (typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
+          BeeMap.showLocation({
             regionName: prompt.regionName || 'Region',
             x: pos.x,
             y: pos.y,
@@ -310,22 +310,45 @@ const FSChat = (function () {
 
     if (prompt.type === 'calling-card') {
       if (action === 'accept') {
-        return FSTransport.acceptCallingCard(prompt.transactionId).then(function (result) {
+        return BeeTransport.acceptCallingCard(prompt.transactionId).then(function (result) {
           if (!result || !result.sent) throw new Error('send failed');
           finish('Accepted');
         }).catch(function () {
-          if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-            FSUtils.showToast('Could not accept friendship offer.', 'warning');
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+            BeeUtils.showToast('Could not accept friendship offer.', 'warning');
           }
         });
       }
       if (action === 'decline') {
-        return FSTransport.declineCallingCard(prompt.transactionId).then(function (result) {
+        return BeeTransport.declineCallingCard(prompt.transactionId).then(function (result) {
           if (!result || !result.sent) throw new Error('send failed');
           finish('Declined');
         }).catch(function () {
-          if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-            FSUtils.showToast('Could not decline friendship offer.', 'warning');
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+            BeeUtils.showToast('Could not decline friendship offer.', 'warning');
+          }
+        });
+      }
+      finish('Ignored');
+      return Promise.resolve();
+    }
+
+    if (prompt.type === 'inventory-offer' || prompt.type === 'group-notice-attachment') {
+      if ((action === 'accept' || action === 'decline') &&
+          typeof BeeBridge !== 'undefined' && BeeBridge.invoke) {
+        const fromNotice = prompt.type === 'group-notice-attachment';
+        return BeeBridge.invoke('sl_inventory_offer_respond', {
+          fromId: prompt.fromId,
+          transactionId: prompt.transactionId,
+          accept: action === 'accept',
+          fromTask: !!prompt.fromTask,
+          kind: fromNotice ? 'group-notice' : null
+        }).then(function () {
+          finish(action === 'accept' ? (fromNotice ? 'Kept' : 'Accepted')
+            : (fromNotice ? 'Discarded' : 'Declined'));
+        }).catch(function () {
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+            BeeUtils.showToast('Could not answer the inventory offer.', 'warning');
           }
         });
       }
@@ -335,22 +358,22 @@ const FSChat = (function () {
 
     if (prompt.type === 'friendship-offer') {
       if (action === 'accept') {
-        return FSTransport.acceptFriendship(prompt.transactionId).then(function (result) {
+        return BeeTransport.acceptFriendship(prompt.transactionId).then(function (result) {
           if (!result || !result.sent) throw new Error('send failed');
           finish('Accepted');
         }).catch(function () {
-          if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-            FSUtils.showToast('Could not accept friendship offer.', 'warning');
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+            BeeUtils.showToast('Could not accept friendship offer.', 'warning');
           }
         });
       }
       if (action === 'decline') {
-        return FSTransport.declineFriendship(prompt.transactionId).then(function (result) {
+        return BeeTransport.declineFriendship(prompt.transactionId).then(function (result) {
           if (!result || !result.sent) throw new Error('send failed');
           finish('Declined');
         }).catch(function () {
-          if (typeof FSUtils !== 'undefined' && FSUtils.showToast) {
-            FSUtils.showToast('Could not decline friendship offer.', 'warning');
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+            BeeUtils.showToast('Could not decline friendship offer.', 'warning');
           }
         });
       }
@@ -408,7 +431,8 @@ const FSChat = (function () {
       return;
     }
 
-    if (prompt.type === 'calling-card' || prompt.type === 'friendship-offer') {
+    if (prompt.type === 'calling-card' || prompt.type === 'friendship-offer' ||
+        prompt.type === 'inventory-offer' || prompt.type === 'group-notice-attachment') {
       const accept = el.querySelector('.interactive-prompt__accept');
       const decline = el.querySelector('.interactive-prompt__decline');
       const ignore = el.querySelector('.interactive-prompt__ignore');
@@ -455,10 +479,10 @@ const FSChat = (function () {
       const message = String(prompt.message || msg.text || '').trim();
       const url = String(prompt.url || '').trim();
       body =
-        (message ? '<p class="script-dialog__body">' + FSUtils.escapeHtml(message) + '</p>' : '') +
+        (message ? '<p class="script-dialog__body">' + BeeUtils.escapeHtml(message) + '</p>' : '') +
         (url
           ? '<p class="interactive-prompt__url"><span class="interactive-prompt__url-label">URL:</span> ' +
-            FSUtils.escapeHtml(url) + '</p>'
+            BeeUtils.escapeHtml(url) + '</p>'
           : '');
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
@@ -473,15 +497,15 @@ const FSChat = (function () {
           '<span class="script-dialog__badge ' + badgeClass + '">' + badge + '</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object' + ooUrl.cls + '"' + ooUrl.attrs + '>' +
-              FSUtils.escapeHtml(prompt.objectName || msg.fromName || 'Object') + '</span>' +
-            (ownerLine ? '<span class="script-dialog__owner">' + FSUtils.escapeHtml(ownerLine) + '</span>' : '') +
+              BeeUtils.escapeHtml(prompt.objectName || msg.fromName || 'Object') + '</span>' +
+            (ownerLine ? '<span class="script-dialog__owner">' + BeeUtils.escapeHtml(ownerLine) + '</span>' : '') +
           '</div>' +
-          '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+          '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          FSUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       bindObjectOwner(el);
@@ -495,7 +519,7 @@ const FSChat = (function () {
       const locationLine = (prompt.regionName || 'Region') + ' (' +
         Math.round(pos.x) + ', ' + Math.round(pos.y) + ', ' + Math.round(pos.z) + ')';
       body = '<p class="script-dialog__body">Teleport to this location or show it on the map?</p>' +
-        '<p class="interactive-prompt__location">' + FSUtils.escapeHtml(locationLine) + '</p>';
+        '<p class="interactive-prompt__location">' + BeeUtils.escapeHtml(locationLine) + '</p>';
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
           '<button type="button" class="btn btn--primary interactive-prompt__teleport"' +
@@ -510,14 +534,14 @@ const FSChat = (function () {
           '<span class="script-dialog__badge ' + badgeClass + '">' + badge + '</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object">' +
-              FSUtils.escapeHtml(prompt.objectName || msg.fromName || 'Object') + '</span>' +
+              BeeUtils.escapeHtml(prompt.objectName || msg.fromName || 'Object') + '</span>' +
           '</div>' +
-          '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+          '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          FSUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       return el;
@@ -527,7 +551,7 @@ const FSChat = (function () {
       badge = 'Friend';
       badgeClass = 'script-dialog__badge--friend';
       body = '<p class="script-dialog__body">' +
-        FSUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone') +
+        BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone') +
         ' has offered you a friendship card.</p>';
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
@@ -543,21 +567,55 @@ const FSChat = (function () {
           '<span class="script-dialog__badge ' + badgeClass + '">' + badge + '</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object">' +
-              FSUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
+              BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
           '</div>' +
-          '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+          '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          FSUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+        '</p>';
+      bindInteractivePrompt(el, msg);
+      return el;
+    }
+
+    if (prompt.type === 'inventory-offer') {
+      const giver = BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone');
+      const item = BeeUtils.escapeHtml(prompt.itemName || 'an item');
+      const line = prompt.fromTask
+        ? 'The object <strong>' + giver + '</strong> has offered you <strong>' + item + '</strong>.'
+        : '<strong>' + giver + '</strong> has offered you <strong>' + item + '</strong>.';
+      body = '<p class="script-dialog__body">' + line + '</p>';
+      actions =
+        '<div class="script-dialog__actions script-dialog__actions--buttons">' +
+          '<button type="button" class="btn btn--primary interactive-prompt__accept"' +
+            (prompt.resolved ? ' disabled' : '') + '>Accept</button>' +
+          '<button type="button" class="btn btn--secondary interactive-prompt__decline"' +
+            (prompt.resolved ? ' disabled' : '') + '>Decline</button>' +
+          '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
+            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+        '</div>';
+      el.innerHTML =
+        '<div class="script-dialog__header">' +
+          '<span class="script-dialog__badge script-dialog__badge--item">Item</span>' +
+          '<div class="script-dialog__titles">' +
+            '<span class="script-dialog__object">' +
+              BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
+          '</div>' +
+          '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
+        '</div>' +
+        body + actions +
+        '<p class="script-dialog__response"' +
+          ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       return el;
     }
 
     if (prompt.type === 'friendship-offer') {
-      const who = FSUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone');
+      const who = BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone');
       body = '<p class="script-dialog__body">' + who + ' has offered you friendship.</p>';
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
@@ -573,20 +631,20 @@ const FSChat = (function () {
           '<span class="script-dialog__badge script-dialog__badge--friend">Friend</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object">' +
-              FSUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
+              BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
           '</div>' +
-          '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+          '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          FSUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       return el;
     }
 
-    el.innerHTML = '<p class="msg__body">' + FSUtils.escapeHtml(msg.text || 'Interactive prompt') + '</p>';
+    el.innerHTML = '<p class="msg__body">' + BeeUtils.escapeHtml(msg.text || 'Interactive prompt') + '</p>';
     return el;
   }
 
@@ -620,7 +678,7 @@ const FSChat = (function () {
     const lines = perm.lines || [];
     const listHtml = lines.length
       ? '<ul class="script-permission__list">' + lines.map(function (line) {
-        return '<li>' + FSUtils.escapeHtml(line) + '</li>';
+        return '<li>' + BeeUtils.escapeHtml(line) + '</li>';
       }).join('') + '</ul>'
       : '<p class="script-dialog__hint">This object requested script permissions.</p>';
 
@@ -633,10 +691,10 @@ const FSChat = (function () {
       '<div class="script-dialog__header">' +
         '<span class="script-dialog__badge script-dialog__badge--permission">Permission</span>' +
         '<div class="script-dialog__titles">' +
-          '<span class="script-dialog__object">' + FSUtils.escapeHtml(perm.objectName || msg.fromName || 'Object') + '</span>' +
-          (ownerLine ? '<span class="script-dialog__owner">' + FSUtils.escapeHtml(ownerLine) + '</span>' : '') +
+          '<span class="script-dialog__object">' + BeeUtils.escapeHtml(perm.objectName || msg.fromName || 'Object') + '</span>' +
+          (ownerLine ? '<span class="script-dialog__owner">' + BeeUtils.escapeHtml(ownerLine) + '</span>' : '') +
         '</div>' +
-        '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
       '</div>' +
       (perm.hasCaution
         ? '<p class="script-permission__warning">Review carefully before allowing.</p>'
@@ -649,7 +707,7 @@ const FSChat = (function () {
           (perm.resolved ? ' disabled' : '') + '>Deny</button>' +
       '</div>' +
       '<p class="script-dialog__response"' + (responseNote ? '' : ' hidden') + '>' +
-        FSUtils.escapeHtml(responseNote) + '</p>';
+        BeeUtils.escapeHtml(responseNote) + '</p>';
 
     bindScriptPermission(el, msg);
     return el;
@@ -660,15 +718,15 @@ const FSChat = (function () {
     el.className = 'msg msg--event msg--payment';
     el.dataset.id = msg.id;
     const balance = msg.payment && msg.payment.balance !== undefined && msg.payment.balance !== null
-      ? FSUtils.formatLindenBalance(msg.payment.balance)
+      ? BeeUtils.formatLindenBalance(msg.payment.balance)
       : '';
     el.innerHTML =
       '<div class="msg__meta">' +
         '<span class="msg__name msg__name--system">Payment</span>' +
-        '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
       '</div>' +
-      '<p class="msg__body">' + FSUtils.escapeHtml(msg.text) + '</p>' +
-      (balance ? '<p class="event-payment__balance">Balance: ' + FSUtils.escapeHtml(balance) + '</p>' : '');
+      '<p class="msg__body">' + BeeUtils.escapeHtml(msg.text) + '</p>' +
+      (balance ? '<p class="event-payment__balance">Balance: ' + BeeUtils.escapeHtml(balance) + '</p>' : '');
     return el;
   }
 
@@ -676,21 +734,83 @@ const FSChat = (function () {
     const el = document.createElement('div');
     el.className = 'msg msg--motd';
     el.dataset.id = msg.id;
-    const body = FSSlurl.linkify(msg.text, FSUtils.escapeHtml).replace(/\n/g, '<br>');
+    const body = BeeSlurl.linkify(msg.text, BeeUtils.escapeHtml).replace(/\n/g, '<br>');
     el.innerHTML =
       '<div class="msg__meta">' +
-        '<span class="msg__name msg__name--motd">' + FSUtils.escapeHtml(msg.fromName || 'Linden Lab') + '</span>' +
+        '<span class="msg__name msg__name--motd">' + BeeUtils.escapeHtml(msg.fromName || 'Linden Lab') + '</span>' +
         '<span class="msg__motd-label">Message of the day</span>' +
-        '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
       '</div>' +
       '<p class="msg__body">' + body + '</p>';
 
-    FSSlurl.bindLinks(el);
+    BeeSlurl.bindLinks(el);
 
     return el;
   }
 
+  // A group notice: group + sender header, subject, body, and - when the
+  // notice carries an inventory attachment - Keep/Discard buttons.
+  function renderGroupNotice(msg) {
+    const el = document.createElement('div');
+    el.className = 'msg msg--script-dialog msg--group-notice';
+    const prompt = msg.prompt;
+    if (prompt && prompt.resolved) el.classList.add('msg--resolved');
+    el.dataset.id = msg.id;
+
+    const group = BeeUtils.escapeHtml(msg.groupName || 'Group notice');
+    const sender = BeeUtils.escapeHtml(msg.fromName || '');
+    const subject = BeeUtils.escapeHtml(msg.subject || '');
+    const body = BeeSlurl.linkify(String(msg.text || ''), BeeUtils.escapeHtml).replace(/\n/g, '<br>');
+
+    let attachment = '';
+    if (prompt) {
+      attachment =
+        '<p class="group-notice__attachment">Attachment: <strong>' +
+          BeeUtils.escapeHtml(prompt.itemName || 'item') + '</strong></p>' +
+        '<div class="script-dialog__actions script-dialog__actions--buttons">' +
+          '<button type="button" class="btn btn--primary interactive-prompt__accept"' +
+            (prompt.resolved ? ' disabled' : '') + '>Keep</button>' +
+          '<button type="button" class="btn btn--secondary interactive-prompt__decline"' +
+            (prompt.resolved ? ' disabled' : '') + '>Discard</button>' +
+          '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
+            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+        '</div>' +
+        '<p class="script-dialog__response"' +
+          ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+        '</p>';
+    }
+
+    el.innerHTML =
+      '<div class="script-dialog__header">' +
+        '<span class="script-dialog__badge script-dialog__badge--notice">Notice</span>' +
+        '<div class="script-dialog__titles">' +
+          '<span class="script-dialog__object group-notice__group">' + group + '</span>' +
+          (sender ? '<span class="script-dialog__owner">From: ' + sender + '</span>' : '') +
+        '</div>' +
+        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
+      '</div>' +
+      (subject ? '<p class="group-notice__subject">' + subject + '</p>' : '') +
+      (body ? '<p class="script-dialog__body">' + body + '</p>' : '') +
+      attachment;
+
+    BeeSlurl.bindLinks(el);
+    if (prompt && !prompt.resolved) bindInteractivePrompt(el, msg);
+    const groupEl = el.querySelector('.group-notice__group');
+    if (groupEl && msg.groupId && typeof BeeProfile !== 'undefined') {
+      groupEl.classList.add('msg__name--link');
+      groupEl.title = 'View group profile';
+      groupEl.addEventListener('click', function () {
+        BeeProfile.openGroup(msg.groupId);
+      });
+    }
+    return el;
+  }
+
   function renderMessage(msg) {
+    if (msg.kind === 'group-notice') {
+      return renderGroupNotice(msg);
+    }
     if (msg.kind === 'motd') {
       return renderMotdMessage(msg);
     }
@@ -722,8 +842,8 @@ const FSChat = (function () {
     el.dataset.id = msg.id;
 
     if (isSystem) {
-      el.innerHTML = '<p class="msg__body">' + FSSlurl.linkify(msg.text, FSUtils.escapeHtml) + '</p>';
-      FSSlurl.bindLinks(el);
+      el.innerHTML = '<p class="msg__body">' + BeeSlurl.linkify(msg.text, BeeUtils.escapeHtml) + '</p>';
+      BeeSlurl.bindLinks(el);
       return el;
     }
 
@@ -734,25 +854,25 @@ const FSChat = (function () {
     // Give the avatar thumbnail to agents only - an object's UUID isn't an avatar.
     const avatarHtml = (speakerId && !isObject)
       ? '<span class="msg__avatar avatar-thumb avatar-thumb--chat" data-agent-id="' +
-        FSUtils.escapeHtml(speakerId) + '" data-resolve-image="0" data-label="' +
-        FSUtils.escapeHtml(msg.fromName || '') + '"></span>'
+        BeeUtils.escapeHtml(speakerId) + '" data-resolve-image="0" data-label="' +
+        BeeUtils.escapeHtml(msg.fromName || '') + '"></span>'
       : '';
 
     el.innerHTML =
       '<div class="msg__meta">' +
         avatarHtml +
-        '<span class="msg__name ' + nameClass + '">' + FSUtils.escapeHtml(msg.fromName) +
+        '<span class="msg__name ' + nameClass + '">' + BeeUtils.escapeHtml(msg.fromName) +
           (label ? ' <span class="msg__volume">' + label + '</span>' : '') +
         '</span>' +
-        '<span class="msg__time">' + FSUtils.escapeHtml(FSUtils.formatTime(msg.timestamp)) + '</span>' +
+        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
       '</div>' +
-      '<p class="msg__body">' + FSSlurl.linkify(msg.text, FSUtils.escapeHtml) + '</p>';
+      '<p class="msg__body">' + BeeSlurl.linkify(msg.text, BeeUtils.escapeHtml) + '</p>';
 
-    FSSlurl.bindLinks(el);
+    BeeSlurl.bindLinks(el);
 
     const thumb = el.querySelector('.msg__avatar[data-agent-id]');
-    if (thumb) FSAvatarThumb.refresh(thumb);
-    if (typeof FSProfile !== 'undefined') {
+    if (thumb) BeeAvatarThumb.refresh(thumb);
+    if (typeof BeeProfile !== 'undefined') {
       const nameEl = el.querySelector('.msg__name');
       if (nameEl && isObject && msg.ownerId) {
         // For an object, the name links through to its owner rather than to an
@@ -760,13 +880,13 @@ const FSChat = (function () {
         nameEl.classList.add('msg__name--link');
         nameEl.title = 'View owner profile';
         nameEl.addEventListener('click', function () {
-          FSProfile.openAvatar(msg.ownerId);
+          BeeProfile.openAvatar(msg.ownerId);
         });
       } else if (nameEl && !isObject && speakerId) {
         nameEl.classList.add('msg__name--link');
         nameEl.title = 'View profile';
         nameEl.addEventListener('click', function () {
-          FSProfile.openAvatar(speakerId);
+          BeeProfile.openAvatar(speakerId);
         });
       }
     }
@@ -797,13 +917,15 @@ const FSChat = (function () {
     existing.replaceWith(next);
   }
 
-  function renderAllTo(listId) {
+  // `filter` (optional) keeps only matching messages - the Events subtabs use it.
+  function renderAllTo(listId, filter) {
     const list = document.getElementById(listId || 'chat-messages');
     if (!list) return;
     list.innerHTML = '';
-    const messages = listId === 'event-messages'
-      ? FSState.get().eventMessages
-      : FSState.get().chatMessages;
+    let messages = listId === 'event-messages'
+      ? BeeState.get().eventMessages
+      : BeeState.get().chatMessages;
+    if (typeof filter === 'function') messages = messages.filter(filter);
     messages.forEach(function (msg) {
       appendMessage(msg, false, listId);
     });
@@ -818,11 +940,11 @@ const FSChat = (function () {
     e.preventDefault();
     const input = document.getElementById('chat-input');
     const text = input.value.trim();
-    if (!text || !FSState.gridOnline()) return;
+    if (!text || !BeeState.gridOnline()) return;
 
     const volume = document.getElementById('chat-volume').value || 'normal';
 
-    FSTransport.sendChat(text, { type: volume });
+    BeeTransport.sendChat(text, { type: volume });
     input.value = '';
     resetChatInputHeight();
     input.focus();
@@ -833,22 +955,22 @@ const FSChat = (function () {
 
     const chatInput = document.getElementById('chat-input');
     if (chatInput) {
-      resetChatInputHeight = FSUtils.bindAutoGrowTextarea(chatInput, { maxRows: 3 });
+      resetChatInputHeight = BeeUtils.bindAutoGrowTextarea(chatInput, { maxRows: 3 });
     }
 
-    FSState.on('chat', function (msg) {
-      if (FSState.get().activeTab === 'chat') {
+    BeeState.on('chat', function (msg) {
+      if (BeeState.get().activeTab === 'chat') {
         appendMessage(msg);
       }
     });
 
-    FSState.on('chat-updated', function (msg) {
-      if (FSState.get().activeTab === 'chat') {
+    BeeState.on('chat-updated', function (msg) {
+      if (BeeState.get().activeTab === 'chat') {
         updateMessage(msg);
       }
     });
 
-    FSState.on('reset', function () {
+    BeeState.on('reset', function () {
       const list = document.getElementById('chat-messages');
       if (list) list.innerHTML = '';
     });

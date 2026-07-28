@@ -447,6 +447,24 @@ impl ObjectTable {
         })
     }
 
+    /// How many attachment roots hang directly off the given avatar. Used after
+    /// arriving in a region to judge whether the sim restored the worn outfit.
+    pub fn attachments_of_avatar(&self, agent_id: &str) -> usize {
+        let want = id_bytes(agent_id);
+        if is_zero_id(&want) {
+            return 0;
+        }
+        let av_local = self
+            .rows
+            .values()
+            .find(|r| r.pcode == PCODE_AVATAR && r.full_id == want && r.parent_id == 0)
+            .map(|r| r.local_id);
+        let Some(av_local) = av_local else {
+            return 0;
+        };
+        self.rows.values().filter(|r| r.parent_id == av_local).count()
+    }
+
     /// Remember a resident's coarse position from CoarseLocationUpdate (radar).
     pub fn note_coarse_agent(&mut self, agent_id: &str, pos: [f32; 3]) {
         let id = id_bytes(agent_id);
@@ -1868,6 +1886,32 @@ mod tests {
             "avatar Z must not be storey-snapped, got {}",
             pos[2]
         );
+    }
+
+    #[test]
+    fn attachments_of_avatar_counts_only_that_avatars_roots() {
+        let mut t = ObjectTable::default();
+        let me = "aa000000-0000-0000-0000-000000000001";
+        let other = "bb000000-0000-0000-0000-000000000002";
+        // Two avatars...
+        t.upsert(ObjectRow { local_id: 1, full_id: id_bytes(me), pcode: PCODE_AVATAR, parent_id: 0, ..Default::default() });
+        t.upsert(ObjectRow { local_id: 2, full_id: id_bytes(other), pcode: PCODE_AVATAR, parent_id: 0, ..Default::default() });
+        // ...two attachments on us (one with a child link), one on them, and a
+        // free-standing prim.
+        t.upsert(ObjectRow { local_id: 10, parent_id: 1, attachment_state: 6, ..Default::default() });
+        t.upsert(ObjectRow { local_id: 11, parent_id: 1, attachment_state: 8, ..Default::default() });
+        t.upsert(ObjectRow { local_id: 12, parent_id: 11, attachment_state: 8, ..Default::default() });
+        t.upsert(ObjectRow { local_id: 20, parent_id: 2, attachment_state: 6, ..Default::default() });
+        t.upsert(ObjectRow { local_id: 30, parent_id: 0, ..Default::default() });
+        assert_eq!(t.attachments_of_avatar(me), 2, "only roots hanging off our own avatar");
+        assert_eq!(t.attachments_of_avatar(other), 1);
+    }
+
+    #[test]
+    fn attachments_of_avatar_without_avatar_row_is_zero() {
+        let t = ObjectTable::default();
+        assert_eq!(t.attachments_of_avatar("aa000000-0000-0000-0000-000000000001"), 0);
+        assert_eq!(t.attachments_of_avatar(""), 0);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 /**
  * Prompts for handling incoming teleport offers and requests.
  */
-const FSTeleportUI = (function () {
+const BeeTeleportUI = (function () {
   'use strict';
 
   let pending = null;
@@ -75,7 +75,7 @@ const FSTeleportUI = (function () {
   function closePrompt() {
     const dialog = dialogEl();
     if (!dialog) return;
-    FSUtils.dismissDialog(dialog);
+    BeeUtils.dismissDialog(dialog);
     dialog.removeAttribute('open');
   }
 
@@ -106,10 +106,10 @@ const FSTeleportUI = (function () {
   async function handleOffer(payload) {
     const action = await showPrompt('offer', payload);
     if (action === 'accept') {
-      await FSTransport.acceptTeleportOffer(payload);
-      FSUtils.showToast('Teleporting...', 'success');
+      await BeeTransport.acceptTeleportOffer(payload);
+      BeeUtils.showToast('Teleporting...', 'success');
     } else {
-      await FSTransport.declineTeleportOffer(payload);
+      await BeeTransport.declineTeleportOffer(payload);
     }
   }
 
@@ -118,10 +118,10 @@ const FSTeleportUI = (function () {
     if (action === 'accept') {
       const reply = document.getElementById('teleport-reply');
       const message = reply ? reply.value.trim() : '';
-      await FSTransport.acceptTeleportRequest(payload, message);
-      FSUtils.showToast('Teleport offer sent', 'success');
+      await BeeTransport.acceptTeleportRequest(payload, message);
+      BeeUtils.showToast('Teleport offer sent', 'success');
     } else {
-      await FSTransport.declineTeleportRequest(payload);
+      await BeeTransport.declineTeleportRequest(payload);
     }
   }
 
@@ -134,27 +134,27 @@ const FSTeleportUI = (function () {
   }
 
   async function offerTo(agentId, agentName, hints) {
-    if (typeof FSTransport.isAgentOnline === 'function' &&
-        !FSTransport.isAgentOnline(agentId, hints)) {
-      FSUtils.showToast((agentName || 'That resident') + ' is offline.', 'warning');
+    if (typeof BeeTransport.isAgentOnline === 'function' &&
+        !BeeTransport.isAgentOnline(agentId, hints)) {
+      BeeUtils.showToast((agentName || 'That resident') + ' is offline.', 'warning');
       return;
     }
     const message = promptOutgoing('offer', agentName);
     if (message === null) return;
-    await FSTransport.sendTeleportOffer(agentId, message || 'Join me!');
-    FSUtils.showToast('Teleport offer sent to ' + (agentName || 'resident'), 'success');
+    await BeeTransport.sendTeleportOffer(agentId, message || 'Join me!');
+    BeeUtils.showToast('Teleport offer sent to ' + (agentName || 'resident'), 'success');
   }
 
   async function requestFrom(agentId, agentName, hints) {
-    if (typeof FSTransport.isAgentOnline === 'function' &&
-        !FSTransport.isAgentOnline(agentId, hints)) {
-      FSUtils.showToast((agentName || 'That resident') + ' is offline.', 'warning');
+    if (typeof BeeTransport.isAgentOnline === 'function' &&
+        !BeeTransport.isAgentOnline(agentId, hints)) {
+      BeeUtils.showToast((agentName || 'That resident') + ' is offline.', 'warning');
       return;
     }
     const message = promptOutgoing('request', agentName);
     if (message === null) return;
-    await FSTransport.sendTeleportRequest(agentId, message);
-    FSUtils.showToast('Teleport request sent to ' + (agentName || 'resident'), 'success');
+    await BeeTransport.sendTeleportRequest(agentId, message);
+    BeeUtils.showToast('Teleport request sent to ' + (agentName || 'resident'), 'success');
   }
 
   const PROGRESS_STAGES = [
@@ -224,29 +224,29 @@ const FSTeleportUI = (function () {
     });
 
     // Make sure a pending offer isn't left stranded when the session drops.
-    if (typeof FSState !== 'undefined' && FSState.on) {
-      FSState.on('reset', reset);
-      FSState.on('change', function (partial) {
+    if (typeof BeeState !== 'undefined' && BeeState.on) {
+      BeeState.on('reset', reset);
+      BeeState.on('change', function (partial) {
         if (partial && partial.sessionLost === true) reset();
       });
     }
 
-    FSTransport.on('teleport-offer', handleOffer);
-    FSTransport.on('teleport-request', handleRequest);
-    FSTransport.on('teleport-declined', function (data) {
-      FSUtils.showToast((data.fromName || 'Resident') + ' declined your teleport', 'warning');
+    BeeTransport.on('teleport-offer', handleOffer);
+    BeeTransport.on('teleport-request', handleRequest);
+    BeeTransport.on('teleport-declined', function (data) {
+      BeeUtils.showToast((data.fromName || 'Resident') + ' declined your teleport', 'warning');
     });
-    FSTransport.on('teleport-accepted', function (data) {
-      FSUtils.showToast((data.fromName || 'Resident') + ' accepted your teleport offer', 'success');
+    BeeTransport.on('teleport-accepted', function (data) {
+      BeeUtils.showToast((data.fromName || 'Resident') + ' accepted your teleport offer', 'success');
     });
-    FSTransport.on('teleport-failed', function (data) {
-      FSUtils.showToast(data.reason || 'Teleport failed', 'error', 5000);
+    BeeTransport.on('teleport-failed', function (data) {
+      BeeUtils.showToast(data.reason || 'Teleport failed', 'error', 5000);
     });
-    FSTransport.on('teleport-cancelled', function () {
-      FSUtils.showToast('Teleport cancelled', 'warning');
+    BeeTransport.on('teleport-cancelled', function () {
+      BeeUtils.showToast('Teleport cancelled', 'warning');
     });
-    FSTransport.on('teleport-finish', function () {
-      FSUtils.showToast('Arrived in region', 'success');
+    BeeTransport.on('teleport-finish', function () {
+      BeeUtils.showToast('Arrived in region', 'success');
     });
   }
 

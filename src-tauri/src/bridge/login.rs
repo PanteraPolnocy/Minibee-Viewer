@@ -335,6 +335,34 @@ pub fn normalize_login(login: &Map<String, Value>) -> Value {
     })
 }
 
+/// Pull the Current Outfit folder id out of the login inventory skeleton
+/// (folder type_default 46 = FT_CURRENT_OUTFIT). Empty when absent.
+pub fn cof_folder_id(login: &Map<String, Value>) -> String {
+    const FT_CURRENT_OUTFIT: i64 = 46;
+    login
+        .get("inventory-skeleton")
+        .and_then(|v| v.as_array())
+        .and_then(|folders| {
+            folders.iter().find(|f| {
+                f.get("type_default").and_then(|t| t.as_i64()) == Some(FT_CURRENT_OUTFIT)
+            })
+        })
+        .and_then(|f| f.get("folder_id").and_then(|v| v.as_str()))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// The agent's inventory root folder id from the login reply. Empty when absent.
+pub fn inventory_root_id(login: &Map<String, Value>) -> String {
+    login
+        .get("inventory-root")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|f| f.get("folder_id").and_then(|v| v.as_str()))
+        .unwrap_or("")
+        .to_string()
+}
+
 pub fn parse_login_response(xml: &str) -> Result<Map<String, Value>, String> {
     // The login URL is grid-configurable, so screen for a nesting-bomb response
     // before roxmltree builds the tree (and could overflow the stack on it).
@@ -413,6 +441,8 @@ const CAPS_WE_USE: &[&str] = &[
     "AgentProfile",
     "ChatSessionRequest",
     "EventQueueGet",
+    "FetchInventory2",
+    "FetchInventoryDescendents2",
     "GetDisplayNames",
     "GetObjectCost",
     "InterestList",
@@ -549,6 +579,34 @@ mod tests {
     }
 
     #[test]
+    fn cof_folder_id_finds_the_current_outfit() {
+        let mut login = Map::new();
+        login.insert(
+            "inventory-skeleton".into(),
+            json!([
+                { "name": "My Inventory", "folder_id": "aa000000-0000-0000-0000-000000000001", "type_default": 8 },
+                { "name": "Current Outfit", "folder_id": "bb000000-0000-0000-0000-000000000002", "type_default": 46 },
+                { "name": "Landmarks", "folder_id": "cc000000-0000-0000-0000-000000000003", "type_default": 3 },
+            ]),
+        );
+        assert_eq!(cof_folder_id(&login), "bb000000-0000-0000-0000-000000000002");
+    }
+
+    #[test]
+    fn cof_folder_id_handles_missing_or_malformed_skeleton() {
+        assert_eq!(cof_folder_id(&Map::new()), "");
+        let mut login = Map::new();
+        login.insert("inventory-skeleton".into(), json!("not an array"));
+        assert_eq!(cof_folder_id(&login), "");
+        let mut login = Map::new();
+        login.insert(
+            "inventory-skeleton".into(),
+            json!([{ "name": "Landmarks", "folder_id": "cc000000-0000-0000-0000-000000000003", "type_default": 3 }]),
+        );
+        assert_eq!(cof_folder_id(&login), "", "no COF folder means no restore, not a crash");
+    }
+
+    #[test]
     fn every_cap_we_use_is_requested() {
         // Mirrors the list built in fetch_login_seed_caps.
         let mut requested = seed_bootstrap_cap_names();
@@ -651,7 +709,7 @@ mod tests {
     #[test]
     fn long_passwords_hash_in_full() {
         // A password past the old 16-char SL cap must still hash in full, and hash
-        // the same regardless of any passwdMax hint - the reference viewer never trims.
+        // the same regardless of any passwdMax hint - the login server never trims.
         let pw = "0123456789abcdefghij"; // 20 characters
         let a = sl_login_passwd(&json!({ "passwd": pw, "passwdMax": 16 }));
         let b = sl_login_passwd(&json!({ "passwd": pw, "passwdMax": 255 }));
@@ -858,6 +916,17 @@ pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, St
             }
         }
         state.creds.stash(&relogin);
+    }
+
+    if login_ok {
+        // Remember the Current Outfit folder so the post-arrival outfit restore
+        // knows where the worn-attachment links live.
+        let cof = cof_folder_id(&parsed);
+        if !cof.is_empty() {
+            crate::dlog!("login: current outfit folder {cof}");
+        }
+        *state.cof_folder.lock().unwrap() = cof;
+        *state.inv_root.lock().unwrap() = inventory_root_id(&parsed);
     }
 
     let seed_caps = if login_ok {
