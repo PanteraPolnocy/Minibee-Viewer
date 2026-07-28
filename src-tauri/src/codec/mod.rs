@@ -69,7 +69,8 @@ pub fn zerocode_expand(input: &[u8]) -> Vec<u8> {
             // Each consecutive literal zero expands into its own 256-zero block.
             while i < n && input[i] == 0 && out.len() < MAX_EXPANDED {
                 out.push(0);
-                out.extend(std::iter::repeat(0).take(255));
+                let need = (out.len() + 255).min(MAX_EXPANDED);
+                out.resize(need, 0);
                 i += 1;
             }
             if i >= n {
@@ -77,7 +78,9 @@ pub fn zerocode_expand(input: &[u8]) -> Vec<u8> {
             }
             let count = input[i];
             i += 1;
-            out.extend(std::iter::repeat(0).take(count.saturating_sub(1) as usize));
+            let extra = count.saturating_sub(1) as usize;
+            let need = (out.len() + extra).min(MAX_EXPANDED);
+            out.resize(need, 0);
         }
     }
     out
@@ -175,15 +178,13 @@ impl<'a> Reader<'a> {
 }
 
 fn uuid_string(b: &[u8]) -> String {
-    let h: String = b.iter().map(|x| format!("{:02x}", x)).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &h[0..8],
-        &h[8..12],
-        &h[12..16],
-        &h[16..20],
-        &h[20..32]
-    )
+    if b.len() == 16 {
+        let mut id = [0u8; 16];
+        id.copy_from_slice(b);
+        crate::bridge::util::format_uuid_bytes(&id)
+    } else {
+        String::new()
+    }
 }
 
 fn fin32(x: f32) -> f32 {

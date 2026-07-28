@@ -79,9 +79,12 @@ fn host_of(url: &str) -> Option<String> {
 }
 
 fn host_trusted(host: &str) -> bool {
-    TRUSTED_SUFFIXES
-        .iter()
-        .any(|s| host == *s || host.ends_with(&format!(".{s}")))
+    TRUSTED_SUFFIXES.iter().any(|suffix| {
+        host == *suffix
+            || host.len() > suffix.len()
+                && host.as_bytes()[host.len() - suffix.len() - 1] == b'.'
+                && host.ends_with(suffix)
+    })
 }
 
 /// Strip trailing punctuation that a URL shouldn't swallow.
@@ -143,16 +146,23 @@ fn slurl_label(url: &str) -> String {
 
 /// Just enough percent-decoding for SLURL region names. These feed labels only,
 /// so it isn't security sensitive.
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hi = (bytes[i + 1] as char).to_digit(16);
-            let lo = (bytes[i + 2] as char).to_digit(16);
-            if let (Some(h), Some(l)) = (hi, lo) {
-                out.push((h * 16 + l) as u8);
+            if let (Some(h), Some(l)) = (hex_nibble(bytes[i + 1]), hex_nibble(bytes[i + 2])) {
+                out.push((h << 4) | l);
                 i += 3;
                 continue;
             }
@@ -185,7 +195,7 @@ pub fn linkify(text: &str) -> Vec<Segment> {
         Regex::new(r#"(?i)\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b"#).unwrap()
     });
 
-    let mut raws: Vec<Raw> = Vec::new();
+    let mut raws: Vec<Raw> = Vec::with_capacity(8);
 
     for m in BRACKET.captures_iter(text) {
         let whole = m.get(0).unwrap();

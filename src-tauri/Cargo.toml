@@ -48,6 +48,13 @@ wmi = "0.18"
 # Same version wry already pulls in, so this costs nothing extra to build.
 webview2-com = "0.39"
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "hot_paths"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true

@@ -7,6 +7,20 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
 
+/// Format 16 raw bytes as the canonical lowercase UUID string.
+pub fn format_uuid_bytes(b: &[u8; 16]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut s = String::with_capacity(36);
+    for (i, &byte) in b.iter().enumerate() {
+        if matches!(i, 4 | 6 | 8 | 10) {
+            s.push('-');
+        }
+        s.push(HEX[(byte >> 4) as usize] as char);
+        s.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    s
+}
+
 /// Escape a string so it's safe inside XML text or attributes (the XML1
 /// entities, plus both quote characters).
 pub fn xml_escape(s: &str) -> String {
@@ -76,21 +90,52 @@ pub fn normalize_sim_ip_str(raw: &str) -> String {
     s.to_string()
 }
 
+fn hex_pair(hi: u8, lo: u8) -> Option<u8> {
+    let hi = match hi {
+        b'0'..=b'9' => hi - b'0',
+        b'a'..=b'f' => hi - b'a' + 10,
+        b'A'..=b'F' => hi - b'A' + 10,
+        _ => return None,
+    };
+    let lo = match lo {
+        b'0'..=b'9' => lo - b'0',
+        b'a'..=b'f' => lo - b'a' + 10,
+        b'A'..=b'F' => lo - b'A' + 10,
+        _ => return None,
+    };
+    Some((hi << 4) | lo)
+}
+
 /// Convert a UUID string into its 16 raw bytes, or all zeros if it's malformed.
 pub fn uuid_to_bytes(uuid: &str) -> [u8; 16] {
-    let hex: String = uuid.chars().filter(|c| c.is_ascii_hexdigit()).collect();
     let mut out = [0u8; 16];
-    if hex.len() != 32 {
-        return out;
-    }
-    for i in 0..16 {
-        if let Ok(b) = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16) {
-            out[i] = b;
-        } else {
-            return [0u8; 16];
+    let mut slot = 0usize;
+    let mut pending: Option<u8> = None;
+    for b in uuid.bytes() {
+        if !b.is_ascii_hexdigit() {
+            continue;
+        }
+        match pending {
+            None => pending = Some(b),
+            Some(hi) => {
+                if let Some(byte) = hex_pair(hi, b) {
+                    if slot >= 16 {
+                        return [0u8; 16];
+                    }
+                    out[slot] = byte;
+                    slot += 1;
+                } else {
+                    return [0u8; 16];
+                }
+                pending = None;
+            }
         }
     }
-    out
+    if slot == 16 && pending.is_none() {
+        out
+    } else {
+        [0u8; 16]
+    }
 }
 
 static SEED_HAS_SCHEME: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^[a-z][a-z0-9+.\-]*:").unwrap());
@@ -189,9 +234,11 @@ pub fn llsd_cap_keys(body: &str) -> Vec<String> {
 
 /// A seed grant becomes usable as soon as it carries at least one region cap.
 pub fn seed_has_region_caps(keys: &[String]) -> bool {
-    let needles = ["eventqueueget", "getdisplaynames", "remoteparcelrequest"];
-    keys.iter()
-        .any(|k| needles.contains(&k.to_ascii_lowercase().as_str()))
+    keys.iter().any(|k| {
+        k.eq_ignore_ascii_case("eventqueueget")
+            || k.eq_ignore_ascii_case("getdisplaynames")
+            || k.eq_ignore_ascii_case("remoteparcelrequest")
+    })
 }
 
 /// Strip leading and trailing spaces, tabs, and any wrapping single or double quotes.

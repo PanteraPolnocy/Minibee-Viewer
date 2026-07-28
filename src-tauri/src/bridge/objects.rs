@@ -120,20 +120,26 @@ impl Default for ListFilters {
 
 /// Human-readable modify / copy / transfer from an object permission mask.
 pub fn perm_mask_text(mask: i64) -> String {
-    let mut parts: Vec<&str> = Vec::new();
+    let mut out = String::with_capacity(24);
     if mask & PERM_MODIFY != 0 {
-        parts.push("modify");
+        out.push_str("modify");
     }
     if mask & PERM_COPY != 0 {
-        parts.push("copy");
+        if !out.is_empty() {
+            out.push_str(", ");
+        }
+        out.push_str("copy");
     }
     if mask & PERM_TRANSFER != 0 {
-        parts.push("transfer");
+        if !out.is_empty() {
+            out.push_str(", ");
+        }
+        out.push_str("transfer");
     }
-    if parts.is_empty() {
+    if out.is_empty() {
         "none".to_string()
     } else {
-        parts.join(", ")
+        out
     }
 }
 
@@ -156,23 +162,47 @@ impl ObjectRow {
 
 /// 16 raw bytes as the canonical UUID string, for the UI.
 pub fn id_string(b: &[u8; 16]) -> String {
-    let s: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    format!("{}-{}-{}-{}-{}", &s[0..8], &s[8..12], &s[12..16], &s[16..20], &s[20..32])
+    crate::bridge::util::format_uuid_bytes(b)
 }
 
 /// Parse a UUID string (with or without dashes) into raw bytes.
 pub fn id_bytes(s: &str) -> [u8; 16] {
-    let hex: Vec<u8> = s.bytes().filter(|c| c.is_ascii_hexdigit()).collect();
     let mut out = [0u8; 16];
-    if hex.len() < 32 {
-        return out;
+    let mut slot = 0usize;
+    let mut pending: Option<u8> = None;
+    for b in s.bytes() {
+        if !b.is_ascii_hexdigit() {
+            continue;
+        }
+        match pending {
+            None => pending = Some(b),
+            Some(hi) => {
+                let hi = match hi {
+                    b'0'..=b'9' => hi - b'0',
+                    b'a'..=b'f' => hi - b'a' + 10,
+                    b'A'..=b'F' => hi - b'A' + 10,
+                    _ => return [0u8; 16],
+                };
+                let lo = match b {
+                    b'0'..=b'9' => b - b'0',
+                    b'a'..=b'f' => b - b'a' + 10,
+                    b'A'..=b'F' => b - b'A' + 10,
+                    _ => return [0u8; 16],
+                };
+                if slot >= 16 {
+                    return [0u8; 16];
+                }
+                out[slot] = (hi << 4) | lo;
+                slot += 1;
+                pending = None;
+            }
+        }
     }
-    for (i, slot) in out.iter_mut().enumerate() {
-        let hi = (hex[i * 2] as char).to_digit(16).unwrap_or(0) as u8;
-        let lo = (hex[i * 2 + 1] as char).to_digit(16).unwrap_or(0) as u8;
-        *slot = (hi << 4) | lo;
+    if slot == 16 && pending.is_none() {
+        out
+    } else {
+        [0u8; 16]
     }
-    out
 }
 
 fn is_zero_id(b: &[u8; 16]) -> bool {
@@ -850,6 +880,21 @@ impl ObjectTable {
         }
     }
 
+    /// World position for sit-offset math: parent chain summed with raw stored
+    /// positions, without skybox linkset heuristics (a seat at altitude is real).
+    pub fn sit_anchor_pos(&self, local_id: u32) -> Option<[f32; 3]> {
+        let row = self.rows.get(&local_id)?;
+        if row.parent_id == 0 {
+            return Some(row.pos);
+        }
+        let parent = self.sit_anchor_pos(row.parent_id)?;
+        Some([
+            parent[0] + row.pos[0],
+            parent[1] + row.pos[1],
+            parent[2] + row.pos[2],
+        ])
+    }
+
     /// Region position of the agent's own avatar row, if we have one.
     ///
     /// Avatars skip skybox storey heuristics - the sim's object update is authoritative.
@@ -1006,8 +1051,8 @@ impl ObjectTable {
             add(root);
         }
         out.sort_by(|a, b| {
-            distance(from, a.1)
-                .partial_cmp(&distance(from, b.1))
+            distance_sq(from, a.1)
+                .partial_cmp(&distance_sq(from, b.1))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         out
@@ -1075,10 +1120,22 @@ impl ObjectTable {
             .filter(|id| self.is_list_root(*id))
             .collect();
         root_ids.sort_by(|a, b| {
-            let da = distance(from, by_id[a]);
-            let db = distance(from, by_id[b]);
-            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            distance_sq(from, by_id[a])
+                .partial_cmp(&distance_sq(from, by_id[b]))
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
+
+        let mut children_by_root: HashMap<u32, Vec<u32>> = HashMap::new();
+        for &id in by_id.keys() {
+            if let Some(row) = self.rows.get(&id) {
+                if row.parent_id != 0 {
+                    let root = self.root_local_id(id);
+                    if root != id {
+                        children_by_root.entry(root).or_default().push(id);
+                    }
+                }
+            }
+        }
 
         let mut resolve_ids: Vec<String> = Vec::new();
         let mut seen_resolve: HashSet<String> = HashSet::new();
@@ -1107,21 +1164,11 @@ impl ObjectTable {
             let in_attachment = self.is_in_attachment(root_id);
 
             let mut child_entries: Vec<Value> = Vec::new();
-            let mut child_ids: Vec<u32> = by_id
-                .keys()
-                .copied()
-                .filter(|id| {
-                    *id != root_id
-                        && self
-                            .rows
-                            .get(id)
-                            .is_some_and(|r| r.parent_id != 0 && self.root_local_id(*id) == root_id)
-                })
-                .collect();
+            let mut child_ids = children_by_root.remove(&root_id).unwrap_or_default();
             child_ids.sort_by(|a, b| {
-                let da = distance(from, by_id[a]);
-                let db = distance(from, by_id[b]);
-                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                distance_sq(from, by_id[a])
+                    .partial_cmp(&distance_sq(from, by_id[b]))
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
             for child_id in child_ids {
                 let Some(child_row) = self.rows.get(&child_id) else {
@@ -1159,6 +1206,7 @@ impl ObjectTable {
     /// Child prims are included with their region position (root position plus
     /// parent-relative offsets), so a linkset skybox still lists its parts.
     pub fn nearby(&self, from: [f32; 3], range: f32) -> Vec<(&ObjectRow, [f32; 3])> {
+        let range_sq = range * range;
         let mut out: Vec<(&ObjectRow, [f32; 3])> = self
             .rows
             .values()
@@ -1167,11 +1215,11 @@ impl ObjectTable {
                 self.region_pos_for_list(r.local_id, Some(from))
                     .map(|pos| (r, pos))
             })
-            .filter(|(_, pos)| distance(from, *pos) <= range)
+            .filter(|(_, pos)| distance_sq(from, *pos) <= range_sq)
             .collect();
         out.sort_by(|a, b| {
-            distance(from, a.1)
-                .partial_cmp(&distance(from, b.1))
+            distance_sq(from, a.1)
+                .partial_cmp(&distance_sq(from, b.1))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         out
@@ -1284,6 +1332,7 @@ impl ObjectTable {
 
     /// `(tracked attachments, in-range attachment roots)` for diagnostics.
     pub fn attachment_stats(&self, from: [f32; 3], range: f32) -> (usize, usize) {
+        let range_sq = range * range;
         let mut tracked = 0usize;
         let mut in_range = 0usize;
         for row in self.rows.values() {
@@ -1293,7 +1342,7 @@ impl ObjectTable {
             }
             tracked += 1;
             if let Some(pos) = self.region_pos_for_list(root, Some(from)) {
-                if distance(from, pos) <= range {
+                if distance_sq(from, pos) <= range_sq {
                     in_range += 1;
                 }
             }
@@ -1311,10 +1360,16 @@ impl ObjectTable {
 }
 
 pub fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    distance_sq(a, b).sqrt()
+}
+
+/// Squared distance; use for ordering (same sort order as [`distance`]).
+#[inline]
+fn distance_sq(a: [f32; 3], b: [f32; 3]) -> f32 {
     let dx = a[0] - b[0];
     let dy = a[1] - b[1];
     let dz = a[2] - b[2];
-    (dx * dx + dy * dy + dz * dz).sqrt()
+    dx * dx + dy * dy + dz * dz
 }
 
 /// Shape one row for the UI.

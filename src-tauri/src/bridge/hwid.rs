@@ -32,11 +32,12 @@ pub fn hwid() -> &'static HwId {
 const ZERO_ID: &str = "00000000000000000000000000000000";
 
 fn hex_md5(bytes: &[u8]) -> String {
-    use std::fmt::Write;
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let digest = Md5::new().chain_update(bytes).finalize();
     let mut out = String::with_capacity(32);
     for b in digest {
-        let _ = write!(out, "{b:02x}");
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
     }
     out
 }
@@ -264,6 +265,28 @@ mod tests {
         let h = hex_md5(b"");
         assert_eq!(h, "d41d8cd98f00b204e9800998ecf8427e");
         assert_eq!(h.len(), 32);
+    }
+
+    #[test]
+    fn hex_md5_matches_write_macro_reference() {
+        fn reference(bytes: &[u8]) -> String {
+            use std::fmt::Write;
+            let digest = Md5::new().chain_update(bytes).finalize();
+            let mut out = String::with_capacity(32);
+            for b in digest {
+                let _ = write!(out, "{b:02x}");
+            }
+            out
+        }
+        for input in [
+            &b""[..],
+            b"abc",
+            b"hello",
+            &[0u8, 0xff, 1, 2, 3, 4],
+            b"fold6 test vector",
+        ] {
+            assert_eq!(hex_md5(input), reference(input), "input {:?}", input);
+        }
     }
 
     #[test]

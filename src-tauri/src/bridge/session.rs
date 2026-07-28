@@ -12,6 +12,7 @@
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Write;
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -247,7 +248,7 @@ fn resident_name(first: &str, last: &str) -> String {
     if last.is_empty() || last.eq_ignore_ascii_case("Resident") {
         first.to_string()
     } else {
-        format!("{first} {last}").trim().to_string()
+        format!("{first} {last}")
     }
 }
 
@@ -290,11 +291,16 @@ fn vec3(v: Option<&Value>) -> (f64, f64, f64) {
 /// some paths send it as a dotted string. Either way, normalize to `"a.b.c.d"`.
 fn llsd_ip(v: Option<&Value>) -> String {
     match v {
-        Some(Value::Array(a)) if a.len() == 4 => a
-            .iter()
-            .map(|n| n.as_u64().unwrap_or(0).to_string())
-            .collect::<Vec<_>>()
-            .join("."),
+        Some(Value::Array(a)) if a.len() == 4 => {
+            let mut s = String::with_capacity(15);
+            for (i, n) in a.iter().enumerate() {
+                if i > 0 {
+                    s.push('.');
+                }
+                let _ = write!(s, "{}", n.as_u64().unwrap_or(0));
+            }
+            s
+        }
         Some(Value::String(s)) => s.clone(),
         _ => String::new(),
     }
@@ -694,15 +700,12 @@ fn track_self(state: &mut SessionState, inst: &Value) -> Vec<Action> {
         .or_else(|| crate::bridge::objects::position_from_terse_object_data(&blob));
 
     if let Some(local) = local {
-        let hint = state
-            .last_pos
-            .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]);
         let region_pos = if parent_id == 0 {
             Some(local)
         } else {
             state
                 .objects
-                .region_pos_from(parent_id, hint)
+                .sit_anchor_pos(parent_id)
                 .map(|seat| [seat[0] + local[0], seat[1] + local[1], seat[2] + local[2]])
         };
         if let Some(p) = region_pos {
@@ -3194,6 +3197,8 @@ mod tests {
         assert_eq!(sent, vec![8]);
     }
 
+    const SELF_AGENT: &str = "aa000000-0000-0000-0000-000000000001";
+
     /// A full ObjectUpdate blob with `pos` at the front, which is where the 60-byte
     /// high-precision form keeps it.
     fn self_blob(pos: [f32; 3]) -> String {
@@ -3217,24 +3222,27 @@ mod tests {
 
     #[test]
     fn our_own_object_update_says_where_we_are() {
-        let mut st = SessionState { agent_id: "me".into(), ..Default::default() };
-        let a = route(&mut st, &self_update("me", 0, [64.0, 192.0, 2013.5]));
+        let mut st = SessionState { agent_id: SELF_AGENT.into(), ..Default::default() };
+        let a = route(&mut st, &self_update(SELF_AGENT, 0, [64.0, 192.0, 2013.5]));
         assert_eq!(st.last_pos, Some([64.0, 192.0, 2013.5]));
         let pos = &emit_of(&a, "position").expect("position")["position"];
         assert_eq!(pos["z"], 2013.5);
-        // And it isn't mistaken for a listable object.
-        assert!(st.objects.is_empty(), "our own avatar is not a nearby object");
+        // Avatar row is tracked for sit/stand, but never listable as a nearby prim.
+        assert!(
+            st.objects.nearby([64.0, 192.0, 2013.5], 96.0).is_empty(),
+            "our own avatar is not a nearby object"
+        );
     }
 
     #[test]
     fn sitting_position_is_relative_to_the_seat() {
-        let mut st = SessionState { agent_id: "me".into(), ..Default::default() };
+        let mut st = SessionState { agent_id: SELF_AGENT.into(), ..Default::default() };
         st.objects.upsert(crate::bridge::objects::ObjectRow {
             local_id: 4242,
             pos: [100.0, 100.0, 2000.0],
             ..Default::default()
         });
-        let a = route(&mut st, &self_update("me", 4242, [0.5, -1.0, 0.75]));
+        let a = route(&mut st, &self_update(SELF_AGENT, 4242, [0.5, -1.0, 0.75]));
         assert_eq!(st.last_pos, Some([100.5, 99.0, 2000.75]));
         assert!(st.sitting, "a parent means we're sitting on it");
         assert_eq!(emit_of(&a, "sit-state").expect("sit-state")["sitting"], true);
@@ -3242,7 +3250,7 @@ mod tests {
         // An untracked seat can't be resolved, so the last known position stands rather
         // than being overwritten with a bare offset.
         st.last_pos = Some([1.0, 2.0, 3.0]);
-        route(&mut st, &self_update("me", 777, [0.5, 0.5, 0.5]));
+        route(&mut st, &self_update(SELF_AGENT, 777, [0.5, 0.5, 0.5]));
         assert_eq!(st.last_pos, Some([1.0, 2.0, 3.0]));
     }
 
@@ -3258,22 +3266,22 @@ mod tests {
 
     #[test]
     fn standing_after_sit_clears_parent_and_keeps_region_position() {
-        let mut st = SessionState { agent_id: "me".into(), ..Default::default() };
+        let mut st = SessionState { agent_id: SELF_AGENT.into(), ..Default::default() };
         st.objects.upsert(crate::bridge::objects::ObjectRow {
             local_id: 4242,
             pos: [200.0, 171.0, 2088.0],
             ..Default::default()
         });
-        route(&mut st, &self_update("me", 4242, [1.0, 0.0, 0.5]));
+        route(&mut st, &self_update(SELF_AGENT, 4242, [1.0, 0.0, 0.5]));
         assert!(st.sitting);
-        route(&mut st, &self_update("me", 0, [201.0, 171.0, 2088.0]));
+        route(&mut st, &self_update(SELF_AGENT, 0, [201.0, 171.0, 2088.0]));
         assert!(!st.sitting);
         assert_eq!(st.last_pos, Some([201.0, 171.0, 2088.0]));
-        let avatar_id = st.objects.agent_local_id("me").expect("avatar row");
+        let avatar_id = st.objects.agent_local_id(SELF_AGENT).expect("avatar row");
         assert_eq!(st.objects.parent_id_of(avatar_id), Some(0));
         let pos = st
             .objects
-            .agent_region_pos("me", None)
+            .agent_region_pos(SELF_AGENT, None)
             .expect("avatar region pos");
         assert!(
             (pos[2] - 2088.0).abs() < 0.1,

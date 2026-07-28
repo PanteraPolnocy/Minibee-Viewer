@@ -32,9 +32,14 @@ fn not_empty(p: &Value, key: &str) -> bool {
 }
 
 fn md5_hex(input: &str) -> String {
-    let mut h = Md5::new();
-    h.update(input.as_bytes());
-    h.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let digest = Md5::new().chain_update(input.as_bytes()).finalize();
+    let mut out = String::with_capacity(32);
+    for b in digest {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn sl_login_passwd(p: &Value) -> String {
