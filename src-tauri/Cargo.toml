@@ -49,7 +49,7 @@ wmi = "0.18"
 webview2-com = "0.39"
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]
 name = "hot_paths"
