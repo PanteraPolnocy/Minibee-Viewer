@@ -1,4 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
+
+use criterion::{criterion_group, criterion_main, Criterion};
 
 use minibee_viewer_lib::bridge::objects::{id_bytes, id_string, perm_mask_text, ObjectRow, ObjectTable, ListFilters, PCODE_PRIM};
 use minibee_viewer_lib::bridge::util::{llsd_cap_map, normalize_seed_url, uuid_to_bytes, xml_escape};
