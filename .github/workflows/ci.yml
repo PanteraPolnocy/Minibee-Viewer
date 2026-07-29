@@ -1,16 +1,12 @@
 name: CI
 
-# The gate for day-to-day work: types, unit tests, and proof that the frontend's
-# generated event types still match the Rust structs they came from. The release
-# workflow only runs when a release is published, so without this nothing checks
-# a pull request.
+# Types, unit tests, and proof that the frontend's generated event types still
+# match the Rust structs they came from.
 
 on:
   pull_request:
-  push:
-    branches: [main]
 
-# A new push to the same branch makes the previous run pointless.
+# A new push to the same pull request makes the previous run pointless.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
