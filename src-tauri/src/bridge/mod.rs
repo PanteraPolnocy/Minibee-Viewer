@@ -3,6 +3,7 @@
 
 pub mod caps;
 pub mod circuit;
+pub mod events;
 pub mod eventqueue;
 pub mod feeds;
 pub mod http_client;

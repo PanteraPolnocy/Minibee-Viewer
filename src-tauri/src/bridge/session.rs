@@ -1013,7 +1013,13 @@ fn stand_up_on_arrival(state: &mut SessionState) -> Vec<Action> {
     }
     state.sitting = false;
     state.sit_object.clear();
-    vec![Action::emit("sit-state", json!({ "sitting": false, "objectId": "" }))]
+    vec![Action::emit(
+        "sit-state",
+        crate::bridge::events::payload(crate::bridge::events::SitState {
+            sitting: false,
+            object_id: String::new(),
+        }),
+    )]
 }
 
 /// Fold our own avatar's ObjectUpdate into the session: where we are, and whether we're
@@ -1064,7 +1070,10 @@ fn track_self(state: &mut SessionState, inst: &Value) -> Vec<Action> {
         }
         actions.push(Action::emit(
             "sit-state",
-            json!({ "sitting": sitting, "objectId": state.sit_object.clone() }),
+            crate::bridge::events::payload(crate::bridge::events::SitState {
+                sitting,
+                object_id: state.sit_object.clone(),
+            }),
         ));
     }
     actions

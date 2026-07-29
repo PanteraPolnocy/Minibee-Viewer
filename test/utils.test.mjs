@@ -1,18 +1,16 @@
-// Tests for pure helpers in src/js/utils.js. Loaded like the other IIFE modules
+// Tests for pure helpers in src/js/utils.ts. Loaded like the other IIFE modules
 // with minimal browser globals stubbed.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { loadBeeModule } from './load-module.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const src = fs.readFileSync(path.join(here, '..', 'src', 'js', 'utils.js'), 'utf8');
-const stubDoc = { createElement: () => ({}) };
-// eslint-disable-next-line no-new-func
-const BeeUtils = new Function('window', 'document', 'navigator', 'localStorage',
-  src + '\n;return BeeUtils;')({}, stubDoc, {}, {});
+const BeeUtils = loadBeeModule('js/utils.ts', 'BeeUtils', {
+  window: {},
+  document: { createElement: () => ({}) },
+  navigator: {},
+  localStorage: {},
+});
 
 test('escapeHtml escapes the five HTML-significant characters', () => {
   assert.equal(BeeUtils.escapeHtml('a<b>&"\''), 'a&lt;b&gt;&amp;&quot;&#39;');

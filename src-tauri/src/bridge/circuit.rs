@@ -1183,18 +1183,19 @@ fn spawn_net_meter(app: AppHandle) -> JoinHandle<()> {
             }
             was_quiet = quiet;
             // The label and the log-scaled bar level ship precomputed; the
-            // frontend only turns them into pixels.
+            // frontend only turns them into pixels. The shape is the NetRate
+            // struct, which is also what generates the frontend's type.
             let _ = app.emit(
                 "minibee-viewer://net-rate",
-                json!({
-                    "inBps": in_bps,
-                    "outBps": out_bps,
-                    "label": format!(
+                crate::bridge::events::payload(crate::bridge::events::NetRate {
+                    in_bps,
+                    out_bps,
+                    label: format!(
                         "\u{2193} {}  \u{2191} {}",
                         crate::bridge::netmeter::format_rate(in_bps),
                         crate::bridge::netmeter::format_rate(out_bps)
                     ),
-                    "level": crate::bridge::netmeter::rate_level(in_bps + out_bps),
+                    level: crate::bridge::netmeter::rate_level(in_bps + out_bps),
                 }),
             );
         }

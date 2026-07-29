@@ -8,7 +8,9 @@
     "build:local": "node scripts/build-local.mjs",
     "build:local:debug": "node scripts/build-local.mjs --debug",
     "tauri": "tauri",
-    "test": "node --test",
+    "test": "node --test \"test/*.test.mjs\"",
+    "typecheck": "tsc --noEmit",
+    "types:sync": "node scripts/sync-types.mjs",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "release:notes": "node scripts/update-release-notes.mjs",
     "version:sync": "node scripts/sync-version.mjs",
@@ -16,6 +18,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "typescript": "^7.0.2"
   }
 }

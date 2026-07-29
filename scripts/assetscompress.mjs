@@ -31,10 +31,13 @@ fs.mkdirSync(DIST, { recursive: true });
 
 fs.cpSync(SRC, DIST, {
   recursive: true,
-  filter: (file) => !file.endsWith('.js') && !file.endsWith('.css'),
+  filter: (file) => !file.endsWith('.ts') && !file.endsWith('.css'),
 });
 
-const entryPoints = findFiles(SRC, ['.js', '.css']);
+// esbuild transforms each file on its own (no bundling), so a .ts input lands
+// as the .js file the script tags already ask for, in the same place. Types
+// are stripped, never checked - `npm run typecheck` is what checks them.
+const entryPoints = findFiles(SRC, ['.ts', '.css']);
 
 if (entryPoints.length > 0) {
   await esbuild.build({

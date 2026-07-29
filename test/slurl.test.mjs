@@ -9,15 +9,12 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { loadBeeModule } from './load-module.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const src = fs.readFileSync(path.join(here, '..', 'src', 'js', 'core', 'sl-slurl.js'), 'utf8');
-
-// eslint-disable-next-line no-new-func
-const BeeSlurl = new Function('window', 'document', src + '\n;return BeeSlurl;')({}, undefined);
+const BeeSlurl = loadBeeModule('js/core/sl-slurl.ts', 'BeeSlurl', {
+  window: {},
+  document: undefined,
+});
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 

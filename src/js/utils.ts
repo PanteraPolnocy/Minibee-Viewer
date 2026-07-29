@@ -1,0 +1,282 @@
+/**
+ * Shared helpers used throughout the Minibee Viewer.
+ */
+const BeeUtils = (function () {
+  'use strict';
+
+  function uuid() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
+  function formatTime(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function formatRelative(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const diff = Date.now() - d.getTime();
+    if (diff < 60000) return 'now';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h';
+    return formatTime(d);
+  }
+
+  function initials(name) {
+    if (!name) return '?';
+    const parts = String(name).trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  // Escapes a value so it's safe both as element text and inside quoted
+  // attributes. The old textContent trick left " and ' intact, so any value
+  // dropped into a double-quoted attribute could break right out of it.
+  function escapeHtml(text) {
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function debounce(fn, ms) {
+    let timer;
+    return function (...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
+  function clamp(n, min, max) {
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function bindAutoGrowTextarea(el, options) {
+    if (!el || el.tagName !== 'TEXTAREA') return function () {};
+    const maxRows = options && options.maxRows != null ? options.maxRows : 3;
+    const submitOnEnter = !(options && options.submitOnEnter === false);
+
+    function resize() {
+      el.style.height = 'auto';
+      const cs = window.getComputedStyle(el);
+      const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.45;
+      const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const borderY = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+      const maxHeight = lineHeight * maxRows + padY + borderY;
+      const next = Math.min(el.scrollHeight, maxHeight);
+      el.style.height = next + 'px';
+      el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }
+
+    el.addEventListener('input', resize);
+
+    if (submitOnEnter) {
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          const form = el.form;
+          if (form && typeof form.requestSubmit === 'function') {
+            form.requestSubmit();
+          } else if (form) {
+            form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+          }
+        }
+      });
+    }
+
+    resize();
+    return resize;
+  }
+
+  function distance3d(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    const dz = a.z - b.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+
+  function xorSessionId(agentId, otherId) {
+    const strip = (id) => id.replace(/-/g, '');
+    const a = BigInt('0x' + strip(agentId));
+    const b = BigInt('0x' + strip(otherId));
+    const x = a ^ b;
+    const hex = x.toString(16).padStart(32, '0');
+    return [
+      hex.slice(0, 8),
+      hex.slice(8, 12),
+      hex.slice(12, 16),
+      hex.slice(16, 20),
+      hex.slice(20, 32)
+    ].join('-');
+  }
+
+  function showToast(message, type, duration) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const el = document.createElement('div');
+    el.className = 'toast' + (type ? ' toast--' + type : '');
+    el.textContent = message;
+    container.appendChild(el);
+    setTimeout(function () {
+      el.remove();
+    }, duration || 3200);
+  }
+
+  function storageGet(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (_e) {
+      return fallback;
+    }
+  }
+
+  function storageSet(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (_e) {
+      /* likely a quota error or private mode; nothing to do */
+    }
+  }
+
+  function normUuid(id) {
+    return String(id || '').toLowerCase().replace(/[{}]/g, '').trim();
+  }
+
+  // Parcel edit-gating (owner / owning-group member / Governor) and prim
+  // capacity now live in the Rust parcel handler, which emits `canEdit` and
+  // `primsTotal` on the parcel event, so we don't compute them here anymore.
+
+  function formatSltTime(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const time = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'America/Los_Angeles',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(d);
+    return time + ' SLT';
+  }
+
+  function formatLindenBalance(amount) {
+    if (amount === null || amount === undefined || Number.isNaN(amount)) {
+      return 'L$ -';
+    }
+    const n = Math.trunc(amount);
+    const sign = n < 0 ? '-' : '';
+    return 'L$ ' + sign + Math.abs(n).toLocaleString('en-US');
+  }
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  function isUuid(s) {
+    return UUID_RE.test(String(s || '').trim());
+  }
+
+  function agentNameLines(agent) {
+    // A bare UUID isn't a display name. Buddies and radar entries arrive with
+    // only an id (name === the UUID) until GetDisplayNames resolves them, so we
+    // treat any UUID-valued field as absent instead of rendering the raw key.
+    const clean = function (v) { const s = String(v || '').trim(); return isUuid(s) ? '' : s; };
+    const displayName = clean(agent && agent.displayName);
+    const userName = clean(agent && (agent.userName || agent.legacyName));
+    const fallback = clean(agent && agent.name);
+    const title = displayName || userName || fallback || '?';
+    let subtitle = '';
+    if (displayName && userName && displayName.toLowerCase() !== userName.toLowerCase()) {
+      subtitle = userName;
+    }
+    return { title: title, subtitle: subtitle };
+  }
+
+  // Reliably close a modal <dialog>. When closed programmatically, WebView2 can
+  // leave the dialog painted until the next input event, so we pull focus out
+  // of it and force a reflow to make it disappear on the first click.
+  function dismissDialog(dialog) {
+    if (!dialog) return;
+    try { if (dialog.open) dialog.close(); } catch (_e) { /* safe to ignore */ }
+    if (dialog.open) dialog.open = false;
+    if (document.activeElement && dialog.contains(document.activeElement)) {
+      try { (document.activeElement as HTMLElement).blur(); } catch (_e) { /* safe to ignore */ }
+    }
+    const prevDisplay = dialog.style.display;
+    dialog.style.display = 'none';
+    void dialog.offsetHeight;
+    dialog.style.display = prevDisplay;
+  }
+
+  // Styled modal confirmation that resolves to a Promise<boolean>. Falls back
+  // to the native confirm only when the dialog element isn't available.
+  function confirmDialog(options) {
+    const o = options || {};
+    return new Promise(function (resolve) {
+      const dialog = document.getElementById('confirm-dialog') as HTMLDialogElement | null;
+      if (!dialog || typeof dialog.showModal !== 'function') {
+        resolve(typeof window !== 'undefined' && window.confirm
+          ? window.confirm(o.message || 'Are you sure?') : true);
+        return;
+      }
+      const titleEl = document.getElementById('confirm-title');
+      const msgEl = document.getElementById('confirm-message');
+      const okBtn = document.getElementById('confirm-ok');
+      const cancelBtn = document.getElementById('confirm-cancel');
+      if (titleEl) titleEl.textContent = o.title || 'Please confirm';
+      if (msgEl) msgEl.textContent = o.message || 'Are you sure?';
+      if (okBtn) {
+        okBtn.textContent = o.confirmLabel || 'Confirm';
+        okBtn.classList.toggle('btn--danger', !!o.danger);
+      }
+      if (cancelBtn) cancelBtn.textContent = o.cancelLabel || 'Cancel';
+
+      let settled = false;
+      function done(result) {
+        if (settled) return;
+        settled = true;
+        if (okBtn) okBtn.removeEventListener('click', onOk);
+        if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+        dialog.removeEventListener('cancel', onDialogCancel);
+        dismissDialog(dialog);
+        resolve(result);
+      }
+      function onOk() { done(true); }
+      function onCancel() { done(false); }
+      function onDialogCancel(e) { e.preventDefault(); done(false); }
+      if (okBtn) okBtn.addEventListener('click', onOk);
+      if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+      dialog.addEventListener('cancel', onDialogCancel);
+      dialog.showModal();
+      if (okBtn) okBtn.focus();
+    });
+  }
+
+  return {
+    uuid: uuid,
+    dismissDialog: dismissDialog,
+    confirm: confirmDialog,
+    formatTime: formatTime,
+    formatSltTime: formatSltTime,
+    formatLindenBalance: formatLindenBalance,
+    formatRelative: formatRelative,
+    initials: initials,
+    agentNameLines: agentNameLines,
+    isUuid: isUuid,
+    normUuid: normUuid,
+    escapeHtml: escapeHtml,
+    debounce: debounce,
+    clamp: clamp,
+    bindAutoGrowTextarea: bindAutoGrowTextarea,
+    distance3d: distance3d,
+    xorSessionId: xorSessionId,
+    showToast: showToast,
+    storageGet: storageGet,
+    storageSet: storageSet
+  };
+})();

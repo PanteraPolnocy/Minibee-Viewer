@@ -1,0 +1,90 @@
+name: CI
+
+# The gate for day-to-day work: types, unit tests, and proof that the frontend's
+# generated event types still match the Rust structs they came from. The release
+# workflow only runs when a release is published, so without this nothing checks
+# a pull request.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same branch makes the previous run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Types and frontend tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # esbuild strips types without checking them, so this is the only thing
+      # standing between a type error and a release.
+      - name: Check types
+        run: npm run typecheck
+
+      - name: Frontend tests
+        run: npm test
+
+  core:
+    name: Core tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - run: npm ci
+
+      # tauri-build resolves frontendDist at compile time, so dist/ has to exist
+      # before cargo will even check the crate.
+      - name: Build frontend assets
+        run: npm run assetscompress
+
+      - name: Core tests
+        run: npm run test:rust
+
+      # The committed types are generated from events.rs. If someone edits a
+      # payload struct and forgets `npm run types:sync`, the frontend would keep
+      # checking against the old shape - which is the exact failure this whole
+      # arrangement exists to prevent.
+      - name: Generated types are up to date
+        run: |
+          npm run types:sync
+          git diff --exit-code -- types/bee-ipc.d.ts \
+            || { echo "::error::types/bee-ipc.d.ts is stale - run 'npm run types:sync' and commit the result."; exit 1; }

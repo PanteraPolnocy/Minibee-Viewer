@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    // esbuild does the emitting (per file, types stripped); tsc is only ever
+    // the checker. Keeping the two jobs apart is why the build stayed a
+    // one-to-one file transform instead of turning into a bundler.
+    "noEmit": true,
+
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+
+    // Every frontend file is a *script*, not a module: one top-level
+    // `const BeeThing = (function () { ... })()` per file, loaded by ordered
+    // script tags. Leaving moduleDetection on its default keeps them scripts,
+    // so each module's shape is inferred once and visible everywhere - no
+    // hand-written declaration files, and no import churn across 37 files.
+    "module": "Preserve",
+    "moduleDetection": "auto",
+
+    // Browser code: no ambient Node typings.
+    "types": [],
+
+    // Turned up gradually - see the typing progress note in CONTRIBUTING.
+    "strict": false,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/js/**/*.ts", "types/**/*.d.ts"]
+}

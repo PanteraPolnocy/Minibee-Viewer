@@ -6,20 +6,14 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { loadBeeModule } from './load-module.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const src = fs.readFileSync(path.join(here, '..', 'src', 'js', 'core', 'sl-profiles.js'), 'utf8');
-
-const BeeUtils = { normUuid: (id) => String(id || '').toLowerCase() };
-const BeeBridge = { listen: () => {}, invoke: () => Promise.resolve() };
-
-// eslint-disable-next-line no-new-func
-const BeeProfiles = new Function('window', 'document', 'BeeUtils', 'BeeBridge', src + '\n;return BeeProfiles;')(
-  {}, undefined, BeeUtils, BeeBridge
-);
+const BeeProfiles = loadBeeModule('js/core/sl-profiles.ts', 'BeeProfiles', {
+  window: {},
+  document: undefined,
+  BeeUtils: { normUuid: (id) => String(id || '').toLowerCase() },
+  BeeBridge: { listen: () => {}, invoke: () => Promise.resolve() },
+});
 
 test('isZero: empty and null-uuid are zero', () => {
   assert.equal(BeeProfiles.isZero(''), true);

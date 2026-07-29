@@ -2,7 +2,7 @@
 
 ![Minibee logo](/src-tauri/icons/128x128.png)
 
-A tiny Second Life client: a JavaScript / HTML / CSS interface running in a WebView, with a native **Rust** core (Tauri) doing the heavy lifting underneath. It does chat, IM (1:1, group, and conference), events, search, radar, map, land, the Destination Guide, and teleport.
+A tiny Second Life client: a TypeScript / HTML / CSS interface running in a WebView, with a native **Rust** core (Tauri) doing the heavy lifting underneath. It does chat, IM (1:1, group, and conference), events, search, radar, map, land, the Destination Guide, and teleport.
 
 What it does **not** do is render the 3D world. Minibee is the friend who comes to the party to talk to people and check the map, not to admire the furniture.
 
@@ -238,6 +238,23 @@ npm install
 npm run tauri dev
 ```
 
+**The frontend is TypeScript**, but deliberately plain: every file under `src/js`
+is a *script* holding one `const BeeThing = (function () { ... })()`, loaded by
+ordered `<script>` tags. No imports, no bundler - esbuild transforms each file
+on its own, so `src/js/x.ts` becomes `dist/js/x.js` in place. That means the
+build never type-checks: `tsc` is a separate gate.
+
+| Task | Command |
+|------|---------|
+| Check types | `npm run typecheck` |
+| Regenerate the core's event types | `npm run types:sync` |
+
+Event payload types are **generated from the Rust structs** in
+`src-tauri/src/bridge/events.rs`, so the interface checks against what the core
+actually sends rather than against an assumption about it. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to add one, and for the `@ts-nocheck`
+banners marking files not yet typed.
+
 **Release build** (`npm run tauri build`) produces installers under `src-tauri/target/release/`:
 
 **Local builds** (no updater signing key needed): `npm run build:local` or `npm run build:local:debug`.
@@ -257,7 +274,7 @@ CI also publishes builds on [GitHub Releases](https://github.com/PanteraPolnocy/
 
 Installed copies bundle `LICENSE`, `README.md`, `HELP.md`, and `PRIVACY.md` next to the app.
 
-Tests: `npm test` and `npm run test:rust`.
+Tests: `npm test` and `npm run test:rust`; types: `npm run typecheck`.
 
 Want to contribute? See **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 

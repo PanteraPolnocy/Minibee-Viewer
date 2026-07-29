@@ -27,3 +27,7 @@ cacert.pem
 cacert.etag
 __pycache__/
 src-tauri/target
+
+# Raw per-type output from ts-rs. The merged, committed result is
+# types/bee-ipc.d.ts - see `npm run types:sync`.
+types/generated/

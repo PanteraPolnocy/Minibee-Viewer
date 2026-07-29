@@ -5,6 +5,7 @@
 ## Checklist!
 - [ ] I double checked the code / commit, it seems to be in order
 - [ ] The code / commit is formatted nicely; No magic numbers, no API keys or passwords, indentations are okay
-- [ ] I tested the code inworld, it works just fine!... OR it's not JS/PHP/HTML/CSS code at all, I contribute something else
+- [ ] I tested the code inworld, it works just fine!... OR it's not TypeScript/Rust/HTML/CSS code at all, I contribute something else
+- [ ] `npm test`, `npm run test:rust` and `npm run typecheck` pass (whichever apply to what I touched)
 - [ ] The code / commit is not harmful to the residents or simulator
 - [ ] I promise to stand up and take a five minute break from watching the screen right after sending this
