@@ -935,21 +935,61 @@ const BeeChat = (function () {
     const label = volume === 'whisper' ? 'whispers' : volume === 'shout' ? 'shouts' : '';
     const speakerId = msg.fromId || '';
     // Give the avatar thumbnail to agents only - an object's UUID isn't an avatar.
-    const avatarHtml = (speakerId && !isObject)
-      ? '<span class="msg__avatar avatar-thumb avatar-thumb--chat" data-agent-id="' +
-        BeeUtils.escapeHtml(speakerId) + '" data-resolve-image="0" data-label="' +
-        BeeUtils.escapeHtml(msg.fromName || '') + '"></span>'
-      : '';
+    const meta = document.createElement('div');
+    meta.className = 'msg__meta';
 
-    el.innerHTML =
-      '<div class="msg__meta">' +
-        avatarHtml +
-        '<span class="msg__name ' + nameClass + '">' + BeeUtils.escapeHtml(msg.fromName) +
-          (label ? ' <span class="msg__volume">' + label + '</span>' : '') +
-        '</span>' +
-        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
-      '</div>' +
-      '<p class="msg__body">' + BeeSlurl.linkify(msg.text, BeeUtils.escapeHtml) + '</p>';
+    if (speakerId && !isObject) {
+      const avatar = document.createElement('span');
+      avatar.className = 'msg__avatar avatar-thumb avatar-thumb--chat';
+      avatar.setAttribute('data-agent-id', String(speakerId));
+      avatar.setAttribute('data-resolve-image', '0');
+      avatar.setAttribute('data-label', String(msg.fromName || ''));
+      meta.appendChild(avatar);
+    }
+
+    const name = document.createElement('span');
+    name.className = 'msg__name ' + nameClass;
+    name.appendChild(document.createTextNode(String(msg.fromName || '')));
+    if (label) {
+      name.appendChild(document.createTextNode(' '));
+      const volumeEl = document.createElement('span');
+      volumeEl.className = 'msg__volume';
+      volumeEl.textContent = label;
+      name.appendChild(volumeEl);
+    }
+    meta.appendChild(name);
+
+    const time = document.createElement('span');
+    time.className = 'msg__time';
+    time.textContent = String(BeeUtils.formatTime(msg.timestamp));
+    meta.appendChild(time);
+
+    const body = document.createElement('p');
+    body.className = 'msg__body';
+    const segments = BeeSlurl.scanLinks(msg.text);
+    segments.forEach(function (seg) {
+      if (seg.type === 'text') {
+        body.appendChild(document.createTextNode(String(seg.text || '')));
+        return;
+      }
+      const link = document.createElement('a');
+      link.setAttribute('href', '#');
+      if (seg.kind === 'slurl') {
+        link.className = 'slurl-link';
+        link.setAttribute('title', String(seg.url || ''));
+        link.setAttribute('data-slurl', String(seg.url || ''));
+      } else {
+        link.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
+        link.setAttribute('title', String(seg.url || ''));
+        link.setAttribute('data-url', String(seg.url || ''));
+        link.setAttribute('data-trusted', seg.trusted ? '1' : '0');
+      }
+      link.textContent = String(seg.label || '');
+      body.appendChild(link);
+    });
+
+    el.appendChild(meta);
+    el.appendChild(body);
 
     BeeSlurl.bindLinks(el);
 
