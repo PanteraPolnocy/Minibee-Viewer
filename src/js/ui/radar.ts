@@ -93,26 +93,73 @@ const BeeRadar = (function () {
     const status = entry.status ? ' [' + entry.status + ']' : '';
     const age = ageFor(entry);
     const ageText = age ? ('Age: ' + age) : 'Age: ...';
-    li.innerHTML =
-      '<div class="entity-item__avatar" data-agent-id="' + BeeUtils.escapeHtml(entry.id) +
-        '" data-resolve-image="0" data-label="' + BeeUtils.escapeHtml(names.title) + '"></div>' +
-      '<div class="entity-item__body">' +
-        '<div class="entity-item__name">' + BeeUtils.escapeHtml(names.title) + '</div>' +
-        (names.subtitle
-          ? '<div class="entity-item__legacy">' + BeeUtils.escapeHtml(names.subtitle) + '</div>'
-          : '') +
-        '<div class="entity-item__sub">' + BeeUtils.escapeHtml(ageText) +
-          ' · ' + BeeUtils.escapeHtml(String(entry.range)) + 'm' + BeeUtils.escapeHtml(status) + '</div>' +
-      '</div>' +
-      '<div class="entity-item__actions">' +
-        '<button type="button" class="icon-btn" data-action="profile" title="Profile" aria-label="Profile">' +
-          iconProfile() +
-        '</button>' +
-        '<button type="button" class="icon-btn" data-action="im" title="Send IM" aria-label="Send IM">' +
-          '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6l8 5 8-5v12z"/></svg>' +
-        '</button>' +
-      '</div>' +
-      '<span class="entity-item__range">' + entry.range + 'm</span>';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'entity-item__avatar';
+    avatar.dataset.agentId = String(entry.id);
+    avatar.dataset.resolveImage = '0';
+    avatar.dataset.label = String(names.title || '');
+
+    const body = document.createElement('div');
+    body.className = 'entity-item__body';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'entity-item__name';
+    nameEl.textContent = String(names.title || '');
+    body.appendChild(nameEl);
+
+    if (names.subtitle) {
+      const legacy = document.createElement('div');
+      legacy.className = 'entity-item__legacy';
+      legacy.textContent = String(names.subtitle);
+      body.appendChild(legacy);
+    }
+
+    const sub = document.createElement('div');
+    sub.className = 'entity-item__sub';
+    sub.textContent = ageText + ' · ' + String(entry.range) + 'm' + status;
+    body.appendChild(sub);
+
+    const actions = document.createElement('div');
+    actions.className = 'entity-item__actions';
+
+    const profileBtn = document.createElement('button');
+    profileBtn.type = 'button';
+    profileBtn.className = 'icon-btn';
+    profileBtn.dataset.action = 'profile';
+    profileBtn.title = 'Profile';
+    profileBtn.setAttribute('aria-label', 'Profile');
+    const profileTpl = document.createElement('template');
+    profileTpl.innerHTML = iconProfile();
+    if (profileTpl.content.firstChild) profileBtn.appendChild(profileTpl.content.firstChild);
+
+    const imBtn = document.createElement('button');
+    imBtn.type = 'button';
+    imBtn.className = 'icon-btn';
+    imBtn.dataset.action = 'im';
+    imBtn.title = 'Send IM';
+    imBtn.setAttribute('aria-label', 'Send IM');
+    const imSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    imSvg.setAttribute('viewBox', '0 0 24 24');
+    imSvg.setAttribute('width', '18');
+    imSvg.setAttribute('height', '18');
+    const imPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    imPath.setAttribute('fill', 'currentColor');
+    imPath.setAttribute('d', 'M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6l8 5 8-5v12z');
+    imSvg.appendChild(imPath);
+    imBtn.appendChild(imSvg);
+
+    actions.appendChild(profileBtn);
+    actions.appendChild(imBtn);
+
+    const range = document.createElement('span');
+    range.className = 'entity-item__range';
+    range.textContent = String(entry.range) + 'm';
+
+    li.appendChild(avatar);
+    li.appendChild(body);
+    li.appendChild(actions);
+    li.appendChild(range);
 
     li.addEventListener('click', function (e) {
       if ((e.target as HTMLElement).closest('[data-action="profile"]')) {
