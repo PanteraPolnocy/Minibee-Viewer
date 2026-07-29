@@ -756,11 +756,9 @@ const BeeChat = (function () {
 
     const bodyEl = document.createElement('p');
     bodyEl.className = 'msg__body';
-    const lines = String(msg.text || '').split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (i > 0) bodyEl.appendChild(document.createElement('br'));
-      bodyEl.appendChild(document.createTextNode(lines[i]));
-    }
+    // The message of the day nearly always carries a URL, so it has to go
+    // through the link scanner - plain text nodes would leave it unclickable.
+    BeeSlurl.appendLinkified(bodyEl, msg.text, { breaks: true });
 
     el.appendChild(meta);
     el.appendChild(bodyEl);
@@ -779,9 +777,10 @@ const BeeChat = (function () {
     if (prompt && prompt.resolved) el.classList.add('msg--resolved');
     el.dataset.id = msg.id;
 
-    const group = BeeUtils.escapeHtml(msg.groupName || 'Group notice');
-    const sender = BeeUtils.escapeHtml(msg.fromName || '');
-    const subject = BeeUtils.escapeHtml(msg.subject || '');
+    // Raw, not escaped: the header/subject below are set via textContent, which
+    // escapes on its own. Only `attachment` is still assembled as HTML.
+    const sender = String(msg.fromName || '');
+    const subject = String(msg.subject || '');
     const bodyText = String(msg.text || '');
 
     let attachment = '';

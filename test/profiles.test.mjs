@@ -11,7 +11,9 @@ import { loadBeeModule } from './load-module.mjs';
 const BeeProfiles = loadBeeModule('js/core/sl-profiles.ts', 'BeeProfiles', {
   window: {},
   document: undefined,
-  BeeUtils: { normUuid: (id) => String(id || '').toLowerCase() },
+  // Mirrors BeeUtils.normUuid exactly - a looser stub would let the id guard in
+  // normId() look stricter here than it really is.
+  BeeUtils: { normUuid: (id) => String(id || '').toLowerCase().replace(/[{}]/g, '').trim() },
   BeeBridge: { listen: () => {}, invoke: () => Promise.resolve() },
 });
 
@@ -21,10 +23,31 @@ test('isZero: empty and null-uuid are zero', () => {
   assert.equal(BeeProfiles.isZero('abcdef01-0000-0000-0000-000000000000'), false);
 });
 
+const TEX_ID = 'abcdef01-2345-6789-abcd-ef0123456789';
+
 test('textureImageUrl: builds SL image URL, empty for zero', () => {
-  assert.equal(BeeProfiles.textureImageUrl('abc', 256), 'https://secondlife.com/app/image/abc/256');
-  assert.equal(BeeProfiles.textureImageUrl('abc'), 'https://secondlife.com/app/image/abc/256');
+  assert.equal(BeeProfiles.textureImageUrl(TEX_ID, 512), 'https://secondlife.com/app/image/' + TEX_ID + '/512');
+  assert.equal(BeeProfiles.textureImageUrl(TEX_ID), 'https://secondlife.com/app/image/' + TEX_ID + '/256');
   assert.equal(BeeProfiles.textureImageUrl('00000000-0000-0000-0000-000000000000'), '');
+});
+
+// The id guard is what keeps attacker-controlled path fragments out of the
+// image URL, so pin both directions: canonical forms survive, junk becomes ''.
+test('textureImageUrl: accepts the forms the wire produces', () => {
+  // uppercase and brace-wrapped ids are normalised before the shape check
+  assert.equal(BeeProfiles.textureImageUrl(TEX_ID.toUpperCase()), 'https://secondlife.com/app/image/' + TEX_ID + '/256');
+  assert.equal(BeeProfiles.textureImageUrl('{' + TEX_ID + '}'), 'https://secondlife.com/app/image/' + TEX_ID + '/256');
+  assert.equal(BeeProfiles.textureImageUrl('  ' + TEX_ID + '  '), 'https://secondlife.com/app/image/' + TEX_ID + '/256');
+});
+
+test('textureImageUrl: rejects anything that is not a canonical uuid', () => {
+  assert.equal(BeeProfiles.textureImageUrl('abc'), '');                               // too short
+  assert.equal(BeeProfiles.textureImageUrl(TEX_ID.replace(/-/g, '')), '');            // hyphenless
+  assert.equal(BeeProfiles.textureImageUrl(TEX_ID + '/../../evil'), '');              // path traversal
+  assert.equal(BeeProfiles.textureImageUrl('ghijklmn-2345-6789-abcd-ef0123456789'), ''); // non-hex
+  assert.equal(BeeProfiles.textureImageUrl(''), '');
+  assert.equal(BeeProfiles.textureImageUrl(null), '');
+  assert.equal(BeeProfiles.textureImageUrl(undefined), '');
 });
 
 test('resolveWebProfileUrl: direct url wins, else username, else empty', () => {

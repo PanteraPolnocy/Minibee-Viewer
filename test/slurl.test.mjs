@@ -11,9 +11,28 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadBeeModule } from './load-module.mjs';
 
+// Just enough of a document for appendLinkified: element/text nodes that record
+// their tag, attributes and children. Nothing here renders - the assertions walk
+// the node tree directly.
+function fakeDocument() {
+  const mkText = (data) => ({ nodeName: '#text', textContent: String(data) });
+  const mkEl = (tag) => ({
+    nodeName: tag.toUpperCase(),
+    className: '',
+    attrs: {},
+    childNodes: [],
+    set textContent(v) { this.childNodes = [mkText(v)]; },
+    get textContent() { return this.childNodes.map((c) => c.textContent).join(''); },
+    setAttribute(k, v) { this.attrs[k] = String(v); },
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
+    appendChild(c) { this.childNodes.push(c); return c; },
+  });
+  return { createElement: mkEl, createTextNode: mkText };
+}
+
 const BeeSlurl = loadBeeModule('js/core/sl-slurl.ts', 'BeeSlurl', {
   window: {},
-  document: undefined,
+  document: fakeDocument(),
 });
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -143,4 +162,76 @@ test('coordinate: globalToGrid snaps to region origin', () => {
   assert.equal(g.gridX, 1001);
   assert.equal(g.gridY, 1000);
   assert.equal(g.globalX, 1001 * 256);
+});
+
+// --- appendLinkified -------------------------------------------------------
+//
+// This is the DOM path every chat body renders through. It replaced innerHTML +
+// linkify(), and a rewrite that dropped the link scan left the message of the
+// day with unclickable URLs - so the link nodes are pinned here explicitly.
+
+const linkNodes = (parent) => parent.childNodes.filter((n) => n.nodeName === 'A');
+
+test('appendLinkified: turns a plain http URL into an anchor', () => {
+  const p = BeeSlurl.appendLinkified(fakeDocument().createElement('p'), 'see https://example.com/x now');
+  const links = linkNodes(p);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].getAttribute('data-url'), 'https://example.com/x');
+  assert.equal(links[0].textContent, 'https://example.com/x');
+  // the URL must never land in href - that is what keeps javascript: inert
+  assert.equal(links[0].getAttribute('href'), '#');
+  assert.equal(p.textContent, 'see https://example.com/x now');
+});
+
+test('appendLinkified: marks a secondlife:// SLURL with data-slurl', () => {
+  const p = BeeSlurl.appendLinkified(fakeDocument().createElement('p'), 'at secondlife://Natoma/128/64/25 today');
+  const links = linkNodes(p);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].className, 'slurl-link');
+  assert.equal(links[0].getAttribute('data-slurl'), 'secondlife://Natoma/128/64/25');
+  assert.equal(links[0].getAttribute('data-url'), null);
+});
+
+test('appendLinkified: untrusted hosts are flagged, trusted ones are not', () => {
+  const bad = BeeSlurl.appendLinkified(fakeDocument().createElement('p'), 'https://evil.example/x');
+  assert.equal(linkNodes(bad)[0].getAttribute('data-trusted'), '0');
+  assert.match(linkNodes(bad)[0].className, /chat-link--external/);
+
+  // a maps.secondlife.com URL would be classified 'slurl' and carry no
+  // data-trusted at all, so use a trusted host that stays a plain http link
+  const good = BeeSlurl.appendLinkified(fakeDocument().createElement('p'), 'https://community.secondlife.com/blog');
+  assert.equal(linkNodes(good)[0].getAttribute('data-trusted'), '1');
+  assert.match(linkNodes(good)[0].className, /chat-link--trusted/);
+});
+
+test('appendLinkified: markup in the text stays text, never nodes', () => {
+  const p = BeeSlurl.appendLinkified(fakeDocument().createElement('p'), '<img src=x onerror=alert(1)>');
+  assert.equal(linkNodes(p).length, 0);
+  assert.equal(p.childNodes.every((n) => n.nodeName === '#text'), true);
+  assert.equal(p.textContent, '<img src=x onerror=alert(1)>');
+});
+
+test('appendLinkified: breaks option maps newlines to <br>, default does not', () => {
+  const withBreaks = BeeSlurl.appendLinkified(fakeDocument().createElement('p'), 'one\ntwo', { breaks: true });
+  assert.equal(withBreaks.childNodes.filter((n) => n.nodeName === 'BR').length, 1);
+
+  const without = BeeSlurl.appendLinkified(fakeDocument().createElement('p'), 'one\ntwo');
+  assert.equal(without.childNodes.filter((n) => n.nodeName === 'BR').length, 0);
+  assert.equal(without.textContent, 'one\ntwo');
+});
+
+test('appendLinkified: a multi-line body keeps both links and breaks', () => {
+  const p = BeeSlurl.appendLinkified(
+    fakeDocument().createElement('p'),
+    'Grid status:\nhttps://status.secondlifegrid.net/\nsecondlife://Natoma/128/64/25',
+    { breaks: true }
+  );
+  assert.equal(linkNodes(p).length, 2);
+  assert.equal(p.childNodes.filter((n) => n.nodeName === 'BR').length, 2);
+});
+
+test('appendLinkified: empty and nullish text add nothing', () => {
+  assert.equal(BeeSlurl.appendLinkified(fakeDocument().createElement('p'), '').childNodes.length, 0);
+  assert.equal(BeeSlurl.appendLinkified(fakeDocument().createElement('p'), null).childNodes.length, 0);
+  assert.equal(BeeSlurl.appendLinkified(fakeDocument().createElement('p'), undefined).childNodes.length, 0);
 });

@@ -336,6 +336,42 @@ const BeeSlurl = (function () {
     return html;
   }
 
+  // DOM-building counterpart to linkify(): appends the same link markup as real
+  // nodes instead of an HTML string, so callers never need an innerHTML sink.
+  // `breaks` turns newlines in the text runs into <br>, which chat bodies want
+  // and single-line bodies don't care about.
+  function appendLinkified(parent, text, options?) {
+    const opts = options || {};
+    const segments = scanLinks(text);
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (seg.type === 'text') {
+        const run = String(seg.text || '');
+        if (!opts.breaks) { parent.appendChild(document.createTextNode(run)); continue; }
+        const parts = run.split('\n');
+        for (let p = 0; p < parts.length; p++) {
+          if (parts[p]) parent.appendChild(document.createTextNode(parts[p]));
+          if (p < parts.length - 1) parent.appendChild(document.createElement('br'));
+        }
+        continue;
+      }
+      const a = document.createElement('a');
+      a.setAttribute('href', '#');
+      if (seg.kind === 'slurl') {
+        a.className = 'slurl-link';
+        a.setAttribute('data-slurl', String(seg.url || ''));
+      } else {
+        a.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
+        a.setAttribute('data-url', String(seg.url || ''));
+        a.setAttribute('data-trusted', seg.trusted ? '1' : '0');
+      }
+      a.setAttribute('title', String(seg.url || ''));
+      a.textContent = String(seg.label || '');
+      parent.appendChild(a);
+    }
+    return parent;
+  }
+
   function openExternalUrl(url) {
     const raw = String(url || '').trim();
     if (!raw) return;
@@ -450,6 +486,7 @@ const BeeSlurl = (function () {
     formatLocation: formatLocation,
     linkify: linkify,
     scanLinks: scanLinks,
+    appendLinkified: appendLinkified,
     bindLinks: bindLinks,
     openExternalUrl: openExternalUrl,
     openExternalUrlPrompted: openExternalUrlPrompted,
