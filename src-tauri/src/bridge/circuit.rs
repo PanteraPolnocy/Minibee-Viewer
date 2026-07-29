@@ -284,6 +284,14 @@ impl Session {
         }
     }
 
+    /// Record that the AgentProfile cap delivered notes for `agent_id`, so the
+    /// legacy `AvatarNotesReply` stops being applied for that resident.
+    pub fn mark_cap_notes(&self, agent_id: &str) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.cap_notes.insert(agent_id.trim().to_ascii_lowercase());
+        }
+    }
+
     pub fn is_sit_pending(&self) -> bool {
         self.engine.lock().unwrap().as_ref().map(|s| s.sit_pending).unwrap_or(false)
     }
@@ -1251,7 +1259,22 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
             // so without this an off-path attacker who found the ephemeral port
             // could inject forged sim traffic. Mirrors the trusted-message TCP
             // listener, which already pins the sender IP.
-            if from.ip() != session.target.lock().unwrap().ip() {
+            let pinned = session.target.lock().unwrap().ip();
+            if from.ip() != pinned {
+                // Rejected traffic does NOT refresh last_inbound, so a wrong pin
+                // starves the heartbeat watchdog and surfaces as a bogus
+                // "lost connection" - the connection dot flapping yellow while
+                // the circuit is really fine. Say so, throttled, rather than
+                // discarding in silence.
+                static LAST_WARN: AtomicU64 = AtomicU64::new(0);
+                let now = mono_ms();
+                if now.saturating_sub(LAST_WARN.load(Ordering::Relaxed)) > 5_000 {
+                    LAST_WARN.store(now, Ordering::Relaxed);
+                    crate::dlog!(
+                        "circuit: dropped {} bytes from {} - pinned to {} (off-path, or the pin is stale after a region change)",
+                        n, from.ip(), pinned
+                    );
+                }
                 continue;
             }
             session.last_inbound.store(mono_ms(), Ordering::Relaxed);

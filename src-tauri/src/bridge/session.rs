@@ -156,6 +156,15 @@ pub struct SessionState {
     /// True once we've asked for the mute list, so `UseCachedMuteList` - which we can
     /// never honour, having no disk cache - can't bounce us into asking forever.
     pub mute_asked: bool,
+    /// Residents whose notes the AgentProfile cap has actually delivered, lowercased.
+    ///
+    /// The cap is authoritative where it answers, but it does not always carry a
+    /// `notes` key - so the presence of the capability alone can't be what silences
+    /// the legacy `AvatarNotesReply`, or notes would never arrive at all and the
+    /// field would sit on "Loading notes" forever. Recording real deliveries lets
+    /// the legacy reply fill in, while still keeping a late empty one from blanking
+    /// notes the cap already gave us.
+    pub cap_notes: HashSet<String>,
     /// Directory search results accumulated per QueryID. One DirFindQuery answer
     /// arrives as several UDP reply packets (~30 rows each); the search command
     /// polls this until a page is complete, then takes the whole batch at once.
@@ -708,8 +717,8 @@ fn note_unknown_parcel_fields(pd: &Value) {
 }
 
 /// A parcel BOOL that older sims leave out entirely. Absent means "allowed" -
-/// the same legacy default the reference applies to the avatar
-/// visibility/sound trio when a sim doesn't send all three.
+/// the legacy default for the avatar visibility/sound trio when a sim
+/// doesn't send all three.
 fn parcel_bool_or_allowed(v: Option<&Value>) -> bool {
     match v {
         Some(x) => truthy(Some(x)),
@@ -803,8 +812,8 @@ pub fn fold_parcel_flags(baseline: u32, p: &Value) -> u32 {
     if let Some(v) = b("denyAgeUnverified") { f = set_flag(f, pflag::DENY_AGEUNVERIFIED, v); }
     if let Some(v) = b("useAccessGroup") { f = set_flag(f, pflag::ACCESS_GROUP, v); }
     if let Some(v) = b("useAccessList") { f = set_flag(f, pflag::ACCESS_LIST, v); }
-    // The reference forces the ban list active on every Access-tab save; a
-    // save that carries access settings does the same here.
+    // The ban list is forced active on every Access-tab save, so a save that
+    // carries access settings does the same here.
     if b("useAccessList").is_some() || b("useAccessGroup").is_some() {
         f = set_flag(f, pflag::BAN_LIST, true);
     }
@@ -2930,16 +2939,23 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
 
         // Our private notes about a resident.
         //
-        // Only where the AgentProfile capability is absent (OpenSim). On Second
-        // Life the cap's GET is the authority, and this legacy reply can arrive
-        // afterwards carrying an empty string - applying it would blank the
-        // notes the cap just delivered. The reference gates it the same way.
-        "AvatarNotesReply" if !state.caps.contains_key("AgentProfile") => {
+        // Suppressed only for residents whose notes the AgentProfile cap has
+        // already delivered: there the cap is the authority, and this legacy
+        // reply can arrive afterwards carrying an empty string, which would
+        // blank them. Everywhere else - OpenSim, and Second Life replies that
+        // simply carry no `notes` key - this is the only path notes travel, so
+        // it has to emit even when empty. Otherwise the field never resolves
+        // and sits on "Loading notes".
+        "AvatarNotesReply" => {
             let target_id = inst_str(block0(decoded, "Data").unwrap_or(&Value::Null), "TargetID");
-            actions.push(Action::emit(
-                "avatar-notes",
-                json!({ "targetId": target_id, "notes": field_text(decoded, "Data", "Notes").unwrap_or_default() }),
-            ));
+            if state.cap_notes.contains(&target_id.to_ascii_lowercase()) {
+                crate::dlog!("notes: cap already answered for {} - ignoring legacy reply", target_id);
+            } else {
+                actions.push(Action::emit(
+                    "avatar-notes",
+                    json!({ "targetId": target_id, "notes": field_text(decoded, "Data", "Notes").unwrap_or_default() }),
+                ));
+            }
         }
 
         // A parcel-info lookup (about-land or a search result). It's kept separate from
@@ -5410,7 +5426,7 @@ mod tests {
     }
 
     #[test]
-    fn avatar_notes_reply_yields_to_the_profile_cap() {
+    fn avatar_notes_reply_yields_only_once_the_cap_has_answered() {
         let pkt = json!({
             "name": "AvatarNotesReply",
             "blocks": {
@@ -5418,14 +5434,35 @@ mod tests {
                 "Data": [{ "TargetID": OTHER, "Notes": B64.encode(b"\0") }],
             }
         });
-        // Second Life: the cap's GET is the authority. This legacy reply can
-        // arrive afterwards carrying an empty string, and applying it would
-        // blank the notes the cap just delivered.
-        let mut with_cap = SessionState::default();
-        with_cap.caps.insert("AgentProfile".into(), "https://x/cap".into());
+        // Once the cap has actually delivered notes for this resident it is the
+        // authority: the legacy reply can arrive afterwards carrying an empty
+        // string, and applying it would blank what the cap gave us.
+        let mut answered = SessionState::default();
+        answered.caps.insert("AgentProfile".into(), "https://x/cap".into());
+        answered.cap_notes.insert(OTHER.to_ascii_lowercase());
         assert!(
-            emit_of(&route(&mut with_cap, &pkt), "avatar-notes").is_none(),
+            emit_of(&route(&mut answered, &pkt), "avatar-notes").is_none(),
             "the legacy reply must not overwrite cap-sourced notes"
+        );
+
+        // The cap existing is NOT enough. Plenty of replies carry no `notes` key
+        // at all, and suppressing on mere capability presence left the field
+        // stuck on "Loading notes" forever - so this must still emit, empty
+        // included, because it is the only answer the UI will ever get.
+        let mut cap_but_silent = SessionState::default();
+        cap_but_silent.caps.insert("AgentProfile".into(), "https://x/cap".into());
+        let a = route(&mut cap_but_silent, &pkt);
+        let e = emit_of(&a, "avatar-notes").expect("notes when the cap carried none");
+        assert_eq!(e["targetId"], OTHER);
+        assert_eq!(e["notes"], "", "an empty answer still has to resolve the field");
+
+        // A different resident's cap delivery must not silence this one.
+        let mut other_answered = SessionState::default();
+        other_answered.caps.insert("AgentProfile".into(), "https://x/cap".into());
+        other_answered.cap_notes.insert("11111111-2222-3333-4444-555555555555".into());
+        assert!(
+            emit_of(&route(&mut other_answered, &pkt), "avatar-notes").is_some(),
+            "the suppression is per resident, not global"
         );
 
         // A capless grid (OpenSim) has no other source, so it still applies.

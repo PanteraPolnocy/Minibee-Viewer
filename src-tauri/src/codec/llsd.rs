@@ -41,7 +41,7 @@ fn node_text(node: roxmltree::Node) -> String {
     node.text().unwrap_or("").trim().to_string()
 }
 
-/// Read a leading signed-integer prefix (matching the reference's `sscanf("%d")`),
+/// Read a leading signed-integer prefix, the way the wire format is scanned,
 /// then fall back to a truncated float, else 0 - so `1.23`/`42x` give 1/42, not 0.
 fn parse_int_prefix(s: &str) -> i64 {
     let t = s.trim();

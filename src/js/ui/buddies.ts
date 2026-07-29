@@ -399,22 +399,39 @@ const BeeBuddies = (function () {
     });
   }
 
+  // The name that goes on the wire is the resident's login name, the way the
+  // reference sends it - not the "Display Name (login.name)" label the UI shows.
+  // The sim files the entry under this name, so a composite would be stored and
+  // read back as the resident's name forever.
+  function wireName(id, label) {
+    const p = (typeof BeeProfiles !== 'undefined' && BeeProfiles.getAvatarProfile)
+      ? BeeProfiles.getAvatarProfile(id) : null;
+    const legacy = p ? String(p.userName || p.legacyName || '').trim() : '';
+    if (legacy && !BeeUtils.isUuid(legacy)) return legacy;
+    // No cached profile: peel the login name back out of the composite label.
+    const composite = String(label || '').match(/\(([^()]+)\)\s*$/);
+    return (composite ? composite[1] : String(label || '')).trim();
+  }
+
   function block(id, name) {
     if (!id || typeof BeeBridge === 'undefined') return Promise.resolve(false);
-    return BeeBridge.invoke('sl_block_agent', { agentId: id, name: name || '' })
+    return BeeBridge.invoke('sl_block_agent', { agentId: id, name: wireName(id, name) })
       .then(function () {
         BeeUtils.showToast('Blocked ' + (name || 'resident') + '.', 'success');
-        // The sim stores the list but never echoes an addition back, so the
-        // reference inserts into its own copy and notifies observers the
-        // moment the message goes out. Without that the Block button never
-        // turns into Unblock and the row never appears - the refresh below is
-        // a reconcile, not the source of truth.
+        // The sim stores the list but never echoes an addition back, so our own
+        // copy becomes the truth the moment the message goes out - insert and
+        // render, so the list reflects the write straight away.
+        //
+        // Deliberately no refresh here. Re-requesting the list races the sim's
+        // write: the file it sends back is the pre-write one, so the entry we
+        // just added gets wiped a second later, the row vanishes and the button
+        // flips back to Block. The sim's copy is only re-read at login.
         const key = String(id).toLowerCase();
         if (!blocked.some(function (p) { return String(p.id).toLowerCase() === key; })) {
-          blocked = blocked.concat([{ id: id, name: name || '', type: 1, flags: 0 }]);
+          // Store the wire name so the row reads the same before and after a relog.
+          blocked = blocked.concat([{ id: id, name: wireName(id, name), type: 1, flags: 0 }]);
         }
         renderBlocked();
-        requestBlocked(true);
         return true;
       })
       .catch(function (err) {
@@ -425,14 +442,15 @@ const BeeBuddies = (function () {
 
   function unblock(id, name) {
     if (!id || typeof BeeBridge === 'undefined') return Promise.resolve(false);
-    return BeeBridge.invoke('sl_unblock_agent', { agentId: id, name: name || '' })
+    return BeeBridge.invoke('sl_unblock_agent', { agentId: id, name: wireName(id, name) })
       .then(function () {
         BeeUtils.showToast('Unblocked ' + (name || 'resident') + '.', 'success');
+        // Same as block(): our copy is the truth once the removal is sent, and a
+        // refresh here would race the sim's write and resurrect the row.
         blocked = blocked.filter(function (p) {
           return String(p.id).toLowerCase() !== String(id).toLowerCase();
         });
         renderBlocked();
-        requestBlocked(true);
         return true;
       })
       .catch(function (err) {

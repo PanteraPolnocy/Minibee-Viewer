@@ -158,6 +158,22 @@ const BeeUtils = (function () {
     }
   }
 
+  // Should an in-progress edit survive a pane rebuild?
+  //
+  // Two conditions, and both have been got wrong here before. The field must
+  // belong to the SAME subject - a container reused for another resident would
+  // otherwise carry text across and file it against the wrong person - and it
+  // must have actually been typed into. Inferring the latter by comparing the
+  // field against the incoming value does not work: they also differ while the
+  // value is still loading, which makes an untouched empty field look like a
+  // draft and blanks the data as it arrives.
+  function shouldPreserveDraft(oldSubjectId, newSubjectId, dirty) {
+    const from = String(oldSubjectId || '');
+    if (!from) return false;
+    if (from !== String(newSubjectId || '')) return false;
+    return dirty === true || dirty === '1';
+  }
+
   function normUuid(id) {
     return String(id || '').toLowerCase().replace(/[{}]/g, '').trim();
   }
@@ -279,6 +295,7 @@ const BeeUtils = (function () {
     agentNameLines: agentNameLines,
     isUuid: isUuid,
     normUuid: normUuid,
+    shouldPreserveDraft: shouldPreserveDraft,
     escapeHtml: escapeHtml,
     debounce: debounce,
     clamp: clamp,

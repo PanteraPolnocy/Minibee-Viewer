@@ -2049,8 +2049,8 @@ pub async fn sl_parcel_buy(state: State<'_, Arc<AppState>>, local_id: i64) -> Cm
         return Err("The land data on screen is stale - refresh the Land tab first.".into());
     }
     let has_auth_buyer = !snap.auth_buyer_id.is_empty() && snap.auth_buyer_id != ZERO_UUID;
-    // For-sale means the flag AND a real price (or a named buyer) - the same
-    // test the reference guards buys with.
+    // For-sale means the flag AND a real price (or a named buyer); the flag
+    // alone is not enough to let a purchase through.
     if !snap.for_sale || (snap.sale_price <= 0 && !has_auth_buyer) {
         return Err("This parcel is not for sale.".into());
     }
@@ -2633,9 +2633,9 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
     });
     // Which wire to use.
     //
-    // The reference always prefers the capability, and it can afford to: it
-    // ships in lockstep with the server's own parcel definition, so its
-    // full-replace body always mentions every field that exists. Minibee does
+    // A viewer shipped in lockstep with the server's own parcel definition can
+    // always prefer the capability, because its full-replace body is guaranteed
+    // to mention every field that exists. Minibee does
     // not have that guarantee. If Linden Lab adds a parcel setting tomorrow,
     // this build cannot echo it back, and a capability save - being a
     // wholesale replace - would reset it to default every single time.

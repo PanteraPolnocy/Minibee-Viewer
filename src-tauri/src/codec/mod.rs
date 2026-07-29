@@ -193,8 +193,8 @@ fn fin32(x: f32) -> f32 {
 fn fin64(x: f64) -> f64 {
     if x.is_finite() { x } else { 0.0 }
 }
-/// Zero the whole vector when any component is non-finite (matching the reference
-/// reader), otherwise pass the components straight through.
+/// Zero the whole vector when any component is non-finite - that is how the wire
+/// value is read - otherwise pass the components straight through.
 fn fin_vec32(v: &[f32]) -> Vec<f32> {
     if v.iter().all(|x| x.is_finite()) { v.to_vec() } else { vec![0.0; v.len()] }
 }

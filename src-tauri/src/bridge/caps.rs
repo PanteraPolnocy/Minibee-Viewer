@@ -301,7 +301,7 @@ pub async fn sl_experience_names(state: State<'_, Arc<AppState>>, ids: Vec<Strin
 ///
 /// Only the shapes the ParcelPropertiesUpdate body actually uses. LLSD has no
 /// unsigned 32-bit type, so a U32 travels as a 4-byte big-endian binary blob -
-/// that is what the reference's `ll_sd_from_U32` produces, and a sim reading
+/// that is the only representation it has, and a sim reading
 /// `parcel_flags` as anything else would misread every option on the parcel.
 pub(crate) mod llsd_xml {
     use base64::engine::general_purpose::STANDARD as B64;
@@ -326,7 +326,7 @@ pub(crate) mod llsd_xml {
         let id = if id.is_empty() { "00000000-0000-0000-0000-000000000000" } else { id };
         format!("<uuid>{}</uuid>", super::xml_text(id))
     }
-    /// A U32 the way the reference packs it: 4 bytes, network order, base64.
+    /// A U32 as LLSD carries one: 4 bytes, network order, base64.
     pub fn u32_binary(v: u32) -> String {
         format!(
             "<binary encoding=\"base64\">{}</binary>",
@@ -354,13 +354,13 @@ pub(crate) mod llsd_xml {
 /// parcel the sim last sent us (`p`), with the form's edits already folded in
 /// by the caller - the same baseline discipline the UDP path uses.
 ///
-/// `message_flags` is 0x01, matching the reference.
+/// `message_flags` is 0x01, which is what the sim expects here.
 pub(crate) fn parcel_update_body(p: &Value, folded_flags: u32, landing: [f64; 3], look_at: [f64; 3]) -> String {
     let s = |k: &str| p.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let i = |k: &str| p.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
     let f = |k: &str| p.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
     let b = |k: &str| p.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
-    // The avatar visibility/sound trio defaults to allowed, like the reference.
+    // The avatar visibility/sound trio defaults to allowed when absent.
     let b_allowed = |k: &str| p.get(k).and_then(|v| v.as_bool()).unwrap_or(true);
 
     llsd_xml::map(&[
@@ -379,7 +379,7 @@ pub(crate) fn parcel_update_body(p: &Value, folded_flags: u32, landing: [f64; 3]
         ("auto_scale", llsd_xml::integer(i("mediaAutoScale"))),
         ("media_loop", llsd_xml::integer(i("mediaLoop"))),
         ("media_current_url", llsd_xml::string(&s("mediaCurrentUrl"))),
-        // Obsolete in the reference but still part of the body it sends.
+        // Obsolete, but the sim still expects both keys in the body.
         ("obscure_media", llsd_xml::boolean(false)),
         ("obscure_music", llsd_xml::boolean(false)),
         ("media_id", llsd_xml::uuid(&s("mediaId"))),
@@ -803,24 +803,47 @@ pub async fn sl_fetch_agent_profile(app: AppHandle, state: State<'_, Arc<AppStat
     }
     let mut profile = json!({
         "avatarId": id,
-        "imageId": cap_str(&data, &["sl_image_id", "image_id"]),
-        "flImageId": cap_str(&data, &["fl_image_id"]),
-        "partnerId": cap_str(&data, &["partner_id"]),
-        "about": about,
-        "flAbout": cap_str(&data, &["fl_about_text", "fl_about"]),
-        "bornOn": cap_str(&data, &["member_since", "born_on"]),
         "hideAge": data.get("hide_age").and_then(|v| v.as_bool()).unwrap_or(false),
-        "profileUrl": cap_str(&data, &["profile_url"]),
-        "userName": cap_str(&data, &["username", "user_name", "legacy_name"]),
+        // Sent even when empty, because empty is the answer: it means this
+        // resident has no display name of their own and the username stands in.
         "displayName": if is_display_name_default(&data) { String::new() } else { cap_str(&data, &["display_name"]) },
-        // Account status / caption. The field names vary, so the diagnostic above
-        // confirms the real keys; these candidates cover the variants we know of.
-        "customerType": cap_str(&data, &["customer_type", "account_level", "account_type"]),
-        "caption": cap_str(&data, &["charter_member", "caption", "account_caption"]),
         "source": "cap",
     });
+    // Everything else is carried ONLY when the reply actually answered it.
+    //
+    // `cap_str` cannot tell an absent key from an empty one - both come back as
+    // "" - and the profile cache merges an incoming reply over what it already
+    // holds. So sending "" for a key this reply simply lacked erases whatever the
+    // UDP path already supplied. That is how avatar and group pictures appeared
+    // and then vanished a moment later: UDP delivered the image id, then this
+    // slower HTTP reply overwrote it with nothing.
+    //
+    // Account status / caption field names vary between cap versions, so the
+    // diagnostic above confirms the real keys; these candidates cover the
+    // variants we know of.
+    for (key, val) in [
+        ("imageId", cap_str(&data, &["sl_image_id", "image_id"])),
+        ("flImageId", cap_str(&data, &["fl_image_id"])),
+        ("partnerId", cap_str(&data, &["partner_id"])),
+        ("about", about.clone()),
+        ("flAbout", cap_str(&data, &["fl_about_text", "fl_about"])),
+        ("bornOn", cap_str(&data, &["member_since", "born_on"])),
+        ("profileUrl", cap_str(&data, &["profile_url"])),
+        ("userName", cap_str(&data, &["username", "user_name", "legacy_name"])),
+        ("customerType", cap_str(&data, &["customer_type", "account_level", "account_type"])),
+        ("caption", cap_str(&data, &["charter_member", "caption", "account_caption"])),
+    ] {
+        if !val.is_empty() {
+            profile[key] = json!(val);
+        }
+    }
+    // Only claim authority over the notes when the cap actually carried them;
+    // otherwise the legacy AvatarNotesReply stays the path they arrive on.
     if let Some(n) = data.get("notes").and_then(|v| v.as_str()) {
         profile["notes"] = json!(n);
+        session.mark_cap_notes(&id);
+    } else {
+        crate::dlog!("AgentProfile {}: no notes key - leaving notes to the legacy reply", id);
     }
     let _ = app.emit("minibee-viewer://avatar-profile", profile);
     if let Some(rows) = data.get("groups").and_then(|v| v.as_array()) {
@@ -1010,7 +1033,7 @@ mod tests {
 
     #[test]
     fn parcel_body_packs_u32_flags_as_network_order_binary() {
-        // LLSD has no U32; the reference sends 4 big-endian bytes. Getting this
+        // LLSD has no U32; it travels as 4 big-endian bytes. Getting this
         // wrong would misread every option bit on the parcel.
         let body = parcel_update_body(&parcel_fixture(), 0x8000_0001, [0.0; 3], [0.0; 3]);
         // 0x80000001 -> 80 00 00 01

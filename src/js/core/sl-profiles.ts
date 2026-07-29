@@ -31,6 +31,22 @@ const BeeProfiles = (function () {
   }
   function isZero(id) { const k = normId(id); return !k || k === ZERO_UUID; }
 
+  // Remember a group's name and insignia without letting a reply that merely
+  // omits the insignia erase one we already know.
+  //
+  // Several messages carry a group name with no insignia at all - the membership
+  // list, the active-group notification, the groups shown on someone's profile -
+  // and each used to overwrite the cache with an empty insignia. That is why
+  // group images appeared and then vanished as soon as any of those arrived.
+  function rememberGroup(id, name, insigniaId) {
+    const key = normId(id);
+    if (!key) return;
+    const prev = groupNames.get(key);
+    const incoming = String(insigniaId || '').trim();
+    const keep = incoming && !isZero(incoming) ? incoming : ((prev && prev.insigniaId) || '');
+    groupNames.set(key, { name: name || (prev && prev.name) || '', insigniaId: keep });
+  }
+
   function textureImageUrl(uuid, size) {
     const id = normId(uuid);
     return isZero(id) ? '' : 'https://secondlife.com/app/image/' + id + '/' + (size || 256);
@@ -119,6 +135,15 @@ const BeeProfiles = (function () {
       const merged = (p.source === 'udp' && cur.source === 'cap')
         ? Object.assign({}, p, cur)
         : Object.assign({}, cur, p);
+      // A blank texture/partner key means "this reply didn't say", never "clear
+      // it" - no emitter has a reason to blank a uuid it already told us about.
+      // Letting one through erased the portrait we already had, so the picture
+      // appeared and then vanished as soon as the next reply landed.
+      ['imageId', 'flImageId', 'partnerId'].forEach(function (key) {
+        const incoming = String(p[key] || '').trim();
+        const known = String(cur[key] || '').trim();
+        if ((!incoming || isZero(incoming)) && known) merged[key] = cur[key];
+      });
       profiles.set(id, merged);
       emitChange('avatar', id);
       resolveWaiters('profile:' + id, profiles.get(id));
@@ -150,7 +175,7 @@ const BeeProfiles = (function () {
       });
       cur.groups = Array.from(byId.values());
       profiles.set(id, cur);
-      (p.groups || []).forEach(function (g) { if (g.id && g.name) groupNames.set(normId(g.id), { name: g.name, insigniaId: g.insigniaId || '' }); });
+      (p.groups || []).forEach(function (g) { if (g.id && g.name) rememberGroup(g.id, g.name, g.insigniaId); });
       emitChange('avatar', id);
     });
     BeeBridge.listen('minibee-viewer://avatar-notes', function (p) {
@@ -194,7 +219,7 @@ const BeeProfiles = (function () {
       const id = normId(p.groupId);
       pendingGroups.delete(id);
       groupProfiles.set(id, p);
-      if (p.name) groupNames.set(id, { name: p.name, insigniaId: p.insigniaId || '' });
+      if (p.name) rememberGroup(id, p.name, p.insigniaId);
       emitChange('group', id);
       resolveWaiters('group:' + id, p);
     });
@@ -208,13 +233,13 @@ const BeeProfiles = (function () {
     BeeBridge.listen('minibee-viewer://group-membership', function (p) {
       membership.clear();
       (p && p.groups || []).forEach(function (g) {
-        if (g.id) { membership.set(normId(g.id), g); if (g.name) groupNames.set(normId(g.id), { name: g.name, insigniaId: g.insigniaId || '' }); }
+        if (g.id) { membership.set(normId(g.id), g); if (g.name) rememberGroup(g.id, g.name, g.insigniaId); }
       });
       emitChange('membership', '');
     });
     BeeBridge.listen('minibee-viewer://active-group', function (p) {
       active = { id: normId((p && p.id) || ''), name: (p && p.name) || '', title: (p && p.title) || '' };
-      if (p && p.id && p.name) groupNames.set(normId(p.id), { name: p.name, insigniaId: '' });
+      if (p && p.id && p.name) rememberGroup(p.id, p.name, '');
       emitChange('active-group', active.id);
     });
     BeeBridge.listen('minibee-viewer://names-updated', function (data) {
@@ -338,13 +363,23 @@ const BeeProfiles = (function () {
     invoke('sl_request_classified_info', { classifiedId: cid });
     return waitFor('classified:' + cid, 12000, function () { return getClassifiedDetail(cid); });
   }
-  // In-flight guard: until the reply arrives, `profiles.has(key)` is still
-  // false, so without `pendingThumbs` every re-render would re-fire the request -
-  // the O(N²) storm we hit when the buddy list opened. The pending flag clears on
-  // the avatar-profile reply, or after a timeout so a dropped reply can be retried.
+  // In-flight guard: without `pendingThumbs` every re-render would re-fire the
+  // request - the O(N²) storm we hit when the buddy list opened. The pending flag
+  // clears on the avatar-profile reply, or after a timeout so a dropped reply can
+  // be retried.
+  //
+  // What counts as "already answered" is `source`, not the mere existence of a
+  // cache entry. Notes, interests, groups, picks and classifieds all create a
+  // bare `{ avatarId }` record for someone we know nothing else about, and those
+  // say nothing about their picture - yet gating on existence let a single one of
+  // them suppress the thumbnail request for that resident permanently. `source` is
+  // set only by an actual properties/cap reply, which is the thing that would
+  // carry a picture.
   function queueAvatarThumb(agentId) {
     const key = normId(agentId);
-    if (isZero(key) || profiles.has(key) || pendingThumbs.has(key)) return;
+    if (isZero(key) || pendingThumbs.has(key)) return;
+    const known = profiles.get(key);
+    if (known && (known.source || (known.imageId && !isZero(known.imageId)))) return;
     pendingThumbs.add(key);
     invoke('sl_request_avatar_properties', { avatarId: key });
     setTimeout(function () { pendingThumbs.delete(key); }, 30000);

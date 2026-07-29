@@ -842,6 +842,20 @@ const BeeProfile = (function () {
     const notesStatus = root.querySelector('#profile-notes-status');
     if (!notesInput || !notesSave || !profile.avatarId) return;
 
+    // Mark the field the moment it is actually typed in, so renderAvatar knows not
+    // to replace unsaved text with the server's copy. Inferring this by comparing
+    // the two cannot work: they also differ while the notes are still in flight,
+    // which made an untouched empty field look like an edit and blanked the notes
+    // as they arrived.
+    //
+    // Bound once per element, not per render: renderAvatar carries this same node
+    // across its rebuilds, so an unguarded listener would stack up on it.
+    const notesEl = notesInput as HTMLTextAreaElement;
+    if (notesEl.dataset.dirtyBound !== '1') {
+      notesEl.dataset.dirtyBound = '1';
+      notesEl.addEventListener('input', function () { notesEl.dataset.dirty = '1'; });
+    }
+
     let feedbackTimer = null;
     let timeoutTimer = null;
 
@@ -907,6 +921,8 @@ const BeeProfile = (function () {
             notes: text,
             source: 'notes-local'
           });
+          // Saved, so there is no longer a draft to protect from the rebuilds.
+          delete (notesInput as HTMLTextAreaElement).dataset.dirty;
           releaseNotesSave('Notes saved.', 'success');
           return;
         }
@@ -1510,37 +1526,56 @@ const BeeProfile = (function () {
 
     const content = el('profile-content');
     if (!content) return;
-    // Profile data keeps arriving async (picks, classifieds, names, the cap
-    // fetch), and each arrival re-renders this whole pane. Preserve an
-    // in-progress notes draft across the rebuild - otherwise typing gets
-    // silently wiped by whichever reply lands next.
+    // Profile data arrives as a stream of separate replies - properties,
+    // interests, groups, notes, picks, classifieds, the cap fetch, name
+    // resolution - and every one of them lands here and rebuilds this pane. That
+    // destroys each live widget inside it several times while the profile is
+    // merely open.
     //
-    // Only ever from the SAME resident's pane: opening someone else's profile
-    // reuses this container, so without the id check the previous person's
-    // notes were restored into the new one - and saving there would have filed
-    // them against the wrong resident.
-    const oldNotes = content.querySelector<HTMLTextAreaElement>('#profile-notes-input');
-    const sameAvatar = !!oldNotes &&
-      oldNotes.dataset.avatarId === String(profile.avatarId || '');
-    const draft = oldNotes && sameAvatar && oldNotes.value !== String(profile.notes || '')
-      ? {
-          value: oldNotes.value,
-          focused: document.activeElement === oldNotes,
-          start: oldNotes.selectionStart,
-          end: oldNotes.selectionEnd
-        }
-      : null;
+    // A persistent-panel design avoids this entirely: build the notes editor once
+    // when the profile opens and let a notes reply set its value in place, so
+    // nothing is destroyed and nothing has to be reconstructed. This pane is not
+    // built that way yet, so it has to survive the rebuild instead.
+    //
+    // So carry the real element across the rebuild instead of trying to work out
+    // afterwards what it held. Text, selection, scroll position and listeners
+    // all survive because it is the same node; the only things taken from the
+    // fresh markup are whether the notes have loaded yet and, unless the user
+    // has unsaved typing, their text.
+    //
+    // The id check keeps this to the SAME resident: the container is reused when
+    // another profile opens, and carrying the node over would put one person's
+    // notes in another's field, where a save would file them against the wrong
+    // resident.
+    const liveNotes = content.querySelector<HTMLTextAreaElement>('#profile-notes-input');
+    const keepNotes = liveNotes &&
+      liveNotes.dataset.avatarId === String(profile.avatarId || '') ? liveNotes : null;
+    const notesFocused = !!keepNotes && document.activeElement === keepNotes;
+    const notesStart = keepNotes ? keepNotes.selectionStart : 0;
+    const notesEnd = keepNotes ? keepNotes.selectionEnd : 0;
+
     content.innerHTML = renderAvatarTabs(profile);
-    bindAvatarContent(profile, content);
-    if (draft) {
-      const newNotes = content.querySelector<HTMLTextAreaElement>('#profile-notes-input');
-      if (newNotes && !newNotes.disabled) {
-        newNotes.value = draft.value;
-        if (draft.focused) {
-          newNotes.focus();
-          try { newNotes.setSelectionRange(draft.start, draft.end); } catch (_e) { /* ok */ }
+
+    if (keepNotes) {
+      const fresh = content.querySelector<HTMLTextAreaElement>('#profile-notes-input');
+      if (fresh) {
+        if (!BeeUtils.shouldPreserveDraft(
+              keepNotes.dataset.avatarId, profile.avatarId, keepNotes.dataset.dirty)) {
+          keepNotes.value = fresh.value;
         }
+        keepNotes.readOnly = fresh.readOnly;
+        keepNotes.placeholder = fresh.placeholder;
+        fresh.replaceWith(keepNotes);
       }
+    }
+
+    // After the swap, so the handlers bind to the element that is actually in
+    // the tree rather than the one just discarded.
+    bindAvatarContent(profile, content);
+
+    if (keepNotes && notesFocused) {
+      keepNotes.focus();
+      try { keepNotes.setSelectionRange(notesStart, notesEnd); } catch (_e) { /* ok */ }
     }
     renderAvatarActions(profile);
     setLoading(false);
