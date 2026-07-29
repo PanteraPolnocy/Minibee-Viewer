@@ -734,14 +734,36 @@ const BeeChat = (function () {
     const el = document.createElement('div');
     el.className = 'msg msg--motd';
     el.dataset.id = msg.id;
-    const body = BeeSlurl.linkify(msg.text, BeeUtils.escapeHtml).replace(/\n/g, '<br>');
-    el.innerHTML =
-      '<div class="msg__meta">' +
-        '<span class="msg__name msg__name--motd">' + BeeUtils.escapeHtml(msg.fromName || 'Linden Lab') + '</span>' +
-        '<span class="msg__motd-label">Message of the day</span>' +
-        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
-      '</div>' +
-      '<p class="msg__body">' + body + '</p>';
+
+    const meta = document.createElement('div');
+    meta.className = 'msg__meta';
+
+    const name = document.createElement('span');
+    name.className = 'msg__name msg__name--motd';
+    name.textContent = String(msg.fromName || 'Linden Lab');
+
+    const label = document.createElement('span');
+    label.className = 'msg__motd-label';
+    label.textContent = 'Message of the day';
+
+    const time = document.createElement('span');
+    time.className = 'msg__time';
+    time.textContent = String(BeeUtils.formatTime(msg.timestamp));
+
+    meta.appendChild(name);
+    meta.appendChild(label);
+    meta.appendChild(time);
+
+    const bodyEl = document.createElement('p');
+    bodyEl.className = 'msg__body';
+    const lines = String(msg.text || '').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) bodyEl.appendChild(document.createElement('br'));
+      bodyEl.appendChild(document.createTextNode(lines[i]));
+    }
+
+    el.appendChild(meta);
+    el.appendChild(bodyEl);
 
     BeeSlurl.bindLinks(el);
 
