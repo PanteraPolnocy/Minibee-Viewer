@@ -196,12 +196,51 @@ const BeeIm = (function () {
   function renderImMessage(msg) {
     const el = document.createElement('div');
     el.className = 'msg ' + (msg.outgoing ? 'msg--outgoing' : 'msg--incoming');
-    el.innerHTML =
-      '<div class="msg__meta">' +
-        '<span class="msg__name">' + BeeUtils.escapeHtml(msg.fromName) + '</span>' +
-        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
-      '</div>' +
-      '<p class="msg__body">' + BeeSlurl.linkify(msg.text, BeeUtils.escapeHtml) + '</p>';
+
+    const meta = document.createElement('div');
+    meta.className = 'msg__meta';
+
+    const name = document.createElement('span');
+    name.className = 'msg__name';
+    name.textContent = String(msg.fromName || '');
+
+    const time = document.createElement('span');
+    time.className = 'msg__time';
+    time.textContent = String(BeeUtils.formatTime(msg.timestamp) || '');
+
+    meta.appendChild(name);
+    meta.appendChild(time);
+
+    const body = document.createElement('p');
+    body.className = 'msg__body';
+
+    const segments = typeof BeeSlurl.scanLinks === 'function'
+      ? BeeSlurl.scanLinks(msg.text)
+      : [{ type: 'text', text: String(msg.text || '') }];
+
+    segments.forEach(function (seg) {
+      if (seg.type === 'text') {
+        body.appendChild(document.createTextNode(String(seg.text || '')));
+        return;
+      }
+      const a = document.createElement('a');
+      a.setAttribute('href', '#');
+      if (seg.kind === 'slurl') {
+        a.className = 'slurl-link';
+        a.setAttribute('title', String(seg.url || ''));
+        a.setAttribute('data-slurl', String(seg.url || ''));
+      } else {
+        a.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
+        a.setAttribute('title', String(seg.url || ''));
+        a.setAttribute('data-url', String(seg.url || ''));
+        a.setAttribute('data-trusted', seg.trusted ? '1' : '0');
+      }
+      a.textContent = String(seg.label || '');
+      body.appendChild(a);
+    });
+
+    el.appendChild(meta);
+    el.appendChild(body);
     BeeSlurl.bindLinks(el);
     return el;
   }
