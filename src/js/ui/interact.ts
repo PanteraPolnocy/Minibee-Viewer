@@ -334,7 +334,7 @@ const BeeInteract = (function () {
         title.textContent = 'Nearby objects (' + totalRoots + ' roots within ' + range + 'm)';
       }
     }
-    document.querySelectorAll('[data-objects-sort]').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('[data-objects-sort]').forEach(function (btn) {
       btn.classList.toggle('objects-sort--active', btn.dataset.objectsSort === sortKey);
     });
   }
@@ -753,7 +753,7 @@ const BeeInteract = (function () {
     const close = document.getElementById('objects-detail-close');
     if (close) close.addEventListener('click', closeDetails);
     // The same actions as the row menu, since they're handy right here too.
-    host.querySelectorAll('[data-obj-action]').forEach(function (btn) {
+    host.querySelectorAll<HTMLElement>('[data-obj-action]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const act = btn.dataset.objAction;
         if (act === 'touch') {
@@ -774,14 +774,14 @@ const BeeInteract = (function () {
       });
     }
     // Owner / creator / group open their profile, the way names do everywhere else.
-    host.querySelectorAll('[data-profile-id]').forEach(function (link) {
+    host.querySelectorAll<HTMLElement>('[data-profile-id]').forEach(function (link) {
       link.addEventListener('click', function (e) {
         e.preventDefault();
         openProfile(link.dataset.profileId, link.dataset.profileKind);
       });
     });
     // Media URLs open in the browser rather than inside the viewer.
-    host.querySelectorAll('[data-media-url]').forEach(function (link) {
+    host.querySelectorAll<HTMLElement>('[data-media-url]').forEach(function (link) {
       link.addEventListener('click', function (e) {
         e.preventDefault();
         const url = link.dataset.mediaUrl;
@@ -923,7 +923,7 @@ const BeeInteract = (function () {
       });
     }
 
-    document.querySelectorAll('[data-objects-sort]').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('[data-objects-sort]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const key = btn.dataset.objectsSort;
         // Clicking the active column flips the direction, like any other table.

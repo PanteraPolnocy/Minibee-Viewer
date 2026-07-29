@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Settings tab: interactive viewer preferences, plus About / License / README.
  *
@@ -476,7 +474,7 @@ const BeeSettingsUI = (function () {
 
   function setTab(tab) {
     activeTab = PANES[tab] ? tab : DEFAULT_TAB;
-    document.querySelectorAll('.settings-tab').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.settings-tab').forEach(function (btn) {
       const on = btn.dataset.settingsTab === activeTab;
       btn.classList.toggle('settings-tab--active', on);
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
@@ -500,7 +498,7 @@ const BeeSettingsUI = (function () {
   }
 
   function init() {
-    document.querySelectorAll('.settings-tab').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.settings-tab').forEach(function (btn) {
       btn.addEventListener('click', function () {
         setTab(btn.dataset.settingsTab || DEFAULT_TAB);
       });

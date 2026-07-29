@@ -59,7 +59,7 @@ const BeeErrors = (function () {
     log(source, message, { level: 'error', chat: alsoChat !== false });
   }
 
-  function warn(source, message, alsoChat) {
+  function warn(source, message, alsoChat?) {
     log(source, message, { level: 'warn', chat: !!alsoChat });
   }
 

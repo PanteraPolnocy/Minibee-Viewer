@@ -251,7 +251,7 @@ const BeeTransport = (function () {
     };
   }
 
-  function refreshParcel(options) {
+  function refreshParcel(options?) {
     if (!adapter) return;
     return adapter.refreshParcel(options);
   }

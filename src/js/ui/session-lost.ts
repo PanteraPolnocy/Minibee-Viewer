@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Session lost overlay - lets us flag a sim disconnect without tearing down the app shell.
  */
@@ -50,7 +48,7 @@ const BeeSessionLost = (function () {
     setBlockerVisible(true);
     syncChrome();
 
-    const teleportDlg = document.getElementById('teleport-prompt');
+    const teleportDlg = document.getElementById('teleport-prompt') as HTMLDialogElement | null;
     if (teleportDlg && teleportDlg.open) BeeUtils.dismissDialog(teleportDlg);
 
     BeeUtils.showToast('Session ended', 'warning', 4500);
@@ -100,7 +98,7 @@ const BeeSessionLost = (function () {
     if (dismissBtn) {
       dismissBtn.addEventListener('click', dismiss);
     }
-    document.querySelectorAll('[data-session-lost-dismiss]').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('[data-session-lost-dismiss]').forEach(function (btn) {
       btn.addEventListener('click', dismiss);
     });
 

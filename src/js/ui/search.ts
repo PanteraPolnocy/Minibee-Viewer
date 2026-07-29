@@ -38,7 +38,7 @@ const BeeSearch = (function () {
     const panel = el('panel-search');
     if (panel) panel.classList.toggle('panel-search--busy', active);
     if (input) input.disabled = active;
-    document.querySelectorAll('.search-kind').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.search-kind').forEach(function (btn) {
       btn.disabled = active;
     });
     if (runBtn) {
@@ -471,7 +471,7 @@ const BeeSearch = (function () {
 
   function switchKind(kind, restoreOnly) {
     activeKind = kind === 'places' || kind === 'groups' ? kind : 'avatars';
-    document.querySelectorAll('.search-kind').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.search-kind').forEach(function (btn) {
       const active = btn.dataset.kind === activeKind;
       btn.classList.toggle('search-kind--active', active);
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
@@ -516,7 +516,7 @@ const BeeSearch = (function () {
     if (runBtn) {
       runBtn.addEventListener('click', function () { runSearch(); });
     }
-    document.querySelectorAll('.search-kind').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.search-kind').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (searching) return;
         switchKind(btn.dataset.kind, true);

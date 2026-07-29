@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * News panel: the Linden blog, the SL calendar, grid status, and the blogger network.
  *
@@ -188,7 +186,7 @@ const BeeNews = (function () {
 
   function setTab(tab) {
     activeTab = PANES[tab] ? tab : DEFAULT_TAB;
-    document.querySelectorAll('[data-news-tab]').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('[data-news-tab]').forEach(function (btn) {
       const on = btn.dataset.newsTab === activeTab;
       btn.classList.toggle('settings-tab--active', on);
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
@@ -206,13 +204,13 @@ const BeeNews = (function () {
   }
 
   function init() {
-    document.querySelectorAll('[data-news-tab]').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('[data-news-tab]').forEach(function (btn) {
       btn.addEventListener('click', function () { setTab(btn.dataset.newsTab); });
     });
-    document.querySelectorAll('[data-news-refresh]').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('[data-news-refresh]').forEach(function (btn) {
       btn.addEventListener('click', function () { loadFeed(btn.dataset.newsRefresh, true); });
     });
-    document.querySelectorAll('[data-news-open]').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('[data-news-open]').forEach(function (btn) {
       btn.addEventListener('click', function () { openExternal(btn.dataset.newsOpen); });
     });
   }

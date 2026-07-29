@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * A single profile image element shared across the list surfaces.
  */
@@ -158,7 +156,7 @@ const BeeAvatarThumb = (function () {
   function refreshFor(id) {
     const key = BeeProfiles.normId(id || '');
     if (!key) return;
-    document.querySelectorAll('[data-agent-id].avatar-thumb, .entity-item__avatar[data-agent-id]').forEach(function (el) {
+    document.querySelectorAll<HTMLElement>('[data-agent-id].avatar-thumb, .entity-item__avatar[data-agent-id]').forEach(function (el) {
       if (BeeProfiles.normId(el.dataset.agentId) === key) refreshElement(el);
     });
   }

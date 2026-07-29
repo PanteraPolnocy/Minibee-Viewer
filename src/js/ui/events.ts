@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * The Events panel - where script dialogs, permissions, prompts, payments and
  * group notices land. Split into subtabs (All / Notices / Offers / Scripts /
@@ -43,9 +41,9 @@ const BeeEvents = (function () {
   }
 
   function updateSubBadges() {
-    document.querySelectorAll('.events-subtab').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.events-subtab').forEach(function (btn) {
       const cat = btn.dataset.eventsSub;
-      const badge = btn.querySelector('.events-subtab__badge');
+      const badge = btn.querySelector<HTMLElement>('.events-subtab__badge');
       if (!badge) return; // "All" carries no badge; the main tab covers it
       const count = unseen[cat] || 0;
       badge.textContent = count > 99 ? '99+' : String(count);
@@ -93,7 +91,7 @@ const BeeEvents = (function () {
 
   function setSub(cat) {
     activeSub = CATEGORIES.indexOf(cat) !== -1 ? cat : 'all';
-    document.querySelectorAll('.events-subtab').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.events-subtab').forEach(function (btn) {
       const active = btn.dataset.eventsSub === activeSub;
       btn.classList.toggle('events-subtab--active', active);
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
@@ -110,7 +108,7 @@ const BeeEvents = (function () {
   }
 
   function init() {
-    document.querySelectorAll('.events-subtab').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.events-subtab').forEach(function (btn) {
       btn.addEventListener('click', function () { setSub(btn.dataset.eventsSub); });
     });
 

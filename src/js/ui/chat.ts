@@ -14,7 +14,7 @@ const BeeChat = (function () {
     system: 'msg__name--system'
   };
 
-  function resolveScriptDialog(msg, el, responseLabel, sendReply) {
+  function resolveScriptDialog(msg, el, responseLabel, sendReply?) {
     if (!msg || !msg.dialog || msg.dialog.resolved) return;
     const dialog = msg.dialog;
     const finish = function () {
@@ -920,7 +920,7 @@ const BeeChat = (function () {
   }
 
   // `filter` (optional) keeps only matching messages - the Events subtabs use it.
-  function renderAllTo(listId, filter) {
+  function renderAllTo(listId, filter?) {
     const list = document.getElementById(listId || 'chat-messages');
     if (!list) return;
     list.innerHTML = '';

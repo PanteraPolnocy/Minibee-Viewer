@@ -572,7 +572,7 @@ const BeeIm = (function () {
     openSession(groupId);
   }
 
-  function openConferenceDialog(preselectIds, options) {
+  function openConferenceDialog(preselectIds, options?) {
     const dialog = document.getElementById('conference-dialog');
     const picker = document.getElementById('conference-picker');
     const titleEl = document.getElementById('conference-title');
@@ -606,7 +606,7 @@ const BeeIm = (function () {
       // Live-filter the participant list by account or display name as the user types.
       titleEl.oninput = function () {
         const q = titleEl.value.trim().toLowerCase();
-        picker.querySelectorAll('.conference-picker__row').forEach(function (row) {
+        picker.querySelectorAll<HTMLElement>('.conference-picker__row').forEach(function (row) {
           const hay = row.getAttribute('data-filter') || '';
           row.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';
         });
@@ -749,7 +749,7 @@ const BeeIm = (function () {
         e.preventDefault();
         const picker = document.getElementById('conference-picker');
         const ids = Array.prototype.slice
-          .call(picker.querySelectorAll('input[type="checkbox"]:checked'))
+          .call(picker.querySelectorAll<HTMLElement>('input[type="checkbox"]:checked'))
           .map(function (cb) { return cb.value; });
         if (!ids.length) {
           BeeUtils.showToast('Select at least one participant.', 'warning');
@@ -781,7 +781,7 @@ const BeeIm = (function () {
         });
       });
     }
-    document.querySelectorAll('.im-tab-link').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.im-tab-link').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const tab = btn.getAttribute('data-tab-link');
         if (tab) BeeNavigation.switchTab(tab);

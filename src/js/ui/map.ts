@@ -607,7 +607,7 @@ const BeeMap = (function () {
   function refreshOverlays() {
     const canvas = el('map-canvas');
     if (!canvas || !lastLayout || !canvas.offsetParent) return;
-    canvas.querySelectorAll('.map-ring, .map-marker').forEach(function (n) { n.remove(); });
+    canvas.querySelectorAll<HTMLElement>('.map-ring, .map-marker').forEach(function (n) { n.remove(); });
     drawOverlays(canvas, lastLayout.startX, lastLayout.startY, lastLayout.size);
   }
 

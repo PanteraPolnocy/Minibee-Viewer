@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Radar - the nearby-avatar list, built from CoarseLocationUpdate.
  */
@@ -117,12 +115,12 @@ const BeeRadar = (function () {
       '<span class="entity-item__range">' + entry.range + 'm</span>';
 
     li.addEventListener('click', function (e) {
-      if (e.target.closest('[data-action="profile"]')) {
+      if ((e.target as HTMLElement).closest('[data-action="profile"]')) {
         e.stopPropagation();
         BeeProfile.openAvatar(entry.id, { agent: entry });
         return;
       }
-      if (e.target.closest('[data-action="im"]')) {
+      if ((e.target as HTMLElement).closest('[data-action="im"]')) {
         e.stopPropagation();
         openIm(entry);
         return;
@@ -243,7 +241,7 @@ const BeeRadar = (function () {
         const highlightAlert = s.radarAlerts && isAlertCandidate(entry);
         list.appendChild(renderItem(entry, { outOfRange: outOfRange, highlightAlert: highlightAlert }));
       });
-      list.querySelectorAll('.entity-item__avatar[data-agent-id]').forEach(function (node) {
+      list.querySelectorAll<HTMLElement>('.entity-item__avatar[data-agent-id]').forEach(function (node) {
         BeeAvatarThumb.refresh(node);
       });
     }
@@ -260,9 +258,9 @@ const BeeRadar = (function () {
   }
 
   function init() {
-    const rangeInput = document.getElementById('radar-range');
+    const rangeInput = document.getElementById('radar-range') as HTMLInputElement | null;
     const rangeLabel = document.getElementById('radar-range-label');
-    const alertInput = document.getElementById('radar-alert');
+    const alertInput = document.getElementById('radar-alert') as HTMLInputElement | null;
 
     if (typeof BeeSettings !== 'undefined') {
       const savedRange = BeeSettings.get('radarRange');
@@ -294,16 +292,16 @@ const BeeRadar = (function () {
 
     alertInput.addEventListener('change', function (e) {
       if (typeof BeeSettings !== 'undefined') {
-        BeeSettings.set('radarAlerts', e.target.checked);
+        BeeSettings.set('radarAlerts', (e.target as HTMLInputElement).checked);
       } else {
-        BeeState.patch({ radarAlerts: e.target.checked });
+        BeeState.patch({ radarAlerts: (e.target as HTMLInputElement).checked });
       }
       render();
     });
 
     document.addEventListener('click', function (e) {
       const menu = document.getElementById('context-menu');
-      if (!menu.hidden && !menu.contains(e.target)) menu.hidden = true;
+      if (!menu.hidden && !menu.contains(e.target as Node)) menu.hidden = true;
     });
 
     BeeState.on('change', function (partial) {

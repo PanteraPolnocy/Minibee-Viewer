@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Application bootstrap - brings the viewer up and wires the modules together.
  */
@@ -302,7 +300,7 @@ const BeeApp = (function () {
     }
 
     BeeTransport.on('region-restart', function (data) {
-      const dlg = document.getElementById('region-restart-dialog');
+      const dlg = document.getElementById('region-restart-dialog') as HTMLDialogElement | null;
       if (!dlg) return;
       restartDeadline = Date.now() + (Math.max(0, (data && data.seconds) || 0) * 1000);
       restartRegion = (data && data.regionName) || '';
@@ -332,7 +330,7 @@ const BeeApp = (function () {
     // a region crossing - makes the warning moot, so it closes on any region
     // change. Same when the session ends.
     function clearRestartWarning() {
-      const dlg = document.getElementById('region-restart-dialog');
+      const dlg = document.getElementById('region-restart-dialog') as HTMLDialogElement | null;
       if (dlg && dlg.open) BeeUtils.dismissDialog(dlg);
       if (restartTimer) { window.clearInterval(restartTimer); restartTimer = null; }
       restartRegion = '';
@@ -467,7 +465,7 @@ const BeeApp = (function () {
 
 
     BeeTransport.on('teleport-finish', function (data) {
-      const patch = {};
+      const patch: { position?: any; region?: any } = {};
       if (data && data.position) patch.position = data.position;
       if (data && data.region) {
         patch.region = Object.assign({}, BeeState.get().region, data.region);

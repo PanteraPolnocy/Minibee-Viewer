@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Buddies - the friends list.
  */
@@ -66,12 +64,12 @@ const BeeBuddies = (function () {
       '</div>';
 
     li.addEventListener('click', function (e) {
-      if (e.target.closest('[data-action="profile"]')) {
+      if ((e.target as HTMLElement).closest('[data-action="profile"]')) {
         e.stopPropagation();
         BeeProfile.openAvatar(buddy.id, { agent: buddy });
         return;
       }
-      if (e.target.closest('[data-action="im"]')) {
+      if ((e.target as HTMLElement).closest('[data-action="im"]')) {
         e.stopPropagation();
         BeeIm.startImWith(buddy);
         return;
@@ -210,7 +208,7 @@ const BeeBuddies = (function () {
     buddies.forEach(function (buddy) {
       list.appendChild(renderItem(buddy));
     });
-    list.querySelectorAll('.entity-item__avatar[data-agent-id]').forEach(function (node) {
+    list.querySelectorAll<HTMLElement>('.entity-item__avatar[data-agent-id]').forEach(function (node) {
       BeeAvatarThumb.refresh(node);
     });
   }
@@ -303,7 +301,7 @@ const BeeBuddies = (function () {
 
   function setTab(tab) {
     const which = tab === 'blocked' ? 'blocked' : 'friends';
-    document.querySelectorAll('[data-people-tab]').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('[data-people-tab]').forEach(function (btn) {
       const on = btn.dataset.peopleTab === which;
       btn.classList.toggle('settings-tab--active', on);
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
@@ -323,14 +321,14 @@ const BeeBuddies = (function () {
   function init() {
     if (typeof BeeSettings !== 'undefined') {
       onlineOnly = !!BeeSettings.get('buddiesOnlineOnly');
-      const onlineEl = document.getElementById('buddies-online-only');
+      const onlineEl = document.getElementById('buddies-online-only') as HTMLInputElement | null;
       if (onlineEl) onlineEl.checked = onlineOnly;
     }
 
-    document.querySelectorAll('[data-people-tab]').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('[data-people-tab]').forEach(function (btn) {
       btn.addEventListener('click', function () { setTab(btn.dataset.peopleTab); });
     });
-    const blockedSearch = document.getElementById('blocked-search');
+    const blockedSearch = document.getElementById('blocked-search') as HTMLInputElement | null;
     if (blockedSearch) {
       blockedSearch.addEventListener('input', BeeUtils.debounce(function () {
         blockedFilter = blockedSearch.value.trim();
@@ -362,7 +360,7 @@ const BeeBuddies = (function () {
     }, 200));
 
     document.getElementById('buddies-online-only').addEventListener('change', function (e) {
-      onlineOnly = e.target.checked;
+      onlineOnly = (e.target as HTMLInputElement).checked;
       if (typeof BeeSettings !== 'undefined') {
         BeeSettings.set('buddiesOnlineOnly', onlineOnly);
       }
@@ -371,7 +369,7 @@ const BeeBuddies = (function () {
 
     document.addEventListener('click', function (e) {
       const menu = document.getElementById('context-menu');
-      if (!menu.hidden && !menu.contains(e.target)) menu.hidden = true;
+      if (!menu.hidden && !menu.contains(e.target as Node)) menu.hidden = true;
     });
 
     BeeState.on('change', function (partial) {
@@ -390,12 +388,12 @@ const BeeBuddies = (function () {
     BeeState.on('reset', function () {
       filter = '';
       onlineOnly = typeof BeeSettings !== 'undefined' ? !!BeeSettings.get('buddiesOnlineOnly') : false;
-      document.getElementById('buddies-search').value = '';
-      document.getElementById('buddies-online-only').checked = onlineOnly;
+      (document.getElementById('buddies-search') as HTMLInputElement).value = '';
+      (document.getElementById('buddies-online-only') as HTMLInputElement).checked = onlineOnly;
       blocked = [];
       blockedFilter = '';
       blockedAsked = false;
-      const bs = document.getElementById('blocked-search');
+      const bs = document.getElementById('blocked-search') as HTMLInputElement | null;
       if (bs) bs.value = '';
       setTab('friends');
     });

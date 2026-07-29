@@ -1,4 +1,4 @@
-name: CI
+name: Pull Request check
 
 # Types, unit tests, and proof that the frontend's generated event types still
 # match the Rust structs they came from.

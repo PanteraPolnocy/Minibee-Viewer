@@ -38,7 +38,7 @@ const BeeProfile = (function () {
     const allowed = /^(b|i|u|br|a|p|div|span|ul|ol|li|strong|em)$/i;
     const template = document.createElement('template');
     template.innerHTML = raw.replace(/\n/g, '<br>');
-    template.content.querySelectorAll('*').forEach(function (node) {
+    template.content.querySelectorAll<HTMLElement>('*').forEach(function (node) {
       if (!allowed.test(node.tagName)) {
         const textNode = document.createTextNode(node.textContent || '');
         node.replaceWith(textNode);
@@ -397,7 +397,7 @@ const BeeProfile = (function () {
     const activeId = typeof BeeProfiles.getActiveGroupId === 'function'
       ? BeeProfiles.normId(BeeProfiles.getActiveGroupId())
       : '';
-    document.querySelectorAll('.profile-groups-list__item').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.profile-groups-list__item').forEach(function (btn) {
       const id = BeeProfiles.normId(btn.getAttribute('data-group-id') || '');
       btn.classList.toggle('profile-groups-list__item--active', !!(activeId && id === activeId));
     });

@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Destination Guide panel - shows Linden Lab's curated destinations feed.
  */
@@ -282,13 +280,13 @@ const BeeDestinations = (function () {
     setDestTeleportBusy(true, out.text);
   }
 
-  function setDestTeleportBusy(busy, label) {
+  function setDestTeleportBusy(busy, label?) {
     destTeleportBusy = !!busy;
     if (!busy) destTeleportPct = 0;
     const content = el('dest-content');
     if (!content) return;
     const text = label || 'Teleporting...';
-    content.querySelectorAll('.dest-action[data-action="tp"]').forEach(function (btn) {
+    content.querySelectorAll<HTMLButtonElement>('.dest-action[data-action="tp"]').forEach(function (btn) {
       btn.disabled = busy;
       btn.textContent = busy ? text : 'Teleport';
       btn.setAttribute('aria-busy', busy ? 'true' : 'false');
@@ -378,7 +376,7 @@ const BeeDestinations = (function () {
     const feedbar = el('dest-feedbar');
     if (feedbar) {
       feedbar.addEventListener('click', function (e) {
-        const btn = e.target.closest('[data-feed]');
+        const btn = (e.target as HTMLElement).closest('[data-feed]') as HTMLElement | null;
         if (!btn) return;
         const feed = btn.dataset.feed;
         if (!feed || feed === activeFeed) return;

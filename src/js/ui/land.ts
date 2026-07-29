@@ -316,7 +316,7 @@ const BeeLand = (function () {
         BeeUtils.escapeHtml(readOnlyNote(parcel)) + '</span>';
     }
     summary.innerHTML = html;
-    summary.querySelectorAll('.profile-inline-link').forEach(function (btn) {
+    summary.querySelectorAll<HTMLElement>('.profile-inline-link').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const entityId = btn.getAttribute('data-profile-id');
         const entityType = btn.getAttribute('data-profile-type');
@@ -676,12 +676,12 @@ const BeeLand = (function () {
     if (activeLandTab === 'objects') requestObjectOwners(false);
     if (activeLandTab === 'access' || activeLandTab === 'experiences') requestAccessLists();
     if (activeLandTab === 'experiences') renderExperiences();
-    document.querySelectorAll('.land-tab').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.land-tab').forEach(function (btn) {
       const active = btn.getAttribute('data-land-tab') === activeLandTab;
       btn.classList.toggle('land-tab--active', active);
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
-    document.querySelectorAll('.land-pane').forEach(function (pane) {
+    document.querySelectorAll<HTMLElement>('.land-pane').forEach(function (pane) {
       const active = pane.getAttribute('data-land-pane') === activeLandTab;
       pane.classList.toggle('land-pane--active', active);
       pane.hidden = !active;
@@ -1032,7 +1032,7 @@ const BeeLand = (function () {
       }
     });
 
-    document.querySelectorAll('.land-tab').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.land-tab').forEach(function (btn) {
       btn.addEventListener('click', function () {
         setLandTab(btn.getAttribute('data-land-tab'));
       });

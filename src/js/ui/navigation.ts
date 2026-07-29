@@ -169,13 +169,13 @@ const BeeNavigation = (function () {
 
     BeeState.patch(patch);
 
-    document.querySelectorAll('.bottom-nav__item').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.bottom-nav__item').forEach(function (btn) {
       const active = btn.dataset.tab === tab;
       btn.classList.toggle('bottom-nav__item--active', active);
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
 
-    document.querySelectorAll('.panel').forEach(function (panel) {
+    document.querySelectorAll<HTMLElement>('.panel').forEach(function (panel) {
       const active = panel.dataset.panel === tab;
       panel.classList.toggle('panel--active', active);
       panel.hidden = !active;
@@ -478,7 +478,7 @@ const BeeNavigation = (function () {
   }
 
   function init() {
-    document.querySelectorAll('.bottom-nav__item').forEach(function (btn) {
+    document.querySelectorAll<HTMLElement>('.bottom-nav__item').forEach(function (btn) {
       btn.addEventListener('click', function () {
         switchTab(btn.dataset.tab);
       });

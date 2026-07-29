@@ -119,7 +119,7 @@ const BeeUtils = (function () {
     ].join('-');
   }
 
-  function showToast(message, type, duration) {
+  function showToast(message: string, type?: string, duration?: number) {
     const container = document.getElementById('toast-container');
     if (!container) return;
     const el = document.createElement('div');

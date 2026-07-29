@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Full-screen teleport lock. While a teleport is running, a centered modal
  * with a progress bar covers the UI, and its backdrop blocks interaction
@@ -36,7 +34,7 @@ const BeeTeleportProgress = (function () {
     return 55;
   }
 
-  function setProgress(message, pct) {
+  function setProgress(message, pct?) {
     const bar = el('teleport-progress-bar');
     const label = el('teleport-progress-label');
     if (bar) bar.style.width = (pct !== undefined ? pct : percentFor(message)) + '%';
@@ -44,7 +42,7 @@ const BeeTeleportProgress = (function () {
   }
 
   function open(message) {
-    const dialog = el('teleport-progress-dialog');
+    const dialog = el('teleport-progress-dialog') as HTMLDialogElement | null;
     if (!dialog) return;
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
     setProgress(message);
@@ -56,7 +54,7 @@ const BeeTeleportProgress = (function () {
   }
 
   function finish() {
-    const dialog = el('teleport-progress-dialog');
+    const dialog = el('teleport-progress-dialog') as HTMLDialogElement | null;
     if (!dialog || !dialog.open) { close(); return; }
     setProgress('arriving', 100);
     if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
@@ -67,12 +65,12 @@ const BeeTeleportProgress = (function () {
   function close() {
     if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
-    const dialog = el('teleport-progress-dialog');
+    const dialog = el('teleport-progress-dialog') as HTMLDialogElement | null;
     if (dialog && dialog.open) BeeUtils.dismissDialog(dialog);
   }
 
   function init() {
-    const dialog = el('teleport-progress-dialog');
+    const dialog = el('teleport-progress-dialog') as HTMLDialogElement | null;
     // Hold the lock open: Escape must not dismiss it - only finish, failure, or the timeout should.
     if (dialog) dialog.addEventListener('cancel', function (e) { e.preventDefault(); });
 

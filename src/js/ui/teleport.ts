@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Prompts for handling incoming teleport offers and requests.
  */
@@ -14,7 +12,7 @@ const BeeTeleportUI = (function () {
   const promptQueue = [];
 
   function dialogEl() {
-    return document.getElementById('teleport-prompt');
+    return document.getElementById('teleport-prompt') as HTMLDialogElement | null;
   }
 
   function showPrompt(kind, payload) {
@@ -36,7 +34,7 @@ const BeeTeleportUI = (function () {
     const body = document.getElementById('teleport-body');
     const note = document.getElementById('teleport-note');
     const replyWrap = document.getElementById('teleport-reply-wrap');
-    const reply = document.getElementById('teleport-reply');
+    const reply = document.getElementById('teleport-reply') as HTMLInputElement | null;
     const acceptBtn = document.getElementById('teleport-accept');
 
     const payload = next.payload;
@@ -118,7 +116,7 @@ const BeeTeleportUI = (function () {
   async function handleRequest(payload) {
     const action = await showPrompt('request', payload);
     if (action === 'accept') {
-      const reply = document.getElementById('teleport-reply');
+      const reply = document.getElementById('teleport-reply') as HTMLInputElement | null;
       const message = reply ? reply.value.trim() : '';
       await BeeTransport.acceptTeleportRequest(payload, message);
       BeeUtils.showToast('Teleport offer sent', 'success');
