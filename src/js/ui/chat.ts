@@ -803,18 +803,56 @@ const BeeChat = (function () {
         '</p>';
     }
 
-    el.innerHTML =
-      '<div class="script-dialog__header">' +
-        '<span class="script-dialog__badge script-dialog__badge--notice">Notice</span>' +
-        '<div class="script-dialog__titles">' +
-          '<span class="script-dialog__object group-notice__group">' + group + '</span>' +
-          (sender ? '<span class="script-dialog__owner">From: ' + sender + '</span>' : '') +
-        '</div>' +
-        '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
-      '</div>' +
-      (subject ? '<p class="group-notice__subject">' + subject + '</p>' : '') +
-      (body ? '<p class="script-dialog__body">' + body + '</p>' : '') +
-      attachment;
+    const header = document.createElement('div');
+    header.className = 'script-dialog__header';
+
+    const badge = document.createElement('span');
+    badge.className = 'script-dialog__badge script-dialog__badge--notice';
+    badge.textContent = 'Notice';
+    header.appendChild(badge);
+
+    const titles = document.createElement('div');
+    titles.className = 'script-dialog__titles';
+
+    const groupNode = document.createElement('span');
+    groupNode.className = 'script-dialog__object group-notice__group';
+    groupNode.textContent = msg.groupName || 'Group notice';
+    titles.appendChild(groupNode);
+
+    if (sender) {
+      const owner = document.createElement('span');
+      owner.className = 'script-dialog__owner';
+      owner.textContent = 'From: ' + (msg.fromName || '');
+      titles.appendChild(owner);
+    }
+    header.appendChild(titles);
+
+    const time = document.createElement('span');
+    time.className = 'msg__time';
+    time.textContent = BeeUtils.formatTime(msg.timestamp);
+    header.appendChild(time);
+
+    el.appendChild(header);
+
+    if (subject) {
+      const subjectEl = document.createElement('p');
+      subjectEl.className = 'group-notice__subject';
+      subjectEl.textContent = msg.subject || '';
+      el.appendChild(subjectEl);
+    }
+
+    if (body) {
+      const bodyEl = document.createElement('p');
+      bodyEl.className = 'script-dialog__body';
+      bodyEl.innerHTML = body;
+      el.appendChild(bodyEl);
+    }
+
+    if (attachment) {
+      const attachmentWrap = document.createElement('div');
+      attachmentWrap.innerHTML = attachment;
+      while (attachmentWrap.firstChild) el.appendChild(attachmentWrap.firstChild);
+    }
 
     BeeSlurl.bindLinks(el);
     if (prompt && !prompt.resolved) bindInteractivePrompt(el, msg);
