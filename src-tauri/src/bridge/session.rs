@@ -643,6 +643,8 @@ mod pflag {
     pub const ALLOW_DEED_TO_GROUP: u32 = 1 << 13;
     pub const SOUND_LOCAL: u32 = 1 << 15;
     pub const SELL_PARCEL_OBJECTS: u32 = 1 << 16;
+    /// "Moderate Content" on the Options tab - the parcel's listing rating.
+    pub const MATURE_PUBLISH: u32 = 1 << 18;
     pub const RESTRICT_PUSH: u32 = 1 << 21;
     pub const DENY_ANONYMOUS: u32 = 1 << 22;
     pub const GROUP_SCRIPTS: u32 = 1 << 25;
@@ -650,11 +652,69 @@ mod pflag {
     pub const ALL_OBJECT_ENTRY: u32 = 1 << 27;
     pub const GROUP_OBJECT_ENTRY: u32 = 1 << 28;
     pub const VOICE: u32 = 1 << 29;
+    /// Voice runs on the estate-wide channel rather than this parcel's own.
+    pub const USE_ESTATE_VOICE_CHAN: u32 = 1 << 30;
     pub const DENY_AGEUNVERIFIED: u32 = 1 << 31;
 }
 
 fn set_flag(flags: u32, bit: u32, on: bool) -> u32 {
     if on { flags | bit } else { flags & !bit }
+}
+
+/// Every ParcelData field the sim is known to send, from the message template
+/// plus the three the LLSD form adds (SeeAVs / GroupAVSounds / AnyAVSounds).
+///
+/// This exists as an early warning. The capability save replaces a parcel
+/// wholesale, so a setting Linden Lab adds after this build ships is one this
+/// build cannot echo back - and every capability save would quietly reset it.
+/// Seeing an unknown name here is the signal to add support before that
+/// matters.
+const KNOWN_PARCEL_DATA_KEYS: &[&str] = &[
+    "RequestResult", "SequenceID", "SnapSelection", "SelfCount", "OtherCount",
+    "PublicCount", "LocalID", "OwnerID", "IsGroupOwned", "AuctionID", "ClaimDate",
+    "ClaimPrice", "RentPrice", "AABBMin", "AABBMax", "Bitmap", "Area", "Status",
+    "SimWideMaxPrims", "SimWideTotalPrims", "MaxPrims", "TotalPrims", "OwnerPrims",
+    "GroupPrims", "OtherPrims", "SelectedPrims", "ParcelPrimBonus", "OtherCleanTime",
+    "ParcelFlags", "SalePrice", "Name", "Desc", "MusicURL", "MediaURL", "MediaID",
+    "MediaAutoScale", "GroupID", "PassPrice", "PassHours", "Category", "AuthBuyerID",
+    "SnapshotID", "UserLocation", "UserLookAt", "LandingType", "RegionPushOverride",
+    "RegionDenyAnonymous", "RegionDenyIdentified", "RegionDenyTransacted",
+    "SeeAVs", "GroupAVSounds", "AnyAVSounds",
+];
+
+/// Log any ParcelData field this build does not know, once each per run.
+fn note_unknown_parcel_fields(pd: &Value) {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static SEEN: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let Some(map) = pd.as_object() else { return };
+    let seen = SEEN.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut guard = match seen.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    for key in map.keys() {
+        if KNOWN_PARCEL_DATA_KEYS.contains(&key.as_str()) {
+            continue;
+        }
+        if guard.insert(key.clone()) {
+            crate::dlog!(
+                "ParcelProperties: unknown ParcelData field '{}' - this build cannot \
+                 round-trip it, so a capability save would reset it",
+                key
+            );
+        }
+    }
+}
+
+/// A parcel BOOL that older sims leave out entirely. Absent means "allowed" -
+/// the same legacy default the reference applies to the avatar
+/// visibility/sound trio when a sim doesn't send all three.
+fn parcel_bool_or_allowed(v: Option<&Value>) -> bool {
+    match v {
+        Some(x) => truthy(Some(x)),
+        None => true,
+    }
 }
 
 fn merge_group_data(state: &mut SessionState, incoming: Vec<Value>) -> Vec<Value> {
@@ -730,6 +790,8 @@ pub fn fold_parcel_flags(baseline: u32, p: &Value) -> u32 {
     if let Some(v) = b("safeEnvironment") { f = set_flag(f, pflag::DAMAGE, !v); }
     if let Some(v) = b("soundLocal") { f = set_flag(f, pflag::SOUND_LOCAL, v); }
     if let Some(v) = b("allowVoice") { f = set_flag(f, pflag::VOICE, v); }
+    if let Some(v) = b("voiceUseEstate") { f = set_flag(f, pflag::USE_ESTATE_VOICE_CHAN, v); }
+    if let Some(v) = b("maturePublish") { f = set_flag(f, pflag::MATURE_PUBLISH, v); }
     if let Some(v) = b("showInSearch") { f = set_flag(f, pflag::SHOW_DIR, v); }
     if let Some(v) = b("pushRestricted") { f = set_flag(f, pflag::RESTRICT_PUSH, v); }
     if let Some(v) = b("sellPasses") { f = set_flag(f, pflag::PASS_LIST, v); }
@@ -1758,6 +1820,27 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "mediaAutoScale": inst_i64(&pd, "MediaAutoScale"),
                     "mediaType": field_text(decoded, "MediaData", "MediaType").unwrap_or_default(),
                     "mediaDesc": field_text(decoded, "MediaData", "MediaDesc").unwrap_or_default(),
+                    // The rest of the Media 2.0 set, plus the avatar
+                    // visibility/sound trio. None of these can be edited over
+                    // UDP, but the capability save replaces the parcel
+                    // wholesale, so they have to round-trip or they'd be lost.
+                    "mediaWidth": as_i64(field(decoded, "MediaData", "MediaWidth")),
+                    "mediaHeight": as_i64(field(decoded, "MediaData", "MediaHeight")),
+                    "mediaLoop": as_i64(field(decoded, "MediaData", "MediaLoop")),
+                    "mediaCurrentUrl": field_text(decoded, "MediaLinkSharing", "MediaCurrentURL").unwrap_or_default(),
+                    "mediaAllowNavigate": truthy(field(decoded, "MediaLinkSharing", "MediaAllowNavigate")),
+                    "mediaPreventCameraZoom": truthy(field(decoded, "MediaLinkSharing", "MediaPreventCameraZoom")),
+                    "mediaUrlTimeout": as_f64(field(decoded, "MediaLinkSharing", "MediaURLTimeout")),
+                    "seeAvs": parcel_bool_or_allowed(pd.get("SeeAVs")),
+                    "anyAvSounds": parcel_bool_or_allowed(pd.get("AnyAVSounds")),
+                    "groupAvSounds": parcel_bool_or_allowed(pd.get("GroupAVSounds")),
+                    "obscureMoap": as_i64(field(decoded, "ParcelExtendedFlags", "Flags")) != 0,
+                    "maturePublish": has(pflag::MATURE_PUBLISH),
+                    "voiceUseEstate": has(pflag::USE_ESTATE_VOICE_CHAN),
+                    // Only the capability save can write the avatar
+                    // visibility/sound trio, so the UI greys them out where the
+                    // region offers no capability rather than pretending.
+                    "canEditCapFields": state.caps.contains_key("ParcelPropertiesUpdate"),
                     "salePrice": inst_i64(&pd, "SalePrice"),
                     "passPrice": inst_i64(&pd, "PassPrice"),
                     "passHours": as_f64(pd.get("PassHours")),
@@ -2846,7 +2929,12 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         }
 
         // Our private notes about a resident.
-        "AvatarNotesReply" => {
+        //
+        // Only where the AgentProfile capability is absent (OpenSim). On Second
+        // Life the cap's GET is the authority, and this legacy reply can arrive
+        // afterwards carrying an empty string - applying it would blank the
+        // notes the cap just delivered. The reference gates it the same way.
+        "AvatarNotesReply" if !state.caps.contains_key("AgentProfile") => {
             let target_id = inst_str(block0(decoded, "Data").unwrap_or(&Value::Null), "TargetID");
             actions.push(Action::emit(
                 "avatar-notes",
@@ -3173,8 +3261,12 @@ fn parcel_from_eq(state: &mut SessionState, body: &Value) -> Option<Action> {
     if !parcel_fresh(state, seq, aabb) {
         return None;
     }
+    note_unknown_parcel_fields(pd);
     // The Media 2.0 fields live in a separate MediaData block, not in ParcelData.
     let media = body.get("MediaData").and_then(|v| v.as_array()).and_then(|a| a.first());
+    // Link sharing and the obscure-MOAP bit have blocks of their own again.
+    let link = body.get("MediaLinkSharing").and_then(|v| v.as_array()).and_then(|a| a.first());
+    let ext = body.get("ParcelExtendedFlags").and_then(|v| v.as_array()).and_then(|a| a.first());
     let flags: u32 = match pd.get("ParcelFlags") {
         // An LLSD binary U32 in network (big-endian) byte order, just like SimIP.
         Some(Value::Array(a)) if a.len() >= 4 => {
@@ -3275,6 +3367,24 @@ fn parcel_from_eq(state: &mut SessionState, body: &Value) -> Option<Action> {
             "mediaAutoScale": inst_i64(pd, "MediaAutoScale"),
             "mediaType": media.and_then(|m| m.get("MediaType")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
             "mediaDesc": media.and_then(|m| m.get("MediaDesc")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            // This is the path Second Life actually uses, and the only one that
+            // carries these at all. The capability save replaces the parcel
+            // wholesale, so every one of them has to round-trip.
+            "mediaWidth": as_i64(media.and_then(|m| m.get("MediaWidth"))),
+            "mediaHeight": as_i64(media.and_then(|m| m.get("MediaHeight"))),
+            "mediaLoop": as_i64(media.and_then(|m| m.get("MediaLoop"))),
+            "mediaCurrentUrl": link.and_then(|m| m.get("MediaCurrentURL")).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            "mediaAllowNavigate": truthy(link.and_then(|m| m.get("MediaAllowNavigate"))),
+            "mediaPreventCameraZoom": truthy(link.and_then(|m| m.get("MediaPreventCameraZoom"))),
+            "mediaUrlTimeout": as_f64(link.and_then(|m| m.get("MediaURLTimeout"))),
+            "seeAvs": parcel_bool_or_allowed(pd.get("SeeAVs")),
+            "anyAvSounds": parcel_bool_or_allowed(pd.get("AnyAVSounds")),
+            "groupAvSounds": parcel_bool_or_allowed(pd.get("GroupAVSounds")),
+            "obscureMoap": as_i64(ext.and_then(|m| m.get("Flags"))) != 0,
+            "maturePublish": has(pflag::MATURE_PUBLISH),
+            "voiceUseEstate": has(pflag::USE_ESTATE_VOICE_CHAN),
+            // See the UDP arm: cap-only fields are greyed out without the cap.
+            "canEditCapFields": state.caps.contains_key("ParcelPropertiesUpdate"),
             "salePrice": inst_i64(pd, "SalePrice"),
             "passPrice": inst_i64(pd, "PassPrice"),
             "passHours": as_f64(pd.get("PassHours")),
@@ -5297,6 +5407,40 @@ mod tests {
             "LookAt": [0.0, 0.0, 0.0], "TeleportFlags": 0,
         }] } }));
         assert!(st.tp_target.is_none());
+    }
+
+    #[test]
+    fn avatar_notes_reply_yields_to_the_profile_cap() {
+        let pkt = json!({
+            "name": "AvatarNotesReply",
+            "blocks": {
+                "AgentData": [{ "AgentID": "me" }],
+                "Data": [{ "TargetID": OTHER, "Notes": B64.encode(b"\0") }],
+            }
+        });
+        // Second Life: the cap's GET is the authority. This legacy reply can
+        // arrive afterwards carrying an empty string, and applying it would
+        // blank the notes the cap just delivered.
+        let mut with_cap = SessionState::default();
+        with_cap.caps.insert("AgentProfile".into(), "https://x/cap".into());
+        assert!(
+            emit_of(&route(&mut with_cap, &pkt), "avatar-notes").is_none(),
+            "the legacy reply must not overwrite cap-sourced notes"
+        );
+
+        // A capless grid (OpenSim) has no other source, so it still applies.
+        let mut capless = SessionState::default();
+        let real = json!({
+            "name": "AvatarNotesReply",
+            "blocks": {
+                "AgentData": [{ "AgentID": "me" }],
+                "Data": [{ "TargetID": OTHER, "Notes": B64.encode(b"remember the hat\0") }],
+            }
+        });
+        let a = route(&mut capless, &real);
+        let e = emit_of(&a, "avatar-notes").expect("notes on a capless grid");
+        assert_eq!(e["targetId"], OTHER);
+        assert_eq!(e["notes"], "remember the hat");
     }
 
     #[test]

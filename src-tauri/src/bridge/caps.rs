@@ -297,6 +297,146 @@ pub async fn sl_experience_names(state: State<'_, Arc<AppState>>, ids: Vec<Strin
     Ok(json!({ "ok": true, "names": names }))
 }
 
+/// Minimal LLSD-XML writer for the values a parcel save needs.
+///
+/// Only the shapes the ParcelPropertiesUpdate body actually uses. LLSD has no
+/// unsigned 32-bit type, so a U32 travels as a 4-byte big-endian binary blob -
+/// that is what the reference's `ll_sd_from_U32` produces, and a sim reading
+/// `parcel_flags` as anything else would misread every option on the parcel.
+pub(crate) mod llsd_xml {
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine;
+
+    pub fn string(v: &str) -> String {
+        format!("<string>{}</string>", super::xml_text(v))
+    }
+    pub fn integer(v: i64) -> String {
+        format!("<integer>{v}</integer>")
+    }
+    pub fn real(v: f64) -> String {
+        // Non-finite values have no LLSD spelling; 0 is the safe stand-in.
+        let n = if v.is_finite() { v } else { 0.0 };
+        format!("<real>{n}</real>")
+    }
+    pub fn boolean(v: bool) -> String {
+        format!("<boolean>{}</boolean>", if v { 1 } else { 0 })
+    }
+    pub fn uuid(v: &str) -> String {
+        let id = v.trim();
+        let id = if id.is_empty() { "00000000-0000-0000-0000-000000000000" } else { id };
+        format!("<uuid>{}</uuid>", super::xml_text(id))
+    }
+    /// A U32 the way the reference packs it: 4 bytes, network order, base64.
+    pub fn u32_binary(v: u32) -> String {
+        format!(
+            "<binary encoding=\"base64\">{}</binary>",
+            B64.encode(v.to_be_bytes())
+        )
+    }
+    pub fn vector3(v: [f64; 3]) -> String {
+        format!("<array>{}{}{}</array>", real(v[0]), real(v[1]), real(v[2]))
+    }
+    /// Wrap `<key>value</key>` pairs into a complete LLSD document.
+    pub fn map(pairs: &[(&str, String)]) -> String {
+        let body: String = pairs
+            .iter()
+            .map(|(k, v)| format!("<key>{}</key>{}", super::xml_text(k), v))
+            .collect();
+        format!("<?xml version=\"1.0\"?><llsd><map>{body}</map></llsd>")
+    }
+}
+
+/// Build the ParcelPropertiesUpdate capability body.
+///
+/// This mirrors `LLParcel::packMessage(LLSD&)` key for key, and it has to: the
+/// capability replaces the parcel wholesale, so anything omitted or defaulted
+/// here is a setting quietly wiped off the land. Everything is taken from the
+/// parcel the sim last sent us (`p`), with the form's edits already folded in
+/// by the caller - the same baseline discipline the UDP path uses.
+///
+/// `message_flags` is 0x01, matching the reference.
+pub(crate) fn parcel_update_body(p: &Value, folded_flags: u32, landing: [f64; 3], look_at: [f64; 3]) -> String {
+    let s = |k: &str| p.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let i = |k: &str| p.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
+    let f = |k: &str| p.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let b = |k: &str| p.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+    // The avatar visibility/sound trio defaults to allowed, like the reference.
+    let b_allowed = |k: &str| p.get(k).and_then(|v| v.as_bool()).unwrap_or(true);
+
+    llsd_xml::map(&[
+        ("flags", llsd_xml::u32_binary(0x01)),
+        ("local_id", llsd_xml::integer(i("localId"))),
+        ("parcel_flags", llsd_xml::u32_binary(folded_flags)),
+        ("sale_price", llsd_xml::integer(i("salePrice"))),
+        ("name", llsd_xml::string(&s("name"))),
+        ("description", llsd_xml::string(&s("desc"))),
+        ("music_url", llsd_xml::string(&s("musicUrl"))),
+        ("media_url", llsd_xml::string(&s("mediaUrl"))),
+        ("media_desc", llsd_xml::string(&s("mediaDesc"))),
+        ("media_type", llsd_xml::string(&s("mediaType"))),
+        ("media_width", llsd_xml::integer(i("mediaWidth"))),
+        ("media_height", llsd_xml::integer(i("mediaHeight"))),
+        ("auto_scale", llsd_xml::integer(i("mediaAutoScale"))),
+        ("media_loop", llsd_xml::integer(i("mediaLoop"))),
+        ("media_current_url", llsd_xml::string(&s("mediaCurrentUrl"))),
+        // Obsolete in the reference but still part of the body it sends.
+        ("obscure_media", llsd_xml::boolean(false)),
+        ("obscure_music", llsd_xml::boolean(false)),
+        ("media_id", llsd_xml::uuid(&s("mediaId"))),
+        ("media_allow_navigate", llsd_xml::boolean(b("mediaAllowNavigate"))),
+        ("media_prevent_camera_zoom", llsd_xml::boolean(b("mediaPreventCameraZoom"))),
+        ("media_url_timeout", llsd_xml::real(f("mediaUrlTimeout"))),
+        ("group_id", llsd_xml::uuid(&s("groupId"))),
+        ("pass_price", llsd_xml::integer(i("passPrice"))),
+        ("pass_hours", llsd_xml::real(f("passHours"))),
+        ("category", llsd_xml::integer(i("category"))),
+        ("auth_buyer_id", llsd_xml::uuid(&s("authBuyerId"))),
+        ("snapshot_id", llsd_xml::uuid(&s("snapshotId"))),
+        ("user_location", llsd_xml::vector3(landing)),
+        ("user_look_at", llsd_xml::vector3(look_at)),
+        ("landing_type", llsd_xml::integer(i("landingType"))),
+        ("see_avs", llsd_xml::boolean(b_allowed("seeAvs"))),
+        ("group_av_sounds", llsd_xml::boolean(b_allowed("groupAvSounds"))),
+        ("any_av_sounds", llsd_xml::boolean(b_allowed("anyAvSounds"))),
+        ("obscure_moap", llsd_xml::boolean(b("obscureMoap"))),
+    ])
+}
+
+/// Save a parcel through the ParcelPropertiesUpdate capability.
+///
+/// Preferred over the UDP message because the UDP form physically cannot carry
+/// see_avs / the avatar-sound pair / obscure_moap - they exist only in this
+/// body. Callers fall back to UDP when a region offers no such capability.
+pub(crate) async fn update_parcel_via_cap(
+    state: &Arc<AppState>,
+    session: &Arc<crate::bridge::circuit::Session>,
+    body: &str,
+) -> Result<(), String> {
+    let cap = session
+        .cap("ParcelPropertiesUpdate")
+        .ok_or("ParcelPropertiesUpdate capability unavailable")?;
+    let (pin, _) = proxy::simhost_pin(&cap, "").await;
+    let ex = proxy::exchange(
+        &state.ua,
+        "POST",
+        &cap,
+        body,
+        "application/llsd+xml",
+        &[],
+        pin,
+        Duration::from_secs(30),
+        true,
+    )
+    .await?;
+    if (200..300).contains(&ex.status) {
+        crate::dlog!("parcel: saved via ParcelPropertiesUpdate cap (HTTP {})", ex.status);
+        Ok(())
+    } else {
+        crate::dlog!("parcel: cap save REFUSED: HTTP {} body={:.200}", ex.status, ex.body);
+        Err(format!("The server refused the parcel update (HTTP {}).", ex.status))
+    }
+}
+
 /// The LLSD body for a notes save: a single-key map - the cap applies partial
 /// updates, so only the field being changed is sent.
 pub(crate) fn notes_put_body(notes: &str) -> String {
@@ -832,6 +972,82 @@ mod tests {
     fn label_legacy_name_when_no_username() {
         let row = json!({ "id": "x", "legacy_first_name": "Alice", "legacy_last_name": "Wonder", "is_display_name_default": true });
         assert_eq!(name_parts(&row).2,"Alice Wonder");
+    }
+
+    /// A full parcel as the sim describes it, for the save round-trip tests.
+    fn parcel_fixture() -> Value {
+        json!({
+            "localId": 42, "salePrice": 1500, "name": "Beach ", "desc": "nice & <cosy>",
+            "musicUrl": "http://x/s.mp3", "mediaUrl": "http://x/v.mp4",
+            "mediaDesc": "clip", "mediaType": "video/mp4",
+            "mediaWidth": 640, "mediaHeight": 480, "mediaAutoScale": 1, "mediaLoop": 1,
+            "mediaCurrentUrl": "http://x/now", "mediaId": "aaaaaaaa-0000-0000-0000-000000000001",
+            "mediaAllowNavigate": true, "mediaPreventCameraZoom": false, "mediaUrlTimeout": 12.5,
+            "groupId": "bbbbbbbb-0000-0000-0000-000000000002", "passPrice": 25, "passHours": 1.5,
+            "category": 3, "authBuyerId": "", "snapshotId": "cccccccc-0000-0000-0000-000000000003",
+            "landingType": 2,
+            "seeAvs": false, "groupAvSounds": false, "anyAvSounds": false, "obscureMoap": true,
+        })
+    }
+
+    #[test]
+    fn parcel_body_carries_every_field_the_reference_sends() {
+        let body = parcel_update_body(&parcel_fixture(), 0x8000_0001, [1.5, 2.5, 3.5], [1.0, 0.0, 0.0]);
+        // Every key LLParcel::packMessage(LLSD&) writes, plus the message flags.
+        for key in [
+            "flags", "local_id", "parcel_flags", "sale_price", "name", "description",
+            "music_url", "media_url", "media_desc", "media_type", "media_width",
+            "media_height", "auto_scale", "media_loop", "media_current_url",
+            "obscure_media", "obscure_music", "media_id", "media_allow_navigate",
+            "media_prevent_camera_zoom", "media_url_timeout", "group_id", "pass_price",
+            "pass_hours", "category", "auth_buyer_id", "snapshot_id", "user_location",
+            "user_look_at", "landing_type", "see_avs", "group_av_sounds", "any_av_sounds",
+            "obscure_moap",
+        ] {
+            assert!(body.contains(&format!("<key>{key}</key>")), "missing key: {key}");
+        }
+    }
+
+    #[test]
+    fn parcel_body_packs_u32_flags_as_network_order_binary() {
+        // LLSD has no U32; the reference sends 4 big-endian bytes. Getting this
+        // wrong would misread every option bit on the parcel.
+        let body = parcel_update_body(&parcel_fixture(), 0x8000_0001, [0.0; 3], [0.0; 3]);
+        // 0x80000001 -> 80 00 00 01
+        assert!(body.contains("<binary encoding=\"base64\">gAAAAQ==</binary>"), "{body}");
+        // message flags 0x01 -> 00 00 00 01
+        assert!(body.contains("<binary encoding=\"base64\">AAAAAQ==</binary>"), "{body}");
+    }
+
+    #[test]
+    fn parcel_body_preserves_values_verbatim_and_escapes_xml() {
+        let body = parcel_update_body(&parcel_fixture(), 0, [1.5, 2.5, 3.5], [1.0, 0.0, 0.0]);
+        // A trailing space in the name must survive untouched.
+        assert!(body.contains("<key>name</key><string>Beach </string>"), "{body}");
+        // Markup in free text is escaped, never injected.
+        assert!(body.contains("nice &amp; &lt;cosy&gt;"), "{body}");
+        // Media settings the UI never shows still round-trip.
+        assert!(body.contains("<key>media_width</key><integer>640</integer>"));
+        assert!(body.contains("<key>media_loop</key><integer>1</integer>"));
+        assert!(body.contains("<key>media_url_timeout</key><real>12.5</real>"));
+        // An empty UUID becomes the null id, not an empty element.
+        assert!(body.contains("<key>auth_buyer_id</key><uuid>00000000-0000-0000-0000-000000000000</uuid>"));
+        // The landing vectors keep full precision.
+        assert!(body.contains("<key>user_location</key><array><real>1.5</real><real>2.5</real><real>3.5</real></array>"));
+    }
+
+    #[test]
+    fn parcel_body_defaults_the_avatar_trio_to_allowed_when_absent() {
+        // Sims that never sent SeeAVs/AnyAVSounds/GroupAVSounds leave them out;
+        // saving must not read that silence as "deny".
+        let body = parcel_update_body(&json!({ "localId": 1 }), 0, [0.0; 3], [0.0; 3]);
+        assert!(body.contains("<key>see_avs</key><boolean>1</boolean>"), "{body}");
+        assert!(body.contains("<key>any_av_sounds</key><boolean>1</boolean>"), "{body}");
+        assert!(body.contains("<key>group_av_sounds</key><boolean>1</boolean>"), "{body}");
+        // ...while the explicit false from the sim is honoured.
+        let off = parcel_update_body(&parcel_fixture(), 0, [0.0; 3], [0.0; 3]);
+        assert!(off.contains("<key>see_avs</key><boolean>0</boolean>"), "{off}");
+        assert!(off.contains("<key>obscure_moap</key><boolean>1</boolean>"), "{off}");
     }
 
     #[test]

@@ -12,7 +12,9 @@ const BeeLand = (function () {
     'land-build-everyone', 'land-build-group',
     'land-scripts-everyone', 'land-scripts-group',
     'land-fly', 'land-safe', 'land-search',
-    'land-sound-local', 'land-voice', 'land-sell-passes',
+    'land-sound-local', 'land-av-sounds-all', 'land-av-sounds-group',
+    'land-voice', 'land-voice-estate', 'land-sell-passes',
+    'land-mature', 'land-see-avs', 'land-category',
     'land-music', 'land-media',
     'land-terraform', 'land-entry-all', 'land-entry-group', 'land-deed-allow',
     'land-landing-type', 'land-autoreturn',
@@ -116,6 +118,18 @@ const BeeLand = (function () {
     ].forEach(function (id) {
       const el = document.getElementById(id) as HTMLInputElement | null;
       if (el) el.disabled = !canEdit;
+    });
+    // The avatar visibility/sound trio can only travel in the capability body.
+    // Where the region offers no capability the save falls back to UDP, which
+    // cannot carry them - so show them, but don't invite an edit that would
+    // quietly do nothing.
+    const parcel = BeeState.get().parcel;
+    const capFields = !parcel || parcel.canEditCapFields !== false;
+    ['land-see-avs', 'land-av-sounds-all', 'land-av-sounds-group'].forEach(function (id) {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      if (!el) return;
+      el.disabled = !canEdit || !capFields;
+      el.title = capFields ? '' : 'This region cannot save this setting.';
     });
     const submit = document.getElementById('land-apply') as HTMLButtonElement | null || form.querySelector('[type="submit"]');
     if (submit) submit.disabled = !canEdit;
@@ -237,7 +251,14 @@ const BeeLand = (function () {
     setFieldValue('land-safe', parcel.safeEnvironment !== false);
     setFieldValue('land-search', parcel.showInSearch);
     setFieldValue('land-sound-local', parcel.soundLocal);
+    // Absent means allowed, the same legacy default the core applies.
+    setFieldValue('land-av-sounds-all', parcel.anyAvSounds !== false);
+    setFieldValue('land-av-sounds-group', parcel.groupAvSounds !== false);
+    setFieldValue('land-see-avs', parcel.seeAvs !== false);
     setFieldValue('land-voice', parcel.allowVoice !== false);
+    setFieldValue('land-voice-estate', parcel.voiceUseEstate);
+    setFieldValue('land-mature', parcel.maturePublish);
+    setFieldValue('land-category', parcel.category || 0);
     setFieldValue('land-sell-passes', parcel.sellPasses);
     setFieldValue('land-music', parcel.musicUrl || '');
     setFieldValue('land-media', parcel.mediaUrl || '');
@@ -369,6 +390,19 @@ const BeeLand = (function () {
     show('land-abandon', online && mine);
   }
 
+  // A control that isn't in the DOM must not contribute a key at all.
+  // Object.assign happily copies an undefined over the sim's real value, and
+  // JSON.stringify then drops the key on the way to the core - so the core
+  // falls back to a default and a missing checkbox becomes a silent settings
+  // change. Dropping the key here keeps the baseline value instead.
+  function omitUndefined(o) {
+    const out = {};
+    Object.keys(o).forEach(function (k) {
+      if (o[k] !== undefined) out[k] = o[k];
+    });
+    return out;
+  }
+
   function collectForm() {
     // Collect every editable control, keeping everyone vs group distinct, so the
     // update can carry them all; the transport folds each into its own PF_ bit.
@@ -376,7 +410,14 @@ const BeeLand = (function () {
       const el = document.getElementById(id) as HTMLInputElement | null;
       return el ? el.checked : undefined;
     };
-    return {
+    // Same rule for numbers: absent control -> no key, never a fabricated 0.
+    const num = function (id) {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      if (!el) return undefined;
+      const n = Number(el.value);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    return omitUndefined({
       // Verbatim, no trim: a parcel named "Beach " must round-trip untouched
       // when the user only toggled a checkbox - silently altering the name on
       // an unrelated save is a wrong save.
@@ -392,6 +433,14 @@ const BeeLand = (function () {
       showInSearch: checked('land-search'),
       soundLocal: checked('land-sound-local'),
       allowVoice: checked('land-voice'),
+      // Only the capability save can carry these three; the UDP fallback
+      // leaves them as the sim already has them.
+      anyAvSounds: checked('land-av-sounds-all'),
+      groupAvSounds: checked('land-av-sounds-group'),
+      seeAvs: checked('land-see-avs'),
+      voiceUseEstate: checked('land-voice-estate'),
+      maturePublish: checked('land-mature'),
+      category: num('land-category'),
       sellPasses: checked('land-sell-passes'),
       musicUrl: (document.getElementById('land-music') as HTMLInputElement).value.trim(),
       mediaUrl: (document.getElementById('land-media') as HTMLInputElement).value.trim(),
@@ -405,10 +454,10 @@ const BeeLand = (function () {
       // "Public access" is stored inverted as PF_USE_ACCESS_LIST.
       useAccessList: !checked('land-access-public'),
       useAccessGroup: checked('land-access-group'),
-      landingType: numberValue('land-landing-type', 0),
-      passPrice: numberValue('land-pass-price', 0),
-      passHours: numberValue('land-pass-hours', 0)
-    };
+      landingType: num('land-landing-type'),
+      passPrice: num('land-pass-price'),
+      passHours: num('land-pass-hours')
+    });
   }
 
   function numberValue(id, fallback) {
@@ -701,7 +750,20 @@ const BeeLand = (function () {
     // localId, the baseline parcelFlags (to fold the checkboxes onto), groupId,
     // snapshotId, the landing point, and so on - collectForm() alone drops them,
     // which would zero those fields on the sim and lose data.
-    const data = Object.assign({}, parcel, collectForm());
+    const form = collectForm();
+    const data = Object.assign({}, parcel, form);
+    // Which save the core should use. The capability replaces the parcel
+    // wholesale, so a field Linden Lab adds later - one this build knows
+    // nothing about and therefore cannot echo back - would be reset to its
+    // default by every capability save. The ordinary message only carries the
+    // fields it defines, leaving anything newer untouched. So ask for the
+    // capability only when the change genuinely needs it: these three settings
+    // exist nowhere else on the wire.
+    const CAP_ONLY = ['seeAvs', 'anyAvSounds', 'groupAvSounds'];
+    data.useCapSave = CAP_ONLY.some(function (k) {
+      // Both sides default to "allowed" when the sim never said otherwise.
+      return form[k] !== undefined && !!form[k] !== (parcel[k] !== false);
+    });
     const btn = document.getElementById('land-apply') as HTMLButtonElement | null || e.target.querySelector('[type="submit"]');
     btn.disabled = true;
     btn.textContent = 'Applying...';

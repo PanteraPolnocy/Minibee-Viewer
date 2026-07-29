@@ -272,6 +272,18 @@ impl Session {
             .unwrap_or_default()
     }
 
+    /// Let one more "use your cached copy" reply trigger a real fetch.
+    ///
+    /// The latch exists to stop an endless request/cached ping-pong, but as a
+    /// once-per-session flag it also killed every later refresh: after a block
+    /// the sim can answer UseCachedMuteList, and the reply was simply dropped.
+    /// Re-arming on each explicit request gives every refresh one retry.
+    pub fn arm_mute_retry(&self) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.mute_asked = false;
+        }
+    }
+
     pub fn is_sit_pending(&self) -> bool {
         self.engine.lock().unwrap().as_ref().map(|s| s.sit_pending).unwrap_or(false)
     }

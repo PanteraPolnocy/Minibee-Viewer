@@ -404,6 +404,16 @@ const BeeBuddies = (function () {
     return BeeBridge.invoke('sl_block_agent', { agentId: id, name: name || '' })
       .then(function () {
         BeeUtils.showToast('Blocked ' + (name || 'resident') + '.', 'success');
+        // The sim stores the list but never echoes an addition back, so the
+        // reference inserts into its own copy and notifies observers the
+        // moment the message goes out. Without that the Block button never
+        // turns into Unblock and the row never appears - the refresh below is
+        // a reconcile, not the source of truth.
+        const key = String(id).toLowerCase();
+        if (!blocked.some(function (p) { return String(p.id).toLowerCase() === key; })) {
+          blocked = blocked.concat([{ id: id, name: name || '', type: 1, flags: 0 }]);
+        }
+        renderBlocked();
         requestBlocked(true);
         return true;
       })

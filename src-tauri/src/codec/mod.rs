@@ -672,7 +672,7 @@ mod tests {
             "RegionHandshakeReply", "PacketAck", "CompletePingCheck",
             "InviteGroupRequest", "RezMultipleAttachmentsFromInv", "AgentAnimation",
             "AgentRequestSit", "AgentSit", "AgentUpdate", "RequestXfer", "ConfirmXferPacket",
-            "MuteListRequest", "DirPlacesQuery",
+            "MuteListRequest", "UpdateMuteListEntry", "RemoveMuteListEntry", "DirPlacesQuery",
             "EstateCovenantRequest", "ParcelAccessListRequest", "ParcelAccessListUpdate",
             "ParcelObjectOwnersRequest", "ParcelReturnObjects", "ParcelSetOtherCleanTime",
             "ParcelBuy", "ParcelRelease", "ParcelBuyPass", "TransferRequest",

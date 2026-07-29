@@ -1667,6 +1667,8 @@ pub async fn sl_resolve_names(state: State<'_, Arc<AppState>>, ids: Vec<String>)
 #[tauri::command]
 pub async fn sl_request_mute_list(state: State<'_, Arc<AppState>>) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
+    // An explicit refresh gets a fresh chance at the "cached copy" retry.
+    s.arm_mute_retry();
     s.send_encoded(
         "MuteListRequest",
         &json!({
@@ -2591,6 +2593,16 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
     if parcel_region_mismatch(&g("regionId"), &s.region_id()) {
         return Err("The land data on screen is from another region - refresh the Land tab first.".into());
     }
+    // And within a region: the engine's own snapshot is the authority on which
+    // parcel we are actually standing on. Walking onto a neighbouring parcel
+    // with the form still open would otherwise write this form's values onto
+    // whatever parcel the id now belongs to. The access-list save has always
+    // checked this; a full parcel save is the one that can lose more.
+    if let Some(snap) = s.parcel_snapshot() {
+        if snap.local_id != gi("localId") {
+            return Err("The land data on screen is stale - refresh the Land tab first.".into());
+        }
+    }
     // Fold the edited checkbox booleans back onto the parcel's CURRENT flags. The UI
     // sends `parcelFlags` (the loaded baseline) plus the booleans; recomputing here
     // preserves the bits the form doesn't expose. Without this, a save would send 0
@@ -2619,6 +2631,35 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
         let heading = parcel.get("landingHeading").and_then(|v| v.as_f64()).unwrap_or(0.0).to_radians();
         json!([heading.cos(), heading.sin(), 0.0])
     });
+    // Which wire to use.
+    //
+    // The reference always prefers the capability, and it can afford to: it
+    // ships in lockstep with the server's own parcel definition, so its
+    // full-replace body always mentions every field that exists. Minibee does
+    // not have that guarantee. If Linden Lab adds a parcel setting tomorrow,
+    // this build cannot echo it back, and a capability save - being a
+    // wholesale replace - would reset it to default every single time.
+    //
+    // The ordinary message carries only the fields it defines and leaves the
+    // rest alone, which makes it the safer default for a viewer that updates
+    // on its own schedule. So it is used unless the edit genuinely needs the
+    // capability: see_avs and the avatar-sound pair exist nowhere else.
+    let needs_cap = parcel.get("useCapSave").and_then(|v| v.as_bool()).unwrap_or(false);
+    if needs_cap && s.cap("ParcelPropertiesUpdate").is_some() {
+        let as_arr = |v: &Value| -> [f64; 3] {
+            let a = v.as_array();
+            let g = |i: usize| a.and_then(|x| x.get(i)).and_then(|n| n.as_f64()).unwrap_or(0.0);
+            [g(0), g(1), g(2)]
+        };
+        let body = crate::bridge::caps::parcel_update_body(
+            &parcel,
+            folded_flags,
+            as_arr(&landing_vec),
+            as_arr(&look_vec),
+        );
+        crate::bridge::caps::update_parcel_via_cap(state.inner(), &s, &body).await?;
+        return Ok(json!({ "ok": true, "via": "cap" }));
+    }
     s.send_encoded(
         "ParcelPropertiesUpdate",
         &json!({
@@ -2640,7 +2681,7 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
         true,
     )
     .await;
-    Ok(json!({ "ok": true }))
+    Ok(json!({ "ok": true, "via": "udp" }))
 }
 
 // --- Circuit commands -------------------------------------------------------

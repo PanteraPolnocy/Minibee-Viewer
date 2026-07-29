@@ -721,7 +721,11 @@ const BeeProfile = (function () {
     const notes = String(profile.notes || '');
     return '<div class="profile-pane profile-pane--notes">' +
       '<p class="profile-notes-hint">Your private notes about this person. Only you can see them.</p>' +
+      // Whose notes these are. The draft-preserving rebuild in renderAvatar
+      // reads this back: text typed about one resident must never be carried
+      // into another resident's field, where a Save would file it against them.
       '<textarea id="profile-notes-input" class="profile-notes-input" rows="10" maxlength="65530" ' +
+        'data-avatar-id="' + BeeUtils.escapeHtml(String(profile.avatarId || '')) + '" ' +
         (loaded ? '' : 'readonly ') +
         'placeholder="' + (loaded ? 'Add private notes...' : 'Loading notes...') + '">' +
         BeeUtils.escapeHtml(notes) + '</textarea>' +
@@ -870,6 +874,13 @@ const BeeProfile = (function () {
 
     notesSave.addEventListener('click', function () {
       if (notesSave.disabled) return;
+      // Never file notes against a resident the field does not belong to. The
+      // pane is rebuilt on every async reply, so this asserts that what is on
+      // screen is still about the person this handler was bound for.
+      if (notesInput.dataset.avatarId !== String(profile.avatarId || '')) {
+        setNotesStatus('Notes belong to a different resident - reopen the profile.', 'error');
+        return;
+      }
       const text = notesInput.value || '';
       if (typeof BeeTransport.saveAvatarNotes !== 'function') return;
       const token = ++notesSaveToken;
@@ -1503,8 +1514,15 @@ const BeeProfile = (function () {
     // fetch), and each arrival re-renders this whole pane. Preserve an
     // in-progress notes draft across the rebuild - otherwise typing gets
     // silently wiped by whichever reply lands next.
+    //
+    // Only ever from the SAME resident's pane: opening someone else's profile
+    // reuses this container, so without the id check the previous person's
+    // notes were restored into the new one - and saving there would have filed
+    // them against the wrong resident.
     const oldNotes = content.querySelector<HTMLTextAreaElement>('#profile-notes-input');
-    const draft = oldNotes && oldNotes.value !== String(profile.notes || '')
+    const sameAvatar = !!oldNotes &&
+      oldNotes.dataset.avatarId === String(profile.avatarId || '');
+    const draft = oldNotes && sameAvatar && oldNotes.value !== String(profile.notes || '')
       ? {
           value: oldNotes.value,
           focused: document.activeElement === oldNotes,

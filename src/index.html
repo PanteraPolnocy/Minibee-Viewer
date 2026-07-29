@@ -749,6 +749,34 @@
                   <span>Show in search</span>
                 </label>
                 <label class="field field--checkbox">
+                  <input type="checkbox" id="land-mature">
+                  <span>Moderate content</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-see-avs">
+                  <span>Avatars on other parcels can see and chat with avatars here</span>
+                </label>
+                <label class="field">
+                  <span class="field__label">Category</span>
+                  <select id="land-category">
+                    <option value="0">Any category</option>
+                    <option value="1">Linden Location</option>
+                    <option value="2">Adult</option>
+                    <option value="3">Arts &amp; Culture</option>
+                    <option value="4">Business</option>
+                    <option value="5">Educational</option>
+                    <option value="6">Gaming</option>
+                    <option value="7">Hangout</option>
+                    <option value="8">Newcomer Friendly</option>
+                    <option value="9">Parks &amp; Nature</option>
+                    <option value="10">Residential</option>
+                    <option value="11">Shopping</option>
+                    <option value="12">Stage</option>
+                    <option value="13">Other</option>
+                    <option value="14">Rental</option>
+                  </select>
+                </label>
+                <label class="field field--checkbox">
                   <input type="checkbox" id="land-terraform">
                   <span>Allow terraforming</span>
                 </label>
@@ -815,11 +843,23 @@
                 <p class="field-hint">Playback controls appear in the top bar when this parcel streams music.</p>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-sound-local">
-                  <span>Restrict sounds to parcel</span>
+                  <span>Restrict gesture and object sounds to this parcel</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-av-sounds-all">
+                  <span>Avatar sounds: everyone</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-av-sounds-group">
+                  <span>Avatar sounds: group</span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-voice">
                   <span>Voice enabled</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-voice-estate">
+                  <span>Use the estate's voice channel</span>
                 </label>
               </fieldset>
             </div>

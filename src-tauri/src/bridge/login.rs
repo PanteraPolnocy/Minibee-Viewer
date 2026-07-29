@@ -449,6 +449,7 @@ const CAPS_WE_USE: &[&str] = &[
     "GetObjectCost",
     "InterestList",
     "ObjectMedia",
+    "ParcelPropertiesUpdate",
     "RegionExperiences",
     "RemoteParcelRequest",
 ];
