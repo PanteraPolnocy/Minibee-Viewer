@@ -842,7 +842,30 @@ const BeeChat = (function () {
     el.dataset.id = msg.id;
 
     if (isSystem) {
-      el.innerHTML = '<p class="msg__body">' + BeeSlurl.linkify(msg.text, BeeUtils.escapeHtml) + '</p>';
+      const body = document.createElement('p');
+      body.className = 'msg__body';
+      const segments = BeeSlurl.scanLinks(msg.text);
+      segments.forEach(function (seg) {
+        if (seg.type === 'text') {
+          body.appendChild(document.createTextNode(String(seg.text || '')));
+          return;
+        }
+        const link = document.createElement('a');
+        link.setAttribute('href', '#');
+        if (seg.kind === 'slurl') {
+          link.className = 'slurl-link';
+          link.setAttribute('title', String(seg.url || ''));
+          link.setAttribute('data-slurl', String(seg.url || ''));
+        } else {
+          link.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
+          link.setAttribute('title', String(seg.url || ''));
+          link.setAttribute('data-url', String(seg.url || ''));
+          link.setAttribute('data-trusted', seg.trusted ? '1' : '0');
+        }
+        link.textContent = String(seg.label || '');
+        body.appendChild(link);
+      });
+      el.appendChild(body);
       BeeSlurl.bindLinks(el);
       return el;
     }
