@@ -1,5 +1,3 @@
-﻿// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Tab navigation and the shell chrome around it - the top bar, nav badges, and status readouts.
  */
@@ -44,7 +42,7 @@ const BeeNavigation = (function () {
     BeeState.patch({ unreadRadar: 0 });
   }
 
-  function syncRadarKnown(entries) {
+  function syncRadarKnown(entries?) {
     const s = BeeState.get();
     radarKnownIds.clear();
     (entries || s.radar || []).forEach(function (entry) {
@@ -155,7 +153,10 @@ const BeeNavigation = (function () {
   function switchTab(tab) {
     if (TABS.indexOf(tab) === -1) return;
 
-    const patch = { activeTab: tab };
+    const patch: {
+      activeTab: any; unreadChat?: number; unreadIm?: number;
+      unreadEvents?: number; unreadRadar?: number; landUpdated?: boolean;
+    } = { activeTab: tab };
     if (tab === 'chat') patch.unreadChat = 0;
     if (tab === 'im') {
       patch.unreadIm = 0;
@@ -270,7 +271,7 @@ const BeeNavigation = (function () {
   function updateTopBar() {
     const s = BeeState.get();
     const dot = document.getElementById('status-dot');
-    const name = document.getElementById('agent-name');
+    const name = document.getElementById('agent-name') as HTMLButtonElement | null;
     const region = document.getElementById('region-name');
     const parcelLine = document.getElementById('parcel-line');
     const fps = document.getElementById('fps-badge');
@@ -299,7 +300,7 @@ const BeeNavigation = (function () {
       name.classList.toggle('top-bar__name--interactive', canOpenProfile);
       name.title = canOpenProfile ? 'View your profile' : '';
       if (name.tagName === 'BUTTON') name.disabled = !canOpenProfile;
-      const identity = document.querySelector('.top-bar__identity');
+      const identity = document.querySelector<HTMLElement>('.top-bar__identity');
       if (identity) {
         identity.classList.toggle('top-bar__identity--interactive', canOpenProfile);
         identity.title = canOpenProfile ? 'View your profile' : '';
@@ -367,7 +368,7 @@ const BeeNavigation = (function () {
     // Tapping anywhere else, or pressing Escape, puts it away.
     document.addEventListener('click', function (e) {
       if (menu.hidden) return;
-      if (!menu.contains(e.target) && e.target !== btn) setBeeMenuOpen(false);
+      if (!menu.contains(e.target as Node) && e.target !== btn) setBeeMenuOpen(false);
     });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') setBeeMenuOpen(false);
@@ -460,7 +461,7 @@ const BeeNavigation = (function () {
       menu.appendChild(btn);
     }
 
-    center.addEventListener('contextmenu', function (e) {
+    center.addEventListener('contextmenu', function (e: MouseEvent) {
       e.preventDefault();
       e.stopPropagation();
       const s = BeeState.get();

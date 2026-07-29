@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Instant messaging panel.
  */
@@ -179,7 +177,7 @@ const BeeIm = (function () {
     if (!container) return;
     container.innerHTML = '';
 
-    const sessions = Object.values(BeeState.get().imSessions).filter(function (session) {
+    const sessions = (Object.values(BeeState.get().imSessions) as any[]).filter(function (session) {
       return !session.dismissed;
     });
     sessions.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
@@ -417,14 +415,14 @@ const BeeIm = (function () {
     const empty = document.getElementById('im-empty');
     const messages = document.getElementById('im-messages');
     const form = document.getElementById('im-form');
-    const input = document.getElementById('im-input');
-    const tpOffer = document.getElementById('im-tp-offer');
-    const tpRequest = document.getElementById('im-tp-request');
-    const profileBtn = document.getElementById('im-profile');
-    const payBtn = document.getElementById('im-pay');
-    const friendBtn = document.getElementById('im-friend');
-    const blockBtn = document.getElementById('im-block');
-    const closeBtn = document.getElementById('im-close');
+    const input = document.getElementById('im-input') as HTMLTextAreaElement | null;
+    const tpOffer = document.getElementById('im-tp-offer') as HTMLButtonElement | null;
+    const tpRequest = document.getElementById('im-tp-request') as HTMLButtonElement | null;
+    const profileBtn = document.getElementById('im-profile') as HTMLButtonElement | null;
+    const payBtn = document.getElementById('im-pay') as HTMLButtonElement | null;
+    const friendBtn = document.getElementById('im-friend') as HTMLButtonElement | null;
+    const blockBtn = document.getElementById('im-block') as HTMLButtonElement | null;
+    const closeBtn = document.getElementById('im-close') as HTMLButtonElement | null;
     const hasSession = !!sessionId;
     const session = hasSession ? BeeState.get().imSessions[sessionId] : null;
     const sessionChat = isSessionChat(session);
@@ -439,9 +437,9 @@ const BeeIm = (function () {
       : true;
     const body = document.getElementById('im-thread-body');
     const roster = document.getElementById('im-roster');
-    const membersBtn = document.getElementById('im-members');
-    const inviteBtn = document.getElementById('im-invite');
-    const muteSessionBtn = document.getElementById('im-mute-session');
+    const membersBtn = document.getElementById('im-members') as HTMLButtonElement | null;
+    const inviteBtn = document.getElementById('im-invite') as HTMLButtonElement | null;
+    const muteSessionBtn = document.getElementById('im-mute-session') as HTMLButtonElement | null;
     const isConference = sessionChat && session && session.type === 'conference';
 
     if (layout) layout.classList.toggle('im-layout--active', hasSession);
@@ -451,7 +449,7 @@ const BeeIm = (function () {
     if (form) form.classList.toggle('composer--disabled', !hasSession);
     if (input) input.disabled = !hasSession;
     if (form) {
-      const sendBtn = form.querySelector('[type="submit"]');
+      const sendBtn = form.querySelector<HTMLButtonElement>('[type="submit"]');
       if (sendBtn) sendBtn.disabled = !hasSession;
     }
     [profileBtn, payBtn, friendBtn, tpOffer, tpRequest].forEach(function (btn) {
@@ -520,10 +518,10 @@ const BeeIm = (function () {
   }
 
   function openPayDialog(participant) {
-    const dialog = document.getElementById('pay-dialog');
+    const dialog = document.getElementById('pay-dialog') as HTMLDialogElement | null;
     const nameEl = document.getElementById('pay-target-name');
-    const amountEl = document.getElementById('pay-amount');
-    const noteEl = document.getElementById('pay-note');
+    const amountEl = document.getElementById('pay-amount') as HTMLInputElement | null;
+    const noteEl = document.getElementById('pay-note') as HTMLInputElement | null;
     if (!dialog || !participant) return;
     const names = nameLines(participant);
     if (nameEl) nameEl.textContent = 'Pay ' + (names.title || participant.name || 'resident');
@@ -572,10 +570,10 @@ const BeeIm = (function () {
     openSession(groupId);
   }
 
-  function openConferenceDialog(preselectIds, options?) {
-    const dialog = document.getElementById('conference-dialog');
+  function openConferenceDialog(preselectIds?, options?) {
+    const dialog = document.getElementById('conference-dialog') as HTMLDialogElement | null;
     const picker = document.getElementById('conference-picker');
-    const titleEl = document.getElementById('conference-title');
+    const titleEl = document.getElementById('conference-title') as HTMLInputElement | null;
     const titleField = document.getElementById('conference-title-field');
     const heading = document.getElementById('conference-dialog-title');
     const submit = document.getElementById('conference-submit');
@@ -634,7 +632,10 @@ const BeeIm = (function () {
         // The filter key favours the account/user name (what people type to look
         // someone up) but also includes the display name, so either one matches.
         row.setAttribute('data-filter',
-          [buddy.userName, nl.userName, nl.displayName, label].filter(Boolean).join(' ').toLowerCase());
+          // nameLines returns { title, subtitle } - the previous nl.userName /
+          // nl.displayName here were always undefined, so the resolved username
+          // never made it into the filter key. subtitle is that username.
+          [buddy.userName, nl.subtitle, label].filter(Boolean).join(' ').toLowerCase());
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.value = buddy.id;
@@ -652,7 +653,7 @@ const BeeIm = (function () {
   function handleSubmit(e) {
     e.preventDefault();
     const sessionId = BeeState.get().activeImSession;
-    const input = document.getElementById('im-input');
+    const input = document.getElementById('im-input') as HTMLTextAreaElement | null;
     const text = input.value.trim();
     if (!sessionId || !text || !BeeState.gridOnline()) return;
 
@@ -686,14 +687,14 @@ const BeeIm = (function () {
       syncImLayout();
       renderSessions();
     });
-    const closeBtn = document.getElementById('im-close');
+    const closeBtn = document.getElementById('im-close') as HTMLButtonElement | null;
     if (closeBtn) {
       closeBtn.addEventListener('click', function () {
         const sessionId = BeeState.get().activeImSession;
         if (sessionId) closeSession(sessionId);
       });
     }
-    const membersBtn = document.getElementById('im-members');
+    const membersBtn = document.getElementById('im-members') as HTMLButtonElement | null;
     if (membersBtn) {
       membersBtn.addEventListener('click', function () {
         rosterVisible = !rosterVisible;
@@ -701,7 +702,7 @@ const BeeIm = (function () {
         syncImLayout();
       });
     }
-    const inviteBtn = document.getElementById('im-invite');
+    const inviteBtn = document.getElementById('im-invite') as HTMLButtonElement | null;
     if (inviteBtn) {
       inviteBtn.addEventListener('click', function () {
         const sid = BeeState.get().activeImSession;
@@ -711,7 +712,7 @@ const BeeIm = (function () {
         openConferenceDialog([], { mode: 'invite', sessionId: sid, excludeIds: existing });
       });
     }
-    const muteSessionBtn = document.getElementById('im-mute-session');
+    const muteSessionBtn = document.getElementById('im-mute-session') as HTMLButtonElement | null;
     if (muteSessionBtn) {
       muteSessionBtn.addEventListener('click', function () {
         const sid = BeeState.get().activeImSession;
@@ -723,7 +724,7 @@ const BeeIm = (function () {
         renderSessions();
       });
     }
-    const imInput = document.getElementById('im-input');
+    const imInput = document.getElementById('im-input') as HTMLTextAreaElement | null;
     if (imInput) {
       resetImInputHeight = BeeUtils.bindAutoGrowTextarea(imInput, { maxRows: 3 });
       imInput.addEventListener('input', function () {
@@ -736,7 +737,7 @@ const BeeIm = (function () {
     if (newConfBtn) {
       newConfBtn.addEventListener('click', function () { openConferenceDialog(); });
     }
-    const conferenceDialog = document.getElementById('conference-dialog');
+    const conferenceDialog = document.getElementById('conference-dialog') as HTMLDialogElement | null;
     const conferenceForm = document.getElementById('conference-form');
     const conferenceCancel = document.getElementById('conference-cancel');
     if (conferenceCancel && conferenceDialog) {
@@ -787,29 +788,29 @@ const BeeIm = (function () {
         if (tab) BeeNavigation.switchTab(tab);
       });
     });
-    document.getElementById('im-profile').addEventListener('click', function () {
+    (document.getElementById('im-profile') as HTMLButtonElement).addEventListener('click', function () {
       const participant = getActiveParticipant();
       if (!participant || !participant.id) return;
       BeeProfile.openAvatar(participant.id, { agent: participant });
     });
-    document.getElementById('im-tp-offer').addEventListener('click', function () {
+    (document.getElementById('im-tp-offer') as HTMLButtonElement).addEventListener('click', function () {
       const session = BeeState.get().imSessions[BeeState.get().activeImSession];
       if (!session || !session.participant) return;
       BeeTeleportUI.offerTo(session.participant.id, session.participant.name, session.participant);
     });
-    document.getElementById('im-tp-request').addEventListener('click', function () {
+    (document.getElementById('im-tp-request') as HTMLButtonElement).addEventListener('click', function () {
       const session = BeeState.get().imSessions[BeeState.get().activeImSession];
       if (!session || !session.participant) return;
       BeeTeleportUI.requestFrom(session.participant.id, session.participant.name, session.participant);
     });
-    document.getElementById('im-pay').addEventListener('click', function () {
+    (document.getElementById('im-pay') as HTMLButtonElement).addEventListener('click', function () {
       const participant = getActiveParticipant();
       if (!participant) return;
       openPayDialog(participant);
     });
     BeeTransport.on('mute-list', function () { syncImLayout(); });
 
-    const imBlockBtn = document.getElementById('im-block');
+    const imBlockBtn = document.getElementById('im-block') as HTMLButtonElement | null;
     if (imBlockBtn) {
       imBlockBtn.addEventListener('click', async function () {
         const participant = getActiveParticipant();
@@ -833,7 +834,7 @@ const BeeIm = (function () {
         syncImLayout();
       });
     }
-    document.getElementById('im-friend').addEventListener('click', async function () {
+    (document.getElementById('im-friend') as HTMLButtonElement).addEventListener('click', async function () {
       const participant = getActiveParticipant();
       if (!participant || !participant.id) return;
       const names = nameLines(participant);
@@ -858,7 +859,7 @@ const BeeIm = (function () {
       });
     });
     const payForm = document.getElementById('pay-form');
-    const payDialog = document.getElementById('pay-dialog');
+    const payDialog = document.getElementById('pay-dialog') as HTMLDialogElement | null;
     const payCancel = document.getElementById('pay-cancel');
     if (payCancel && payDialog) {
       payCancel.addEventListener('click', function () {
@@ -869,8 +870,8 @@ const BeeIm = (function () {
       payForm.addEventListener('submit', function (e) {
         e.preventDefault();
         const targetId = payDialog.dataset.targetId;
-        const amount = parseInt(document.getElementById('pay-amount').value, 10);
-        const note = document.getElementById('pay-note').value.trim();
+        const amount = parseInt((document.getElementById('pay-amount') as HTMLInputElement).value, 10);
+        const note = (document.getElementById('pay-note') as HTMLInputElement).value.trim();
         if (!targetId || !amount || amount < 1) return;
         BeeTransport.payResident(targetId, amount, note).then(function (result) {
           if (result && result.sent) {

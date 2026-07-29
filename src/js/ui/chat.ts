@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Nearby chat panel - renders the message stream along with the dialogs and prompts that come through it.
  */
@@ -233,7 +231,7 @@ const BeeChat = (function () {
     });
   }
 
-  function resolveInteractivePrompt(msg, el, action, responseLabel) {
+  function resolveInteractivePrompt(msg, el, action, responseLabel?) {
     if (!msg || !msg.prompt || msg.prompt.resolved) return Promise.resolve();
     const prompt = msg.prompt;
     const finish = function (label) {
@@ -798,7 +796,7 @@ const BeeChat = (function () {
 
     BeeSlurl.bindLinks(el);
     if (prompt && !prompt.resolved) bindInteractivePrompt(el, msg);
-    const groupEl = el.querySelector('.group-notice__group');
+    const groupEl = el.querySelector<HTMLElement>('.group-notice__group');
     if (groupEl && msg.groupId && typeof BeeProfile !== 'undefined') {
       groupEl.classList.add('msg__name--link');
       groupEl.title = 'View group profile';
@@ -875,7 +873,7 @@ const BeeChat = (function () {
     const thumb = el.querySelector('.msg__avatar[data-agent-id]');
     if (thumb) BeeAvatarThumb.refresh(thumb);
     if (typeof BeeProfile !== 'undefined') {
-      const nameEl = el.querySelector('.msg__name');
+      const nameEl = el.querySelector<HTMLElement>('.msg__name');
       if (nameEl && isObject && msg.ownerId) {
         // For an object, the name links through to its owner rather than to an
         // avatar profile keyed by the object's own UUID.
@@ -896,7 +894,7 @@ const BeeChat = (function () {
     return el;
   }
 
-  function appendMessage(msg, scroll, listId) {
+  function appendMessage(msg, scroll?, listId?) {
     const list = document.getElementById(listId || 'chat-messages');
     if (!list) return;
     // Respect where the user is reading: only auto-scroll when they're already
@@ -907,7 +905,7 @@ const BeeChat = (function () {
     if (scroll === true || pinned) list.scrollTop = list.scrollHeight;
   }
 
-  function updateMessage(msg, listId) {
+  function updateMessage(msg, listId?) {
     const list = document.getElementById(listId || 'chat-messages');
     if (!list || !msg || !msg.id) return;
     const existing = list.querySelector('[data-id="' + msg.id + '"]');
@@ -940,11 +938,11 @@ const BeeChat = (function () {
 
   function handleSubmit(e) {
     e.preventDefault();
-    const input = document.getElementById('chat-input');
+    const input = document.getElementById('chat-input') as HTMLTextAreaElement;
     const text = input.value.trim();
     if (!text || !BeeState.gridOnline()) return;
 
-    const volume = document.getElementById('chat-volume').value || 'normal';
+    const volume = (document.getElementById('chat-volume') as HTMLSelectElement).value || 'normal';
 
     BeeTransport.sendChat(text, { type: volume });
     input.value = '';

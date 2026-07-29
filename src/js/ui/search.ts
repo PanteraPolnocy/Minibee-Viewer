@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Search panel for avatars, places, and groups.
  */
@@ -19,8 +17,9 @@ const BeeSearch = (function () {
     places: { query: '', rows: [], status: '', hasMore: false, nextStart: 0 }
   };
 
-  function el(id) {
-    return document.getElementById(id);
+  // Callers that need a form control ask for it: el<HTMLInputElement>('...').
+  function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
   }
 
   function setStatus(text) {
@@ -33,12 +32,12 @@ const BeeSearch = (function () {
 
   function setSearching(active) {
     searching = active;
-    const input = el('search-input');
-    const runBtn = el('search-run');
+    const input = el<HTMLInputElement>('search-input');
+    const runBtn = el<HTMLButtonElement>('search-run');
     const panel = el('panel-search');
     if (panel) panel.classList.toggle('panel-search--busy', active);
     if (input) input.disabled = active;
-    document.querySelectorAll<HTMLElement>('.search-kind').forEach(function (btn) {
+    document.querySelectorAll<HTMLButtonElement>('.search-kind').forEach(function (btn) {
       btn.disabled = active;
     });
     if (runBtn) {
@@ -107,7 +106,11 @@ const BeeSearch = (function () {
 
   function startImAvatar(row) {
     if (!row || !row.id) return;
-    const participant = {
+    // online/region are only known for a resident the search says is present.
+    const participant: {
+      id: any; name: string; userName: string; displayName: string;
+      online?: boolean; region?: any;
+    } = {
       id: row.id,
       name: row.name || row.displayName || row.userName || 'Resident',
       userName: row.userName || '',
@@ -324,8 +327,8 @@ const BeeSearch = (function () {
       '<div class="search-result__detail" hidden></div>';
 
     const toggle = li.querySelector('.search-result__toggle');
-    const detail = li.querySelector('.search-result__detail');
-    const mapBtn = li.querySelector('[data-action="map"]');
+    const detail = li.querySelector<HTMLElement>('.search-result__detail');
+    const mapBtn = li.querySelector<HTMLButtonElement>('[data-action="map"]');
     if (mapBtn) {
       mapBtn.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -397,7 +400,7 @@ const BeeSearch = (function () {
     list.appendChild(li);
   }
 
-  function renderResults(rows, statusOverride) {
+  function renderResults(rows, statusOverride?) {
     const list = el('search-results');
     if (!list) return;
     list.innerHTML = '';
@@ -416,10 +419,10 @@ const BeeSearch = (function () {
 
   // `loadMore` re-runs the cached query at the next page offset and appends;
   // otherwise this is a fresh page-0 search of whatever is in the input.
-  async function runSearch(loadMore) {
+  async function runSearch(loadMore?) {
     if (searching) return;
     const cached = resultCache[activeKind];
-    const input = el('search-input');
+    const input = el<HTMLInputElement>('search-input');
     const query = loadMore ? (cached && cached.query) || '' : (input ? input.value.trim() : '');
     const start = loadMore ? (cached && cached.nextStart) || 0 : 0;
     const searchQuery = query;
@@ -476,7 +479,7 @@ const BeeSearch = (function () {
       btn.classList.toggle('search-kind--active', active);
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
-    const input = el('search-input');
+    const input = el<HTMLInputElement>('search-input');
     if (input) {
       const placeholders = {
         avatars: 'Search people by username...',
@@ -502,8 +505,8 @@ const BeeSearch = (function () {
   function bindOnce() {
     if (bound) return;
     bound = true;
-    const input = el('search-input');
-    const runBtn = el('search-run');
+    const input = el<HTMLInputElement>('search-input');
+    const runBtn = el<HTMLButtonElement>('search-run');
     if (input) {
       input.minLength = MIN_SEARCH_LEN;
       input.addEventListener('keydown', function (e) {

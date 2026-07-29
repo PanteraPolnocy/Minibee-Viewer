@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Parcel music streaming, built on a plain HTMLAudioElement.
  *
@@ -16,7 +14,15 @@ const BeeParcelMusic = (function () {
   let volume = 0.5;
   let playing = false;
   let triedSecureUrl = false;
-  const els = {};
+  // The top-bar music control's parts, filled in once the DOM is ready.
+  const els: {
+    root?: HTMLElement | null;
+    toggle?: HTMLButtonElement | null;
+    iconOn?: HTMLElement | null;
+    iconOff?: HTMLElement | null;
+    volume?: HTMLInputElement | null;
+    now?: HTMLElement | null;
+  } = {};
 
   function setNow(text) {
     const t = text || '';
@@ -218,10 +224,10 @@ const BeeParcelMusic = (function () {
 
   function init() {
     els.root = document.getElementById('parcel-music');
-    els.toggle = document.getElementById('parcel-music-toggle');
+    els.toggle = document.getElementById('parcel-music-toggle') as HTMLButtonElement | null;
     els.iconOn = document.getElementById('parcel-music-icon-on');
     els.iconOff = document.getElementById('parcel-music-icon-off');
-    els.volume = document.getElementById('parcel-music-volume');
+    els.volume = document.getElementById('parcel-music-volume') as HTMLInputElement | null;
     els.now = document.getElementById('parcel-music-now');
 
     if (typeof BeeSettings !== 'undefined') {

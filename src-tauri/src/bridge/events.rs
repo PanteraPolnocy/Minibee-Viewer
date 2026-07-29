@@ -54,6 +54,12 @@ pub struct SitState {
     pub sitting: bool,
     /// The object sat on, or empty when standing.
     pub object_id: String,
+    /// Why the sit did not happen, when a request was refused or timed out.
+    /// Omitted entirely on the ordinary sit/stand updates, so those keep the
+    /// exact two-field shape the interface has always received.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<String>,
 }
 
 #[cfg(test)]
@@ -81,9 +87,24 @@ mod tests {
 
     #[test]
     fn sit_state_serialises_to_the_documented_shape() {
-        let seated = payload(SitState { sitting: true, object_id: "abc".into() });
+        let seated = payload(SitState { sitting: true, object_id: "abc".into(), error: None });
         assert_eq!(seated, json!({ "sitting": true, "objectId": "abc" }));
-        let standing = payload(SitState { sitting: false, object_id: String::new() });
+        let standing = payload(SitState { sitting: false, object_id: String::new(), error: None });
         assert_eq!(standing, json!({ "sitting": false, "objectId": "" }));
+    }
+
+    #[test]
+    fn sit_state_carries_a_refusal_reason_only_when_there_is_one() {
+        // A refused sit adds the field; the ordinary updates above must not,
+        // or every stand would look like a failure to the interface.
+        let refused = payload(SitState {
+            sitting: false,
+            object_id: String::new(),
+            error: Some("Could not sit there.".into()),
+        });
+        assert_eq!(
+            refused,
+            json!({ "sitting": false, "objectId": "", "error": "Could not sit there." })
+        );
     }
 }

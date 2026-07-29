@@ -37,4 +37,10 @@ type SitState = { sitting: boolean,
 /**
  * The object sat on, or empty when standing.
  */
-objectId: string, };
+objectId: string, 
+/**
+ * Why the sit did not happen, when a request was refused or timed out.
+ * Omitted entirely on the ordinary sit/stand updates, so those keep the
+ * exact two-field shape the interface has always received.
+ */
+error?: string, };

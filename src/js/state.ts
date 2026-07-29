@@ -320,7 +320,7 @@ const BeeState = (function () {
     return true;
   }
 
-  function setSessionTyping(sessionId, typing, fromName) {
+  function setSessionTyping(sessionId, typing, fromName?) {
     const session = state.imSessions[sessionId];
     if (!session) return false;
     const active = !!typing;
@@ -332,7 +332,7 @@ const BeeState = (function () {
     return true;
   }
 
-  function setSessionMuted(sessionId, muted) {
+  function setSessionMuted(sessionId, muted?) {
     const session = state.imSessions[sessionId];
     if (!session) return false;
     const next = muted === undefined ? !session.muted : !!muted;

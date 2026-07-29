@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Interactions panel: what's nearby, and what your avatar can do.
  *
@@ -28,7 +26,7 @@ const BeeInteract = (function () {
     if (label) label.textContent = describe();
     const online = BeeState.gridOnline();
     const set = function (id, enabled) {
-      const btn = document.getElementById(id);
+      const btn = document.getElementById(id) as HTMLButtonElement | null;
       if (btn) btn.disabled = !(online && enabled);
     };
     // Only offer what makes sense: no point sitting twice, or landing mid-stand.
@@ -343,7 +341,7 @@ const BeeInteract = (function () {
 
   function setObjectsControlsBusy(busy) {
     ['objects-refresh', 'objects-include-attachments', 'objects-include-physical', 'objects-range'].forEach(function (id) {
-      const el = document.getElementById(id);
+      const el = document.getElementById(id) as HTMLInputElement | null;
       if (el) el.disabled = busy;
     });
   }
@@ -544,7 +542,7 @@ const BeeInteract = (function () {
       BeeUtils.escapeHtml(groupLabel(id)) + '</a></span></div>';
   }
 
-  function openProfile(id, kind) {
+  function openProfile(id, kind?) {
     if (!id || typeof BeeProfile === 'undefined') return;
     if (kind === 'group' || (BeeTransport.getGroupName && BeeTransport.getGroupName(id)) ||
         (typeof BeeProfiles !== 'undefined' && BeeProfiles.getGroupName && BeeProfiles.getGroupName(id))) {
@@ -562,12 +560,12 @@ const BeeInteract = (function () {
 
   function closeDetails() {
     openDetailId = '';
-    const dlg = document.getElementById('objects-detail');
+    const dlg = document.getElementById('objects-detail') as HTMLDialogElement | null;
     if (dlg && dlg.open) dlg.close();
   }
 
   function showDetails(obj) {
-    const dlg = document.getElementById('objects-detail');
+    const dlg = document.getElementById('objects-detail') as HTMLDialogElement | null;
     if (!dlg) return;
     openDetailId = obj.id;
     if (!dlg.open) dlg.showModal();
@@ -652,14 +650,14 @@ const BeeInteract = (function () {
   // Type an amount, then confirm it. The input is inside the detail view rather than
   // a browser prompt, and the confirmation still names the object and the amount.
   function askCustomAmount(obj) {
-    const dlg = document.getElementById('objects-detail');
+    const dlg = document.getElementById('objects-detail') as HTMLDialogElement | null;
     if (!dlg || !dlg.open || openDetailId !== obj.id) {
       showDetails(obj);
     }
     const row = document.getElementById('objects-pay-row');
     if (!row) return;
     row.hidden = false;
-    const input = document.getElementById('objects-pay-amount');
+    const input = document.getElementById('objects-pay-amount') as HTMLInputElement | null;
     if (input) {
       input.value = '';
       input.focus();
@@ -769,7 +767,7 @@ const BeeInteract = (function () {
     const paySend = document.getElementById('objects-pay-send');
     if (paySend) {
       paySend.addEventListener('click', function () {
-        const input = document.getElementById('objects-pay-amount');
+        const input = document.getElementById('objects-pay-amount') as HTMLInputElement | null;
         sendPay(obj, input ? input.value : 0);
       });
     }
@@ -841,7 +839,7 @@ const BeeInteract = (function () {
     if (refreshBtn) refreshBtn.addEventListener('click', refreshObjects);
 
     // How far to look. Remembered, so it's set once rather than every session.
-    const rangeBox = document.getElementById('objects-range');
+    const rangeBox = document.getElementById('objects-range') as HTMLSelectElement | null;
     if (rangeBox) {
       const saved = typeof BeeSettings !== 'undefined' ? Number(BeeSettings.get('objectsRange')) : 0;
       if (RANGE_CHOICES.indexOf(saved) !== -1) range = saved;
@@ -850,7 +848,7 @@ const BeeInteract = (function () {
     }
 
     // Filtering is local to the rows we already have - it sends nothing.
-    const filterBox = document.getElementById('objects-filter');
+    const filterBox = document.getElementById('objects-filter') as HTMLInputElement | null;
     if (filterBox) {
       filterBox.addEventListener('input', BeeUtils.debounce(function () {
         filterText = filterBox.value.trim();
@@ -859,7 +857,7 @@ const BeeInteract = (function () {
     }
 
     function initTypeFilter(id, key, getValue, setValue) {
-      const box = document.getElementById(id);
+      const box = document.getElementById(id) as HTMLInputElement;
       if (!box) return;
       if (typeof BeeSettings !== 'undefined') {
         const saved = BeeSettings.get(key);
@@ -898,14 +896,14 @@ const BeeInteract = (function () {
           setRange(next);
         } else if (key === 'objectsIncludeAttachments') {
           includeAttachments = !!value;
-          const box = document.getElementById('objects-include-attachments');
+          const box = document.getElementById('objects-include-attachments') as HTMLInputElement | null;
           if (box) box.checked = includeAttachments;
           if (objectsLoadBusy) return;
           if (loaded) refreshObjects();
           else renderObjects();
         } else if (key === 'objectsIncludePhysical') {
           includePhysical = !!value;
-          const box = document.getElementById('objects-include-physical');
+          const box = document.getElementById('objects-include-physical') as HTMLInputElement | null;
           if (box) box.checked = includePhysical;
           if (objectsLoadBusy) return;
           if (loaded) refreshObjects();
@@ -915,7 +913,7 @@ const BeeInteract = (function () {
     }
 
     // Escape or the backdrop closes the detail window; keep our own state in step.
-    const dlg = document.getElementById('objects-detail');
+    const dlg = document.getElementById('objects-detail') as HTMLDialogElement | null;
     if (dlg) {
       dlg.addEventListener('close', function () { openDetailId = ''; });
       dlg.addEventListener('click', function (e) {
@@ -1037,7 +1035,7 @@ const BeeInteract = (function () {
       Object.keys(expandedRoots).forEach(function (k) { delete expandedRoots[k]; });
       lastScan = { pending: 0, tracked: 0, cached: 0, nearest: -1, roots: 0, unresolvedParents: 0, attachmentsTracked: 0, attachmentsInRange: 0, interest360: true };
       filterText = '';
-      const box = document.getElementById('objects-filter');
+      const box = document.getElementById('objects-filter') as HTMLInputElement | null;
       if (box) box.value = '';
       closeDetails();
       paint();

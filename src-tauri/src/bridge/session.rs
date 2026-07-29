@@ -1018,6 +1018,7 @@ fn stand_up_on_arrival(state: &mut SessionState) -> Vec<Action> {
         crate::bridge::events::payload(crate::bridge::events::SitState {
             sitting: false,
             object_id: String::new(),
+            error: None,
         }),
     )]
 }
@@ -1073,6 +1074,7 @@ fn track_self(state: &mut SessionState, inst: &Value) -> Vec<Action> {
             crate::bridge::events::payload(crate::bridge::events::SitState {
                 sitting,
                 object_id: state.sit_object.clone(),
+                error: None,
             }),
         ));
     }

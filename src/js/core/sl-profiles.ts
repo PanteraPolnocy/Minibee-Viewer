@@ -241,7 +241,7 @@ const BeeProfiles = (function () {
   /// Every group we belong to, as the raw membership rows (id, name, powers...).
   function getAgentGroups() { return Array.from(membership.values()); }
   function hasAgentProfileCap() { return true; }    // yes, we rely on the AgentProfile HTTP cap
-  function isCapFetchActive() { return false; }
+  function isCapFetchActive(_id?) { return false; }
   // An avatar in a list gets cached from its thumbnail with UDP data only
   // (source 'udp'), but we still need the AgentProfile cap for the full 1st/2nd-life
   // text + account status. So the cap fetch is needed unless we already have cap data.
@@ -292,7 +292,10 @@ const BeeProfiles = (function () {
 
   function invoke(cmd: string, args?: Record<string, unknown>) { return BeeBridge.invoke(cmd, args || {}).catch(function () {}); }
 
-  function fetchAvatarProfile(id) {
+  // Several callers pass an options object (force/quiet). Nothing here reads
+  // it - a fetch always re-requests - so it is accepted and ignored rather
+  // than silently dropped at the call sites.
+  function fetchAvatarProfile(id, _options?) {
     const key = normId(id);
     if (isZero(key)) return Promise.resolve(null);
     invoke('sl_request_avatar_properties', { avatarId: key }); // over UDP: properties + interests + groups
@@ -300,7 +303,7 @@ const BeeProfiles = (function () {
     invoke('sl_request_avatar_notes', { avatarId: key });
     return waitFor('profile:' + key, 12000, function () { return getAvatarProfile(key); });
   }
-  function ensureAvatarExtras(id) {
+  function ensureAvatarExtras(id, _profile?) {
     const key = normId(id);
     if (isZero(key)) return Promise.resolve();
     invoke('sl_request_avatar_notes', { avatarId: key });
@@ -308,13 +311,13 @@ const BeeProfiles = (function () {
     invoke('sl_request_avatar_classifieds', { avatarId: key });
     return Promise.resolve();
   }
-  function fetchGroupProfile(id) {
+  function fetchGroupProfile(id, _options?) {
     const key = normId(id);
     if (isZero(key)) return Promise.resolve(null);
     invoke('sl_request_group_profile', { groupId: key });
     return waitFor('group:' + key, 12000, function () { return getGroupProfile(key); });
   }
-  function fetchGroupTitles(id) {
+  function fetchGroupTitles(id, _options?) {
     const key = normId(id);
     if (isZero(key)) return Promise.resolve(null);
     invoke('sl_group_request_titles', { groupId: key });

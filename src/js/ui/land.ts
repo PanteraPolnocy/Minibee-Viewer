@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Land / parcel management panel - the Land tab's view and edit logic.
  */
@@ -34,7 +32,7 @@ const BeeLand = (function () {
     if (panel) panel.classList.toggle('panel-land--pending', pending);
   }
 
-  function showLoading(message) {
+  function showLoading(message?) {
     setLandPending(true);
     if (typeof BeePanelBusy !== 'undefined') {
       BeePanelBusy.show(PANEL_ID, message || LOADING_MESSAGE);
@@ -49,7 +47,7 @@ const BeeLand = (function () {
   }
 
   function setFieldValue(id, value) {
-    const el = document.getElementById(id);
+    const el = document.getElementById(id) as HTMLInputElement | null;
     if (!el) return;
     if (el.type === 'checkbox') {
       el.checked = !!value;
@@ -59,9 +57,9 @@ const BeeLand = (function () {
   }
 
   function clearDisplay() {
-    const form = document.getElementById('land-form');
+    const form = document.getElementById('land-form') as HTMLFormElement | null;
     if (form) form.reset();
-    const snapshot = document.getElementById('land-snapshot');
+    const snapshot = document.getElementById('land-snapshot') as HTMLImageElement | null;
     if (snapshot) {
       snapshot.hidden = true;
       snapshot.removeAttribute('src');
@@ -85,10 +83,10 @@ const BeeLand = (function () {
   }
 
   function setFormEditable(canEdit) {
-    const form = document.getElementById('land-form');
+    const form = document.getElementById('land-form') as HTMLFormElement | null;
     if (!form) return;
     EDITABLE_IDS.forEach(function (id) {
-      const el = document.getElementById(id);
+      const el = document.getElementById(id) as HTMLInputElement | null;
       if (!el) return;
       if (el.type === 'checkbox' || el.tagName === 'SELECT') {
         el.readOnly = false;
@@ -106,7 +104,7 @@ const BeeLand = (function () {
       'land-estate-name', 'land-estate-owner', 'land-covenant-date', 'land-estate-rules',
       'land-covenant-text'
     ].forEach(function (id) {
-      const el = document.getElementById(id);
+      const el = document.getElementById(id) as HTMLInputElement | null;
       if (!el) return;
       el.disabled = false;
       el.readOnly = true;
@@ -116,10 +114,10 @@ const BeeLand = (function () {
       'land-allow-add-id', 'land-allow-add', 'land-ban-add-id', 'land-ban-hours',
       'land-ban-add', 'land-landing-set', 'land-landing-clear'
     ].forEach(function (id) {
-      const el = document.getElementById(id);
+      const el = document.getElementById(id) as HTMLInputElement | null;
       if (el) el.disabled = !canEdit;
     });
-    const submit = document.getElementById('land-apply') || form.querySelector('[type="submit"]');
+    const submit = document.getElementById('land-apply') as HTMLButtonElement | null || form.querySelector('[type="submit"]');
     if (submit) submit.disabled = !canEdit;
     form.classList.toggle('land-form--readonly', !canEdit);
   }
@@ -133,7 +131,7 @@ const BeeLand = (function () {
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
 
   function updateGroupChatButton(parcel) {
-    const btn = document.getElementById('land-group-chat');
+    const btn = document.getElementById('land-group-chat') as HTMLButtonElement | null;
     if (!btn) return;
     const groupId = parcel && parcel.groupId;
     const hasGroup = !!groupId && groupId !== ZERO_UUID;
@@ -164,7 +162,7 @@ const BeeLand = (function () {
   }
 
   function setProfileField(id, label, entityId, entityType) {
-    const field = document.getElementById(id);
+    const field = document.getElementById(id) as HTMLInputElement | null;
     if (!field) return;
     const text = label || entityId || '';
     field.value = text;
@@ -176,7 +174,7 @@ const BeeLand = (function () {
 
   function bindProfileFields() {
     ['land-owner', 'land-group'].forEach(function (id) {
-      const field = document.getElementById(id);
+      const field = document.getElementById(id) as HTMLInputElement | null;
       if (!field || field.dataset.profileBound) return;
       field.dataset.profileBound = '1';
       field.addEventListener('click', function () {
@@ -270,7 +268,7 @@ const BeeLand = (function () {
       setFieldValue('land-landing', '');
     }
 
-    const snapshot = document.getElementById('land-snapshot');
+    const snapshot = document.getElementById('land-snapshot') as HTMLImageElement | null;
     if (snapshot) {
       if (parcel.snapshotUrl) {
         snapshot.src = parcel.snapshotUrl;
@@ -360,7 +358,7 @@ const BeeLand = (function () {
 
   function updateMoneyActions(parcel) {
     const show = function (id, on) {
-      const btn = document.getElementById(id);
+      const btn = document.getElementById(id) as HTMLButtonElement | null;
       if (btn) btn.hidden = !on;
     };
     const online = BeeState.gridOnline();
@@ -375,15 +373,15 @@ const BeeLand = (function () {
     // Collect every editable control, keeping everyone vs group distinct, so the
     // update can carry them all; the transport folds each into its own PF_ bit.
     const checked = function (id) {
-      const el = document.getElementById(id);
+      const el = document.getElementById(id) as HTMLInputElement | null;
       return el ? el.checked : undefined;
     };
     return {
       // Verbatim, no trim: a parcel named "Beach " must round-trip untouched
       // when the user only toggled a checkbox - silently altering the name on
       // an unrelated save is a wrong save.
-      name: document.getElementById('land-name').value,
-      desc: document.getElementById('land-desc').value,
+      name: (document.getElementById('land-name') as HTMLInputElement).value,
+      desc: (document.getElementById('land-desc') as HTMLTextAreaElement).value,
       pushRestricted: checked('land-push'),
       allowBuildEveryone: checked('land-build-everyone'),
       allowBuildGroup: checked('land-build-group'),
@@ -395,8 +393,8 @@ const BeeLand = (function () {
       soundLocal: checked('land-sound-local'),
       allowVoice: checked('land-voice'),
       sellPasses: checked('land-sell-passes'),
-      musicUrl: document.getElementById('land-music').value.trim(),
-      mediaUrl: document.getElementById('land-media').value.trim(),
+      musicUrl: (document.getElementById('land-music') as HTMLInputElement).value.trim(),
+      mediaUrl: (document.getElementById('land-media') as HTMLInputElement).value.trim(),
       allowTerraform: checked('land-terraform'),
       allowObjectEntryAll: checked('land-entry-all'),
       // Entry for everyone implies entry for the group, the way building does.
@@ -414,7 +412,7 @@ const BeeLand = (function () {
   }
 
   function numberValue(id, fallback) {
-    const el = document.getElementById(id);
+    const el = document.getElementById(id) as HTMLInputElement | null;
     if (!el) return fallback;
     const n = Number(el.value);
     return Number.isFinite(n) ? n : fallback;
@@ -445,7 +443,7 @@ const BeeLand = (function () {
     return cached || id;
   }
 
-  function renderEntryList(listId, entries, onRemove, labelFn) {
+  function renderEntryList(listId, entries, onRemove, labelFn?) {
     const ul = document.getElementById(listId);
     if (!ul) return;
     ul.innerHTML = '';
@@ -508,8 +506,8 @@ const BeeLand = (function () {
     });
   }
 
-  function addToList(which, inputId, hoursId) {
-    const input = document.getElementById(inputId);
+  function addToList(which, inputId, hoursId?) {
+    const input = document.getElementById(inputId) as HTMLInputElement | null;
     if (!input) return;
     const id = BeeUtils.normUuid(input.value.trim());
     if (!id || BeeProfiles.isZero(id)) {
@@ -522,7 +520,7 @@ const BeeLand = (function () {
       return;
     }
     // The Rust core turns hours into an absolute expiry with its own clock.
-    const entry = { id: id, time: 0 };
+    const entry: { id: string; time: number; hours?: number } = { id: id, time: 0 };
     if (hoursId) {
       const hours = numberValue(hoursId, 0);
       if (hours > 0) entry.hours = hours;
@@ -704,7 +702,7 @@ const BeeLand = (function () {
     // snapshotId, the landing point, and so on - collectForm() alone drops them,
     // which would zero those fields on the sim and lose data.
     const data = Object.assign({}, parcel, collectForm());
-    const btn = document.getElementById('land-apply') || e.target.querySelector('[type="submit"]');
+    const btn = document.getElementById('land-apply') as HTMLButtonElement | null || e.target.querySelector('[type="submit"]');
     btn.disabled = true;
     btn.textContent = 'Applying...';
 
@@ -751,7 +749,7 @@ const BeeLand = (function () {
   function requestParcelExtras() {
     if (typeof BeeTransport.remoteParcel !== 'function') return;
     const region = BeeState.get().region || {};
-    const pos = BeeState.get().position || {};
+    const pos: { x?: number; y?: number; z?: number } = BeeState.get().position || {};
     const gx = region.x != null ? region.x : region.gridX;
     const gy = region.y != null ? region.y : region.gridY;
     if (gx == null || gy == null) return;
@@ -826,7 +824,7 @@ const BeeLand = (function () {
   function bindMoneyActions() {
     const parcelNow = function () { return BeeState.get().parcel || {}; };
     const bind = function (id, fn) {
-      const btn = document.getElementById(id);
+      const btn = document.getElementById(id) as HTMLButtonElement | null;
       if (btn) btn.addEventListener('click', fn);
     };
     bind('land-buy', async function () {
@@ -903,12 +901,12 @@ const BeeLand = (function () {
   }
 
   function bindLandExtras() {
-    const ownersRefresh = document.getElementById('land-owners-refresh');
+    const ownersRefresh = document.getElementById('land-owners-refresh') as HTMLButtonElement | null;
     if (ownersRefresh) ownersRefresh.addEventListener('click', function () { requestObjectOwners(true); });
 
-    const allowAdd = document.getElementById('land-allow-add');
+    const allowAdd = document.getElementById('land-allow-add') as HTMLButtonElement | null;
     if (allowAdd) allowAdd.addEventListener('click', function () { addToList('access', 'land-allow-add-id'); });
-    const banAdd = document.getElementById('land-ban-add');
+    const banAdd = document.getElementById('land-ban-add') as HTMLButtonElement | null;
     if (banAdd) banAdd.addEventListener('click', function () { addToList('ban', 'land-ban-add-id', 'land-ban-hours'); });
 
     // Autoreturn has its own message; save on change with a changed-value guard.
@@ -1021,7 +1019,7 @@ const BeeLand = (function () {
     bindProfileFields();
     bindMoneyActions();
     bindLandExtras();
-    document.getElementById('land-form').addEventListener('submit', handleSubmit);
+    (document.getElementById('land-form') as HTMLFormElement).addEventListener('submit', handleSubmit);
     document.getElementById('land-refresh').addEventListener('click', async function () {
       showLoading('Refreshing land data...');
       try {
@@ -1038,7 +1036,7 @@ const BeeLand = (function () {
       });
     });
 
-    const groupChatBtn = document.getElementById('land-group-chat');
+    const groupChatBtn = document.getElementById('land-group-chat') as HTMLButtonElement | null;
     if (groupChatBtn && typeof BeeIm !== 'undefined' && BeeIm.openGroupChat) {
       groupChatBtn.addEventListener('click', function () {
         const groupId = groupChatBtn.dataset.groupId;

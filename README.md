@@ -252,8 +252,8 @@ build never type-checks: `tsc` is a separate gate.
 Event payload types are **generated from the Rust structs** in
 `src-tauri/src/bridge/events.rs`, so the interface checks against what the core
 actually sends rather than against an assumption about it. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for how to add one, and for the `@ts-nocheck`
-banners marking files not yet typed.
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to add one. Every file under
+`src/js` is type-checked - there are no opt-outs.
 
 **Release build** (`npm run tauri build`) produces installers under `src-tauri/target/release/`:
 

@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * The floater that shows avatar and group profiles.
  */
@@ -28,8 +26,9 @@ const BeeProfile = (function () {
   let groupRefreshTimer = null;
   let lastGroupViewKey = '';
 
-  function el(id) {
-    return document.getElementById(id);
+  // Callers that need a form control ask for it: el<HTMLInputElement>('...').
+  function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
   }
 
   function sanitizeProfileHtml(text) {
@@ -75,7 +74,7 @@ const BeeProfile = (function () {
     actions.hidden = true;
   }
 
-  function addAction(label, handler, options) {
+  function addAction(label, handler, options?) {
     const actions = el('profile-actions');
     if (!actions) return;
     actions.hidden = false;
@@ -311,7 +310,7 @@ const BeeProfile = (function () {
   function openImagePreview(imageId, label) {
     const id = BeeProfiles.normId(imageId);
     if (BeeProfiles.isZero(id) || !imageDialog) return;
-    const img = el('profile-image-full');
+    const img = el<HTMLImageElement>('profile-image-full');
     if (!img) return;
     img.alt = label || 'Profile image';
     img.src = BeeProfiles.textureImageUrl(id, 512);
@@ -341,7 +340,7 @@ const BeeProfile = (function () {
     if (!profile) return true;
     if (profileCapAboutReady(profile)) return false;
     if (typeof BeeProfiles.isCapFetchActive === 'function' &&
-        BeeProfiles.isCapFetchActive(profile.avatarId)) {
+        BeeProfiles.isCapFetchActive()) {
       return true;
     }
     return false;
@@ -889,10 +888,14 @@ const BeeProfile = (function () {
           timeoutTimer = null;
         }
         if (result && result.sent) {
+          // NOTE: this used to pass { silent: true } as a third argument, but
+          // mergeAvatarProfile only takes two - the flag was never read, so the
+          // merge has always emitted its change event. Dropped rather than
+          // implemented, to keep behaviour exactly as shipped.
           BeeProfiles.mergeAvatarProfile(profile.avatarId, {
             notes: text,
             source: 'notes-local'
-          }, { silent: true });
+          });
           releaseNotesSave('Notes saved.', 'success');
           return;
         }
@@ -999,7 +1002,7 @@ const BeeProfile = (function () {
 
     if (!isSelf) {
       addAction('Pay', function () {
-        const payDialog = el('pay-dialog');
+        const payDialog = el<HTMLDialogElement>('pay-dialog');
         const nameEl = el('pay-target-name');
         if (!payDialog) return;
         if (nameEl) nameEl.textContent = 'Pay ' + profileTitleText(profile);
@@ -1108,15 +1111,15 @@ const BeeProfile = (function () {
   let groupInviteBound = false;
 
   function openGroupInviteDialog(agentId, displayName, groups) {
-    const dlg = el('group-invite-dialog');
-    const select = el('group-invite-select');
+    const dlg = el<HTMLDialogElement>('group-invite-dialog');
+    const select = el<HTMLSelectElement>('group-invite-select');
     const target = el('group-invite-target');
     if (!dlg || !select) return;
     if (!groupInviteBound) {
       groupInviteBound = true;
-      const cancel = el('group-invite-cancel');
+      const cancel = el<HTMLButtonElement>('group-invite-cancel');
       if (cancel) cancel.addEventListener('click', function () { BeeUtils.dismissDialog(dlg); });
-      const form = el('group-invite-form');
+      const form = el<HTMLFormElement>('group-invite-form');
       if (form) {
         form.addEventListener('submit', function (e) {
           e.preventDefault();
@@ -1478,7 +1481,7 @@ const BeeProfile = (function () {
     root.querySelectorAll('[data-group-id]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const groupId = btn.getAttribute('data-group-id');
-        const opts = {};
+        const opts: { group?: { name: string }; isMember?: boolean } = {};
         const label = String(btn.textContent || '').trim();
         if (label) opts.group = { name: label };
         if (fromSelf) opts.isMember = true;
@@ -1500,7 +1503,7 @@ const BeeProfile = (function () {
     // fetch), and each arrival re-renders this whole pane. Preserve an
     // in-progress notes draft across the rebuild - otherwise typing gets
     // silently wiped by whichever reply lands next.
-    const oldNotes = content.querySelector('#profile-notes-input');
+    const oldNotes = content.querySelector<HTMLTextAreaElement>('#profile-notes-input');
     const draft = oldNotes && oldNotes.value !== String(profile.notes || '')
       ? {
           value: oldNotes.value,
@@ -1512,7 +1515,7 @@ const BeeProfile = (function () {
     content.innerHTML = renderAvatarTabs(profile);
     bindAvatarContent(profile, content);
     if (draft) {
-      const newNotes = content.querySelector('#profile-notes-input');
+      const newNotes = content.querySelector<HTMLTextAreaElement>('#profile-notes-input');
       if (newNotes && !newNotes.disabled) {
         newNotes.value = draft.value;
         if (draft.focused) {
@@ -1537,7 +1540,7 @@ const BeeProfile = (function () {
       return;
     }
     if (current) current.titlesRequested = groupId;
-    const opts = { isMember: true };
+    const opts: { isMember: boolean; force?: boolean } = { isMember: true };
     if (settled && !hasTitles) opts.force = true;
     BeeProfiles.fetchGroupTitles(groupId, opts).then(function (titles) {
       if (!current || current.type !== 'group' || current.id !== BeeProfiles.normId(groupId)) return;
@@ -1713,7 +1716,7 @@ const BeeProfile = (function () {
     if (!btn) return;
     const avatarId = btn.getAttribute('data-avatar-id');
     if (!avatarId) return;
-    const opts = {};
+    const opts: { agent?: any } = {};
     let hint = null;
     if (context && context.founderId &&
         BeeProfiles.normId(context.founderId) === BeeProfiles.normId(avatarId)) {
@@ -1861,10 +1864,10 @@ const BeeProfile = (function () {
   }
 
   function init() {
-    dialog = el('profile-dialog');
-    imageDialog = el('profile-image-dialog');
-    const closeBtn = el('profile-close');
-    const imageCloseBtn = el('profile-image-close');
+    dialog = el<HTMLDialogElement>('profile-dialog');
+    imageDialog = el<HTMLDialogElement>('profile-image-dialog');
+    const closeBtn = el<HTMLButtonElement>('profile-close');
+    const imageCloseBtn = el<HTMLButtonElement>('profile-image-close');
     if (closeBtn && dialog) {
       closeBtn.addEventListener('click', function () { closeDialog(); });
     }

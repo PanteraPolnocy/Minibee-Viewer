@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * The world map panel: renders tiles, lets you click to pick a spot, and
  * handles manual teleports.
@@ -53,8 +51,9 @@ const BeeMap = (function () {
     setTeleportButtonState(true, out.text);
   }
 
-  function el(id) {
-    return document.getElementById(id);
+  // Callers that need a form control ask for it: el<HTMLInputElement>('...').
+  function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
   }
 
   function normalizeRegion(region) {
@@ -238,7 +237,7 @@ const BeeMap = (function () {
     return !text || text === 'home' || text === 'region';
   }
 
-  function applyRegionInfo(gridX, gridY, name, access, source, agents) {
+  function applyRegionInfo(gridX, gridY, name, access, source, agents?) {
     if (!name || isPlaceholderRegionName(name)) return false;
     const key = tileKey(gridX, gridY);
     const existing = regionInfo.get(key) || {};
@@ -261,7 +260,7 @@ const BeeMap = (function () {
       if (!current || /^Region\s+\d+/i.test(current) || current === name) {
         selection.regionName = name;
         updateInfo();
-        const input = el('map-location-input');
+        const input = el<HTMLInputElement>('map-location-input');
         if (input) {
           input.value = BeeSlurl.buildMapsUrl(name, selection);
         }
@@ -470,7 +469,7 @@ const BeeMap = (function () {
     const entry = { state: 'pending', waiters: [], revokeBlob: false, blobUrl: '', loadToken: token };
     tileImageCache.set(key, entry);
 
-    function finish(state, url) {
+    function finish(state, url?) {
       entry.state = state;
       if (url) {
         entry.blobUrl = url;
@@ -700,7 +699,7 @@ const BeeMap = (function () {
       y: localY,
       z: z
     });
-    const input = el('map-location-input');
+    const input = el<HTMLInputElement>('map-location-input');
     if (input) {
       input.value = BeeSlurl.buildMapsUrl(regionName, { x: localX, y: localY, z: z });
     }
@@ -717,7 +716,7 @@ const BeeMap = (function () {
   }
 
   async function goToInput() {
-    const input = el('map-location-input');
+    const input = el<HTMLInputElement>('map-location-input');
     const text = input ? input.value.trim() : '';
     if (!text) return;
     const parsed = BeeSlurl.parse(text);
@@ -750,8 +749,8 @@ const BeeMap = (function () {
   }
 
   function setTeleportButtonState(busy, label) {
-    const tpBtn = el('map-teleport');
-    const homeBtn = el('map-teleport-home');
+    const tpBtn = el<HTMLButtonElement>('map-teleport');
+    const homeBtn = el<HTMLButtonElement>('map-teleport-home');
     if (tpBtn) {
       tpBtn.disabled = !!busy;
       tpBtn.textContent = busy ? (label || 'Teleporting...') : (label || TELEPORT_BTN_LABEL);
@@ -777,7 +776,7 @@ const BeeMap = (function () {
 
   async function teleportSelection() {
     if (mapTeleportBusy) return;
-    const input = el('map-location-input');
+    const input = el<HTMLInputElement>('map-location-input');
     const text = input ? input.value.trim() : '';
     let target = selection;
     if (!target && !text) {
@@ -851,7 +850,7 @@ const BeeMap = (function () {
     if (hasGrid) {
       centerOn(parsed.gridX, parsed.gridY);
       setSelection(parsed);
-      const field = el('map-location-input');
+      const field = el<HTMLInputElement>('map-location-input');
       if (field && regionName) field.value = BeeSlurl.buildMapsUrl(regionName, parsed);
       if (BeeState.gridOnline() && typeof BeeTransport.requestMapArea === 'function') {
         BeeTransport.requestMapArea(parsed.gridX, parsed.gridY, parsed.gridX, parsed.gridY)
@@ -869,7 +868,7 @@ const BeeMap = (function () {
     BeeTransport.resolveLocation(parsed).then(function (loc) {
       centerOn(loc.gridX, loc.gridY);
       setSelection(loc);
-      const field = el('map-location-input');
+      const field = el<HTMLInputElement>('map-location-input');
       if (field) field.value = BeeSlurl.buildMapsUrl(loc.regionName, loc);
     }).catch(function (err) {
       const badName = parsed.regionName ||
@@ -910,8 +909,8 @@ const BeeMap = (function () {
   function init() {
     const canvas = el('map-canvas');
     const form = el('map-form');
-    const tpBtn = el('map-teleport');
-    const homeBtn = el('map-teleport-home');
+    const tpBtn = el<HTMLButtonElement>('map-teleport');
+    const homeBtn = el<HTMLButtonElement>('map-teleport-home');
     const guideBtn = el('map-open-guide');
     const centerBtn = el('map-center-self');
     const panN = el('map-pan-n');
@@ -927,7 +926,7 @@ const BeeMap = (function () {
         e.preventDefault();
         goToInput();
       });
-      const locationField = el('map-location-input');
+      const locationField = el<HTMLInputElement>('map-location-input');
       if (locationField) {
         locationField.addEventListener('keydown', function (e) {
           if (e.key === 'Enter' && !e.shiftKey) {

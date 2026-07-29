@@ -49,9 +49,13 @@ Watch for integer widths: `u64` becomes `bigint` unless you add
 `#[ts(type = "number")]`, and serde writes those fields as plain JSON numbers -
 so without it the generated type would misdescribe the wire.
 
-**Typing progress.** Files still carrying `// @ts-nocheck` have not been typed
-yet. Removing that banner and fixing what `npm run typecheck` reports for that
-one file is a genuinely useful, self-contained contribution.
+**Everything under `src/js` is checked** - there are no `@ts-nocheck` escapes
+left, so `npm run typecheck` passing means the whole frontend passed. Please
+keep it that way rather than reaching for the banner; the common fixes are
+casting an element where it is looked up
+(`document.getElementById('x') as HTMLInputElement | null`), giving
+`querySelectorAll` a type argument, annotating an object literal that gets
+fields added to it, and marking trailing parameters optional (`options?`).
 
 ## Pull requests
 

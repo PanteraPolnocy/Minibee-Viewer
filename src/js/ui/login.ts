@@ -1,5 +1,3 @@
-// @ts-nocheck - not yet migrated to checked types. Remove this line, then fix
-// what npm run typecheck reports for this file.
 /**
  * Login screen - credential entry, the login-challenge flow (MFA, ToS,
  * critical messages), and the handoff to the app once the user connects.
@@ -13,7 +11,7 @@ const BeeLogin = (function () {
   const GRID_OPTIONS = ['agni', 'aditi', 'local'];
 
   function defaultGrid() {
-    const grid = document.getElementById('login-grid');
+    const grid = document.getElementById('login-grid') as HTMLSelectElement;
     if (grid) grid.value = 'agni';
   }
 
@@ -41,9 +39,9 @@ const BeeLogin = (function () {
       defaultGrid();
       return;
     }
-    const user = document.getElementById('login-username');
-    const grid = document.getElementById('login-grid');
-    const remember = document.getElementById('login-remember');
+    const user = document.getElementById('login-username') as HTMLInputElement;
+    const grid = document.getElementById('login-grid') as HTMLSelectElement;
+    const remember = document.getElementById('login-remember') as HTMLInputElement;
     if (user && saved.username) user.value = saved.username;
     if (grid) {
       grid.value = GRID_OPTIONS.indexOf(saved.grid) >= 0 ? saved.grid : 'agni';
@@ -93,9 +91,9 @@ const BeeLogin = (function () {
     [STORAGE_KEY].concat(mfaKeys()).forEach(function (key) {
       try { localStorage.removeItem(key); } catch (_e) { /* ignore; storage may be unavailable */ }
     });
-    const user = document.getElementById('login-username');
-    const pass = document.getElementById('login-password');
-    const remember = document.getElementById('login-remember');
+    const user = document.getElementById('login-username') as HTMLInputElement;
+    const pass = document.getElementById('login-password') as HTMLInputElement;
+    const remember = document.getElementById('login-remember') as HTMLInputElement;
     if (user) user.value = '';
     if (pass) pass.value = '';
     if (remember) remember.checked = true;
@@ -105,18 +103,18 @@ const BeeLogin = (function () {
   }
 
   function updateForgetVisibility() {
-    const btn = document.getElementById('login-forget');
+    const btn = document.getElementById('login-forget') as HTMLButtonElement;
     if (btn) btn.hidden = !hasSavedLogin();
   }
 
   function showChallenge(challenge) {
     return new Promise(function (resolve) {
-      const dialog = document.getElementById('login-challenge');
+      const dialog = document.getElementById('login-challenge') as HTMLDialogElement;
       const title = document.getElementById('challenge-title');
       const body = document.getElementById('challenge-body');
       const mfaFields = document.getElementById('challenge-mfa-fields');
-      const mfaToken = document.getElementById('challenge-mfa-token');
-      const mfaRemember = document.getElementById('challenge-mfa-remember');
+      const mfaToken = document.getElementById('challenge-mfa-token') as HTMLInputElement;
+      const mfaRemember = document.getElementById('challenge-mfa-remember') as HTMLInputElement;
       const form = document.getElementById('login-challenge-form');
       const decline = document.getElementById('challenge-decline');
       const accept = document.getElementById('challenge-accept');
@@ -214,11 +212,11 @@ const BeeLogin = (function () {
     e.preventDefault();
     showError('');
 
-    const username = document.getElementById('login-username').value;
-    const password = document.getElementById('login-password').value;
-    const grid = document.getElementById('login-grid').value;
-    const remember = document.getElementById('login-remember').checked;
-    const btn = document.getElementById('login-submit');
+    const username = (document.getElementById('login-username') as HTMLInputElement).value;
+    const password = (document.getElementById('login-password') as HTMLInputElement).value;
+    const grid = (document.getElementById('login-grid') as HTMLSelectElement).value;
+    const remember = (document.getElementById('login-remember') as HTMLInputElement).checked;
+    const btn = document.getElementById('login-submit') as HTMLButtonElement;
 
     if (!window.BeeApp || typeof window.BeeApp.login !== 'function') {
       showError('Viewer failed to load. Hard-refresh (Ctrl+Shift+R) and check the browser console.');
@@ -269,9 +267,9 @@ const BeeLogin = (function () {
     }
     form.addEventListener('submit', handleSubmit);
     checkBridge();
-    const gridEl = document.getElementById('login-grid');
+    const gridEl = document.getElementById('login-grid') as HTMLSelectElement;
     if (gridEl) gridEl.addEventListener('change', checkBridge);
-    const forgetBtn = document.getElementById('login-forget');
+    const forgetBtn = document.getElementById('login-forget') as HTMLButtonElement;
     if (forgetBtn) forgetBtn.addEventListener('click', forgetCredentials);
     updateForgetVisibility();
   }

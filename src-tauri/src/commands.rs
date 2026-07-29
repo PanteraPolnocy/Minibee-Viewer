@@ -1514,7 +1514,11 @@ pub async fn sl_object_sit(app: AppHandle, state: State<'_, Arc<AppState>>, obje
             me.set_sit_pending(false);
             let _ = app.emit(
                 "minibee-viewer://sit-state",
-                json!({ "sitting": false, "objectId": "", "error": "Could not sit there - the object did not respond." }),
+                crate::bridge::events::payload(crate::bridge::events::SitState {
+                    sitting: false,
+                    object_id: String::new(),
+                    error: Some("Could not sit there - the object did not respond.".into()),
+                }),
             );
         }
     });

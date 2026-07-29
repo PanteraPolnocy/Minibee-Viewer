@@ -507,7 +507,7 @@ const BeeApp = (function () {
     return result;
   }
 
-  async function logout(options) {
+  async function logout(options?) {
     const opts = options || {};
     const s = BeeState.get();
     if (!opts.skipConfirm && (s.connected || s.connecting)) {
