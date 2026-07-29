@@ -782,7 +782,7 @@ const BeeChat = (function () {
     const group = BeeUtils.escapeHtml(msg.groupName || 'Group notice');
     const sender = BeeUtils.escapeHtml(msg.fromName || '');
     const subject = BeeUtils.escapeHtml(msg.subject || '');
-    const body = BeeSlurl.linkify(String(msg.text || ''), BeeUtils.escapeHtml).replace(/\n/g, '<br>');
+    const bodyText = String(msg.text || '');
 
     let attachment = '';
     if (prompt) {
@@ -841,10 +841,33 @@ const BeeChat = (function () {
       el.appendChild(subjectEl);
     }
 
-    if (body) {
+    if (bodyText) {
       const bodyEl = document.createElement('p');
       bodyEl.className = 'script-dialog__body';
-      bodyEl.innerHTML = body;
+      const segments = BeeSlurl.scanLinks(bodyText);
+      segments.forEach(function (seg) {
+        if (seg.type === 'text') {
+          const parts = String(seg.text || '').split('\n');
+          for (let i = 0; i < parts.length; i++) {
+            if (parts[i]) bodyEl.appendChild(document.createTextNode(parts[i]));
+            if (i < parts.length - 1) bodyEl.appendChild(document.createElement('br'));
+          }
+          return;
+        }
+        const a = document.createElement('a');
+        a.href = '#';
+        if (seg.kind === 'slurl') {
+          a.className = 'slurl-link';
+          a.setAttribute('data-slurl', String(seg.url || ''));
+        } else {
+          a.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
+          a.setAttribute('data-url', String(seg.url || ''));
+          a.setAttribute('data-trusted', seg.trusted ? '1' : '0');
+        }
+        a.title = String(seg.url || '');
+        a.textContent = String(seg.label || '');
+        bodyEl.appendChild(a);
+      });
       el.appendChild(bodyEl);
     }
 
