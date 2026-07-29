@@ -81,7 +81,9 @@ impl Session {
 
     pub async fn send_bytes(&self, bytes: &[u8]) -> usize {
         let addr = *self.target.lock().unwrap();
-        self.udp.send_to(bytes, addr).await.unwrap_or(0)
+        let n = self.udp.send_to(bytes, addr).await.unwrap_or(0);
+        crate::bridge::netmeter::note_out(n);
+        n
     }
 
     /// Encode a message by its template name and send it. We assign the sequence
@@ -215,6 +217,50 @@ impl Session {
             Some(st) => st.objects.attachments_of_avatar(&st.agent_id),
             None => 0,
         }
+    }
+
+    pub fn parcel_snapshot(&self) -> Option<session::ParcelSnapshot> {
+        self.engine.lock().unwrap().as_ref().and_then(|s| s.parcel_snapshot.clone())
+    }
+
+    pub fn clear_access_list(&self, local_id: i64, flags: u32) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.access_lists.remove(&(local_id, flags));
+        }
+    }
+
+    pub fn begin_covenant_transfer(&self, transfer_id: &str) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.covenant_xfer = Some((transfer_id.to_string(), std::collections::BTreeMap::new()));
+        }
+    }
+
+    pub fn resident_teleport_target(&self, agent_id: &str) -> Option<(i64, i64, String, [f64; 3])> {
+        let guard = self.engine.lock().unwrap();
+        let st = guard.as_ref()?;
+        let pos = st.objects.resident_region_pos(agent_id)?;
+        // Coarse Z tops out at 1020 and 0 means unknown; fall back to our own
+        // altitude rather than aiming at the ground.
+        let z = if pos[2] <= 0.0 {
+            st.last_pos.map(|p| p[2]).unwrap_or(25.0)
+        } else {
+            pos[2] as f64
+        };
+        Some((
+            st.region_grid_x,
+            st.region_grid_y,
+            st.region_name.clone(),
+            [pos[0] as f64, pos[1] as f64, z],
+        ))
+    }
+
+    pub fn region_name(&self) -> String {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|s| s.region_name.clone())
+            .unwrap_or_default()
     }
 
     pub fn region_id(&self) -> String {
@@ -1004,12 +1050,16 @@ const IGNORED_HIGH_FREQ: &[u8] = &[
     30, // ObjectAnimation
 ];
 
+/// The high-frequency object stream the engine DOES consume, carved back out
+/// of the ignore list above: full/compressed/cached updates and kills, plus
+/// ImprovedTerseObjectUpdate (15) - the per-frame movement channel, without
+/// which every tracked object's position freezes at its entry point.
+const OBJECT_HIGH_FREQ: &[u8] = &[12, 13, 14, 15, 16];
+
 /// Medium-frequency inbound messages the UI never uses (encoded as `0xFF <n>`
 /// at offset 6-7). These spike too when lots of avatars are around (gesture/typing
 /// beams, object property pushes, attached sounds). We keep CoarseLocationUpdate
 /// (6, radar) and CrossedRegion/ConfirmEnableSimulator (7/8, teleport).
-const OBJECT_HIGH_FREQ: &[u8] = &[12, 13, 14, 16];
-
 const IGNORED_MEDIUM_FREQ: &[u8] = &[
     9,  // ObjectProperties
     10, // ObjectPropertiesFamily
@@ -1078,8 +1128,9 @@ pub async fn open(
         tasks.push(http);
         if engine_mode {
             tasks.push(spawn_resender(session.clone()));
-            tasks.push(spawn_watchdog(watchdog_app, session.clone()));
+            tasks.push(spawn_watchdog(watchdog_app.clone(), session.clone()));
             tasks.push(spawn_agent_update(session.clone()));
+            tasks.push(spawn_net_meter(watchdog_app));
         }
     }
 
@@ -1106,6 +1157,46 @@ fn spawn_agent_update(session: Arc<Session>) -> JoinHandle<()> {
             if let Some(body) = session.agent_update_keepalive() {
                 session.send_encoded("AgentUpdate", &body, false).await;
             }
+        }
+    })
+}
+
+/// Emit a throttled traffic rate for the top-bar indicator: one `net-rate`
+/// event every 2s with bytes-per-second in/out since the last tick. Skips the
+/// emit entirely when nothing moved, so an idle session costs no DOM work.
+fn spawn_net_meter(app: AppHandle) -> JoinHandle<()> {
+    const TICK_MS: u64 = 2000;
+    tokio::spawn(async move {
+        let (mut last_in, mut last_out) = crate::bridge::netmeter::totals();
+        let mut was_quiet = false;
+        loop {
+            tokio::time::sleep(Duration::from_millis(TICK_MS)).await;
+            let (now_in, now_out) = crate::bridge::netmeter::totals();
+            let in_bps = (now_in.saturating_sub(last_in)) * 1000 / TICK_MS;
+            let out_bps = (now_out.saturating_sub(last_out)) * 1000 / TICK_MS;
+            last_in = now_in;
+            last_out = now_out;
+            let quiet = in_bps == 0 && out_bps == 0;
+            // Emit one zero-rate tick so the bar drains, then stay silent.
+            if quiet && was_quiet {
+                continue;
+            }
+            was_quiet = quiet;
+            // The label and the log-scaled bar level ship precomputed; the
+            // frontend only turns them into pixels.
+            let _ = app.emit(
+                "minibee-viewer://net-rate",
+                json!({
+                    "inBps": in_bps,
+                    "outBps": out_bps,
+                    "label": format!(
+                        "\u{2193} {}  \u{2191} {}",
+                        crate::bridge::netmeter::format_rate(in_bps),
+                        crate::bridge::netmeter::format_rate(out_bps)
+                    ),
+                    "level": crate::bridge::netmeter::rate_level(in_bps + out_bps),
+                }),
+            );
         }
     })
 }
@@ -1151,6 +1242,7 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
                 continue;
             }
             session.last_inbound.store(mono_ms(), Ordering::Relaxed);
+            crate::bridge::netmeter::note_in(n);
             let datagram = &buf[..n];
 
             // Drop high/medium-frequency floods before they reach IPC, but only when
@@ -1193,11 +1285,8 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
 /// Where distances are measured from: the avatar's object-update position when known,
 /// otherwise the last coarse/teleport position we emitted.
 fn agent_eye(st: &SessionState) -> [f32; 3] {
-    let hint = st
-        .last_pos
-        .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]);
     if !st.agent_id.is_empty() {
-        if let Some(pos) = st.objects.agent_region_pos(&st.agent_id, hint) {
+        if let Some(pos) = st.objects.agent_region_pos(&st.agent_id) {
             return pos;
         }
     }

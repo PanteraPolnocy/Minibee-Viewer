@@ -125,7 +125,13 @@ const BeeRadar = (function () {
         openIm(entry);
         return;
       }
-      openIm(entry);
+      // Poking the row raises the action menu - on a touch screen there is
+      // no right-click to reach it, and IM stays one tap away as both the
+      // envelope button and the menu's first entry. Stop the bubble so the
+      // document-level "click outside closes the menu" listener doesn't
+      // immediately swallow what we just opened.
+      e.stopPropagation();
+      showContextMenu(e, entry);
     });
 
     li.addEventListener('contextmenu', function (e) {
@@ -134,6 +140,21 @@ const BeeRadar = (function () {
     });
 
     return li;
+  }
+
+  // The Rust core aims the teleport from its own coarse-position table, so
+  // the menu entry only needs to know whether a position exists at all.
+  function canTeleportTo(entry) {
+    return !!(entry && entry.pos && BeeState.gridOnline());
+  }
+
+  function teleportToEntry(entry) {
+    const names = nameLines(entry);
+    BeeBridge.invoke('sl_teleport_to_agent', { agentId: entry.id }).then(function () {
+      BeeUtils.showToast('Teleporting to ' + (names.title || 'resident') + '...', 'info');
+    }).catch(function (err) {
+      BeeUtils.showToast(err && err.message ? err.message : String(err || 'Teleport failed.'), 'warning');
+    });
   }
 
   function copyToClipboard(text, what) {
@@ -152,6 +173,8 @@ const BeeRadar = (function () {
     const actions = [
       { label: 'Send IM', fn: function () { openIm(entry); } },
       { label: 'Profile', fn: function () { BeeProfile.openAvatar(entry.id, { agent: entry }); } },
+      { label: 'Teleport to', fn: function () { teleportToEntry(entry); },
+        disabled: !canTeleportTo(entry) },
       { label: 'Copy name', fn: function () { copyToClipboard(names.title || entry.name || '', 'Name'); } },
       { label: 'Copy UUID', fn: function () { copyToClipboard(entry.id, 'UUID'); } }
     ];
@@ -160,15 +183,23 @@ const BeeRadar = (function () {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = action.label;
-      btn.addEventListener('click', function () {
-        menu.hidden = true;
-        action.fn();
-      });
+      if (action.disabled) {
+        btn.disabled = true;
+        btn.title = 'Position not known yet';
+      } else {
+        btn.addEventListener('click', function () {
+          menu.hidden = true;
+          action.fn();
+        });
+      }
       menu.appendChild(btn);
     });
 
-    menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
-    menu.style.top = Math.min(e.clientY, window.innerHeight - 120) + 'px';
+    // Measure the real menu, then clamp it fully on-screen: as the primary
+    // tap action it often opens near the bottom edge on a phone.
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = Math.max(0, Math.min(e.clientX, window.innerWidth - rect.width - 8)) + 'px';
+    menu.style.top = Math.max(0, Math.min(e.clientY, window.innerHeight - rect.height - 8)) + 'px';
   }
 
   function render() {

@@ -3632,6 +3632,16 @@ html.require-http #app {
   box-sizing: border-box;
 }
 
+.about-dedication {
+  margin: 14px 0 28px;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--text-muted);
+  text-align: center;
+  width: 100%;
+  max-width: 360px;
+}
+
 .login-challenge__note {
   margin: 0 0 12px;
   font-size: 0.82rem;
@@ -4008,25 +4018,160 @@ html.require-http #app {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
 }
 
+.land-owners-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.land-owners-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.land-owners-list__empty {
+  padding: 6px 4px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.land-owners-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.land-list-add {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.land-list-add input[type="text"] {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.land-ban-hours {
+  flex: 0 1 140px;
+}
+
+.land-money-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.land-money-actions .btn[hidden] { display: none; }
+
+@media (max-width: 640px) {
+  .land-money-actions .btn {
+    flex: 1 1 45%;
+    min-height: 40px;
+  }
+}
+
+#land-covenant-text {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font-size: 0.85rem;
+}
+
+.land-env-summary {
+  margin-bottom: 8px;
+}
+
+/* The traffic mood ring: a 4px column that fills bottom-up and warms from
+   green to red with throughput. Sized so it steals no top-bar real estate. */
+.net-meter {
+  position: relative;
+  width: 4px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--bg-input);
+  overflow: hidden;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.net-meter__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4%;
+  background: hsl(120, 85%, 52%);
+  border-radius: 2px;
+  transition: height 0.6s ease, background 0.6s ease;
+}
+
 /* Impending doom deserves to look like it. */
 .region-restart-dialog {
-  border: 2px solid var(--danger, #f85149);
+  border: 1px solid var(--danger, #f85149);
+  border-top: 3px solid var(--danger, #f85149);
+  padding: 18px 18px 16px;
+  max-width: 26rem;
 }
 
 .region-restart-dialog__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
   color: var(--danger, #f85149);
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.region-restart-dialog__title::before {
+  content: "!";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--danger, #f85149);
+  color: var(--bg-deep, #000);
+  font-size: 0.85rem;
+  font-weight: 800;
 }
 
 .region-restart-dialog__text {
-  margin: 10px 0 4px;
+  margin: 0 0 8px;
   font-size: 1rem;
   font-weight: 700;
+  line-height: 1.4;
 }
 
 .region-restart-dialog__hint {
-  margin: 0 0 12px;
+  margin: 0 0 16px;
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.region-restart-dialog .pay-dialog__actions {
+  margin-top: 0;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .region-restart-dialog .pay-dialog__actions .btn {
+    flex: 1 1 auto;
+    min-height: 40px;
+  }
 }
 
 .map-marker--avatar {

@@ -1030,7 +1030,14 @@ const BeeProfile = (function () {
             if (result && result.sent) {
               BeeUtils.showToast('Friend removed.', 'success');
               renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
+            } else if (result && result.notFriend) {
+              BeeUtils.showToast('Not on your friends list.', 'warning');
+              renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
+            } else {
+              BeeUtils.showToast('Could not remove friend.', 'warning');
             }
+          }).catch(function () {
+            BeeUtils.showToast('Could not remove friend.', 'warning');
           });
           return;
         }
@@ -1041,7 +1048,15 @@ const BeeProfile = (function () {
         });
         if (!ok) return;
         BeeTransport.offerFriendship(agentId).then(function (result) {
-          if (result && result.sent) BeeUtils.showToast('Friendship offer sent.', 'success');
+          if (result && result.sent) {
+            BeeUtils.showToast('Friendship offer sent.', 'success');
+          } else if (result && result.alreadyFriend) {
+            BeeUtils.showToast('You are already friends.', 'warning');
+          } else {
+            BeeUtils.showToast('Could not send friendship offer.', 'warning');
+          }
+        }).catch(function () {
+          BeeUtils.showToast('Could not send friendship offer.', 'warning');
         });
       });
 
@@ -1349,12 +1364,6 @@ const BeeProfile = (function () {
         : Promise.resolve({ sent: false });
       save.then(function (result) {
         if (!current || current.type !== 'group' || current.id !== profile.groupId) return;
-        if (result && result.notMember) {
-          setStatus('You are not a member of this group.', 'error');
-          const cached = BeeProfiles.getGroupProfile(profile.groupId);
-          renderGroup(enrichGroupProfile(Object.assign({}, cached || profile, { isMember: false })));
-          return;
-        }
         if (result && result.sent) {
           setStatus('Title saved.', 'success');
           const cached = BeeProfiles.getGroupProfile(profile.groupId);
@@ -1389,22 +1398,14 @@ const BeeProfile = (function () {
         addAction('Activate', function () {
           if (typeof BeeTransport.activateGroup !== 'function') return;
           BeeTransport.activateGroup(groupId).then(function (result) {
-            if (result && result.alreadyActive) {
-              BeeUtils.showToast('Group is already active.', 'warning');
-              renderGroup(enrichGroupProfile(Object.assign({}, profile)));
-              return;
-            }
             if (result && result.sent) {
               BeeUtils.showToast('Active group updated.', 'success');
               renderGroup(enrichGroupProfile(Object.assign({}, profile, { isActive: true })));
               return;
             }
-            if (result && result.notMember) {
-              BeeUtils.showToast('You are not a member of this group.', 'warning');
-              const next = enrichGroupProfile(Object.assign({}, profile, { isMember: false }));
-              renderGroup(next);
-              return;
-            }
+            BeeUtils.showToast('Could not activate group.', 'warning');
+          }).catch(function () {
+            // The command itself failed (e.g. not connected).
             BeeUtils.showToast('Could not activate group.', 'warning');
           });
         });
@@ -1424,12 +1425,10 @@ const BeeProfile = (function () {
             renderGroup(next);
             return;
           }
-          if (result && result.notMember) {
-            BeeUtils.showToast('You are not a member of this group.', 'warning');
-            const next = enrichGroupProfile(Object.assign({}, profile, { isMember: false }));
-            renderGroup(next);
-            return;
-          }
+          BeeUtils.showToast(result && result.timedOut
+            ? 'The group server did not answer - try again.'
+            : 'Could not leave group.', 'warning');
+        }).catch(function () {
           BeeUtils.showToast('Could not leave group.', 'warning');
         });
       }, { danger: true });
@@ -1448,6 +1447,12 @@ const BeeProfile = (function () {
           confirmLabel: 'Join'
         });
         if (!ok) return;
+        // Being a member already never reaches the wire: short-circuit locally.
+        if (typeof BeeProfiles.isAgentInGroup === 'function' && BeeProfiles.isAgentInGroup(groupId)) {
+          BeeUtils.showToast('You are already a member.', 'warning');
+          renderGroup(enrichGroupProfile(Object.assign({}, profile, { isMember: true })));
+          return;
+        }
         BeeTransport.joinGroup(groupId).then(function (result) {
           if (result && result.success) {
             BeeUtils.showToast('Joined ' + groupName + '.', 'success');
@@ -1455,12 +1460,10 @@ const BeeProfile = (function () {
             renderGroup(next);
             return;
           }
-          if (result && result.alreadyMember) {
-            BeeUtils.showToast('You are already a member.', 'warning');
-            const next = enrichGroupProfile(Object.assign({}, profile, { isMember: true }));
-            renderGroup(next);
-            return;
-          }
+          BeeUtils.showToast(result && result.timedOut
+            ? 'The group server did not answer - try again.'
+            : 'Could not join group.', 'warning');
+        }).catch(function () {
           BeeUtils.showToast('Could not join group.', 'warning');
         });
       });

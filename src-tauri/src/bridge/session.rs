@@ -85,11 +85,20 @@ pub struct SessionState {
     pub region_grid_x: i64,
     pub region_grid_y: i64,
     pub region_access: i64,
+    /// The sim product label from the handshake ("Mainland / Full Region"...).
+    pub region_product: String,
+    /// Region flags (extended when the sim sends them): resell/subdivide
+    /// clauses for the Covenant tab live in bits 7 and 26.
+    pub region_flags: u64,
     pub handshake_reply_sent: bool,
     /// Resolved display name per agent id, fed by name replies and agent data.
     pub names: HashMap<String, String>,
     /// Last self position we emitted (coarse), used for the 0.25m move threshold.
     pub last_pos: Option<[f64; 3]>,
+    /// The last coarse self-position rejected as a wild jump (x, y). If the
+    /// next radar tick lands on the same spot, last_pos is the stale side and
+    /// the jump is accepted as a repair. See the CoarseLocationUpdate arm.
+    pub coarse_repair: Option<[f64; 2]>,
     pub active_group_id: String,
     pub active_group_title: String,
     /// Current sim endpoint and circuit code, needed for the teleport/region-cross re-handshake.
@@ -151,6 +160,131 @@ pub struct SessionState {
     /// arrives as several UDP reply packets (~30 rows each); the search command
     /// polls this until a page is complete, then takes the whole batch at once.
     pub dir_searches: HashMap<String, DirSearch>,
+    /// Highest agent-parcel SequenceID seen this region. The sim numbers its
+    /// own parcel pushes; an out-of-order one is stale and must not repaint
+    /// the Land tab / music stream with old data.
+    pub agent_parcel_seq: i64,
+    /// Hash of the last `parcel` payload we emitted, so duplicate replies
+    /// (request races, resends) don't re-blink the UI.
+    pub last_parcel_hash: u64,
+    /// Authoritative snapshot of the current parcel, refreshed by every gated
+    /// parcel emit. Money-moving commands (buy, buy pass) read price and area
+    /// from HERE, never from the frontend - a stale or tampered UI must not be
+    /// able to buy the wrong parcel or at the wrong price.
+    pub parcel_snapshot: Option<ParcelSnapshot>,
+    /// Access/ban list entries accumulated across ParcelAccessListReply
+    /// packets, keyed by (local_id, list flags).
+    pub access_lists: HashMap<(i64, u32), Vec<Value>>,
+    /// An in-flight covenant download over the estate transfer channel:
+    /// (transfer id, packets by sequence number).
+    pub covenant_xfer: Option<(String, BTreeMap<i64, Vec<u8>>)>,
+}
+
+/// Extract the plain text out of a Linden notecard container ("Linden text
+/// version N { ... Text length NNN\n<text>}"). Anything that doesn't look
+/// like a notecard comes back as-is - old covenants can be bare text.
+pub(crate) fn notecard_text(raw: &[u8]) -> String {
+    let looks_notecard = raw.starts_with(b"Linden text version");
+    if looks_notecard {
+        if let Some(idx) = raw.windows(12).position(|w| w == b"Text length ") {
+            let after = &raw[idx + 12..];
+            if let Some(nl) = after.iter().position(|&b| b == b'\n') {
+                let n: usize = String::from_utf8_lossy(&after[..nl]).trim().parse().unwrap_or(0);
+                let body = &after[nl + 1..];
+                let take = n.min(body.len());
+                return String::from_utf8_lossy(&body[..take]).to_string();
+            }
+        }
+    }
+    String::from_utf8_lossy(raw).trim_end_matches('\0').to_string()
+}
+
+/// What the money paths need to know about the parcel under our feet.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParcelSnapshot {
+    pub local_id: i64,
+    pub region_id: String,
+    pub sale_price: i64,
+    pub area: i64,
+    pub auth_buyer_id: String,
+    pub for_sale: bool,
+    pub group_id: String,
+    pub is_group_owned: bool,
+    pub owner_id: String,
+    pub pass_price: i64,
+    pub pass_hours: f64,
+    pub sell_passes: bool,
+}
+
+/// Gate a decoded parcel against staleness before it may repaint the UI.
+/// `seq` is the reply's SequenceID (>= 0 are sim-initiated agent-parcel pushes,
+/// negatives answer our own requests); `aabb` is the parcel's bounding box.
+/// Returns false when the parcel must be dropped.
+fn parcel_fresh(state: &mut SessionState, seq: i64, aabb: Option<([f64; 3], [f64; 3])>) -> bool {
+    // Sim pushes carry an increasing sequence; anything older than what we
+    // already applied is a late duplicate.
+    if seq > 0 {
+        if seq <= state.agent_parcel_seq {
+            crate::dlog!("parcel: dropped out-of-order push (seq {seq} <= {})", state.agent_parcel_seq);
+            return false;
+        }
+        state.agent_parcel_seq = seq;
+        return true;
+    }
+    // A reply to one of our own requests: it describes the parcel at wherever
+    // we asked, which may no longer be where we stand (the login placeholder
+    // race). If we know our position and the parcel's box, require a match.
+    if let (Some(pos), Some((min, max))) = (state.last_pos, aabb) {
+        let unset = min == [0.0; 3] && max == [0.0; 3];
+        const PAD: f64 = 16.0; // absorbs movement between request and reply
+        if !unset
+            && (pos[0] < min[0] - PAD || pos[0] > max[0] + PAD
+                || pos[1] < min[1] - PAD || pos[1] > max[1] + PAD)
+        {
+            crate::dlog!(
+                "parcel: dropped stale reply (we stand at {:.0},{:.0}, parcel spans {:.0},{:.0}-{:.0},{:.0})",
+                pos[0], pos[1], min[0], min[1], max[0], max[1]
+            );
+            return false;
+        }
+    }
+    true
+}
+
+/// Emit a `parcel` payload unless it's byte-identical to the last one - the
+/// request races used to repaint the Land tab with the same data several
+/// times in a row, which read as "blinking". Every accepted parcel also
+/// refreshes the engine's authoritative snapshot for the money commands.
+fn emit_parcel_deduped(state: &mut SessionState, payload: Value) -> Option<Action> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let g = |k: &str| payload.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let gi = |k: &str| payload.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
+    const PF_FOR_SALE: u32 = 1 << 2;
+    let flags = payload.get("parcelFlags").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    state.parcel_snapshot = Some(ParcelSnapshot {
+        local_id: gi("localId"),
+        region_id: g("regionId"),
+        sale_price: gi("salePrice"),
+        area: gi("area"),
+        auth_buyer_id: g("authBuyerId"),
+        for_sale: flags & PF_FOR_SALE != 0,
+        group_id: g("groupId"),
+        is_group_owned: payload.get("isGroupOwned").and_then(|v| v.as_bool()).unwrap_or(false),
+        owner_id: g("ownerId"),
+        pass_price: gi("passPrice"),
+        pass_hours: payload.get("passHours").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        sell_passes: flags & pflag::PASS_LIST != 0,
+    });
+    let mut h = DefaultHasher::new();
+    payload.to_string().hash(&mut h);
+    let hash = h.finish();
+    if hash == state.last_parcel_hash {
+        crate::dlog!("parcel: identical payload suppressed");
+        return None;
+    }
+    state.last_parcel_hash = hash;
+    Some(Action::emit("parcel", payload))
 }
 
 /// One in-flight directory search: every reply packet appends its rows here.
@@ -410,6 +544,19 @@ fn llsd_region_grid(v: Option<&Value>) -> Option<(i64, i64)> {
     None
 }
 
+/// Grid coordinates from a template-decoded U64 RegionHandle (a decimal
+/// string): high 32 bits = global X meters, low 32 = global Y, /256 = grid.
+/// Zero on either axis means a malformed handle - no real region sits at
+/// grid 0, and 0 is this codebase's "not yet known" sentinel.
+fn wire_region_grid(handle: &str) -> Option<(i64, i64)> {
+    let h: u64 = handle.trim().parse().ok()?;
+    let (gx, gy) = (((h >> 32) / 256) as i64, ((h & 0xFFFF_FFFF) / 256) as i64);
+    if gx == 0 || gy == 0 {
+        return None;
+    }
+    Some((gx, gy))
+}
+
 /// An EventQueue U64 (e.g. GroupPowers) arrives as an 8-byte big-endian LLSD
 /// binary array, though some sims send a plain number. Return a decimal string to
 /// match what the UDP handler emits for the same field.
@@ -484,18 +631,26 @@ fn describe_script_permissions(mask: u32) -> (Vec<String>, bool) {
 mod pflag {
     pub const FLY: u32 = 1 << 0;
     pub const OTHER_SCRIPTS: u32 = 1 << 1;
+    pub const FOR_SALE: u32 = 1 << 2;
     pub const TERRAFORM: u32 = 1 << 4;
     pub const DAMAGE: u32 = 1 << 5;
     pub const CREATE_OBJECTS: u32 = 1 << 6;
     pub const ACCESS_GROUP: u32 = 1 << 8;
     pub const ACCESS_LIST: u32 = 1 << 9;
+    pub const BAN_LIST: u32 = 1 << 10;
     pub const PASS_LIST: u32 = 1 << 11;
     pub const SHOW_DIR: u32 = 1 << 12;
+    pub const ALLOW_DEED_TO_GROUP: u32 = 1 << 13;
     pub const SOUND_LOCAL: u32 = 1 << 15;
+    pub const SELL_PARCEL_OBJECTS: u32 = 1 << 16;
     pub const RESTRICT_PUSH: u32 = 1 << 21;
+    pub const DENY_ANONYMOUS: u32 = 1 << 22;
     pub const GROUP_SCRIPTS: u32 = 1 << 25;
     pub const CREATE_GROUP_OBJ: u32 = 1 << 26;
+    pub const ALL_OBJECT_ENTRY: u32 = 1 << 27;
+    pub const GROUP_OBJECT_ENTRY: u32 = 1 << 28;
     pub const VOICE: u32 = 1 << 29;
+    pub const DENY_AGEUNVERIFIED: u32 = 1 << 31;
 }
 
 fn set_flag(flags: u32, bit: u32, on: bool) -> u32 {
@@ -578,6 +733,19 @@ pub fn fold_parcel_flags(baseline: u32, p: &Value) -> u32 {
     if let Some(v) = b("showInSearch") { f = set_flag(f, pflag::SHOW_DIR, v); }
     if let Some(v) = b("pushRestricted") { f = set_flag(f, pflag::RESTRICT_PUSH, v); }
     if let Some(v) = b("sellPasses") { f = set_flag(f, pflag::PASS_LIST, v); }
+    if let Some(v) = b("allowTerraform") { f = set_flag(f, pflag::TERRAFORM, v); }
+    if let Some(v) = b("allowObjectEntryAll") { f = set_flag(f, pflag::ALL_OBJECT_ENTRY, v); }
+    if let Some(v) = b("allowObjectEntryGroup") { f = set_flag(f, pflag::GROUP_OBJECT_ENTRY, v); }
+    if let Some(v) = b("allowDeedToGroup") { f = set_flag(f, pflag::ALLOW_DEED_TO_GROUP, v); }
+    if let Some(v) = b("denyAnonymous") { f = set_flag(f, pflag::DENY_ANONYMOUS, v); }
+    if let Some(v) = b("denyAgeUnverified") { f = set_flag(f, pflag::DENY_AGEUNVERIFIED, v); }
+    if let Some(v) = b("useAccessGroup") { f = set_flag(f, pflag::ACCESS_GROUP, v); }
+    if let Some(v) = b("useAccessList") { f = set_flag(f, pflag::ACCESS_LIST, v); }
+    // The reference forces the ban list active on every Access-tab save; a
+    // save that carries access settings does the same here.
+    if b("useAccessList").is_some() || b("useAccessGroup").is_some() {
+        f = set_flag(f, pflag::BAN_LIST, true);
+    }
     f
 }
 
@@ -606,7 +774,31 @@ fn region_obj(state: &SessionState) -> Value {
     if state.region_access != 0 {
         m.insert("access".into(), json!(state.region_access));
     }
+    if !state.region_product.is_empty() {
+        m.insert("productName".into(), json!(state.region_product));
+    }
+    if state.region_flags != 0 {
+        const BLOCK_LAND_RESELL: u64 = 1 << 7;
+        const ALLOW_PARCEL_CHANGES: u64 = 1 << 26;
+        m.insert("blockLandResell".into(), json!(state.region_flags & BLOCK_LAND_RESELL != 0));
+        m.insert("allowParcelChanges".into(), json!(state.region_flags & ALLOW_PARCEL_CHANGES != 0));
+    }
     Value::Object(m)
+}
+
+/// The teleport destination's region name, when the teleport command recorded
+/// one. The session's own region_name still names the ORIGIN region at
+/// TeleportFinish time (the new handshake hasn't landed yet), so stamping it
+/// on the arrival event mislabeled the destination on the map.
+fn tp_target_region_name(state: &SessionState) -> Option<String> {
+    state
+        .tp_target
+        .as_ref()
+        .and_then(|t| t.get("regionName"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 /// A system chat line; the IO layer stamps in the id and timestamp.
@@ -830,8 +1022,7 @@ fn track_self(state: &mut SessionState, inst: &Value) -> Vec<Action> {
     let mut actions = Vec::new();
     let parent_id = inst_i64(inst, "ParentID") as u32;
     let blob = B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default();
-    let local = crate::bridge::objects::position_from_object_data(&blob)
-        .or_else(|| crate::bridge::objects::position_from_terse_object_data(&blob));
+    let local = crate::bridge::objects::position_from_object_data(&blob);
 
     if let Some(local) = local {
         let region_pos = if parent_id == 0 {
@@ -881,10 +1072,7 @@ fn track_self(state: &mut SessionState, inst: &Value) -> Vec<Action> {
 
 /// Push a position event when the avatar row moves (full or terse update).
 fn sync_self_from_avatar_row(state: &mut SessionState) -> Vec<Action> {
-    let hint = state
-        .last_pos
-        .map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]);
-    let Some(p) = state.objects.agent_region_pos(&state.agent_id, hint) else {
+    let Some(p) = state.objects.agent_region_pos(&state.agent_id) else {
         return Vec::new();
     };
     let new_pos = [p[0] as f64, p[1] as f64, p[2] as f64];
@@ -1146,6 +1334,59 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
         }
 
+        // Estate-channel transfer status (the covenant download). A negative
+        // status means refused/unknown; surface it instead of hanging.
+        "TransferInfo" => {
+            let ti = block0(decoded, "TransferInfo").cloned().unwrap_or(Value::Null);
+            let id = inst_str(&ti, "TransferID");
+            let status = inst_i64(&ti, "Status");
+            let ours = state.covenant_xfer.as_ref().is_some_and(|(t, _)| same_uuid(t, &id));
+            if ours && status < 0 {
+                state.covenant_xfer = None;
+                actions.push(Action::emit(
+                    "covenant-text",
+                    json!({ "ok": false, "error": "The covenant could not be downloaded." }),
+                ));
+            }
+        }
+
+        // One packet of an estate-channel transfer (covenant text).
+        "TransferPacket" => {
+            let td = block0(decoded, "TransferData").cloned().unwrap_or(Value::Null);
+            let id = inst_str(&td, "TransferID");
+            let ours = state.covenant_xfer.as_ref().is_some_and(|(t, _)| same_uuid(t, &id));
+            if !ours {
+                return actions;
+            }
+            let packet = inst_i64(&td, "Packet");
+            let status = inst_i64(&td, "Status");
+            let data = td
+                .get("Data")
+                .and_then(|v| v.as_str())
+                .and_then(|s| B64.decode(s).ok())
+                .unwrap_or_default();
+            const MAX_COVENANT_BYTES: usize = 1 << 20;
+            if let Some((_, packets)) = state.covenant_xfer.as_mut() {
+                let total: usize = packets.values().map(|d| d.len()).sum();
+                if total + data.len() <= MAX_COVENANT_BYTES {
+                    packets.insert(packet, data);
+                }
+            }
+            // LLTS_DONE = 1 marks the final packet.
+            if status == 1 {
+                if let Some((_, packets)) = state.covenant_xfer.take() {
+                    let mut raw = Vec::new();
+                    for (_, chunk) in packets {
+                        raw.extend_from_slice(&chunk);
+                    }
+                    actions.push(Action::emit(
+                        "covenant-text",
+                        json!({ "ok": true, "text": notecard_text(&raw) }),
+                    ));
+                }
+            }
+        }
+
         // The sim refused or dropped a transfer we asked for. Without this the
         // failure is invisible and a mute-list fetch just never finishes.
         "AbortXfer" => {
@@ -1309,10 +1550,30 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 None
             };
             if let Some(sp) = self_pos {
+                // Coarse self-positions are only a fallback
+                let garbage = sp[0] == 0.0 && sp[1] == 0.0;
+                let far = state
+                    .last_pos
+                    .is_some_and(|p| (p[0] - sp[0]).hypot(p[1] - sp[1]) > 100.0);
+                // One far tick is radar noise. The SAME far spot on two ticks
+                // running means last_pos is the stale side (e.g. poisoned by a
+                // mis-framed update), and the radar is the only signal left
+                // that can re-anchor a stationary avatar - take the repair.
+                let confirmed_repair = far
+                    && !garbage
+                    && state
+                        .coarse_repair
+                        .is_some_and(|c| (c[0] - sp[0]).hypot(c[1] - sp[1]) < 8.0);
+                state.coarse_repair = if far && !confirmed_repair && !garbage {
+                    Some([sp[0], sp[1]])
+                } else {
+                    None
+                };
+                let wild_jump = far && !confirmed_repair;
                 let moved = state
                     .last_pos
                     .map_or(true, |p| (p[0] - sp[0]).abs() > 0.25 || (p[1] - sp[1]).abs() > 0.25 || (p[2] - sp[2]).abs() > 0.25);
-                if moved {
+                if !garbage && !wild_jump && moved {
                     state.last_pos = Some(sp);
                     actions.push(Action::emit(
                         "position",
@@ -1362,6 +1623,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 entries.push(json!({
                     "id": id, "name": name, "pos": { "x": x, "y": y, "z": z },
                     "range": range, "unknownZ": unknown, "age": "?", "status": "",
+                    "region": state.region_name,
                 }));
             }
             actions.push(Action::emit("radar-update", json!(entries)));
@@ -1375,6 +1637,20 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             let pd = block0(decoded, "ParcelData").cloned().unwrap_or(Value::Null);
             if inst_i64(&pd, "RequestResult") == -1 {
                 return actions; // the sim has no parcel data here
+            }
+            let seq = inst_i64(&pd, "SequenceID");
+            let aabb = Some((
+                {
+                    let (x, y, z) = vec3(pd.get("AABBMin"));
+                    [x, y, z]
+                },
+                {
+                    let (x, y, z) = vec3(pd.get("AABBMax"));
+                    [x, y, z]
+                },
+            ));
+            if !parcel_fresh(state, seq, aabb) {
+                return actions;
             }
             let flags = inst_i64(&pd, "ParcelFlags") as u32;
             let has = |b: u32| flags & b != 0;
@@ -1421,9 +1697,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             } else {
                 format!("https://secondlife.com/app/image/{snapshot}/256")
             };
-            actions.push(Action::emit(
-                "parcel",
-                json!({
+            let payload = json!({
                     "localId": inst_i64(&pd, "LocalID"),
                     "name": inst_text(&pd, "Name"),
                     "desc": inst_text(&pd, "Desc"),
@@ -1456,6 +1730,17 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "allowVoice": has(pflag::VOICE),
                     "showInSearch": has(pflag::SHOW_DIR),
                     "sellPasses": has(pflag::PASS_LIST),
+                    "allowObjectEntryAll": has(pflag::ALL_OBJECT_ENTRY),
+                    "allowObjectEntryGroup": has(pflag::GROUP_OBJECT_ENTRY),
+                    "allowDeedToGroup": has(pflag::ALLOW_DEED_TO_GROUP),
+                    "denyAnonymous": has(pflag::DENY_ANONYMOUS),
+                    "denyAgeUnverified": has(pflag::DENY_AGEUNVERIFIED),
+                    "useAccessGroup": has(pflag::ACCESS_GROUP),
+                    "useAccessList": has(pflag::ACCESS_LIST),
+                    "forSale": has(pflag::FOR_SALE),
+                    "sellWithObjects": has(pflag::SELL_PARCEL_OBJECTS),
+                    "auctionId": inst_i64(&pd, "AuctionID"),
+                    "status": inst_i64(&pd, "Status"),
                     "musicUrl": inst_text(&pd, "MusicURL"),
                     "mediaUrl": inst_text(&pd, "MediaURL"),
                     "mediaId": inst_str(&pd, "MediaID"),
@@ -1486,8 +1771,87 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "canEdit": can_edit,
                     "source": "udp",
                     "stub": false,
+            });
+            actions.extend(emit_parcel_deduped(state, payload));
+        }
+
+        // The estate covenant header. The covenant text itself is a notecard
+        // asset; the IO layer fetches it through the asset cap when the id is
+        // set (see caps::fetch_covenant_text).
+        "EstateCovenantReply" => {
+            let d = block0(decoded, "Data").cloned().unwrap_or(Value::Null);
+            actions.push(Action::emit(
+                "covenant",
+                json!({
+                    "covenantId": inst_str(&d, "CovenantID"),
+                    "timestamp": inst_i64(&d, "CovenantTimestamp"),
+                    "estateName": inst_text(&d, "EstateName"),
+                    "estateOwnerId": inst_str(&d, "EstateOwnerID"),
                 }),
             ));
+            let owner = inst_str(&d, "EstateOwnerID");
+            if !owner.is_empty() && !is_zero_uuid(&owner) {
+                actions.push(Action::ResolveNames(vec![owner]));
+            }
+        }
+
+        // One page of a parcel's access or ban list. Pages accumulate per
+        // (parcel, list) until the UI asks for the collected set - large lists
+        // span several packets with the same SequenceID.
+        "ParcelAccessListReply" => {
+            let d = block0(decoded, "Data").cloned().unwrap_or(Value::Null);
+            let local_id = inst_i64(&d, "LocalID");
+            let flags = inst_i64(&d, "Flags") as u32;
+            let mut ids = Vec::new();
+            let entries: Vec<Value> = block_instances(decoded, "List")
+                .iter()
+                .filter_map(|e| {
+                    let id = inst_str(e, "ID");
+                    if id.is_empty() || is_zero_uuid(&id) {
+                        return None;
+                    }
+                    ids.push(id.clone());
+                    Some(json!({ "id": id, "time": inst_i64(e, "Time") }))
+                })
+                .collect();
+            let list = state.access_lists.entry((local_id, flags)).or_default();
+            for e in entries {
+                if !list.iter().any(|x| x.get("id") == e.get("id")) {
+                    list.push(e);
+                }
+            }
+            actions.push(Action::emit(
+                "parcel-access",
+                json!({ "localId": local_id, "flags": flags, "entries": state.access_lists[&(local_id, flags)].clone() }),
+            ));
+            if !ids.is_empty() {
+                actions.push(Action::ResolveNames(ids));
+            }
+        }
+
+        // Who owns how many prims on the parcel (the Objects tab's owner list).
+        "ParcelObjectOwnersReply" => {
+            let mut ids = Vec::new();
+            let owners: Vec<Value> = block_instances(decoded, "Data")
+                .iter()
+                .filter_map(|o| {
+                    let id = inst_str(o, "OwnerID");
+                    if id.is_empty() || is_zero_uuid(&id) {
+                        return None;
+                    }
+                    ids.push(id.clone());
+                    Some(json!({
+                        "id": id,
+                        "isGroup": o.get("IsGroupOwned").and_then(|v| v.as_bool()).unwrap_or(false),
+                        "count": inst_i64(o, "Count"),
+                        "online": o.get("OnlineStatus").and_then(|v| v.as_bool()).unwrap_or(false),
+                    }))
+                })
+                .collect();
+            actions.push(Action::emit("parcel-object-owners", json!({ "owners": owners })));
+            if !ids.is_empty() {
+                actions.push(Action::ResolveNames(ids));
+            }
         }
 
         // Map region blocks: region names plus per-tile agent counts.
@@ -1782,12 +2146,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     actions.extend(track_self(state, inst));
                     if let Some(pos) = crate::bridge::objects::position_from_object_data(
                         &B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default(),
-                    )
-                    .or_else(|| {
-                        crate::bridge::objects::position_from_terse_object_data(
-                            &B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default(),
-                        )
-                    }) {
+                    ) {
                         state.objects.upsert(crate::bridge::objects::ObjectRow {
                             local_id,
                             full_id: crate::bridge::objects::id_bytes(&inst_str(inst, "FullID")),
@@ -1804,9 +2163,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 }
                 if pcode == crate::bridge::objects::PCODE_AVATAR {
                     let blob = B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default();
-                    if let Some(pos) = crate::bridge::objects::position_from_object_data(&blob)
-                        .or_else(|| crate::bridge::objects::position_from_terse_object_data(&blob))
-                    {
+                    if let Some(pos) = crate::bridge::objects::position_from_object_data(&blob) {
                         state.objects.upsert(crate::bridge::objects::ObjectRow {
                             local_id,
                             full_id: crate::bridge::objects::id_bytes(&inst_str(inst, "FullID")),
@@ -1825,9 +2182,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     continue; // 9 = primitive; avatars handled above
                 }
                 let blob = B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default();
-                let pos = crate::bridge::objects::position_from_object_data(&blob)
-                    .or_else(|| crate::bridge::objects::position_from_terse_object_data(&blob));
-                if let Some(pos) = pos {
+                if let Some(pos) = crate::bridge::objects::position_from_object_data(&blob) {
                     state.objects.upsert(crate::bridge::objects::ObjectRow {
                         local_id,
                         full_id: crate::bridge::objects::id_bytes(&inst_str(inst, "FullID")),
@@ -1860,7 +2215,19 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 };
                 if let Some((local_id, pos)) = crate::bridge::objects::decode_terse_improved(&blob) {
                     state.objects.update_movement(local_id, pos);
-                    if state.objects.agent_local_id(&state.agent_id) == Some(local_id) {
+                    // A terse position is parent-frame but carries no parenting,
+                    // so for OUR OWN avatar it's only trustworthy as a region
+                    // position while we're verifiably standing. Across a sit
+                    // boundary the row's parent can lag the sim by a packet,
+                    // and a seat offset like (0,0,1) written into last_pos
+                    // poisons everything anchored to it (parcel gating, list
+                    // distances). Full self updates carry parent + position
+                    // together and re-anchor us via track_self instead.
+                    if state.objects.agent_local_id(&state.agent_id) == Some(local_id)
+                        && !state.sitting
+                        && !state.sit_pending
+                        && state.objects.parent_id_of(local_id) == Some(0)
+                    {
                         actions.extend(sync_self_from_avatar_row(state));
                     }
                 }
@@ -2173,6 +2540,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
 
         // A teleport failure, except "could not teleport closer" actually means we arrived.
         "TeleportFailed" => {
+            state.tp_target = None; // this trip is over either way
             let reason = field_text(decoded, "Info", "Reason").unwrap_or_default();
             let reason = reason.trim();
             if reason.to_lowercase().contains("could not teleport closer") {
@@ -2224,6 +2592,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
 
         // A within-region teleport: it completes immediately, with no sim change.
         "TeleportLocal" => {
+            state.tp_target = None;
             let (px, py, pz) = vec3(field(decoded, "Info", "Position"));
             state.last_pos = Some([px, py, pz]);
             actions.extend(stand_up_on_arrival(state));
@@ -2248,6 +2617,10 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 state.sim_ip = sim_ip.clone();
                 state.sim_port = sim_port;
                 state.handshake_reply_sent = false; // the new sim triggers a fresh handshake
+                state.agent_parcel_seq = 0; // new region, new parcel sequence space
+                state.last_parcel_hash = 0;
+                state.parcel_snapshot = None;
+                state.access_lists.clear();
                 actions.push(Action::Retarget {
                     sim_ip: sim_ip.clone(),
                     sim_port,
@@ -2260,22 +2633,44 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 }
             }
             state.objects.clear();
-            actions.push(Action::emit(
-                "teleport-finish",
-                json!({ "url": seed, "simIp": sim_ip, "simPort": sim_port, "regionHandle": handle, "regionName": state.region_name }),
-            ));
+            let mut fin = json!({ "url": seed, "simIp": sim_ip, "simPort": sim_port, "regionHandle": handle });
+            if let Some(name) = tp_target_region_name(state) {
+                fin["regionName"] = json!(name);
+            }
+            // The recorded destination belongs to THIS trip only: consume it,
+            // or the next target-less arrival (home, landmark, lure) would be
+            // stamped with a previous teleport's name.
+            state.tp_target = None;
+            if let Some((gx, gy)) = wire_region_grid(&handle) {
+                state.region_grid_x = gx;
+                state.region_grid_y = gy;
+                fin["gridX"] = json!(gx);
+                fin["gridY"] = json!(gy);
+                fin["region"] = json!({ "x": gx, "y": gy, "gridX": gx, "gridY": gy });
+            }
+            actions.push(Action::emit("teleport-finish", fin));
         }
 
         // A region crossing, whether by walking or teleport: switch the circuit and update position.
         "CrossedRegion" => {
+            state.tp_target = None; // whatever was recorded, we're somewhere new now
             let sim_ip = inst_str(block0(decoded, "RegionData").unwrap_or(&Value::Null), "SimIP");
             let sim_port = as_i64(field(decoded, "RegionData", "SimPort")) as u16;
             let seed = field_text(decoded, "RegionData", "SeedCapability").unwrap_or_default();
             let (px, py, pz) = vec3(field(decoded, "Info", "Position"));
+            let handle = inst_str(block0(decoded, "RegionData").unwrap_or(&Value::Null), "RegionHandle");
+            if let Some((gx, gy)) = wire_region_grid(&handle) {
+                state.region_grid_x = gx;
+                state.region_grid_y = gy;
+            }
             if !sim_ip.is_empty() && (sim_ip != state.sim_ip || sim_port != state.sim_port) {
                 state.sim_ip = sim_ip.clone();
                 state.sim_port = sim_port;
                 state.handshake_reply_sent = false;
+                state.agent_parcel_seq = 0;
+                state.last_parcel_hash = 0;
+                state.parcel_snapshot = None;
+                state.access_lists.clear();
                 actions.push(Action::Retarget {
                     sim_ip: sim_ip.clone(),
                     sim_port,
@@ -2300,6 +2695,11 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         "AgentMovementComplete" => {
             let (px, py, pz) = vec3(field(decoded, "Data", "Position"));
             state.last_pos = Some([px, py, pz]);
+            let handle = inst_str(block0(decoded, "Data").unwrap_or(&Value::Null), "RegionHandle");
+            if let Some((gx, gy)) = wire_region_grid(&handle) {
+                state.region_grid_x = gx;
+                state.region_grid_y = gy;
+            }
             actions.push(Action::emit(
                 "position",
                 json!({ "position": { "x": px, "y": py, "z": pz }, "region": region_obj(state), "source": "movement" }),
@@ -2685,6 +3085,17 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if access != 0 {
                 state.region_access = access;
             }
+            if let Some(product) = field_text(decoded, "RegionInfo3", "ProductName") {
+                if !product.is_empty() {
+                    state.region_product = product;
+                }
+            }
+            let flags_ext = block_instances(decoded, "RegionInfo4")
+                .first()
+                .map(|r| llsd_u64_str(r.get("RegionFlagsExtended")))
+                .and_then(|s| s.parse::<u64>().ok());
+            state.region_flags = flags_ext
+                .unwrap_or_else(|| as_i64(field(decoded, "RegionInfo", "RegionFlags")) as u64);
             let mut region = region_obj(state);
             if let Value::Object(ref mut m) = region {
                 m.insert("handshakeOnly".into(), json!(true));
@@ -2730,10 +3141,26 @@ fn str_field(v: &Value, keys: &[&str]) -> String {
 /// UDP block: text fields are native strings (not base64), and ParcelFlags is a
 /// 4-byte big-endian LLSD binary rather than a decoded U32. The output mirrors the
 /// UDP ParcelProperties handler, so the land UI gets identical fields either way.
-fn parcel_from_eq(state: &SessionState, body: &Value) -> Option<Action> {
+fn parcel_from_eq(state: &mut SessionState, body: &Value) -> Option<Action> {
     let pd = body.get("ParcelData").and_then(|v| v.as_array()).and_then(|a| a.first())?;
     if inst_i64(pd, "RequestResult") == -1 {
         return None; // the sim has no parcel data here
+    }
+    // Same staleness gates as the UDP arm: out-of-order pushes and replies for
+    // somewhere we no longer stand are what made the Land tab "blink".
+    let seq = inst_i64(pd, "SequenceID");
+    let aabb = Some((
+        {
+            let (x, y, z) = vec3(pd.get("AABBMin"));
+            [x, y, z]
+        },
+        {
+            let (x, y, z) = vec3(pd.get("AABBMax"));
+            [x, y, z]
+        },
+    ));
+    if !parcel_fresh(state, seq, aabb) {
+        return None;
     }
     // The Media 2.0 fields live in a separate MediaData block, not in ParcelData.
     let media = body.get("MediaData").and_then(|v| v.as_array()).and_then(|a| a.first());
@@ -2786,9 +3213,7 @@ fn parcel_from_eq(state: &SessionState, body: &Value) -> Option<Action> {
     } else {
         format!("https://secondlife.com/app/image/{snapshot}/256")
     };
-    Some(Action::emit(
-        "parcel",
-        json!({
+    let payload = json!({
             "localId": inst_i64(pd, "LocalID"),
             "name": inst_str(pd, "Name"),
             "desc": inst_str(pd, "Desc"),
@@ -2822,6 +3247,17 @@ fn parcel_from_eq(state: &SessionState, body: &Value) -> Option<Action> {
             "allowVoice": has(pflag::VOICE),
             "showInSearch": has(pflag::SHOW_DIR),
             "sellPasses": has(pflag::PASS_LIST),
+            "allowObjectEntryAll": has(pflag::ALL_OBJECT_ENTRY),
+            "allowObjectEntryGroup": has(pflag::GROUP_OBJECT_ENTRY),
+            "allowDeedToGroup": has(pflag::ALLOW_DEED_TO_GROUP),
+            "denyAnonymous": has(pflag::DENY_ANONYMOUS),
+            "denyAgeUnverified": has(pflag::DENY_AGEUNVERIFIED),
+            "useAccessGroup": has(pflag::ACCESS_GROUP),
+            "useAccessList": has(pflag::ACCESS_LIST),
+            "forSale": has(pflag::FOR_SALE),
+            "sellWithObjects": has(pflag::SELL_PARCEL_OBJECTS),
+            "auctionId": inst_i64(pd, "AuctionID"),
+            "status": inst_i64(pd, "Status"),
             "musicUrl": inst_str(pd, "MusicURL"),
             "mediaUrl": inst_str(pd, "MediaURL"),
             "mediaId": inst_str(pd, "MediaID"),
@@ -2847,8 +3283,8 @@ fn parcel_from_eq(state: &SessionState, body: &Value) -> Option<Action> {
             "canEdit": can_edit,
             "source": "eq",
             "stub": false,
-        }),
-    ))
+    });
+    emit_parcel_deduped(state, payload)
 }
 
 /// Route an EventQueue event (an LLSD body). On current SL a lot of messages come
@@ -3021,6 +3457,10 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                 state.sim_ip = sim_ip.clone();
                 state.sim_port = sim_port;
                 state.handshake_reply_sent = false;
+                state.agent_parcel_seq = 0;
+                state.last_parcel_hash = 0;
+                state.parcel_snapshot = None;
+                state.access_lists.clear();
                 actions.push(Action::Retarget {
                     sim_ip: sim_ip.clone(),
                     sim_port,
@@ -3032,7 +3472,15 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                     actions.push(Action::RefreshCaps { seed_url: seed.clone(), sim_ip: sim_ip.clone() });
                 }
             }
-            let mut fin = json!({ "url": seed, "simIp": sim_ip, "simPort": sim_port, "regionName": state.region_name });
+            // Destination name only (see the UDP TeleportFinish arm) - the
+            // session still carries the origin's name at this point.
+            let mut fin = json!({ "url": seed, "simIp": sim_ip, "simPort": sim_port });
+            if let Some(name) = tp_target_region_name(state) {
+                fin["regionName"] = json!(name);
+            }
+            // Consumed: the name must never outlive its own trip (a landmark
+            // or lure arrival carries no target of its own to overwrite it).
+            state.tp_target = None;
             if let Some((gx, gy)) = llsd_region_grid(info.get("RegionHandle")) {
                 state.region_grid_x = gx;
                 state.region_grid_y = gy;
@@ -3046,6 +3494,7 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
 
         // Walking across a region border also comes in via the EventQueue.
         "CrossedRegion" => {
+            state.tp_target = None; // whatever was recorded, we're somewhere new now
             let rd = body.get("RegionData").and_then(|v| v.as_array()).and_then(|a| a.first());
             let sim_ip = rd.map(|r| llsd_ip(r.get("SimIP"))).unwrap_or_default();
             let sim_port = rd.and_then(|r| r.get("SimPort")).and_then(|v| v.as_u64()).unwrap_or(0) as u16;
@@ -3061,6 +3510,10 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                 state.sim_ip = sim_ip.clone();
                 state.sim_port = sim_port;
                 state.handshake_reply_sent = false;
+                state.agent_parcel_seq = 0;
+                state.last_parcel_hash = 0;
+                state.parcel_snapshot = None;
+                state.access_lists.clear();
                 actions.push(Action::Retarget {
                     sim_ip: sim_ip.clone(),
                     sim_port,
@@ -3089,6 +3542,36 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
         "ParcelProperties" => {
             if let Some(action) = parcel_from_eq(state, body) {
                 actions.push(action);
+            }
+        }
+
+        // The prim-owner census is UDP-deprecated on SL, so it lands here.
+        "ParcelObjectOwnersReply" => {
+            let mut ids = Vec::new();
+            let owners: Vec<Value> = body
+                .get("Data")
+                .and_then(|v| v.as_array())
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|o| {
+                            let id = str_field(o, &["OwnerID", "owner_id"]);
+                            if id.is_empty() || is_zero_uuid(&id) {
+                                return None;
+                            }
+                            ids.push(id.clone());
+                            Some(json!({
+                                "id": id,
+                                "isGroup": truthy(o.get("IsGroupOwned")),
+                                "count": as_i64(o.get("Count")),
+                                "online": truthy(o.get("OnlineStatus")),
+                            }))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            actions.push(Action::emit("parcel-object-owners", json!({ "owners": owners })));
+            if !ids.is_empty() {
+                actions.push(Action::ResolveNames(ids));
             }
         }
 
@@ -3156,6 +3639,7 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
         // A teleport failure also arrives via the EventQueue, so surface it to stop
         // the UI waiting (e.g. an invalid destination -> "invalid_tport").
         "TeleportFailed" => {
+            state.tp_target = None; // this trip is over either way
             let reason = body
                 .get("Info")
                 .and_then(|v| v.as_array())
@@ -3246,10 +3730,11 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             ));
             return actions;
         }
-        // A group notice (62): "Subject|Body" in the message text, the group id
-        // and an optional inventory attachment in the binary bucket. It gets an
-        // Events-tab card of its own instead of drowning in group chat.
-        62 => {
+        // A group notice (32, or 37 when re-requested): "Subject|Body" in the
+        // message text, the group id and an optional inventory attachment in
+        // the binary bucket. It gets an Events-tab card of its own instead of
+        // drowning in group chat.
+        32 | 37 => {
             let raw_bucket = inst_bytes(&msg, "BinaryBucket");
             let (has_attachment, bucket_group, item_name) = parse_group_notice_bucket(&raw_bucket);
             // The sender rides in the AgentData/FromAgentName fields; the group
@@ -3274,7 +3759,7 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 "type": "group-notice", "source": "system", "channel": 0,
             });
             if has_attachment {
-                // The accept/decline reply (dialog 63/64) is addressed to the
+                // The accept/decline reply (dialog 33/34) is addressed to the
                 // group id, carrying this IM's id as the transaction.
                 payload["prompt"] = json!({
                     "type": "group-notice-attachment",
@@ -3370,19 +3855,20 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     }
 
     let session_im_id = if !im_id.is_empty() && !same_uuid(&im_id, ZERO) { im_id.clone() } else { String::new() };
-    let dedup_key = format!(
-        "{}{}\0{}\0{}\0{}",
-        if is_session && !session_im_id.is_empty() { format!("{session_im_id}\0") } else { String::new() },
-        from_id, dialog, text, wire_ts
-    );
-    if state.is_duplicate_im(&dedup_key) {
-        return actions;
+    if is_session && !session_im_id.is_empty() {
+        let dedup_key = format!("{session_im_id}\0{from_id}\0{dialog}\0{text}\0{wire_ts}");
+        if state.is_duplicate_im(&dedup_key) {
+            return actions;
+        }
     }
 
-    let online = offline == 0;
+    let mut participant = json!({ "id": &from_id, "name": &display });
+    if offline == 0 {
+        participant["online"] = json!(true);
+    }
     let msg_im_id = if is_session && !session_im_id.is_empty() { &session_im_id } else { &im_id };
     let mut payload = json!({
-        "participant": { "id": &from_id, "name": &display, "online": online },
+        "participant": participant,
         "message": {
             "imId": msg_im_id, "fromId": &from_id, "fromName": &display,
             "text": &text, "outgoing": false,
@@ -3553,14 +4039,18 @@ mod tests {
 
     const SELF_AGENT: &str = "aa000000-0000-0000-0000-000000000001";
 
-    /// A full ObjectUpdate blob with `pos` at the front, which is where the 60-byte
-    /// high-precision form keeps it.
+    /// A full ObjectUpdate blob in the avatar wire form (76 bytes): the 16-byte
+    /// collision plane comes FIRST - reading it as the position is the classic
+    /// everyone-stands-at-the-region-corner bug - and `pos` follows it.
     fn self_blob(pos: [f32; 3]) -> String {
-        let mut b = Vec::with_capacity(60);
+        let mut b = Vec::with_capacity(76);
+        for v in [0.0f32, 0.0, 1.0, 20.0] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
         for v in pos {
             b.extend_from_slice(&v.to_le_bytes());
         }
-        b.resize(60, 0);
+        b.resize(76, 0);
         B64.encode(b)
     }
 
@@ -3572,6 +4062,74 @@ mod tests {
                 "ObjectData": self_blob(pos),
             }] },
         })
+    }
+
+    /// An ImprovedTerseObjectUpdate Data blob for an avatar: LocalID, State,
+    /// agent flag, the collision plane, then the (parent-frame) position.
+    fn terse_avatar_blob(local_id: u32, pos: [f32; 3]) -> String {
+        let mut b = Vec::with_capacity(60);
+        b.extend_from_slice(&local_id.to_le_bytes());
+        b.push(0); // State
+        b.push(1); // agent flag: a collision plane follows
+        for v in [0.0f32, 0.0, 1.0, 2088.0] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        for v in pos {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.resize(60, 0);
+        B64.encode(b)
+    }
+
+    fn terse_update(local_id: u32, pos: [f32; 3]) -> Value {
+        json!({
+            "name": "ImprovedTerseObjectUpdate",
+            "blocks": { "ObjectData": [{ "Data": terse_avatar_blob(local_id, pos) }] },
+        })
+    }
+
+    #[test]
+    fn terse_self_update_moves_us_while_standing() {
+        let mut st = SessionState { agent_id: SELF_AGENT.into(), ..Default::default() };
+        route(&mut st, &self_update(SELF_AGENT, 0, [197.0, 171.0, 2088.0]));
+        let a = route(&mut st, &terse_update(99, [199.0, 173.0, 2088.0]));
+        assert_eq!(st.last_pos, Some([199.0, 173.0, 2088.0]));
+        assert!(emit_of(&a, "position").is_some());
+    }
+
+    #[test]
+    fn terse_seat_offset_never_becomes_our_region_position() {
+        // The sit race: a terse update carrying the seat-relative (0,0,1) can
+        // be processed before the full update that records the parenting. It
+        // must not be mistaken for standing at the region corner - that spot
+        // poisons the parcel gate and every list distance until repaired.
+        let mut st = SessionState { agent_id: SELF_AGENT.into(), ..Default::default() };
+        route(&mut st, &self_update(SELF_AGENT, 0, [197.0, 171.0, 2088.0]));
+        st.sit_pending = true; // the sit was requested; the sim is switching us
+        let a = route(&mut st, &terse_update(99, [0.0, 0.0, 1.0]));
+        assert!(emit_of(&a, "position").is_none());
+        assert_eq!(
+            st.last_pos,
+            Some([197.0, 171.0, 2088.0]),
+            "a seat offset must not become our position"
+        );
+    }
+
+    #[test]
+    fn terse_while_seated_defers_to_the_seat_chain() {
+        let mut st = SessionState { agent_id: SELF_AGENT.into(), ..Default::default() };
+        st.objects.upsert(crate::bridge::objects::ObjectRow {
+            local_id: 4242,
+            pos: [100.0, 50.0, 2000.0],
+            ..Default::default()
+        });
+        route(&mut st, &self_update(SELF_AGENT, 4242, [0.0, 0.0, 1.0]));
+        assert_eq!(st.last_pos, Some([100.0, 50.0, 2001.0]), "track_self resolves via the seat");
+        // A terse tick with a fresh seat-relative offset changes nothing:
+        // while seated, the full updates and the radar own our position.
+        let a = route(&mut st, &terse_update(99, [0.0, 0.0, 1.1]));
+        assert!(emit_of(&a, "position").is_none());
+        assert_eq!(st.last_pos, Some([100.0, 50.0, 2001.0]));
     }
 
     #[test]
@@ -3635,7 +4193,7 @@ mod tests {
         assert_eq!(st.objects.parent_id_of(avatar_id), Some(0));
         let pos = st
             .objects
-            .agent_region_pos(SELF_AGENT, None)
+            .agent_region_pos(SELF_AGENT)
             .expect("avatar region pos");
         assert!(
             (pos[2] - 2088.0).abs() < 0.1,
@@ -4014,7 +4572,7 @@ mod tests {
             "blocks": {
                 "AgentData": [{ "AgentID": OTHER, "SessionID": "s" }],
                 "MessageBlock": [{
-                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 62,
+                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 32,
                     "ID": tx, "Timestamp": 0,
                     "FromAgentName": B64.encode(b"Pantera\0"),
                     "Message": B64.encode(b"Meeting|Bring snacks.\0"),
@@ -4049,7 +4607,7 @@ mod tests {
             "blocks": {
                 "AgentData": [{ "AgentID": OTHER, "SessionID": "s" }],
                 "MessageBlock": [{
-                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 62,
+                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 37,
                     "ID": "44444444-4444-4444-4444-444444444444", "Timestamp": 0,
                     "FromAgentName": B64.encode(b"Pantera\0"),
                     "Message": B64.encode(b"Just a note\0"),
@@ -4076,13 +4634,27 @@ mod tests {
     }
 
     #[test]
-    fn im_dedup_within_window() {
+    fn repeated_p2p_im_is_never_deduped() {
         let mut st = me_state();
-        let pkt = im_packet(0, OTHER, ME, false, "0", "dup", "");
+        let pkt = im_packet(0, OTHER, ME, false, "0", "ok", "");
+        assert!(emit_of(&route(&mut st, &pkt), "im").is_some());
+        st.now_ms = 1500;
+        // Saying "ok" twice is two messages: wire resends are filtered at the
+        // circuit, and plain IMs have no double-delivery path to dedup.
+        assert!(emit_of(&route(&mut st, &pkt), "im").is_some());
+    }
+
+    #[test]
+    fn session_im_dedup_within_window() {
+        let mut st = me_state();
+        // Session chat double-delivers (EventQueue + UDP dialog 17), so the
+        // same line arriving twice back-to-back is one message.
+        let pkt = im_packet(17, OTHER, "00000000-0000-0000-0000-000000000000", true,
+            "44444444-4444-4444-4444-444444444444", "hi group", "Explorers");
         assert!(emit_of(&route(&mut st, &pkt), "im").is_some());
         st.now_ms = 1500; // still inside 1000 + 1500
         assert!(emit_of(&route(&mut st, &pkt), "im").is_none());
-        st.now_ms = 3000; // the window has elapsed
+        st.now_ms = 3000; // the window has elapsed - a genuine repeat
         assert!(emit_of(&route(&mut st, &pkt), "im").is_some());
     }
 
@@ -4626,6 +5198,29 @@ mod tests {
     }
 
     #[test]
+    fn movement_complete_seeds_region_grid_from_handle() {
+        // The login region's grid spot comes from nowhere else: the EventQueue
+        // only names it on the FIRST teleport/crossing, so radar teleports and
+        // map placement in the login region depend on this handle.
+        let mut st = SessionState::default();
+        let handle = ((1000u64 * 256) << 32) | (2000u64 * 256);
+        let pkt = json!({
+            "name": "AgentMovementComplete",
+            "blocks": { "Data": [{ "Position": [10.0, 20.0, 30.0], "LookAt": [1.0, 0.0, 0.0], "RegionHandle": handle.to_string(), "Timestamp": 0 }] }
+        });
+        let a = route(&mut st, &pkt);
+        assert_eq!(st.region_grid_x, 1000);
+        assert_eq!(st.region_grid_y, 2000);
+        let p = emit_of(&a, "position").unwrap();
+        assert_eq!(p["region"]["gridX"], 1000);
+        assert_eq!(p["region"]["gridY"], 2000);
+        // Garbage handles must not fake a location (0 is "not yet known").
+        assert_eq!(wire_region_grid("1"), None);
+        assert_eq!(wire_region_grid(""), None);
+        assert_eq!(wire_region_grid("junk"), None);
+    }
+
+    #[test]
     fn movement_complete_requests_balance_and_agent_data() {
         // With an agent id set, arriving in-region asks the sim for the L$ balance
         // and the agent data (active group + title). The latter isn't pushed on
@@ -4656,6 +5251,41 @@ mod tests {
         assert!(emit_of(&benign, "teleport-finish").unwrap()["benign"].as_bool().unwrap());
         let real = route(&mut st, &json!({ "name": "TeleportFailed", "blocks": { "Info": [{ "AgentID": "x", "Reason": B64.encode(b"Region full\0") }] } }));
         assert_eq!(emit_of(&real, "teleport-failed").unwrap()["reason"], "Region full");
+    }
+
+    #[test]
+    fn a_recorded_destination_labels_only_its_own_teleport() {
+        let mut st = SessionState { sim_ip: "1.1.1.1".into(), sim_port: 13000, ..Default::default() };
+        // A map teleport recorded where we asked to go.
+        st.tp_target = Some(json!({ "regionName": "Aurora", "gridX": 1000, "gridY": 2000 }));
+        let pkt = |port: u16| json!({
+            "name": "TeleportFinish",
+            "blocks": { "Info": [{ "SimIP": "2.2.2.2", "SimPort": port, "RegionHandle": "1", "SeedCapability": B64.encode(b"\0"), "TeleportFlags": 0 }] }
+        });
+        let a = route(&mut st, &pkt(13001));
+        let fin = emit_of(&a, "teleport-finish").expect("arrival");
+        assert_eq!(fin["regionName"], "Aurora", "our own trip carries its name");
+        assert!(st.tp_target.is_none(), "the destination is consumed by its arrival");
+        // Teleporting HOME next records no target of its own: the previous
+        // trip's name must not label the arrival (the map falls back to its
+        // own region cache and the handshake supplies the real name).
+        let a = route(&mut st, &pkt(13002));
+        let fin = emit_of(&a, "teleport-finish").expect("home arrival");
+        assert!(fin.get("regionName").is_none(), "a landmark arrival got a stale name: {fin}");
+    }
+
+    #[test]
+    fn a_failed_or_local_teleport_drops_the_recorded_destination() {
+        let mut st = SessionState::default();
+        st.tp_target = Some(json!({ "regionName": "Aurora" }));
+        route(&mut st, &json!({ "name": "TeleportFailed", "blocks": { "Info": [{ "AgentID": "x", "Reason": B64.encode(b"Region full\0") }] } }));
+        assert!(st.tp_target.is_none(), "a failed trip must not label the next one");
+        st.tp_target = Some(json!({ "regionName": "Aurora" }));
+        route(&mut st, &json!({ "name": "TeleportLocal", "blocks": { "Info": [{
+            "AgentID": "x", "LocationID": 1, "Position": [20.0, 30.0, 40.0],
+            "LookAt": [0.0, 0.0, 0.0], "TeleportFlags": 0,
+        }] } }));
+        assert!(st.tp_target.is_none());
     }
 
     #[test]
@@ -4740,6 +5370,316 @@ mod tests {
         assert_eq!(p["userLookAt"]["x"], 0.0);
         assert_eq!(p["userLookAt"]["y"], 0.0);
         assert_eq!(p["regionId"], "33333333-3333-3333-3333-333333333333");
+    }
+
+    fn minimal_parcel_pkt(seq: i64, local_id: i64, name: &str, aabb: Option<([f64; 3], [f64; 3])>) -> Value {
+        let mut pd = json!({
+            "RequestResult": 0, "SequenceID": seq, "LocalID": local_id,
+            "OwnerID": "owner-1", "IsGroupOwned": false,
+            "Area": 512, "ParcelFlags": 0, "SalePrice": 0,
+            "Name": B64.encode(format!("{name}\0").as_bytes()), "Desc": B64.encode(b"\0"),
+            "MusicURL": B64.encode(b"\0"), "MediaURL": B64.encode(b"\0"),
+            "MediaID": "00000000-0000-0000-0000-000000000000",
+            "GroupID": "00000000-0000-0000-0000-000000000000",
+            "SnapshotID": "00000000-0000-0000-0000-000000000000",
+            "AuthBuyerID": "00000000-0000-0000-0000-000000000000",
+            "MaxPrims": 100, "ParcelPrimBonus": 1.0,
+            "OwnerPrims": 0, "GroupPrims": 0, "OtherPrims": 0, "SelectedPrims": 0,
+            "UserLocation": [0.0, 0.0, 0.0], "LandingType": 0,
+            "PassPrice": 0, "PassHours": 0.0, "Category": 0, "MediaAutoScale": 0,
+        });
+        if let Some((min, max)) = aabb {
+            pd["AABBMin"] = json!([min[0], min[1], min[2]]);
+            pd["AABBMax"] = json!([max[0], max[1], max[2]]);
+        }
+        json!({ "name": "ParcelProperties", "blocks": { "ParcelData": [pd] } })
+    }
+
+    #[test]
+    fn fold_parcel_flags_new_option_bits() {
+        // Terraform 1<<4, entry all 1<<27, entry group 1<<28, deed 1<<13,
+        // deny-anon 1<<22, deny-unverified 1<<31, group access 1<<8,
+        // access list 1<<9, ban list 1<<10.
+        let folded = fold_parcel_flags(0, &json!({
+            "allowTerraform": true, "allowObjectEntryAll": true, "allowObjectEntryGroup": true,
+            "allowDeedToGroup": true, "denyAnonymous": true, "denyAgeUnverified": true,
+            "useAccessGroup": true, "useAccessList": false,
+        }));
+        assert_ne!(folded & (1 << 4), 0);
+        assert_ne!(folded & (1 << 27), 0);
+        assert_ne!(folded & (1 << 28), 0);
+        assert_ne!(folded & (1 << 13), 0);
+        assert_ne!(folded & (1 << 22), 0);
+        assert_ne!(folded & (1u32 << 31), 0);
+        assert_ne!(folded & (1 << 8), 0);
+        assert_eq!(folded & (1 << 9), 0, "public access clears the access-list bit");
+        assert_ne!(folded & (1 << 10), 0, "an access save always forces the ban list on");
+        // Bits the payload doesn't mention survive the fold untouched.
+        let keep = fold_parcel_flags(1 << 17, &json!({ "allowTerraform": false }));
+        assert_ne!(keep & (1 << 17), 0);
+        assert_eq!(keep & (1 << 4), 0);
+        assert_eq!(keep & (1 << 10), 0, "no access keys, no forced ban bit");
+    }
+
+    #[test]
+    fn parcel_snapshot_feeds_the_money_guards() {
+        let mut st = SessionState {
+            agent_id: "owner-1".into(),
+            region_id: "33333333-3333-3333-3333-333333333333".into(),
+            ..Default::default()
+        };
+        // PF_FOR_SALE (4) | PF_USE_PASS_LIST (2048)
+        let mut pkt = minimal_parcel_pkt(0, 7, "Sale Lot", None);
+        pkt["blocks"]["ParcelData"][0]["ParcelFlags"] = json!(4 + 2048);
+        pkt["blocks"]["ParcelData"][0]["SalePrice"] = json!(1500);
+        pkt["blocks"]["ParcelData"][0]["PassPrice"] = json!(25);
+        route(&mut st, &pkt);
+        let snap = st.parcel_snapshot.as_ref().expect("snapshot");
+        assert_eq!(snap.local_id, 7);
+        assert_eq!(snap.sale_price, 1500);
+        assert_eq!(snap.area, 512);
+        assert!(snap.for_sale);
+        assert!(snap.sell_passes);
+        assert_eq!(snap.pass_price, 25);
+        assert_eq!(snap.region_id, "33333333-3333-3333-3333-333333333333");
+        assert_eq!(snap.owner_id, "owner-1");
+    }
+
+    #[test]
+    fn covenant_reply_and_text_assembly() {
+        let mut st = SessionState::default();
+        let a = route(&mut st, &json!({
+            "name": "EstateCovenantReply",
+            "blocks": { "Data": [{
+                "CovenantID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "CovenantTimestamp": 1700000000i64,
+                "EstateName": B64.encode(b"Bee Estate\0"),
+                "EstateOwnerID": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            }] }
+        }));
+        let c = emit_of(&a, "covenant").expect("covenant event");
+        assert_eq!(c["estateName"], "Bee Estate");
+        assert_eq!(c["covenantId"], "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        // The text arrives as transfer packets, possibly out of order.
+        st.covenant_xfer = Some(("77777777-7777-7777-7777-777777777777".into(), BTreeMap::new()));
+        let note = b"Linden text version 2\n{\nText length 8\nBe kind.}";
+        let (head, tail) = note.split_at(20);
+        let pkt = |n: i64, status: i64, data: &[u8]| json!({
+            "name": "TransferPacket",
+            "blocks": { "TransferData": [{
+                "TransferID": "77777777-7777-7777-7777-777777777777",
+                "ChannelType": 2, "Packet": n, "Status": status,
+                "Data": B64.encode(data),
+            }] }
+        });
+        // Final packet first: it must not emit until packet 0 lands... the
+        // sim marks DONE on the LAST packet it sends, so deliver in order for
+        // the done check but verify assembly uses packet numbers.
+        assert!(route(&mut st, &pkt(0, 0, head)).is_empty());
+        let done = route(&mut st, &pkt(1, 1, tail));
+        let t = emit_of(&done, "covenant-text").expect("covenant text");
+        assert_eq!(t["ok"], true);
+        assert_eq!(t["text"], "Be kind.");
+        assert!(st.covenant_xfer.is_none(), "transfer state cleared");
+
+        // A refused transfer reports instead of hanging.
+        st.covenant_xfer = Some(("88888888-8888-8888-8888-888888888888".into(), BTreeMap::new()));
+        let fail = route(&mut st, &json!({
+            "name": "TransferInfo",
+            "blocks": { "TransferInfo": [{
+                "TransferID": "88888888-8888-8888-8888-888888888888",
+                "ChannelType": 2, "TargetType": 0, "Status": -2, "Size": 0,
+                "Params": B64.encode(b""),
+            }] }
+        }));
+        let e = emit_of(&fail, "covenant-text").expect("failure event");
+        assert_eq!(e["ok"], false);
+    }
+
+    #[test]
+    fn notecard_text_unwraps_the_envelope() {
+        assert_eq!(notecard_text(b"Linden text version 2\n{\nText length 5\nHello}"), "Hello");
+        assert_eq!(notecard_text(b"plain covenant text"), "plain covenant text");
+        assert_eq!(notecard_text(b""), "");
+        // A length larger than the body must not panic.
+        assert_eq!(notecard_text(b"Linden text version 2\n{\nText length 999\nabc"), "abc");
+    }
+
+    #[test]
+    fn access_list_replies_accumulate_per_kind() {
+        let mut st = SessionState::default();
+        let reply = |flags: u32, ids: &[&str]| json!({
+            "name": "ParcelAccessListReply",
+            "blocks": {
+                "Data": [{ "AgentID": "me", "SequenceID": 0, "Flags": flags, "LocalID": 7 }],
+                "List": ids.iter().map(|id| json!({ "ID": id, "Time": 0, "Flags": 0 })).collect::<Vec<_>>(),
+            }
+        });
+        let a1 = route(&mut st, &reply(1, &["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1"]));
+        let p1 = emit_of(&a1, "parcel-access").unwrap();
+        assert_eq!(p1["flags"], 1);
+        assert_eq!(p1["entries"].as_array().unwrap().len(), 1);
+        // A second page of the same list appends; a duplicate id does not.
+        let a2 = route(&mut st, &reply(1, &[
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2",
+        ]));
+        let p2 = emit_of(&a2, "parcel-access").unwrap();
+        assert_eq!(p2["entries"].as_array().unwrap().len(), 2);
+        // The ban list accumulates separately.
+        let a3 = route(&mut st, &reply(2, &["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1"]));
+        let p3 = emit_of(&a3, "parcel-access").unwrap();
+        assert_eq!(p3["flags"], 2);
+        assert_eq!(p3["entries"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn object_owners_reply_resolves_names_and_maps_fields() {
+        let mut st = SessionState::default();
+        let a = route(&mut st, &json!({
+            "name": "ParcelObjectOwnersReply",
+            "blocks": { "Data": [
+                { "OwnerID": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1", "IsGroupOwned": false, "Count": 12, "OnlineStatus": true },
+                { "OwnerID": "00000000-0000-0000-0000-000000000000", "IsGroupOwned": false, "Count": 1, "OnlineStatus": false },
+            ] }
+        }));
+        let p = emit_of(&a, "parcel-object-owners").expect("owners");
+        let owners = p["owners"].as_array().unwrap();
+        assert_eq!(owners.len(), 1, "the null-owner row is skipped");
+        assert_eq!(owners[0]["count"], 12);
+        assert!(a.iter().any(|x| matches!(x, Action::ResolveNames(_))));
+    }
+
+    #[test]
+    fn region_handshake_carries_product_and_covenant_clauses() {
+        let mut st = SessionState {
+            agent_id: "me".into(),
+            session_uuid: "s".into(),
+            ..Default::default()
+        };
+        let pkt = json!({
+            "name": "RegionHandshake",
+            "blocks": {
+                "RegionInfo": [{ "SimName": B64.encode(b"Natoma\0"), "SimAccess": 21, "RegionFlags": 0 }],
+                "RegionInfo2": [{ "RegionID": "33333333-3333-3333-3333-333333333333" }],
+                "RegionInfo3": [{ "ProductName": B64.encode(b"Estate / Full Region\0"), "ColoName": B64.encode(b"\0"), "ProductSKU": B64.encode(b"\0"), "CPUClassID": 0, "CPURatio": 0 }],
+                "RegionInfo4": [{ "RegionFlagsExtended": "128", "RegionProtocols": "0" }],
+            }
+        });
+        let a = route(&mut st, &pkt);
+        assert_eq!(st.region_product, "Estate / Full Region");
+        let r = emit_of(&a, "region").expect("region");
+        assert_eq!(r["productName"], "Estate / Full Region");
+        // Bit 7 (128) = block land resell.
+        assert_eq!(r["blockLandResell"], true);
+        assert_eq!(r["allowParcelChanges"], false);
+    }
+
+    #[test]
+    fn parcel_out_of_order_pushes_are_dropped() {
+        let mut st = SessionState { agent_id: "owner-1".into(), ..Default::default() };
+        assert!(emit_of(&route(&mut st, &minimal_parcel_pkt(5, 1, "A", None)), "parcel").is_some());
+        // A late push from before the one we already applied: stale, dropped.
+        assert!(emit_of(&route(&mut st, &minimal_parcel_pkt(3, 2, "B", None)), "parcel").is_none());
+        // The next one in order goes through.
+        assert!(emit_of(&route(&mut st, &minimal_parcel_pkt(6, 3, "C", None)), "parcel").is_some());
+    }
+
+    #[test]
+    fn parcel_reply_for_somewhere_else_is_dropped() {
+        // We stand at (200, 200); a reply describing a parcel spanning only the
+        // region's other corner is an answer to a stale (placeholder) request.
+        let mut st = SessionState { agent_id: "owner-1".into(), last_pos: Some([200.0, 200.0, 25.0]), ..Default::default() };
+        let stale = minimal_parcel_pkt(-50000, 1, "Wrong", Some(([100.0, 100.0, 0.0], [160.0, 160.0, 0.0])));
+        assert!(emit_of(&route(&mut st, &stale), "parcel").is_none());
+        // The parcel we actually stand on is accepted.
+        let right = minimal_parcel_pkt(-50000, 2, "Right", Some(([196.0, 196.0, 0.0], [256.0, 256.0, 0.0])));
+        assert!(emit_of(&route(&mut st, &right), "parcel").is_some());
+        // No AABB in the packet (or no known position) means no gating.
+        let mut st2 = SessionState { agent_id: "owner-1".into(), ..Default::default() };
+        assert!(emit_of(&route(&mut st2, &minimal_parcel_pkt(-50000, 3, "NoBox", None)), "parcel").is_some());
+    }
+
+    #[test]
+    fn identical_parcel_payloads_do_not_re_emit() {
+        let mut st = SessionState { agent_id: "owner-1".into(), ..Default::default() };
+        let pkt = minimal_parcel_pkt(0, 1, "Same", None);
+        assert!(emit_of(&route(&mut st, &pkt), "parcel").is_some());
+        assert!(emit_of(&route(&mut st, &pkt), "parcel").is_none(), "byte-identical repaint suppressed");
+        // A real change (name) still comes through.
+        let changed = minimal_parcel_pkt(0, 1, "Renamed", None);
+        assert!(emit_of(&route(&mut st, &changed), "parcel").is_some());
+    }
+
+    #[test]
+    fn coarse_self_position_rejects_zero_and_wild_jumps() {
+        let me = "11111111-1111-1111-1111-111111111111";
+        let mk = |x: i64, y: i64| {
+            json!({
+                "name": "CoarseLocationUpdate",
+                "blocks": {
+                    "Location": [{ "X": x, "Y": y, "Z": 10 }],
+                    "AgentData": [{ "AgentID": me }],
+                    "Index": { "You": 0, "Prey": -1 },
+                }
+            })
+        };
+        let mut st = SessionState { agent_id: me.into(), last_pos: Some([120.0, 120.0, 25.0]), ..Default::default() };
+        // (0,0) is the sim's junk value around login/TP, never a real spot.
+        assert!(emit_of(&route(&mut st, &mk(0, 0)), "position").is_none());
+        assert_eq!(st.last_pos.unwrap()[0], 120.0, "position must be untouched");
+        // A 200m coarse "jump" can't be genuine either.
+        assert!(emit_of(&route(&mut st, &mk(20, 250)), "position").is_none());
+        // A believable nearby move goes through.
+        assert!(emit_of(&route(&mut st, &mk(125, 118)), "position").is_some());
+        assert_eq!(st.last_pos.unwrap()[0], 125.0);
+    }
+
+    #[test]
+    fn coarse_repairs_a_poisoned_position_after_two_agreeing_ticks() {
+        let me = "11111111-1111-1111-1111-111111111111";
+        let mk = |x: i64, y: i64| {
+            json!({
+                "name": "CoarseLocationUpdate",
+                "blocks": {
+                    "Location": [{ "X": x, "Y": y, "Z": 10 }],
+                    "AgentData": [{ "AgentID": me }],
+                    "Index": { "You": 0, "Prey": -1 },
+                }
+            })
+        };
+        // last_pos stuck near the region origin (a mis-framed update wrote a
+        // seat offset). The radar is the only signal left that can re-anchor
+        // a stationary avatar.
+        let mut st = SessionState { agent_id: me.into(), last_pos: Some([0.0, 0.0, 1.0]), ..Default::default() };
+        // The first far tick reads as noise...
+        assert!(emit_of(&route(&mut st, &mk(197, 171)), "position").is_none());
+        assert_eq!(st.last_pos.unwrap()[0], 0.0);
+        // ...but the same spot twice running is the truth winning.
+        assert!(emit_of(&route(&mut st, &mk(197, 171)), "position").is_some());
+        assert_eq!(st.last_pos.unwrap()[0], 197.0);
+        assert_eq!(st.last_pos.unwrap()[1], 171.0);
+    }
+
+    #[test]
+    fn coarse_repair_needs_agreement_not_two_random_glitches() {
+        let me = "11111111-1111-1111-1111-111111111111";
+        let mk = |x: i64, y: i64| {
+            json!({
+                "name": "CoarseLocationUpdate",
+                "blocks": {
+                    "Location": [{ "X": x, "Y": y, "Z": 10 }],
+                    "AgentData": [{ "AgentID": me }],
+                    "Index": { "You": 0, "Prey": -1 },
+                }
+            })
+        };
+        let mut st = SessionState { agent_id: me.into(), last_pos: Some([120.0, 120.0, 25.0]), ..Default::default() };
+        assert!(emit_of(&route(&mut st, &mk(20, 250)), "position").is_none());
+        // A different far spot doesn't confirm the first one.
+        assert!(emit_of(&route(&mut st, &mk(250, 20)), "position").is_none());
+        assert_eq!(st.last_pos.unwrap()[0], 120.0, "two disagreeing glitches must not move us");
     }
 
     #[test]

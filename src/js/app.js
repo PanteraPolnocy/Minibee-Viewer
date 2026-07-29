@@ -312,7 +312,11 @@ const BeeApp = (function () {
         if (map) {
           map.addEventListener('click', function () {
             BeeUtils.dismissDialog(dlg);
-            if (typeof BeeNavigation !== 'undefined' && BeeNavigation.setTab) BeeNavigation.setTab('map');
+            // The navigation module exposes switchTab (there is no setTab) -
+            // calling the wrong name left this button doing nothing at all.
+            if (typeof BeeNavigation !== 'undefined' && BeeNavigation.switchTab) {
+              BeeNavigation.switchTab('map');
+            }
           });
         }
       }

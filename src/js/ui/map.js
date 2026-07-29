@@ -817,11 +817,9 @@ const BeeMap = (function () {
     if (mapTeleportBusy) return;
     beginMapTeleport('requesting');
     try {
-      const loc = await BeeTransport.teleportHome();
-      if (loc && loc.alreadyHome) {
-        resetTeleportButton();
-        return;
-      }
+      // The command only acks the request; being already home surfaces as the
+      // benign "could not teleport closer" teleport-finish, not a return field.
+      await BeeTransport.teleportHome();
       applyMapTeleportProgress('starting', 'Starting');
     } catch (err) {
       resetTeleportButton();
@@ -1014,6 +1012,13 @@ const BeeMap = (function () {
       }
       if (loc.regionName && !isPlaceholderRegionName(loc.regionName)) {
         applyRegionInfo(loc.gridX, loc.gridY, loc.regionName, undefined, 'state');
+      } else if (!loc.regionName) {
+        // Teleports started elsewhere (lure, landmark) carry no name; keep the
+        // one the selection already has for these coords instead of wiping it.
+        loc.regionName = (selection && selection.gridX === loc.gridX &&
+            selection.gridY === loc.gridY && selection.regionName)
+          ? selection.regionName
+          : getRegionName(loc.gridX, loc.gridY);
       }
       centerOn(loc.gridX, loc.gridY);
       setSelection(loc);

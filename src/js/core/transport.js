@@ -216,6 +216,36 @@ const BeeTransport = (function () {
     return adapter.updateParcel(data);
   }
 
+  // About Land passthroughs. Every guard lives in the Rust core; these only
+  // forward, and reject cleanly when no adapter is attached.
+  function landCall(name, args) {
+    if (!adapter || typeof adapter[name] !== 'function') {
+      return Promise.reject(new Error('Not connected'));
+    }
+    return adapter[name].apply(adapter, args);
+  }
+  function requestCovenant() { return landCall('requestCovenant', []); }
+  function fetchCovenantText() { return landCall('fetchCovenantText', []); }
+  function requestParcelAccess(localId, flags) { return landCall('requestParcelAccess', [localId, flags]); }
+  function updateParcelAccess(localId, flags, entries) { return landCall('updateParcelAccess', [localId, flags, entries]); }
+  function requestParcelObjectOwners(localId) { return landCall('requestParcelObjectOwners', [localId]); }
+  function parcelReturnObjects(localId, returnType, ownerIds) { return landCall('parcelReturnObjects', [localId, returnType, ownerIds]); }
+  function parcelSetAutoreturn(localId, minutes) { return landCall('parcelSetAutoreturn', [localId, minutes]); }
+  function parcelBuy(localId) { return landCall('parcelBuy', [localId]); }
+  function parcelRelease(localId) { return landCall('parcelRelease', [localId]); }
+  function parcelBuyPass(localId) { return landCall('parcelBuyPass', [localId]); }
+  function parcelDeedToGroup(localId, groupId) { return landCall('parcelDeedToGroup', [localId, groupId]); }
+  function parcelEnvironment(localId) { return landCall('parcelEnvironment', [localId]); }
+  function experienceNames(ids) { return landCall('experienceNames', [ids]); }
+  function accessListFlags() {
+    return {
+      access: (adapter && adapter.AL_ACCESS) || 0x1,
+      ban: (adapter && adapter.AL_BAN) || 0x2,
+      allowExperience: (adapter && adapter.AL_ALLOW_EXPERIENCE) || 0x8,
+      blockExperience: (adapter && adapter.AL_BLOCK_EXPERIENCE) || 0x10
+    };
+  }
+
   function refreshParcel(options) {
     if (!adapter) return;
     return adapter.refreshParcel(options);
@@ -397,6 +427,13 @@ const BeeTransport = (function () {
     searchDirectory: searchDirectory,
     updateParcel: updateParcel,
     refreshParcel: refreshParcel,
+    requestCovenant: requestCovenant, fetchCovenantText: fetchCovenantText,
+    requestParcelAccess: requestParcelAccess, updateParcelAccess: updateParcelAccess,
+    requestParcelObjectOwners: requestParcelObjectOwners,
+    parcelReturnObjects: parcelReturnObjects, parcelSetAutoreturn: parcelSetAutoreturn,
+    parcelBuy: parcelBuy, parcelRelease: parcelRelease, parcelBuyPass: parcelBuyPass,
+    parcelDeedToGroup: parcelDeedToGroup, parcelEnvironment: parcelEnvironment,
+    experienceNames: experienceNames, accessListFlags: accessListFlags,
     fetchParcelInfo: fetchParcelInfo,
     remoteParcel: remoteParcel,
     sendTeleportOffer: sendTeleportOffer,

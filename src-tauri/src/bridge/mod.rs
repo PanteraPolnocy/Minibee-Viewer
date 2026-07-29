@@ -9,6 +9,7 @@ pub mod http_client;
 pub mod hwid;
 pub mod login;
 pub mod map;
+pub mod netmeter;
 pub mod objects;
 pub mod outfit;
 pub mod platform;

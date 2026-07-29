@@ -308,7 +308,7 @@ const BeeSettingsUI = (function () {
       setText('about-catchphrase', data.catchphrase || '');
       setText('about-version', data.displayVersion || '');
       setText('about-disclaimer', data.disclaimer || '');
-      setText('about-author', data.author || 'Unknown');
+      setText('about-dedication', data.dedication || '');
       const contact = document.getElementById('about-contact');
       if (contact) {
         contact.innerHTML = '';
@@ -425,6 +425,7 @@ const BeeSettingsUI = (function () {
       d.channel ? ('Channel: ' + d.channel) : '',
       d.disclaimer || '',
       d.catchphrase || '',
+      d.dedication || '',
       'Author: ' + (d.author || ''),
       d.homepage ? 'Homepage: ' + d.homepage : '',
       d.support && d.support.issues ? 'Support: ' + d.support.issues : '',

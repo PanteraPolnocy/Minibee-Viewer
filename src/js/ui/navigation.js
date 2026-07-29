@@ -372,12 +372,118 @@ const BeeNavigation = (function () {
     });
   }
 
+  // The top-bar traffic mood ring: a thin vertical bar that grows and shifts
+  // green -> amber -> red with throughput. The core throttles net-rate to one
+  // event per 2s (and none when idle) and ships the formatted label and the
+  // log-scaled 0..1 level; this only turns them into pixels and a hue.
+  function bindNetMeter() {
+    const meter = document.getElementById('net-meter');
+    const bar = document.getElementById('net-meter-bar');
+    const menuNet = document.getElementById('bee-menu-net');
+    if (!meter || !bar || typeof BeeTransport === 'undefined') return;
+
+    // Rewriting `title` dismisses a tooltip the user is currently reading, so
+    // the label freezes while the pointer is over the meter and catches up on
+    // leave. The bee-menu row keeps updating live either way.
+    let hovered = false;
+    let liveTitle = '';
+    meter.addEventListener('mouseenter', function () { hovered = true; });
+    meter.addEventListener('mouseleave', function () {
+      hovered = false;
+      if (liveTitle) meter.title = liveTitle;
+    });
+
+    BeeTransport.on('net-rate', function (rate) {
+      const total = ((rate && rate.inBps) || 0) + ((rate && rate.outBps) || 0);
+      const t = (rate && rate.level) || 0;
+      meter.hidden = !BeeState.gridOnline();
+      bar.style.height = Math.max(total > 0 ? 12 : 4, Math.round(t * 100)) + '%';
+      const hue = Math.round(120 - t * 120); // 120 green -> 0 red
+      bar.style.background = 'hsl(' + hue + ', 85%, 52%)';
+      const text = (rate && rate.label) || '';
+      liveTitle = 'Network: ' + text;
+      if (!hovered) meter.title = liveTitle;
+      if (menuNet) menuNet.textContent = text;
+    });
+
+    BeeTransport.on('disconnected', function () {
+      meter.hidden = true;
+      if (menuNet) menuNet.textContent = '—';
+    });
+  }
+
+  // Right-clicking the location in the top bar offers the copies that make
+  // sense there: the SLURL of where we stand, the region name, the parcel name.
+  function bindLocationContextMenu() {
+    const center = document.querySelector('.top-bar__center');
+    const menu = document.getElementById('context-menu');
+    if (!center || !menu) return;
+
+    function copyItem(label, value, what) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = label;
+      if (!value) {
+        btn.disabled = true;
+      } else {
+        btn.addEventListener('click', function () {
+          menu.hidden = true;
+          if (!navigator.clipboard) return;
+          navigator.clipboard.writeText(value).then(function () {
+            BeeUtils.showToast(what + ' copied', 'success');
+          }).catch(function () {});
+        });
+      }
+      menu.appendChild(btn);
+    }
+
+    // The SLURL itself comes from the Rust core's own region/position state;
+    // the JS mirrors can lag right after login or a teleport.
+    function copySlurlItem() {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Copy SLURL';
+      btn.disabled = !BeeState.gridOnline();
+      btn.addEventListener('click', function () {
+        menu.hidden = true;
+        BeeBridge.invoke('sl_current_slurl').then(function (res) {
+          if (!res || !res.slurl || !navigator.clipboard) return;
+          navigator.clipboard.writeText(res.slurl).then(function () {
+            BeeUtils.showToast('SLURL copied', 'success');
+          }).catch(function () {});
+        }).catch(function (err) {
+          BeeUtils.showToast(err && err.message ? err.message : String(err || 'No location yet.'), 'warning');
+        });
+      });
+      menu.appendChild(btn);
+    }
+
+    center.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const s = BeeState.get();
+      const regionName = s.region && s.region.name ? s.region.name : '';
+      const parcelName = s.parcel && !s.parcel.stub ? (s.parcel.name || '') : '';
+      menu.innerHTML = '';
+      menu.hidden = false;
+      copySlurlItem();
+      copyItem('Copy region name', regionName, 'Region name');
+      copyItem('Copy parcel name', parcelName, 'Parcel name');
+      const rect = menu.getBoundingClientRect();
+      menu.style.left = Math.max(0, Math.min(e.clientX, window.innerWidth - rect.width - 8)) + 'px';
+      menu.style.top = Math.max(0, Math.min(e.clientY, window.innerHeight - rect.height - 8)) + 'px';
+    });
+  }
+
   function init() {
     document.querySelectorAll('.bottom-nav__item').forEach(function (btn) {
       btn.addEventListener('click', function () {
         switchTab(btn.dataset.tab);
       });
     });
+
+    bindLocationContextMenu();
+    bindNetMeter();
 
     document.getElementById('btn-logout').addEventListener('click', function () {
       if (window.BeeApp) window.BeeApp.logout();
@@ -424,10 +530,11 @@ const BeeNavigation = (function () {
       updateBadges();
     });
 
-    BeeState.on('teleport-finish', resetRadarTracking);
-
     if (typeof BeeTransport !== 'undefined') {
+      // Both teleport events live on the transport bus - the old BeeState
+      // subscription for teleport-finish never fired (dead listener).
       BeeTransport.on('teleport-started', resetRadarTracking);
+      BeeTransport.on('teleport-finish', resetRadarTracking);
     }
 
     if (typeof BeeProfiles !== 'undefined' && typeof BeeProfiles.onChange === 'function') {

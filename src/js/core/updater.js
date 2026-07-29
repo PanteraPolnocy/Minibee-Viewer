@@ -112,6 +112,12 @@ const BeeUpdater = (function () {
             clearLater(3500);
           });
         }
+        // 'unavailable' (updater not built in), or any status a future core
+        // adds - never leave the label stuck on "Checking...".
+        setStatus(result.status === 'unavailable'
+          ? 'Updates are not available in this build.'
+          : 'Could not check for updates.');
+        clearLater(4500);
       });
     }).catch(function () {
       setStatus('Could not check for updates.');

@@ -673,6 +673,9 @@ mod tests {
             "InviteGroupRequest", "RezMultipleAttachmentsFromInv", "AgentAnimation",
             "AgentRequestSit", "AgentSit", "AgentUpdate", "RequestXfer", "ConfirmXferPacket",
             "MuteListRequest", "DirPlacesQuery",
+            "EstateCovenantRequest", "ParcelAccessListRequest", "ParcelAccessListUpdate",
+            "ParcelObjectOwnersRequest", "ParcelReturnObjects", "ParcelSetOtherCleanTime",
+            "ParcelBuy", "ParcelRelease", "ParcelBuyPass", "TransferRequest",
         ];
         let missing: Vec<&str> = NAMES.iter().copied().filter(|n| reg.by_name(n).is_none()).collect();
         assert!(missing.is_empty(), "missing outbound messages: {missing:?}");

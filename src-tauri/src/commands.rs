@@ -87,6 +87,7 @@ pub fn app_about() -> Cmd {
         "disclaimer".into(),
         json!("This software is not provided or supported by Linden Lab, the makers of Second Life."),
     );
+    about_obj.insert("dedication".into(), json!("Dedicated to Panther Maurer."));
     about_obj.insert(
         "catchphrase".into(),
         json!(or(field(&bundle, "longDescription"), "A lightweight buzz into the infinite grid.")),
@@ -571,12 +572,12 @@ fn uuid_bytes(s: &str) -> Vec<u8> {
 }
 
 /// The reply dialog for an inventory offer: the accept code is offer+1 and the
-/// decline is offer+2 (4 -> 5/6 resident, 9 -> 10/11 object, 62 -> 63/64
+/// decline is offer+2 (4 -> 5/6 resident, 9 -> 10/11 object, 32 -> 33/34
 /// group-notice attachment).
 fn offer_response_dialog(group_notice: bool, task: bool, accept: bool) -> i64 {
     match (group_notice, task, accept) {
-        (true, _, true) => 63,     // IM_GROUP_NOTICE_INVENTORY_ACCEPTED
-        (true, _, false) => 64,    // IM_GROUP_NOTICE_INVENTORY_DECLINED
+        (true, _, true) => 33,     // IM_GROUP_NOTICE_INVENTORY_ACCEPTED
+        (true, _, false) => 34,    // IM_GROUP_NOTICE_INVENTORY_DECLINED
         (false, false, true) => 5, // IM_INVENTORY_ACCEPTED
         (false, false, false) => 6,
         (false, true, true) => 10, // IM_TASK_INVENTORY_ACCEPTED
@@ -1538,17 +1539,21 @@ pub async fn sl_teleport_to(
     x: f64,
     y: f64,
     z: f64,
+    region_name: Option<String>,
 ) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     stand_before_teleport(&s, &agent, &sess).await;
     // Free the tracked objects before we go, if this is a different region - they
     // belong to where we're standing now and would be dead weight in transit.
     s.clear_objects_for_teleport(grid_x, grid_y);
-    // Remember the destination so the TeleportStart event can carry it (see the
-    // teleport-started emit); the sim's own message has no coordinates.
-    s.set_tp_target(Some(json!({
-        "gridX": grid_x, "gridY": grid_y, "x": x, "y": y, "z": z
-    })));
+    // Remember the destination so the TeleportStart/TeleportFinish events can
+    // carry it; the sim's own messages have no coordinates, and the session's
+    // region_name still holds the ORIGIN region until the new handshake lands.
+    let mut target = json!({ "gridX": grid_x, "gridY": grid_y, "x": x, "y": y, "z": z });
+    if let Some(name) = region_name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        target["regionName"] = json!(name);
+    }
+    s.set_tp_target(Some(target));
     let handle = region_handle(grid_x, grid_y);
     s.send_encoded(
         "TeleportLocationRequest",
@@ -1565,9 +1570,59 @@ pub async fn sl_teleport_to(
 }
 
 #[tauri::command]
+pub async fn sl_teleport_to_agent(state: State<'_, Arc<AppState>>, agent_id: String) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    let (grid_x, grid_y, region_name, pos) = s
+        .resident_teleport_target(&agent_id)
+        .ok_or("No known position for that resident yet.")?;
+    if grid_x == 0 && grid_y == 0 {
+        return Err("The region location isn't known yet.".into());
+    }
+    stand_before_teleport(&s, &agent, &sess).await;
+    s.clear_objects_for_teleport(grid_x, grid_y);
+    let mut target = json!({ "gridX": grid_x, "gridY": grid_y, "x": pos[0], "y": pos[1], "z": pos[2] });
+    if !region_name.is_empty() {
+        target["regionName"] = json!(region_name);
+    }
+    s.set_tp_target(Some(target));
+    let handle = region_handle(grid_x, grid_y);
+    s.send_encoded(
+        "TeleportLocationRequest",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "Info": [{ "RegionHandle": handle.to_string(), "Position": [pos[0], pos[1], pos[2]], "LookAt": [pos[0] + 1.0, pos[1], pos[2]] }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true, "x": pos[0], "y": pos[1], "z": pos[2], "regionName": region_name }))
+}
+
+#[tauri::command]
+pub fn sl_current_slurl(state: State<'_, Arc<AppState>>) -> Cmd {
+    let s = state.active().ok_or("No active session")?;
+    let region = s.region_name();
+    if region.is_empty() {
+        return Err("The region name isn't known yet.".into());
+    }
+    let pos = s.last_position().unwrap_or([128.0, 128.0, 25.0]);
+    let slurl = format!(
+        "https://maps.secondlife.com/secondlife/{}/{}/{}/{}",
+        urlencoding::encode(&region),
+        pos[0].round() as i64,
+        pos[1].round() as i64,
+        pos[2].round() as i64
+    );
+    Ok(json!({ "ok": true, "slurl": slurl, "regionName": region }))
+}
+
+#[tauri::command]
 pub async fn sl_teleport_home(state: State<'_, Arc<AppState>>) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     stand_before_teleport(&s, &agent, &sess).await;
+    // A landmark teleport's destination isn't known here; make sure no
+    // earlier trip's recorded target can label this arrival.
+    s.set_tp_target(None);
     s.send_encoded(
         "TeleportLandmarkRequest",
         &json!({ "Info": [{ "AgentID": agent, "SessionID": sess, "LandmarkID": ZERO_UUID }] }),
@@ -1580,6 +1635,9 @@ pub async fn sl_teleport_home(state: State<'_, Arc<AppState>>) -> Cmd {
 #[tauri::command]
 pub async fn sl_teleport_cancel(state: State<'_, Arc<AppState>>) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
+    // A cancelled trip never reaches the arrival that would consume its
+    // recorded destination, so drop it here.
+    s.set_tp_target(None);
     s.send_encoded(
         "TeleportCancel",
         &json!({ "Info": [{ "AgentID": agent, "SessionID": sess }] }),
@@ -1697,9 +1755,13 @@ pub async fn sl_resolve_group_names(state: State<'_, Arc<AppState>>, ids: Vec<St
 #[tauri::command]
 pub async fn sl_request_parcel(state: State<'_, Arc<AppState>>, x: Option<f64>, y: Option<f64>) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
+    let _ = (x, y);
     let (x, y) = match s.last_position() {
         Some(p) => (p[0], p[1]),
-        None => (x.unwrap_or(128.0), y.unwrap_or(128.0)),
+        None => {
+            crate::dlog!("ParcelPropertiesRequest deferred - no authoritative position yet");
+            return Ok(json!({ "ok": false, "deferred": true }));
+        }
     };
     let west = 4.0 * (x / 4.0).floor();
     let south = 4.0 * (y / 4.0).floor();
@@ -1714,6 +1776,368 @@ pub async fn sl_request_parcel(state: State<'_, Arc<AppState>>, x: Option<f64>, 
     )
     .await;
     Ok(json!({ "ok": true }))
+}
+
+// --- About Land -------------------------------------------------------------
+
+pub const PARCEL_LIST_ACCESS: u32 = 0x1;
+pub const PARCEL_LIST_BAN: u32 = 0x2;
+pub const PARCEL_LIST_ALLOW_EXPERIENCE: u32 = 0x8;
+pub const PARCEL_LIST_BLOCK_EXPERIENCE: u32 = 0x10;
+
+#[tauri::command]
+pub async fn sl_request_covenant(state: State<'_, Arc<AppState>>) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    s.send_encoded(
+        "EstateCovenantRequest",
+        &json!({ "AgentData": [{ "AgentID": agent, "SessionID": sess }] }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+#[tauri::command]
+pub async fn sl_fetch_covenant_text(state: State<'_, Arc<AppState>>) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    const CHANNEL_ASSET: i64 = 2; // LLTCT_ASSET
+    const SOURCE_SIM_ESTATE: i64 = 4; // LLTST_SIM_ESTATE
+    const ET_COVENANT: i32 = 0;
+    let transfer_id = crate::bridge::circuit::gen_id();
+    // Params: raw agent id + session id + estate asset type (S32 LE).
+    let mut params = Vec::with_capacity(36);
+    params.extend_from_slice(&uuid_bytes(&agent));
+    params.extend_from_slice(&uuid_bytes(&sess));
+    params.extend_from_slice(&ET_COVENANT.to_le_bytes());
+    s.begin_covenant_transfer(&transfer_id);
+    s.send_encoded(
+        "TransferRequest",
+        &json!({
+            "TransferInfo": [{
+                "TransferID": transfer_id,
+                "ChannelType": CHANNEL_ASSET,
+                "SourceType": SOURCE_SIM_ESTATE,
+                "Priority": 101.0,
+                "Params": B64.encode(&params),
+            }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+#[tauri::command]
+pub async fn sl_request_parcel_access(state: State<'_, Arc<AppState>>, local_id: i64, flags: u32) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if local_id <= 0 {
+        return Err("No parcel selected".into());
+    }
+    let mut flags = flags;
+    // Experience lists only exist where the region speaks experiences.
+    if s.cap("RegionExperiences").is_none() {
+        flags &= !(PARCEL_LIST_ALLOW_EXPERIENCE | PARCEL_LIST_BLOCK_EXPERIENCE);
+    }
+    if flags == 0 {
+        return Ok(json!({ "ok": false, "unsupported": true }));
+    }
+    for bit in [
+        PARCEL_LIST_ACCESS,
+        PARCEL_LIST_BAN,
+        PARCEL_LIST_ALLOW_EXPERIENCE,
+        PARCEL_LIST_BLOCK_EXPERIENCE,
+    ] {
+        if flags & bit != 0 {
+            s.clear_access_list(local_id, bit);
+        }
+    }
+    s.send_encoded(
+        "ParcelAccessListRequest",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "Data": [{ "SequenceID": 0, "Flags": flags, "LocalID": local_id }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+fn access_entry_expiry(e: &Value, now: i64) -> i64 {
+    match e.get("time").and_then(|v| v.as_i64()) {
+        Some(t) if t > 0 => t,
+        _ => {
+            let hours = e.get("hours").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            if hours > 0.0 && now > 0 {
+                now + (hours * 3600.0) as i64
+            } else {
+                0
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn sl_update_parcel_access(
+    state: State<'_, Arc<AppState>>,
+    local_id: i64,
+    flags: u32,
+    entries: Vec<Value>,
+) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if local_id <= 0 {
+        return Err("No parcel selected".into());
+    }
+    // Guard: only ever touch the parcel we're standing on (the UI can't ask
+    // about anything else), so a stale LocalID can't rewrite a stranger's list.
+    match s.parcel_snapshot() {
+        Some(snap) if snap.local_id == local_id => {}
+        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+    }
+    // Exactly one list kind per update - the sim groups chunks by
+    // TransactionID and applies the wholesale replacement per kind.
+    if flags.count_ones() != 1 {
+        return Err("One list at a time".into());
+    }
+    const CHUNK: usize = 48; // PARCEL_MAX_ENTRIES_PER_PACKET
+    const MAX_ENTRIES: usize = 300; // PARCEL_MAX_ACCESS_LIST
+    let rows: Vec<Value> = entries
+        .iter()
+        .filter_map(|e| {
+            let id = gs(e, "id");
+            if id.is_empty() || id == ZERO_UUID {
+                return None;
+            }
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            Some(json!({ "ID": id, "Time": access_entry_expiry(e, now), "Flags": 0 }))
+        })
+        .take(MAX_ENTRIES)
+        .collect();
+    let tx = crate::bridge::circuit::gen_id();
+    if rows.is_empty() {
+        // Clearing a list is one packet with Sections=0 and a single null
+        // entry - an entirely empty List block is not what the sim expects.
+        s.send_encoded(
+            "ParcelAccessListUpdate",
+            &json!({
+                "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+                "Data": [{
+                    "Flags": flags, "LocalID": local_id, "TransactionID": tx,
+                    "SequenceID": 1, "Sections": 0,
+                }],
+                "List": [{ "ID": ZERO_UUID, "Time": 0, "Flags": 0 }],
+            }),
+            true,
+        )
+        .await;
+        return Ok(json!({ "ok": true, "entries": 0 }));
+    }
+    let sections = rows.len().div_ceil(CHUNK) as i64;
+    for (i, chunk) in rows.chunks(CHUNK).enumerate() {
+        s.send_encoded(
+            "ParcelAccessListUpdate",
+            &json!({
+                "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+                "Data": [{
+                    "Flags": flags, "LocalID": local_id, "TransactionID": tx,
+                    "SequenceID": (i + 1) as i64, "Sections": sections,
+                }],
+                "List": chunk,
+            }),
+            true,
+        )
+        .await;
+    }
+    Ok(json!({ "ok": true, "entries": rows.len() }))
+}
+
+#[tauri::command]
+pub async fn sl_request_parcel_object_owners(state: State<'_, Arc<AppState>>, local_id: i64) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if local_id <= 0 {
+        return Err("No parcel selected".into());
+    }
+    s.send_encoded(
+        "ParcelObjectOwnersRequest",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ParcelData": [{ "LocalID": local_id }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Return objects on the current parcel. `return_type` uses the protocol's
+/// RT_* bits; `owner_ids` narrows an RT_LIST return to specific owners.
+#[tauri::command]
+pub async fn sl_parcel_return_objects(
+    state: State<'_, Arc<AppState>>,
+    local_id: i64,
+    return_type: u32,
+    owner_ids: Vec<String>,
+) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if local_id <= 0 {
+        return Err("No parcel selected".into());
+    }
+    match s.parcel_snapshot() {
+        Some(snap) if snap.local_id == local_id => {}
+        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+    }
+    let mut owners: Vec<Value> = owner_ids
+        .iter()
+        .filter(|id| !id.is_empty() && id.as_str() != ZERO_UUID)
+        .map(|id| json!({ "OwnerID": id }))
+        .collect();
+    // The message needs at least one block of each Variable kind to be
+    // well-formed: a dummy null TaskID always, and a null OwnerID when the
+    // return isn't narrowed to specific owners.
+    if owners.is_empty() {
+        owners.push(json!({ "OwnerID": ZERO_UUID }));
+    }
+    s.send_encoded(
+        "ParcelReturnObjects",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ParcelData": [{ "LocalID": local_id, "ReturnType": return_type }],
+            "TaskIDs": [{ "TaskID": ZERO_UUID }],
+            "OwnerIDs": owners,
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Set the parcel's autoreturn (minutes; 0 disables).
+#[tauri::command]
+pub async fn sl_parcel_set_autoreturn(state: State<'_, Arc<AppState>>, local_id: i64, minutes: i64) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if local_id <= 0 {
+        return Err("No parcel selected".into());
+    }
+    s.send_encoded(
+        "ParcelSetOtherCleanTime",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ParcelData": [{ "LocalID": local_id, "OtherCleanTime": minutes.max(0) }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+#[tauri::command]
+pub async fn sl_parcel_buy(state: State<'_, Arc<AppState>>, local_id: i64) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    let snap = s
+        .parcel_snapshot()
+        .ok_or("No parcel data - refresh the Land tab first.")?;
+    if snap.local_id != local_id || local_id <= 0 {
+        return Err("The land data on screen is stale - refresh the Land tab first.".into());
+    }
+    let has_auth_buyer = !snap.auth_buyer_id.is_empty() && snap.auth_buyer_id != ZERO_UUID;
+    // For-sale means the flag AND a real price (or a named buyer) - the same
+    // test the reference guards buys with.
+    if !snap.for_sale || (snap.sale_price <= 0 && !has_auth_buyer) {
+        return Err("This parcel is not for sale.".into());
+    }
+    if snap.owner_id.eq_ignore_ascii_case(&agent) {
+        return Err("You already own this parcel.".into());
+    }
+    if has_auth_buyer && !snap.auth_buyer_id.eq_ignore_ascii_case(&agent) {
+        return Err("This parcel is reserved for a different buyer.".into());
+    }
+    s.send_encoded(
+        "ParcelBuy",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "Data": [{
+                "GroupID": ZERO_UUID, "IsGroupOwned": false,
+                "RemoveContribution": false, "LocalID": snap.local_id, "Final": true,
+            }],
+            "ParcelData": [{ "Price": snap.sale_price, "Area": snap.area }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true, "price": snap.sale_price, "area": snap.area }))
+}
+
+/// Abandon (release) the parcel.
+#[tauri::command]
+pub async fn sl_parcel_release(state: State<'_, Arc<AppState>>, local_id: i64) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    match s.parcel_snapshot() {
+        Some(snap) if snap.local_id == local_id && local_id > 0 => {}
+        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+    }
+    s.send_encoded(
+        "ParcelRelease",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "Data": [{ "LocalID": local_id }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+#[tauri::command]
+pub async fn sl_parcel_deed_to_group(state: State<'_, Arc<AppState>>, local_id: i64, group_id: String) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if group_id.is_empty() || group_id == ZERO_UUID {
+        return Err("No group selected".into());
+    }
+    match s.parcel_snapshot() {
+        Some(snap) if snap.local_id == local_id && local_id > 0 => {}
+        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+    }
+    s.send_encoded(
+        "ParcelDeedToGroup",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "Data": [{ "GroupID": group_id, "LocalID": local_id }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Buy a temporary access pass to the parcel (price/hours are the sim's).
+#[tauri::command]
+pub async fn sl_parcel_buy_pass(state: State<'_, Arc<AppState>>, local_id: i64) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    let snap = s
+        .parcel_snapshot()
+        .ok_or("No parcel data - refresh the Land tab first.")?;
+    if snap.local_id != local_id || local_id <= 0 {
+        return Err("The land data on screen is stale - refresh the Land tab first.".into());
+    }
+    if !snap.sell_passes {
+        return Err("This parcel does not sell passes.".into());
+    }
+    if snap.owner_id.eq_ignore_ascii_case(&agent) {
+        return Err("This is your own parcel.".into());
+    }
+    s.send_encoded(
+        "ParcelBuyPass",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "ParcelData": [{ "LocalID": local_id }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true, "price": snap.pass_price, "hours": snap.pass_hours }))
 }
 
 #[tauri::command]
@@ -1765,6 +2189,9 @@ pub async fn sl_accept_teleport_offer(state: State<'_, Arc<AppState>>, lure_id: 
         TP_VIA_LURE
     };
     stand_before_teleport(&s, &agent, &sess).await;
+    // A lure's destination is the inviter's secret until we arrive; an older
+    // trip's recorded target must not label it.
+    s.set_tp_target(None);
     s.send_encoded(
         "TeleportLureRequest",
         &json!({ "Info": [{ "AgentID": agent, "SessionID": sess, "LureID": lure_id, "TeleportFlags": flags }] }),
@@ -2048,14 +2475,42 @@ mod tests {
     }
 
     #[test]
+    fn access_entry_expiry_keeps_an_existing_absolute_time() {
+        // Re-saving a list must not extend anyone's ban.
+        let e = json!({ "id": "x", "time": 1_700_000_000, "hours": 5.0 });
+        assert_eq!(access_entry_expiry(&e, 1_800_000_000), 1_700_000_000);
+    }
+
+    #[test]
+    fn access_entry_expiry_turns_hours_into_absolute_time() {
+        let e = json!({ "id": "x", "time": 0, "hours": 2.0 });
+        assert_eq!(access_entry_expiry(&e, 1_000_000), 1_000_000 + 7200);
+        // Fractional hours round down to whole seconds.
+        let e = json!({ "id": "x", "hours": 0.5 });
+        assert_eq!(access_entry_expiry(&e, 1_000_000), 1_000_000 + 1800);
+    }
+
+    #[test]
+    fn access_entry_expiry_defaults_to_permanent() {
+        assert_eq!(access_entry_expiry(&json!({ "id": "x" }), 1_000_000), 0);
+        assert_eq!(access_entry_expiry(&json!({ "id": "x", "time": 0 }), 1_000_000), 0);
+        assert_eq!(access_entry_expiry(&json!({ "id": "x", "hours": 0.0 }), 1_000_000), 0);
+        assert_eq!(access_entry_expiry(&json!({ "id": "x", "hours": -3.0 }), 1_000_000), 0);
+        // A negative/zero absolute time means "no expiry", not "in the past".
+        assert_eq!(access_entry_expiry(&json!({ "id": "x", "time": -5 }), 1_000_000), 0);
+        // A broken clock must never manufacture a short ban out of "permanent".
+        assert_eq!(access_entry_expiry(&json!({ "id": "x", "hours": 2.0 }), 0), 0);
+    }
+
+    #[test]
     fn offer_response_dialogs_map_to_offer_plus_one_and_two() {
         assert_eq!(offer_response_dialog(false, false, true), 5);
         assert_eq!(offer_response_dialog(false, false, false), 6);
         assert_eq!(offer_response_dialog(false, true, true), 10);
         assert_eq!(offer_response_dialog(false, true, false), 11);
         // Group-notice attachments win regardless of the task flag.
-        assert_eq!(offer_response_dialog(true, false, true), 63);
-        assert_eq!(offer_response_dialog(true, true, false), 64);
+        assert_eq!(offer_response_dialog(true, false, true), 33);
+        assert_eq!(offer_response_dialog(true, true, false), 34);
     }
 
     #[test]

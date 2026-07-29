@@ -260,6 +260,9 @@
             <span id="balance-badge" class="status-chip status-chip--balance" title="Linden dollar balance">L$ -</span>
             <span id="slt-clock" class="status-chip status-chip--time" title="Second Life Time (US Pacific)">--:-- SLT</span>
           </div>
+          <div id="net-meter" class="net-meter" title="Network traffic" hidden aria-hidden="true">
+            <span id="net-meter-bar" class="net-meter__bar"></span>
+          </div>
           <button type="button" id="btn-bee-menu" class="icon-btn top-bar__bee" title="Session" aria-label="Session menu" aria-expanded="false">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
               <path fill="currentColor" opacity="0.5" d="M9 8C7.3 6.1 4.9 5.9 3.9 6.8c-1 1-.4 3.3 1.5 4.6.9.6 1.9 1 2.6 1 .2-1.6.5-3.1 1-4.4z"/>
@@ -292,6 +295,10 @@
         <div class="bee-menu__row">
           <span class="bee-menu__label">Sim FPS</span>
           <span id="bee-menu-fps" class="bee-menu__value">--</span>
+        </div>
+        <div class="bee-menu__row">
+          <span class="bee-menu__label">Network</span>
+          <span id="bee-menu-net" class="bee-menu__value">&mdash;</span>
         </div>
         <button type="button" id="bee-menu-logout" class="btn btn--secondary btn--sm bee-menu__logout">Log out</button>
       </div>
@@ -598,6 +605,9 @@
             <button type="button" class="land-tab" data-land-tab="media" role="tab" aria-selected="false">Media</button>
             <button type="button" class="land-tab" data-land-tab="audio" role="tab" aria-selected="false">Audio</button>
             <button type="button" class="land-tab" data-land-tab="access" role="tab" aria-selected="false">Access</button>
+            <button type="button" class="land-tab" data-land-tab="covenant" role="tab" aria-selected="false">Covenant</button>
+            <button type="button" class="land-tab" data-land-tab="environment" role="tab" aria-selected="false">Environment</button>
+            <button type="button" class="land-tab" data-land-tab="experiences" role="tab" aria-selected="false">Experiences</button>
           </div>
           <form id="land-form" class="land-form">
             <div class="land-pane land-pane--active" data-land-pane="general" role="tabpanel">
@@ -638,6 +648,32 @@
                     </div>
                   </label>
                 </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Type</span>
+                    <input type="text" id="land-region-type" readonly>
+                  </label>
+                  <label class="field">
+                    <span>Rating</span>
+                    <input type="text" id="land-region-rating" readonly>
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Claim date</span>
+                    <input type="text" id="land-claim-date" readonly>
+                  </label>
+                  <label class="field">
+                    <span>Sale</span>
+                    <input type="text" id="land-sale-state" readonly>
+                  </label>
+                </div>
+                <div id="land-money-actions" class="land-money-actions">
+                  <button type="button" id="land-buy" class="btn btn--primary btn--sm" hidden>Buy parcel...</button>
+                  <button type="button" id="land-buy-pass" class="btn btn--secondary btn--sm" hidden>Buy pass...</button>
+                  <button type="button" id="land-deed" class="btn btn--secondary btn--sm" hidden>Deed to group...</button>
+                  <button type="button" id="land-abandon" class="btn btn--secondary btn--sm btn--danger" hidden>Abandon land...</button>
+                </div>
               </fieldset>
             </div>
             <div class="land-pane" data-land-pane="objects" role="tabpanel" hidden>
@@ -663,6 +699,18 @@
                   <span>Other residents</span>
                   <input type="text" id="land-prims-other" readonly>
                 </label>
+                <label class="field">
+                  <span>Autoreturn other residents' objects (minutes, 0 = off)</span>
+                  <input type="number" id="land-autoreturn" min="0" step="1" inputmode="numeric">
+                </label>
+              </fieldset>
+              <fieldset class="land-section">
+                <legend>Object owners</legend>
+                <div class="land-owners-head">
+                  <button type="button" id="land-owners-refresh" class="btn btn--ghost btn--sm">Refresh list</button>
+                  <span id="land-owners-status" class="field-hint"></span>
+                </div>
+                <ul id="land-owners-list" class="land-owners-list"></ul>
               </fieldset>
             </div>
             <div class="land-pane" data-land-pane="options" role="tabpanel" hidden>
@@ -700,6 +748,22 @@
                   <input type="checkbox" id="land-search">
                   <span>Show in search</span>
                 </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-terraform">
+                  <span>Allow terraforming</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-entry-all">
+                  <span>Allow object entry (everyone)</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-entry-group">
+                  <span>Allow object entry (group)</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-deed-allow">
+                  <span>Allow deeding to group</span>
+                </label>
               </fieldset>
               <fieldset class="land-section">
                 <legend>Landing point</legend>
@@ -709,6 +773,18 @@
                     <span>Coordinates</span>
                     <input type="text" id="land-landing" readonly>
                   </label>
+                </div>
+                <label class="field">
+                  <span>Teleport routing</span>
+                  <select id="land-landing-type">
+                    <option value="0">Blocked</option>
+                    <option value="1">Landing point</option>
+                    <option value="2">Anywhere</option>
+                  </select>
+                </label>
+                <div class="field-row">
+                  <button type="button" id="land-landing-set" class="btn btn--secondary btn--sm">Set to my position</button>
+                  <button type="button" id="land-landing-clear" class="btn btn--ghost btn--sm">Clear</button>
                 </div>
               </fieldset>
             </div>
@@ -749,15 +825,22 @@
             </div>
             <div class="land-pane" data-land-pane="access" role="tabpanel" hidden>
               <fieldset class="land-section">
-                <legend>Access</legend>
-                <label class="field">
-                  <span>Access</span>
-                  <select id="land-access">
-                    <option value="0">Anyone can visit</option>
-                    <option value="1">Group access</option>
-                    <option value="2">Residents only</option>
-                    <option value="3">Owner only</option>
-                  </select>
+                <legend>Who may visit</legend>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-access-public">
+                  <span>Public access (anyone may visit)</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-access-group">
+                  <span>Always allow the parcel group</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-deny-anon">
+                  <span>Require payment info on file</span>
+                </label>
+                <label class="field field--checkbox">
+                  <input type="checkbox" id="land-deny-unverified">
+                  <span>Require age verification</span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-sell-passes">
@@ -766,14 +849,81 @@
                 <div class="field-row">
                   <label class="field">
                     <span>Pass price (L$)</span>
-                    <input type="text" id="land-pass-price" readonly>
+                    <input type="number" id="land-pass-price" min="0" step="1" inputmode="numeric">
                   </label>
                   <label class="field">
                     <span>Pass hours</span>
-                    <input type="text" id="land-pass-hours" readonly>
+                    <input type="number" id="land-pass-hours" min="0" step="0.25" inputmode="decimal">
+                  </label>
+                </div>
+                <p class="field-hint">Access changes save with Apply Changes. The lists below save immediately.</p>
+              </fieldset>
+              <fieldset class="land-section">
+                <legend>Allowed residents</legend>
+                <div class="land-list-add">
+                  <input type="text" id="land-allow-add-id" placeholder="Resident UUID" aria-label="Resident UUID to allow">
+                  <button type="button" id="land-allow-add" class="btn btn--secondary btn--sm">Add</button>
+                </div>
+                <ul id="land-allow-list" class="land-owners-list"></ul>
+              </fieldset>
+              <fieldset class="land-section">
+                <legend>Banned residents</legend>
+                <div class="land-list-add">
+                  <input type="text" id="land-ban-add-id" placeholder="Resident UUID" aria-label="Resident UUID to ban">
+                  <input type="number" id="land-ban-hours" min="0" step="1" placeholder="Hours (0 = forever)" aria-label="Ban duration in hours" class="land-ban-hours">
+                  <button type="button" id="land-ban-add" class="btn btn--secondary btn--sm">Ban</button>
+                </div>
+                <ul id="land-ban-list" class="land-owners-list"></ul>
+              </fieldset>
+            </div>
+            <div class="land-pane" data-land-pane="covenant" role="tabpanel" hidden>
+              <fieldset class="land-section">
+                <legend>Estate</legend>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Estate</span>
+                    <input type="text" id="land-estate-name" readonly>
+                  </label>
+                  <label class="field">
+                    <span>Owner</span>
+                    <input type="text" id="land-estate-owner" readonly>
+                  </label>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>Last changed</span>
+                    <input type="text" id="land-covenant-date" readonly>
+                  </label>
+                  <label class="field">
+                    <span>Land rules</span>
+                    <input type="text" id="land-estate-rules" readonly>
                   </label>
                 </div>
               </fieldset>
+              <fieldset class="land-section">
+                <legend>Covenant</legend>
+                <textarea id="land-covenant-text" rows="10" readonly placeholder="Loading covenant..."></textarea>
+              </fieldset>
+            </div>
+            <div class="land-pane" data-land-pane="environment" role="tabpanel" hidden>
+              <fieldset class="land-section">
+                <legend>Environment</legend>
+                <div id="land-env-summary" class="land-env-summary">
+                  <p class="field-hint">Loading environment...</p>
+                </div>
+                <button type="button" id="land-env-refresh" class="btn btn--ghost btn--sm">Refresh</button>
+              </fieldset>
+            </div>
+            <div class="land-pane" data-land-pane="experiences" role="tabpanel" hidden>
+              <fieldset class="land-section">
+                <legend>Allowed experiences</legend>
+                <ul id="land-exp-allow-list" class="land-owners-list"></ul>
+              </fieldset>
+              <fieldset class="land-section">
+                <legend>Blocked experiences</legend>
+                <ul id="land-exp-block-list" class="land-owners-list"></ul>
+              </fieldset>
+              <p id="land-exp-note" class="field-hint"></p>
             </div>
             <div class="land-actions">
               <button type="button" id="land-refresh" class="btn btn--ghost">Refresh</button>
@@ -928,7 +1078,6 @@
                 <p id="about-version" class="login-version" aria-label="Viewer version"></p>
               </div>
               <dl class="about-meta">
-                <dt>Author</dt><dd id="about-author"></dd>
                 <dt>Contact</dt><dd id="about-contact"></dd>
                 <dt>Support</dt><dd id="about-support"></dd>
                 <dt>Privacy</dt><dd id="about-privacy"></dd>
@@ -947,6 +1096,7 @@
                 </div>
               </div>
               <p id="about-disclaimer" class="about-disclaimer"></p>
+              <p id="about-dedication" class="about-dedication"></p>
             </div>
           </div>
 

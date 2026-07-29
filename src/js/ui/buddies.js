@@ -140,6 +140,8 @@ const BeeBuddies = (function () {
           } else {
             BeeUtils.showToast('Could not remove friend.', 'warning');
           }
+        }).catch(function () {
+          BeeUtils.showToast('Could not remove friend.', 'warning');
         });
       }, danger: true }
     ];

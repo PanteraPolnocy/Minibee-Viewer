@@ -38,6 +38,7 @@ const BeeSLBridge = (function () {
     'teleport-started', 'teleport-progress', 'teleport-finish', 'teleport-failed',
     'teleport-offer', 'teleport-request', 'teleport-accepted', 'teleport-declined',
     'sit-state', 'object-properties', 'pay-price', 'mute-list', 'region-restart',
+    'net-rate', 'covenant', 'covenant-text', 'parcel-access', 'parcel-object-owners',
     'close-requested'
   ];
 
@@ -380,6 +381,9 @@ const BeeSLBridge = (function () {
     return sent('sl_offer_friendship', { toId: destId, message: message || '' });
   }
   function removeFriendship(destId) {
+    // Mirror offerFriendship's local short-circuit: the sim sends no "not a
+    // friend" reply, but the roster is ours to check.
+    if (!isBuddy(destId)) return Promise.resolve({ sent: false, notFriend: true });
     return sent('sl_remove_friendship', { otherId: destId }).then(function (r) {
       // The sim won't echo the roster for our own removal, so drop them locally.
       const key = normId(destId);
@@ -439,6 +443,36 @@ const BeeSLBridge = (function () {
     BeeTransport.emit('parcel-updated', data); // optimistic echo so the land tab updates right away
     return invoke('sl_update_parcel', { parcel: data });
   }
+  // --- About Land: the core owns every guard; these are thin passthroughs ---
+  const AL_ACCESS = 0x1, AL_BAN = 0x2, AL_ALLOW_EXPERIENCE = 0x8, AL_BLOCK_EXPERIENCE = 0x10;
+  function requestCovenant() { return invoke('sl_request_covenant'); }
+  function fetchCovenantText() { return invoke('sl_fetch_covenant_text'); }
+  function requestParcelAccess(localId, flags) {
+    return invoke('sl_request_parcel_access', { localId: localId, flags: flags });
+  }
+  function updateParcelAccess(localId, flags, entries) {
+    return invoke('sl_update_parcel_access', { localId: localId, flags: flags, entries: entries || [] });
+  }
+  function requestParcelObjectOwners(localId) {
+    return invoke('sl_request_parcel_object_owners', { localId: localId });
+  }
+  function parcelReturnObjects(localId, returnType, ownerIds) {
+    return invoke('sl_parcel_return_objects', {
+      localId: localId, returnType: returnType, ownerIds: ownerIds || []
+    });
+  }
+  function parcelSetAutoreturn(localId, minutes) {
+    return invoke('sl_parcel_set_autoreturn', { localId: localId, minutes: minutes });
+  }
+  function parcelBuy(localId) { return invoke('sl_parcel_buy', { localId: localId }); }
+  function parcelRelease(localId) { return invoke('sl_parcel_release', { localId: localId }); }
+  function parcelBuyPass(localId) { return invoke('sl_parcel_buy_pass', { localId: localId }); }
+  function parcelDeedToGroup(localId, groupId) {
+    return invoke('sl_parcel_deed_to_group', { localId: localId, groupId: groupId });
+  }
+  function parcelEnvironment(localId) { return invoke('sl_parcel_environment', { localId: localId }); }
+  function experienceNames(ids) { return invoke('sl_experience_names', { ids: ids || [] }); }
+
   function refreshParcel() {
     const pos = (typeof BeeState !== 'undefined' && BeeState.get().position) || { x: 128, y: 128 };
     return invoke('sl_request_parcel', { x: pos.x || 128, y: pos.y || 128 });
@@ -524,7 +558,10 @@ const BeeSLBridge = (function () {
     }
     await invoke('sl_teleport_to', {
       gridX: target.gridX || 0, gridY: target.gridY || 0,
-      x: target.x != null ? target.x : 128, y: target.y != null ? target.y : 128, z: target.z != null ? target.z : 25
+      x: target.x != null ? target.x : 128, y: target.y != null ? target.y : 128, z: target.z != null ? target.z : 25,
+      // The core remembers this so teleport-started/-finish can name the
+      // DESTINATION; its own region name is still the origin's at that point.
+      regionName: target.regionName || ''
     });
     // Return the resolved location (regionName + coords) so callers (e.g. the
     // map selection) get real data back, not just the bare {ok:true} ack.
@@ -656,6 +693,15 @@ const BeeSLBridge = (function () {
     moderateSessionText: moderateSessionText, leaveImSession: leaveImSession,
     payResident: payResident, updateParcel: updateParcel, refreshParcel: refreshParcel,
     fetchParcelInfo: fetchParcelInfo, remoteParcel: remoteParcel,
+    AL_ACCESS: AL_ACCESS, AL_BAN: AL_BAN,
+    AL_ALLOW_EXPERIENCE: AL_ALLOW_EXPERIENCE, AL_BLOCK_EXPERIENCE: AL_BLOCK_EXPERIENCE,
+    requestCovenant: requestCovenant, fetchCovenantText: fetchCovenantText,
+    requestParcelAccess: requestParcelAccess, updateParcelAccess: updateParcelAccess,
+    requestParcelObjectOwners: requestParcelObjectOwners,
+    parcelReturnObjects: parcelReturnObjects, parcelSetAutoreturn: parcelSetAutoreturn,
+    parcelBuy: parcelBuy, parcelRelease: parcelRelease, parcelBuyPass: parcelBuyPass,
+    parcelDeedToGroup: parcelDeedToGroup, parcelEnvironment: parcelEnvironment,
+    experienceNames: experienceNames,
     replyScriptDialog: replyScriptDialog, replyScriptPermission: replyScriptPermission,
     saveAvatarNotes: saveAvatarNotes, searchDirectory: searchDirectory,
     teleportTo: teleportTo, teleportHome: teleportHome,

@@ -215,6 +215,88 @@ fn xml_text(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+/// Read-only summary of a parcel's (or the region's, local_id <= 0)
+/// environment through the ExtEnvironment cap.
+#[tauri::command]
+pub async fn sl_parcel_environment(state: State<'_, Arc<AppState>>, local_id: i64) -> Cmd {
+    let session = state.active().ok_or("No active session")?;
+    let cap = session
+        .cap("ExtEnvironment")
+        .ok_or("Environment capability unavailable")?;
+    let url = if local_id > 0 {
+        format!("{}?parcelid={}", cap.trim_end_matches('/'), local_id)
+    } else {
+        cap
+    };
+    let (pin, _) = proxy::simhost_pin(&url, "").await;
+    let ex = proxy::exchange(&state.ua, "GET", &url, "", "application/llsd+xml", &[], pin, Duration::from_secs(30), true).await?;
+    if !(200..300).contains(&ex.status) {
+        return Err(format!("Environment fetch failed (HTTP {}).", ex.status));
+    }
+    let parsed = codec::llsd::parse(&ex.body, &ex.content_type).unwrap_or(Value::Null);
+    let env = parsed.get("environment").cloned().unwrap_or(Value::Null);
+    let day_name = env
+        .get("day_names")
+        .and_then(|v| match v {
+            Value::String(s) => Some(s.clone()),
+            Value::Array(a) => a.iter().filter_map(|x| x.as_str()).find(|s| !s.is_empty()).map(String::from),
+            _ => None,
+        })
+        .or_else(|| env.get("day_cycle").and_then(|d| d.get("name")).and_then(|v| v.as_str()).map(String::from))
+        .unwrap_or_default();
+    Ok(json!({
+        "ok": true,
+        // Absent means "uses the region default" per the cap's contract.
+        "isDefault": env.get("is_default").and_then(|v| v.as_bool()).unwrap_or(true),
+        "dayName": day_name,
+        "dayLength": env.get("day_length").and_then(|v| v.as_i64()).unwrap_or(-1),
+        "dayOffset": env.get("day_offset").and_then(|v| v.as_i64()).unwrap_or(-1),
+        "trackAltitudes": env.get("track_altitudes").cloned().unwrap_or(json!([])),
+        "envVersion": env.get("env_version").and_then(|v| v.as_i64()).unwrap_or(-2),
+    }))
+}
+
+/// Resolve experience names for the Experiences tab through GetExperienceInfo.
+/// Returns `{ names: { id: name } }`; unknown ids are simply absent.
+#[tauri::command]
+pub async fn sl_experience_names(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Cmd {
+    let session = state.active().ok_or("No active session")?;
+    let cap = session
+        .cap("GetExperienceInfo")
+        .ok_or("Experience capability unavailable")?;
+    let mut names = serde_json::Map::new();
+    for chunk in ids.chunks(20) {
+        let query = chunk
+            .iter()
+            .filter(|id| !id.is_empty())
+            .map(|id| format!("public_id={}", urlencoding::encode(id)))
+            .collect::<Vec<_>>()
+            .join("&");
+        if query.is_empty() {
+            continue;
+        }
+        // The by-id lookup lives under the cap's `id/` sub-path; the bare cap
+        // does not answer public_id queries.
+        let url = format!("{}id/?page_size=20&{}", cap_endpoint(&cap), query);
+        let (pin, _) = proxy::simhost_pin(&url, "").await;
+        let ex = match proxy::exchange(&state.ua, "GET", &url, "", "application/llsd+xml", &[], pin, Duration::from_secs(30), true).await {
+            Ok(e) if (200..300).contains(&e.status) => e,
+            _ => continue,
+        };
+        let parsed = codec::llsd::parse(&ex.body, &ex.content_type).unwrap_or(Value::Null);
+        if let Some(rows) = parsed.get("experience_keys").and_then(|v| v.as_array()) {
+            for row in rows {
+                let id = row.get("public_id").and_then(|v| v.as_str()).unwrap_or("");
+                let name = row.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if !id.is_empty() && !name.is_empty() {
+                    names.insert(id.to_string(), json!(name));
+                }
+            }
+        }
+    }
+    Ok(json!({ "ok": true, "names": names }))
+}
+
 /// The LLSD body for a notes save: a single-key map - the cap applies partial
 /// updates, so only the field being changed is sent.
 pub(crate) fn notes_put_body(notes: &str) -> String {

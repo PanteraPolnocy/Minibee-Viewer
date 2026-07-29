@@ -441,12 +441,15 @@ const CAPS_WE_USE: &[&str] = &[
     "AgentProfile",
     "ChatSessionRequest",
     "EventQueueGet",
+    "ExtEnvironment",
     "FetchInventory2",
     "FetchInventoryDescendents2",
     "GetDisplayNames",
+    "GetExperienceInfo",
     "GetObjectCost",
     "InterestList",
     "ObjectMedia",
+    "RegionExperiences",
     "RemoteParcelRequest",
 ];
 
@@ -493,6 +496,7 @@ async fn fetch_login_seed_caps(
         "GetMetadata", "GetMesh", "GetMesh2", "GetTexture", "FetchInventory2",
         "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
         "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
+        "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
     ]);
     // Ask for the FULL cap set first, in a single POST - the seed grant only hands
     // back the caps you request.
@@ -615,6 +619,7 @@ mod tests {
             "GetMetadata", "GetMesh", "GetMesh2", "GetTexture", "FetchInventory2",
             "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
             "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
+            "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
         ]);
         let missing: Vec<&&str> =
             CAPS_WE_USE.iter().filter(|c| !requested.contains(c)).collect();

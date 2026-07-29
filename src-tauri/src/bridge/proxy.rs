@@ -32,39 +32,42 @@ pub fn egress_block_reason(url: &str) -> Option<String> {
 
 /// The full SSRF guard: the literal check plus async DNS resolution.
 pub async fn guard_url(url: &str) -> Result<(), String> {
+    guard_url_pin(url).await.map(|_| ())
+}
+
+/// Like `guard_url`, but hands back the address it validated so the caller
+pub async fn guard_url_pin(url: &str) -> Result<Option<(String, SocketAddr)>, String> {
     if let Some(reason) = egress_block_reason(url) {
         return Err(reason);
     }
     let parsed = match Url::parse(url) {
         Ok(u) => u,
-        Err(_) => return Ok(()),
+        Err(_) => return Ok(None),
     };
     let host = match parsed.host_str() {
         Some(h) => h.to_string(),
-        None => return Ok(()),
+        None => return Ok(None),
     };
     // IP literals were already taken care of by egress_block_reason.
     let stripped = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(&host);
     if stripped.parse::<IpAddr>().is_ok() {
-        return Ok(());
+        return Ok(None);
     }
     let port = parsed.port().unwrap_or_else(|| default_port(parsed.scheme()));
     // Fail closed: if the name won't resolve, we'd rather refuse than let the
     // fetch proceed against an address we never vetted.
-    let addrs = tokio::net::lookup_host((host.as_str(), port))
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
         .await
-        .map_err(|e| format!("could not resolve target host {host}: {e}"))?;
-    let mut any = false;
-    for a in addrs {
-        any = true;
-        if ip_is_private(&a.ip()) {
-            return Err(format!("target resolves to a private/loopback address: {}", a.ip()));
-        }
-    }
-    if !any {
+        .map_err(|e| format!("could not resolve target host {host}: {e}"))?
+        .collect();
+    if addrs.is_empty() {
         return Err(format!("target host {host} resolved to no addresses"));
     }
-    Ok(())
+    if let Some(bad) = addrs.iter().find(|a| ip_is_private(&a.ip())) {
+        return Err(format!("target resolves to a private/loopback address: {}", bad.ip()));
+    }
+    let addr = addrs.iter().find(|a| a.is_ipv4()).or_else(|| addrs.first()).copied();
+    Ok(addr.map(|a| (host, a)))
 }
 
 fn ip_is_private(ip: &IpAddr) -> bool {
@@ -209,33 +212,37 @@ pub async fn exchange(
     let mut cur_url = url.to_string();
     let mut redirects = 0u32;
 
-    // Guard the initial target (resolves DNS and rejects private hosts); the redirect
-    // hops are always guarded further down. `guard_initial` is false only for the
-    // user-chosen login endpoint, which may legitimately be a loopback/LAN OpenSim
-    // grid - that host is the user's own choice, not attacker-supplied.
-    if guard_initial {
-        guard_url(&cur_url).await?;
-    } else if let Some(reason) = egress_block_reason(&cur_url) {
-        // Even for the login endpoint, still refuse non-http(s) schemes.
-        if reason.contains("scheme") {
-            return Err(reason);
+    // Guard the initial target (resolves DNS and rejects private hosts) and keep
+    // the address the guard validated; the redirect hops are guarded and repinned
+    // further down. `guard_initial` is false only for the user-chosen login
+    // endpoint, which may legitimately be a loopback/LAN OpenSim grid - that host
+    // is the user's own choice, not attacker-supplied.
+    let guard_pin = if guard_initial {
+        guard_url_pin(&cur_url).await?
+    } else {
+        if let Some(reason) = egress_block_reason(&cur_url) {
+            // Even for the login endpoint, still refuse non-http(s) schemes.
+            if reason.contains("scheme") {
+                return Err(reason);
+            }
         }
-    }
+        resolve_public_pin(&cur_url).await
+    };
 
     // Pin the validated address so we connect to the IP we actually checked, not a
     // possibly-rebound re-resolution at connect time. A simhost pin wins if it's set.
-    let effective_pin = match &pin {
-        Some(p) => Some(p.clone()),
-        None => resolve_public_pin(&cur_url).await,
+    let mk_client = |pin: &Option<(String, SocketAddr)>| {
+        let mut builder = crate::bridge::http_client::builder()
+            .user_agent(ua)
+            .redirect(Policy::none())
+            .gzip(true);
+        if let Some((host, addr)) = pin {
+            builder = builder.resolve(host, *addr);
+        }
+        builder.build().map_err(|e| e.to_string())
     };
-    let mut builder = crate::bridge::http_client::builder()
-        .user_agent(ua)
-        .redirect(Policy::none())
-        .gzip(true);
-    if let Some((host, addr)) = &effective_pin {
-        builder = builder.resolve(host, *addr);
-    }
-    let client = builder.build().map_err(|e| e.to_string())?;
+    let mut pinned = pin.or(guard_pin);
+    let mut client = mk_client(&pinned)?;
 
     // A single wall-clock deadline covers the whole redirect chain (up to 6 hops), so
     // a slow chain can't tie up the EventQueue lane for ~6x the timeout.
@@ -285,9 +292,22 @@ pub async fn exchange(
                         return Err(format!("simhost redirect left the sim ({o} -> {n})"));
                     }
                 }
-                // Re-run the SSRF guard on the redirect target (this resolves DNS),
-                // so a 3xx can't bounce us onto an internal or metadata host.
-                guard_url(&next_abs).await?;
+                // Re-run the SSRF guard on the redirect target (this resolves
+                // DNS), so a 3xx can't bounce us onto an internal or metadata
+                // host - and REPIN the client to the address the guard just
+                // validated: the previous host's pin doesn't cover this one,
+                // and an unpinned connect would re-resolve, reopening the
+                // rebinding window mid-chain. A same-host hop keeps the pin
+                // already in force rather than trusting a fresh lookup.
+                let hop_pin = guard_url_pin(&next_abs).await?;
+                let same_pinned_host = match (&pinned, &next_host) {
+                    (Some((h, _)), Some(n)) => h.eq_ignore_ascii_case(n),
+                    _ => false,
+                };
+                if !same_pinned_host {
+                    pinned = hop_pin;
+                    client = mk_client(&pinned)?;
+                }
                 cur_url = next_abs;
                 redirects += 1;
                 continue;
@@ -295,6 +315,10 @@ pub async fn exchange(
         }
 
         let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+        crate::bridge::netmeter::note_in(bytes.len());
+        if has_body {
+            crate::bridge::netmeter::note_out(payload.len());
+        }
         let body = String::from_utf8_lossy(&bytes).to_string();
         return Ok(ExchangeResult {
             status: status.as_u16(),

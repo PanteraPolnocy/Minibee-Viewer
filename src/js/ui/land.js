@@ -13,11 +13,12 @@ const BeeLand = (function () {
     'land-scripts-everyone', 'land-scripts-group',
     'land-fly', 'land-safe', 'land-search',
     'land-sound-local', 'land-voice', 'land-sell-passes',
-    'land-music', 'land-media'
+    'land-music', 'land-media',
+    'land-terraform', 'land-entry-all', 'land-entry-group', 'land-deed-allow',
+    'land-landing-type', 'land-autoreturn',
+    'land-access-public', 'land-access-group', 'land-deny-anon', 'land-deny-unverified',
+    'land-pass-price', 'land-pass-hours'
   ];
-  // 'land-access' is left off this list on purpose - it stays display-only. Its
-  // dropdown isn't wired to the access-list PF bits yet, and writing back a
-  // guess could lock people out.
 
   let activateToken = 0;
   let activeLandTab = 'general';
@@ -99,18 +100,23 @@ const BeeLand = (function () {
       'land-area', 'land-traffic', 'land-uuid', 'land-owner', 'land-group',
       'land-prims', 'land-region-prims', 'land-prims-owner', 'land-prims-group',
       'land-prims-other', 'land-landing', 'land-media-type', 'land-media-desc',
-      'land-pass-price', 'land-pass-hours'
+      'land-region-type', 'land-region-rating', 'land-claim-date', 'land-sale-state',
+      'land-estate-name', 'land-estate-owner', 'land-covenant-date', 'land-estate-rules',
+      'land-covenant-text'
     ].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
       el.disabled = false;
       el.readOnly = true;
     });
-    // The access dropdown is display-only - its mapping to the access-list PF
-    // bits isn't wired, and a wrong guess could lock people out - so we keep it
-    // disabled always, not only when the parcel is read-only.
-    const access = document.getElementById('land-access');
-    if (access) access.disabled = true;
+    // List editors and the landing-point buttons follow the same permission.
+    [
+      'land-allow-add-id', 'land-allow-add', 'land-ban-add-id', 'land-ban-hours',
+      'land-ban-add', 'land-landing-set', 'land-landing-clear'
+    ].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !canEdit;
+    });
     const submit = document.getElementById('land-apply') || form.querySelector('[type="submit"]');
     if (submit) submit.disabled = !canEdit;
     form.classList.toggle('land-form--readonly', !canEdit);
@@ -222,7 +228,6 @@ const BeeLand = (function () {
     setFieldValue('land-prims-owner', parcel.ownerPrims || 0);
     setFieldValue('land-prims-group', parcel.groupPrims || 0);
     setFieldValue('land-prims-other', parcel.otherPrims || 0);
-    setFieldValue('land-access', String(parcel.access || 0));
     setFieldValue('land-push', parcel.pushRestricted);
     setFieldValue('land-fly', parcel.allowFly);
     setFieldValue('land-build-everyone', parcel.allowBuildEveryone);
@@ -238,8 +243,23 @@ const BeeLand = (function () {
     setFieldValue('land-media', parcel.mediaUrl || '');
     setFieldValue('land-media-type', parcel.mediaType || '');
     setFieldValue('land-media-desc', parcel.mediaDesc || '');
-    setFieldValue('land-pass-price', parcel.passPrice || '');
-    setFieldValue('land-pass-hours', parcel.passHours || '');
+    setFieldValue('land-pass-price', parcel.passPrice || 0);
+    setFieldValue('land-pass-hours', parcel.passHours || 0);
+    // Options / Access / Objects extras.
+    setFieldValue('land-terraform', parcel.allowTerraform);
+    setFieldValue('land-entry-all', parcel.allowObjectEntryAll);
+    setFieldValue('land-entry-group', parcel.allowObjectEntryGroup);
+    setFieldValue('land-deed-allow', parcel.allowDeedToGroup);
+    setFieldValue('land-landing-type', String(parcel.landingType || 0));
+    setFieldValue('land-autoreturn', parcel.otherCleanTime || 0);
+    // "Public access" is the inverse of the access-list flag; there is no
+    // separate public bit in the protocol.
+    setFieldValue('land-access-public', !parcel.useAccessList);
+    setFieldValue('land-access-group', parcel.useAccessGroup);
+    setFieldValue('land-deny-anon', parcel.denyAnonymous);
+    setFieldValue('land-deny-unverified', parcel.denyAgeUnverified);
+    renderGeneralExtras(parcel);
+    updateMoneyActions(parcel);
 
     if (parcel.landingPoint) {
       const lp = parcel.landingPoint;
@@ -305,6 +325,50 @@ const BeeLand = (function () {
     });
   }
 
+  // --- General tab extras -----------------------------------------------
+
+  const MATURITY = { 13: 'General', 21: 'Moderate', 42: 'Adult' };
+
+  function renderGeneralExtras(parcel) {
+    const region = BeeState.get().region || {};
+    setFieldValue('land-region-type', region.productName || '');
+    setFieldValue('land-region-rating', MATURITY[region.access] || '');
+    // Claim date only means something on leased land (status 0 = leased).
+    const claim = parcel.claimDate && parcel.status === 0
+      ? new Date(parcel.claimDate * 1000).toLocaleString()
+      : '';
+    setFieldValue('land-claim-date', claim);
+    let sale = 'Not for sale';
+    if (parcel.auctionId) {
+      sale = 'Auction ' + parcel.auctionId;
+    } else if (parcel.forSale) {
+      const price = Number(parcel.salePrice) || 0;
+      const each = parcel.area > 0 ? (price / parcel.area).toFixed(1) : '0';
+      sale = 'L$ ' + price.toLocaleString('en-US') + ' (L$ ' + each + '/m²)' +
+        (parcel.sellWithObjects ? ' with objects' : '');
+    }
+    setFieldValue('land-sale-state', sale);
+  }
+
+  function isSelfOwner(parcel) {
+    const me = (BeeState.get().agent || {}).id || '';
+    return !!me && !parcel.isGroupOwned &&
+      String(parcel.ownerId || '').toLowerCase() === String(me).toLowerCase();
+  }
+
+  function updateMoneyActions(parcel) {
+    const show = function (id, on) {
+      const btn = document.getElementById(id);
+      if (btn) btn.hidden = !on;
+    };
+    const online = BeeState.gridOnline();
+    const mine = isSelfOwner(parcel);
+    show('land-buy', online && !!parcel.forSale && !mine);
+    show('land-buy-pass', online && !!parcel.sellPasses && !mine);
+    show('land-deed', online && mine && !!parcel.allowDeedToGroup);
+    show('land-abandon', online && mine);
+  }
+
   function collectForm() {
     // Collect every editable control, keeping everyone vs group distinct, so the
     // update can carry them all; the transport folds each into its own PF_ bit.
@@ -330,12 +394,286 @@ const BeeLand = (function () {
       allowVoice: checked('land-voice'),
       sellPasses: checked('land-sell-passes'),
       musicUrl: document.getElementById('land-music').value.trim(),
-      mediaUrl: document.getElementById('land-media').value.trim()
+      mediaUrl: document.getElementById('land-media').value.trim(),
+      allowTerraform: checked('land-terraform'),
+      allowObjectEntryAll: checked('land-entry-all'),
+      // Entry for everyone implies entry for the group, the way building does.
+      allowObjectEntryGroup: checked('land-entry-group') || checked('land-entry-all'),
+      allowDeedToGroup: checked('land-deed-allow'),
+      denyAnonymous: checked('land-deny-anon'),
+      denyAgeUnverified: checked('land-deny-unverified'),
+      // "Public access" is stored inverted as PF_USE_ACCESS_LIST.
+      useAccessList: !checked('land-access-public'),
+      useAccessGroup: checked('land-access-group'),
+      landingType: numberValue('land-landing-type', 0),
+      passPrice: numberValue('land-pass-price', 0),
+      passHours: numberValue('land-pass-hours', 0)
     };
   }
 
+  function numberValue(id, fallback) {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
+    const n = Number(el.value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  // --- Access / ban lists -------------------------------------------------
+  // Each list is a wholesale replace on the wire, so the UI keeps the current
+  // set and sends it entire after every add/remove. The core chunks it.
+
+  const lists = { access: [], ban: [], allowExp: [], blockExp: [] };
+  let ownersLoaded = false;
+  let covenantLoaded = false;
+  let envLoaded = false;
+
+  function flagsOf() { return BeeTransport.accessListFlags(); }
+
+  function listFor(flags) {
+    const f = flagsOf();
+    if (flags === f.access) return 'access';
+    if (flags === f.ban) return 'ban';
+    if (flags === f.allowExperience) return 'allowExp';
+    if (flags === f.blockExperience) return 'blockExp';
+    return '';
+  }
+
+  function nameFor(id) {
+    const cached = BeeTransport.getCachedName ? BeeTransport.getCachedName(id) : '';
+    return cached || id;
+  }
+
+  function renderEntryList(listId, entries, onRemove, labelFn) {
+    const ul = document.getElementById(listId);
+    if (!ul) return;
+    ul.innerHTML = '';
+    if (!entries.length) {
+      const li = document.createElement('li');
+      li.className = 'land-owners-list__empty';
+      li.textContent = 'Nobody listed.';
+      ul.appendChild(li);
+      return;
+    }
+    const parcel = BeeState.get().parcel;
+    const canEdit = parcelCanEdit(parcel);
+    entries.forEach(function (entry) {
+      const li = document.createElement('li');
+      li.className = 'land-owners-list__row';
+      const label = document.createElement('span');
+      label.textContent = labelFn ? labelFn(entry) : nameFor(entry.id);
+      li.appendChild(label);
+      if (onRemove && canEdit) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn--ghost btn--sm';
+        btn.textContent = 'Remove';
+        btn.addEventListener('click', function () { onRemove(entry); });
+        li.appendChild(btn);
+      }
+      ul.appendChild(li);
+    });
+  }
+
+  function banLabel(entry) {
+    const who = nameFor(entry.id);
+    if (!entry.time) return who;
+    return who + ' (until ' + new Date(entry.time * 1000).toLocaleString() + ')';
+  }
+
+  function renderAccessLists() {
+    renderEntryList('land-allow-list', lists.access, function (entry) {
+      saveList('access', lists.access.filter(function (e) { return e.id !== entry.id; }));
+    });
+    renderEntryList('land-ban-list', lists.ban, function (entry) {
+      saveList('ban', lists.ban.filter(function (e) { return e.id !== entry.id; }));
+    }, banLabel);
+  }
+
+  function saveList(which, entries) {
+    const parcel = BeeState.get().parcel;
+    if (!parcel || !parcelCanEdit(parcel)) return;
+    const f = flagsOf();
+    const flags = which === 'access' ? f.access : f.ban;
+    lists[which] = entries;
+    renderAccessLists();
+    BeeTransport.updateParcelAccess(parcel.localId, flags, entries).then(function () {
+      BeeUtils.showToast(which === 'ban' ? 'Ban list saved.' : 'Allowed list saved.', 'success');
+      // Pull the list back from the sim: it holds the authoritative ban
+      // expiry times (the core computes those, not this file).
+      requestAccessLists();
+    }).catch(function (err) {
+      BeeUtils.showToast(err.message || 'Could not save the list.', 'error');
+    });
+  }
+
+  function addToList(which, inputId, hoursId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const id = BeeUtils.normUuid(input.value.trim());
+    if (!id || BeeProfiles.isZero(id)) {
+      BeeUtils.showToast('Enter a resident UUID.', 'warning');
+      return;
+    }
+    const current = lists[which].slice();
+    if (current.some(function (e) { return e.id === id; })) {
+      BeeUtils.showToast('Already on the list.', 'warning');
+      return;
+    }
+    // The Rust core turns hours into an absolute expiry with its own clock.
+    const entry = { id: id, time: 0 };
+    if (hoursId) {
+      const hours = numberValue(hoursId, 0);
+      if (hours > 0) entry.hours = hours;
+    }
+    current.push(entry);
+    // Allowing someone un-bans them and vice versa, so the opposite list is
+    // saved too when it actually changes.
+    const other = which === 'access' ? 'ban' : 'access';
+    const pruned = lists[other].filter(function (e) { return e.id !== id; });
+    input.value = '';
+    saveList(which, current);
+    if (pruned.length !== lists[other].length) saveList(other, pruned);
+    if (BeeTransport.queueNameResolve) BeeTransport.queueNameResolve([id]);
+  }
+
+  function requestAccessLists() {
+    const parcel = BeeState.get().parcel;
+    if (!parcel || parcel.stub || !parcel.localId) return;
+    const f = flagsOf();
+    BeeTransport.requestParcelAccess(parcel.localId,
+      f.access | f.ban | f.allowExperience | f.blockExperience).catch(function () {});
+  }
+
+  // --- Objects tab: owner census -----------------------------------------
+
+  function renderOwners(owners) {
+    const ul = document.getElementById('land-owners-list');
+    const status = document.getElementById('land-owners-status');
+    if (!ul) return;
+    ul.innerHTML = '';
+    if (status) status.textContent = owners.length ? '' : 'No objects from other residents.';
+    const parcel = BeeState.get().parcel;
+    const canEdit = parcelCanEdit(parcel);
+    owners.forEach(function (owner) {
+      const li = document.createElement('li');
+      li.className = 'land-owners-list__row';
+      const label = document.createElement('span');
+      const who = owner.isGroup ? (BeeProfiles.getGroupName(owner.id) || owner.id) : nameFor(owner.id);
+      label.textContent = who + ' - ' + owner.count + ' prim' + (owner.count === 1 ? '' : 's') +
+        (owner.isGroup ? ' (group)' : '');
+      li.appendChild(label);
+      if (canEdit) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn--ghost btn--sm';
+        btn.textContent = 'Return';
+        btn.addEventListener('click', function () { returnOwnerObjects(owner, who); });
+        li.appendChild(btn);
+      }
+      ul.appendChild(li);
+    });
+  }
+
+  async function returnOwnerObjects(owner, who) {
+    const parcel = BeeState.get().parcel;
+    if (!parcel) return;
+    const ok = await BeeUtils.confirm({
+      title: 'Return objects?',
+      message: 'Return ' + owner.count + ' object' + (owner.count === 1 ? '' : 's') +
+        ' belonging to ' + who + '? They go back to their owner\'s inventory' +
+        (owner.isGroup ? '; non-transferable deeded objects are deleted.' : '.'),
+      confirmLabel: 'Return',
+      danger: true
+    });
+    if (!ok) return;
+    const RT_LIST = 16;
+    BeeTransport.parcelReturnObjects(parcel.localId, RT_LIST, [owner.id]).then(function () {
+      BeeUtils.showToast('Objects returned.', 'success');
+      requestObjectOwners(true);
+      BeeTransport.refreshParcel({ force: true });
+    }).catch(function (err) {
+      BeeUtils.showToast(err.message || 'Could not return the objects.', 'error');
+    });
+  }
+
+  function requestObjectOwners(force) {
+    const parcel = BeeState.get().parcel;
+    if (!parcel || parcel.stub || !parcel.localId) return;
+    if (ownersLoaded && !force) return;
+    ownersLoaded = true;
+    const status = document.getElementById('land-owners-status');
+    if (status) status.textContent = 'Searching...';
+    BeeTransport.requestParcelObjectOwners(parcel.localId).catch(function () {
+      if (status) status.textContent = 'Could not load the owner list.';
+    });
+  }
+
+  // --- Covenant / environment / experiences -------------------------------
+
+  function requestCovenant(force) {
+    if (covenantLoaded && !force) return;
+    covenantLoaded = true;
+    BeeTransport.requestCovenant().catch(function () {});
+    BeeTransport.fetchCovenantText().catch(function () {});
+  }
+
+  function requestEnvironment(force) {
+    if (envLoaded && !force) return;
+    envLoaded = true;
+    const box = document.getElementById('land-env-summary');
+    const parcel = BeeState.get().parcel;
+    if (!box || !parcel || parcel.stub) return;
+    box.innerHTML = '<p class="field-hint">Loading environment...</p>';
+    BeeTransport.parcelEnvironment(parcel.localId || 0).then(function (env) {
+      if (!env || !env.ok) throw new Error('No environment data');
+      const rows = [];
+      rows.push(['Source', env.isDefault ? 'Region default' : 'Parcel setting']);
+      if (env.dayName) rows.push(['Day cycle', env.dayName]);
+      if (env.dayLength > 0) rows.push(['Day length', Math.round(env.dayLength / 60) + ' min']);
+      if (env.dayOffset > 0) rows.push(['Day offset', Math.round(env.dayOffset / 60) + ' min']);
+      const alts = Array.isArray(env.trackAltitudes) ? env.trackAltitudes : [];
+      if (alts.length) rows.push(['Sky altitudes', alts.map(function (a) { return Math.round(a) + 'm'; }).join(', ')]);
+      box.innerHTML = rows.map(function (r) {
+        return '<div class="profile-field"><span class="profile-field__label">' +
+          BeeUtils.escapeHtml(r[0]) + '</span><span>' + BeeUtils.escapeHtml(String(r[1])) + '</span></div>';
+      }).join('');
+    }).catch(function (err) {
+      box.innerHTML = '<p class="field-hint">' +
+        BeeUtils.escapeHtml(err.message || 'Environment settings are unavailable here.') + '</p>';
+    });
+  }
+
+  function renderExperiences() {
+    const note = document.getElementById('land-exp-note');
+    const label = function (entry) { return expNames[entry.id] || entry.id; };
+    renderEntryList('land-exp-allow-list', lists.allowExp, null, label);
+    renderEntryList('land-exp-block-list', lists.blockExp, null, label);
+    if (note) {
+      note.textContent = (lists.allowExp.length || lists.blockExp.length)
+        ? '' : 'This region does not report parcel experiences.';
+    }
+    const ids = lists.allowExp.concat(lists.blockExp)
+      .map(function (e) { return e.id; })
+      .filter(function (id) { return !expNames[id]; });
+    if (ids.length && BeeTransport.experienceNames) {
+      BeeTransport.experienceNames(ids).then(function (res) {
+        if (!res || !res.names) return;
+        let added = false;
+        Object.keys(res.names).forEach(function (id) { expNames[id] = res.names[id]; added = true; });
+        if (added) renderExperiences();
+      }).catch(function () {});
+    }
+  }
+  const expNames = {};
+
   function setLandTab(tab) {
     activeLandTab = tab || 'general';
+    // Panes fetch their data the first time they're opened.
+    if (activeLandTab === 'covenant') requestCovenant(false);
+    if (activeLandTab === 'environment') requestEnvironment(false);
+    if (activeLandTab === 'objects') requestObjectOwners(false);
+    if (activeLandTab === 'access' || activeLandTab === 'experiences') requestAccessLists();
+    if (activeLandTab === 'experiences') renderExperiences();
     document.querySelectorAll('.land-tab').forEach(function (btn) {
       const active = btn.getAttribute('data-land-tab') === activeLandTab;
       btn.classList.toggle('land-tab--active', active);
@@ -386,8 +724,20 @@ const BeeLand = (function () {
     }
   }
 
+  let lastLocalId = 0;
+
   function applyParcel(parcel) {
     if (parcelNeedsLoad(parcel)) return;
+    // A different parcel invalidates the pane caches (lists, owners, env).
+    if (parcel.localId && parcel.localId !== lastLocalId) {
+      lastLocalId = parcel.localId;
+      resetPaneCaches();
+      if (BeeNavigation.isTabActive('land')) {
+        if (activeLandTab === 'access' || activeLandTab === 'experiences') requestAccessLists();
+        if (activeLandTab === 'objects') requestObjectOwners(true);
+        if (activeLandTab === 'environment') requestEnvironment(true);
+      }
+    }
     populateForm(parcel);
     hideLoading();
   }
@@ -468,8 +818,207 @@ const BeeLand = (function () {
     }
   }
 
+  // Money buttons: the Rust core re-checks everything against its own gated
+  // parcel snapshot, so a stale click can never buy the wrong thing - these
+  // handlers only confirm intent and report the outcome.
+  function bindMoneyActions() {
+    const parcelNow = function () { return BeeState.get().parcel || {}; };
+    const bind = function (id, fn) {
+      const btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', fn);
+    };
+    bind('land-buy', async function () {
+      const p = parcelNow();
+      const price = Number(p.salePrice) || 0;
+      const ok = await BeeUtils.confirm({
+        title: 'Buy this parcel?',
+        message: 'Buy "' + (p.name || 'this parcel') + '" (' + (p.area || 0) + ' m²) for L$ ' +
+          price.toLocaleString('en-US') + '?',
+        confirmLabel: 'Buy'
+      });
+      if (!ok) return;
+      BeeTransport.parcelBuy(p.localId).then(function () {
+        BeeUtils.showToast('Purchase sent.', 'success');
+        BeeTransport.refreshParcel({ force: true });
+      }).catch(function (err) {
+        BeeUtils.showToast(err.message || String(err), 'error');
+      });
+    });
+    bind('land-buy-pass', async function () {
+      const p = parcelNow();
+      const ok = await BeeUtils.confirm({
+        title: 'Buy a pass?',
+        message: 'For L$ ' + (Number(p.passPrice) || 0).toLocaleString('en-US') +
+          ' you can enter "' + (p.name || 'this parcel') + '" for ' + (p.passHours || 0) + ' hours. Buy a pass?',
+        confirmLabel: 'Buy pass'
+      });
+      if (!ok) return;
+      BeeTransport.parcelBuyPass(p.localId).then(function () {
+        BeeUtils.showToast('Pass purchase sent.', 'success');
+      }).catch(function (err) {
+        BeeUtils.showToast(err.message || String(err), 'error');
+      });
+    });
+    bind('land-abandon', async function () {
+      const p = parcelNow();
+      const ok = await BeeUtils.confirm({
+        title: 'Abandon this land?',
+        message: 'You are about to release ' + (p.area || 0) + ' m² of land. This removes it from ' +
+          'your holdings and grants NO L$. Are you sure?',
+        confirmLabel: 'Abandon',
+        danger: true
+      });
+      if (!ok) return;
+      BeeTransport.parcelRelease(p.localId).then(function () {
+        BeeUtils.showToast('Land released.', 'success');
+        BeeTransport.refreshParcel({ force: true });
+      }).catch(function (err) {
+        BeeUtils.showToast(err.message || String(err), 'error');
+      });
+    });
+    bind('land-deed', async function () {
+      const p = parcelNow();
+      const groupId = p.groupId;
+      if (!groupId || groupId === ZERO_UUID) {
+        BeeUtils.showToast('Set the parcel group first.', 'warning');
+        return;
+      }
+      const groupName = p.groupName || BeeTransport.getGroupName(groupId) || 'the parcel group';
+      const ok = await BeeUtils.confirm({
+        title: 'Deed to group?',
+        message: 'Deed ' + (p.area || 0) + ' m² to ' + groupName + '? The group keeps the land; you keep nothing back.',
+        confirmLabel: 'Deed',
+        danger: true
+      });
+      if (!ok) return;
+      BeeTransport.parcelDeedToGroup(p.localId, groupId).then(function () {
+        BeeUtils.showToast('Deed sent.', 'success');
+        BeeTransport.refreshParcel({ force: true });
+      }).catch(function (err) {
+        BeeUtils.showToast(err.message || String(err), 'error');
+      });
+    });
+  }
+
+  function bindLandExtras() {
+    const ownersRefresh = document.getElementById('land-owners-refresh');
+    if (ownersRefresh) ownersRefresh.addEventListener('click', function () { requestObjectOwners(true); });
+
+    const allowAdd = document.getElementById('land-allow-add');
+    if (allowAdd) allowAdd.addEventListener('click', function () { addToList('access', 'land-allow-add-id'); });
+    const banAdd = document.getElementById('land-ban-add');
+    if (banAdd) banAdd.addEventListener('click', function () { addToList('ban', 'land-ban-add-id', 'land-ban-hours'); });
+
+    // Autoreturn has its own message; save on change with a changed-value guard.
+    const autoreturn = document.getElementById('land-autoreturn');
+    if (autoreturn) {
+      autoreturn.addEventListener('change', function () {
+        const parcel = BeeState.get().parcel;
+        if (!parcel || !parcelCanEdit(parcel)) return;
+        const minutes = Math.max(0, numberValue('land-autoreturn', 0));
+        if (minutes === (parcel.otherCleanTime || 0)) return;
+        BeeTransport.parcelSetAutoreturn(parcel.localId, minutes).then(function () {
+          BeeUtils.showToast('Autoreturn saved.', 'success');
+          BeeState.patch({ parcel: Object.assign({}, parcel, { otherCleanTime: minutes }) });
+        }).catch(function (err) {
+          BeeUtils.showToast(err.message || 'Could not save autoreturn.', 'error');
+        });
+      });
+    }
+
+    // Landing point staging: the values ride the normal Apply Changes save.
+    const landingSet = document.getElementById('land-landing-set');
+    if (landingSet) {
+      landingSet.addEventListener('click', function () {
+        const parcel = BeeState.get().parcel;
+        const pos = BeeState.get().position;
+        if (!parcel || !pos || !parcelCanEdit(parcel)) return;
+        const next = Object.assign({}, parcel, {
+          userLocation: { x: pos.x, y: pos.y, z: pos.z },
+          userLookAt: { x: 1, y: 0, z: 0 },
+          landingPoint: { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) },
+          landingType: 1
+        });
+        BeeState.patch({ parcel: next });
+        setFieldValue('land-landing-type', '1');
+        BeeUtils.showToast('Landing point staged - press Apply Changes to save.', 'info');
+      });
+    }
+    const landingClear = document.getElementById('land-landing-clear');
+    if (landingClear) {
+      landingClear.addEventListener('click', function () {
+        const parcel = BeeState.get().parcel;
+        if (!parcel || !parcelCanEdit(parcel)) return;
+        const next = Object.assign({}, parcel, {
+          userLocation: { x: 0, y: 0, z: 0 },
+          userLookAt: { x: 0, y: 0, z: 0 },
+          landingPoint: null
+        });
+        BeeState.patch({ parcel: next });
+        BeeUtils.showToast('Landing point cleared - press Apply Changes to save.', 'info');
+      });
+    }
+
+    const envRefresh = document.getElementById('land-env-refresh');
+    if (envRefresh) envRefresh.addEventListener('click', function () { requestEnvironment(true); });
+
+    // Backend events feeding the panes.
+    BeeTransport.on('parcel-access', function (data) {
+      if (!data) return;
+      const parcel = BeeState.get().parcel;
+      if (!parcel || data.localId !== parcel.localId) return;
+      const key = listFor(data.flags);
+      if (!key) return;
+      lists[key] = (data.entries || []).slice();
+      if (key === 'access' || key === 'ban') renderAccessLists();
+      else renderExperiences();
+    });
+    BeeTransport.on('parcel-object-owners', function (data) {
+      lastOwners = (data && data.owners) || [];
+      renderOwners(lastOwners);
+    });
+    BeeTransport.on('covenant', function (data) {
+      if (!data) return;
+      setFieldValue('land-estate-name', data.estateName || '');
+      const ownerName = nameFor(data.estateOwnerId || '');
+      setFieldValue('land-estate-owner', ownerName);
+      setFieldValue('land-covenant-date', data.timestamp
+        ? new Date(data.timestamp * 1000).toLocaleDateString() : 'Never');
+      const region = BeeState.get().region || {};
+      const rules = [];
+      rules.push(region.blockLandResell ? 'No resale' : 'Resale allowed');
+      rules.push(region.allowParcelChanges ? 'Join/subdivide allowed' : 'No join/subdivide');
+      setFieldValue('land-estate-rules', rules.join(' · '));
+      if (BeeProfiles.isZero(data.covenantId)) {
+        setFieldValue('land-covenant-text', 'There is no covenant for this estate.');
+      }
+    });
+    BeeTransport.on('covenant-text', function (data) {
+      setFieldValue('land-covenant-text', data && data.ok
+        ? (data.text || '')
+        : ((data && data.error) || 'The covenant could not be downloaded.'));
+    });
+    // Names resolving repaints whatever list is visible.
+    BeeTransport.on('names-updated', function () {
+      if (!BeeNavigation.isTabActive('land')) return;
+      if (activeLandTab === 'access') renderAccessLists();
+      if (activeLandTab === 'objects') renderOwners(lastOwners);
+    });
+  }
+  let lastOwners = [];
+
+  // A new parcel under our feet invalidates every cached pane.
+  function resetPaneCaches() {
+    ownersLoaded = false;
+    covenantLoaded = false;
+    envLoaded = false;
+    lists.access = []; lists.ban = []; lists.allowExp = []; lists.blockExp = [];
+  }
+
   function init() {
     bindProfileFields();
+    bindMoneyActions();
+    bindLandExtras();
     document.getElementById('land-form').addEventListener('submit', handleSubmit);
     document.getElementById('land-refresh').addEventListener('click', async function () {
       showLoading('Refreshing land data...');
