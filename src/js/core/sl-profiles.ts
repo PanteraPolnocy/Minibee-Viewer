@@ -25,7 +25,10 @@ const BeeProfiles = (function () {
   let active = { id: '', name: '', title: '' };
   let attached = false;
 
-  function normId(id) { return BeeUtils.normUuid(id); }
+  function normId(id) {
+    const normalized = BeeUtils.normUuid(id);
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(normalized) ? normalized : '';
+  }
   function isZero(id) { const k = normId(id); return !k || k === ZERO_UUID; }
 
   function textureImageUrl(uuid, size) {
