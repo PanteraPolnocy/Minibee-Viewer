@@ -149,7 +149,8 @@ Your current radar is searched locally too for quick matches.
 
 ## Map and teleport
 
-- **Map** - pan, centre on yourself (`@`), click a tile, or type a region name / SLURL and hit **Show on map**, then **Teleport Here** or **Teleport Home**.
+- **Map** - pan, centre on yourself (`@`), click a tile, or type a region name / SLURL and hit **Show on map**, then **Teleport Here** or **Teleport Home**. On phones the map takes the full width and the controls slide out over it.
+- **Landmarks** - your Landmarks folder (subfolders included) and Favorites, listed alphabetically under the map controls with a filter. Tapping one shows the place, region and SLURL it points to, then teleports on confirmation.
 - **Bad region name?** The map stays put and you get a toast instead of sailing off to nowhere.
 - **SLURLs** in chat/IM open the Map tab with the location pre-filled.
 - **Mid-teleport**, a progress dialog shows stage and percentage.

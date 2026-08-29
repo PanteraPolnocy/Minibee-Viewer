@@ -15,7 +15,7 @@ use crate::codec;
 type Cmd = Result<Value, String>;
 
 /// Capability URLs want a trailing slash before any query string or sub-path.
-fn cap_endpoint(url: &str) -> String {
+pub(crate) fn cap_endpoint(url: &str) -> String {
     let t = url.trim();
     if t.is_empty() || t.ends_with('/') {
         t.to_string()
@@ -706,14 +706,24 @@ pub async fn sl_remote_parcel(
     x: f64,
     y: f64,
     z: f64,
+    region_id: Option<String>,
 ) -> Cmd {
     let session = state.active().ok_or("No active session")?;
     let cap = session.cap("RemoteParcelRequest").ok_or("RemoteParcelRequest capability unavailable")?;
-    let handle: u64 = ((grid_x.max(0) as u64) * 256 << 32) | ((grid_y.max(0) as u64) * 256);
-    let handle_b64 = base64::engine::general_purpose::STANDARD.encode(handle.to_be_bytes());
-    // region_handle is a 64-bit value, so it goes out as LLSD binary; a 32-bit <integer> would overflow.
+    // A landmark knows its region only by id; everything else names it by grid
+    // position. region_handle is a 64-bit value, so it goes out as LLSD binary;
+    // a 32-bit <integer> would overflow.
+    let region = match region_id.as_deref().map(str::trim).filter(|r| !r.is_empty()) {
+        Some(id) if crate::bridge::inventory::is_uuid(id) => format!("<key>region_id</key><uuid>{id}</uuid>"),
+        Some(_) => return Err("Invalid region id".into()),
+        None => {
+            let handle: u64 = ((grid_x.max(0) as u64) * 256 << 32) | ((grid_y.max(0) as u64) * 256);
+            let handle_b64 = base64::engine::general_purpose::STANDARD.encode(handle.to_be_bytes());
+            format!("<key>region_handle</key><binary encoding=\"base64\">{handle_b64}</binary>")
+        }
+    };
     let body = format!(
-        "<?xml version=\"1.0\"?><llsd><map><key>location</key><array><real>{x}</real><real>{y}</real><real>{z}</real></array><key>region_handle</key><binary encoding=\"base64\">{handle_b64}</binary></map></llsd>"
+        "<?xml version=\"1.0\"?><llsd><map><key>location</key><array><real>{x}</real><real>{y}</real><real>{z}</real></array>{region}</map></llsd>"
     );
     let (pin, _) = proxy::simhost_pin(&cap, "").await;
     let ex = proxy::exchange(&state.ua, "POST", &cap, &body, "application/llsd+xml", &[], pin, Duration::from_secs(30), true).await?;

@@ -480,11 +480,25 @@ const BeeSLBridge = (function () {
   // RemoteParcelRequest: map (region grid, local pos) -> parcel UUID, then fire
   // a ParcelInfoRequest (a `parcel-info` event follows). The Land tab uses this
   // for the parcel UUID + dwell (Traffic), which ParcelProperties doesn't carry.
-  function remoteParcel(gridX, gridY, x, y, z) {
+  // The region goes by grid position, or by id when that's all a landmark knows.
+  function remoteParcel(gridX, gridY, x, y, z, regionId?) {
     return invoke('sl_remote_parcel', {
       gridX: gridX || 0, gridY: gridY || 0,
-      x: x != null ? x : 128, y: y != null ? y : 128, z: z != null ? z : 25
+      x: x != null ? x : 128, y: y != null ? y : 128, z: z != null ? z : 25,
+      regionId: regionId || null
     }).catch(function () { return null; });
+  }
+
+  // --- landmarks ---
+
+  function listLandmarks() {
+    return invoke('sl_landmarks_list').then(function (res) { return (res && res.landmarks) || []; });
+  }
+  function landmarkInfo(assetId) { return invoke('sl_landmark_info', { assetId: assetId }); }
+  // `target` is the destination the UI resolved (or null): the core only uses
+  // it to label the arrival; the sim itself resolves the landmark.
+  function teleportToLandmark(assetId, target) {
+    return invoke('sl_teleport_landmark', { assetId: assetId, target: target || null });
   }
 
   // --- scripts ---
@@ -705,6 +719,7 @@ const BeeSLBridge = (function () {
     replyScriptDialog: replyScriptDialog, replyScriptPermission: replyScriptPermission,
     saveAvatarNotes: saveAvatarNotes, searchDirectory: searchDirectory,
     teleportTo: teleportTo, teleportHome: teleportHome,
+    listLandmarks: listLandmarks, landmarkInfo: landmarkInfo, teleportToLandmark: teleportToLandmark,
     sendTeleportOffer: sendTeleportOffer, sendTeleportRequest: sendTeleportRequest,
     acceptTeleportOffer: acceptTeleportOffer, declineTeleportOffer: declineTeleportOffer,
     acceptTeleportRequest: acceptTeleportRequest, declineTeleportRequest: declineTeleportRequest,

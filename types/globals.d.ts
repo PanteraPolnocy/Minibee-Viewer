@@ -46,6 +46,7 @@ interface Window {
   BeeApp?: typeof BeeApp;
   BeeContextMenu?: typeof BeeContextMenu;
   BeeInteract?: typeof BeeInteract;
+  BeeLandmarks?: typeof BeeLandmarks;
   BeeMap?: typeof BeeMap;
   BeeNews?: typeof BeeNews;
 }

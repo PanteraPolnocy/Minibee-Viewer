@@ -956,6 +956,7 @@ button.bee-menu__value--action:disabled {
 .app--offline .panel-toolbar .search-kind-tabs,
 .app--offline .map-sidebar-tools .map-form,
 .app--offline .map-sidebar-tools .map-actions,
+.app--offline .map-sidebar-tools .map-landmarks,
 .app--offline #land-form,
 .app--offline .land-actions,
 .app--offline .im-thread__actions .im-action-btn:not(#im-close),
@@ -4230,6 +4231,192 @@ button.bee-menu__value--action:disabled {
   width: 100%;
   margin: 0;
   display: flex;
+}
+
+/* Landmarks, below the teleport buttons; takes whatever height is left. */
+
+.map-landmarks {
+  flex: 1 1 auto;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.map-landmarks__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.map-landmarks__title {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.map-landmarks__refresh {
+  width: 28px;
+  height: 28px;
+}
+
+.map-landmarks__filter {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.map-landmarks__filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.map-landmarks__status {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.map-landmarks__status[hidden] { display: none; }
+
+.map-landmarks__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.map-landmark {
+  display: block;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.84rem;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.map-landmark:hover,
+.map-landmark:focus-visible {
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+.landmark-dialog__name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.landmark-dialog__details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.landmark-dialog__details dt { color: var(--text-muted); }
+
+.landmark-dialog__details dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.landmark-dialog__slurl {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+/* Map controls toggle: phones only, floating over the map's top-right corner. */
+
+.map-tools-toggle {
+  display: none;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 7;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(8, 18, 36, 0.82);
+  color: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.map-tools-toggle:hover,
+.map-tools-toggle:focus-visible {
+  background: rgba(245, 166, 35, 0.3);
+  color: #fff;
+  outline: none;
+}
+
+.panel--map { position: relative; }
+
+@media (max-width: 640px) {
+  .map-tools-toggle { display: grid; }
+
+  /* The map keeps the full width; the controls slide in over it. */
+  .panel--map .map-sidebar-tools {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(300px, 88%);
+    padding-top: 58px;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+    z-index: 6;
+    transform: translateX(100%);
+    visibility: hidden;
+    transition: transform 0.22s ease, visibility 0s linear 0.22s;
+  }
+
+  .panel--map--tools-open .map-sidebar-tools {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.22s ease;
+  }
+
+  .map-landmarks { min-height: 160px; }
+
+  .map-landmark {
+    min-height: 44px;
+    padding: 11px 10px;
+    font-size: 0.92rem;
+  }
+
+  .landmark-dialog form {
+    gap: 14px;
+    padding: 22px 20px calc(20px + var(--safe-bottom));
+  }
+
+  .landmark-dialog .teleport-prompt__actions .btn {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
 }
 
 .map-teleport--busy,

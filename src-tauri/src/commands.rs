@@ -479,7 +479,7 @@ fn vstr(s: &str) -> Value {
 }
 
 /// The active engine circuit together with its (agent_id, session_uuid).
-fn active_ids(
+pub(crate) fn active_ids(
     state: &AppState,
 ) -> Result<(std::sync::Arc<crate::bridge::circuit::Session>, String, String), String> {
     let s = state.active().ok_or("No active session")?;
@@ -1064,7 +1064,7 @@ async fn send_stand_up(s: &Arc<crate::bridge::circuit::Session>, agent: &str, se
 /// A seated avatar can't be teleported, so stand up first and give the sim a
 /// moment to actually do it before asking to move. Every teleport path calls
 /// this, so it doesn't matter which button the user pressed.
-async fn stand_before_teleport(s: &Arc<crate::bridge::circuit::Session>, agent: &str, sess: &str) {
+pub(crate) async fn stand_before_teleport(s: &Arc<crate::bridge::circuit::Session>, agent: &str, sess: &str) {
     if !s.is_sitting() {
         return;
     }

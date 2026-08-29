@@ -36,6 +36,36 @@ const BeeMap = (function () {
   const TELEPORT_BTN_LABEL = 'Teleport Here';
   let mapTeleportBusy = false;
   let mapTeleportPct = 0;
+  // On phones the controls slide over the map instead of sitting beside it.
+  const PHONE_LAYOUT = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)') : null;
+
+  function isPhoneLayout() {
+    return !!(PHONE_LAYOUT && PHONE_LAYOUT.matches);
+  }
+
+  function toolsOpen() {
+    const panel = el('panel-map');
+    return !!(panel && panel.classList.contains('panel--map--tools-open'));
+  }
+
+  function setToolsOpen(open) {
+    const panel = el('panel-map');
+    const btn = el<HTMLButtonElement>('map-tools-toggle');
+    if (!panel) return;
+    panel.classList.toggle('panel--map--tools-open', !!open);
+    if (btn) {
+      const label = open ? 'Hide map controls' : 'Show map controls';
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.setAttribute('aria-label', label);
+      btn.title = label;
+    }
+  }
+
+  // After an action that changes what the map shows, get the controls out of
+  // the way on a phone so the result is visible.
+  function revealMapOnPhone() {
+    if (isPhoneLayout()) setToolsOpen(false);
+  }
 
   function formatMapProgress(message, fallbackShort) {
     if (typeof BeeTeleportUI !== 'undefined' && BeeTeleportUI.formatProgressLabel) {
@@ -734,6 +764,7 @@ const BeeMap = (function () {
       if (input) {
         input.value = BeeSlurl.buildMapsUrl(loc.regionName, loc);
       }
+      revealMapOnPhone();
     } catch (err) {
       const badName = parsed && parsed.regionName ? parsed.regionName : text;
       if (needsLookup && info) {
@@ -808,6 +839,7 @@ const BeeMap = (function () {
       const loc = await BeeTransport.teleportTo(target);
       setSelection(loc);
       applyMapTeleportProgress('starting', 'Starting');
+      revealMapOnPhone();
     } catch (err) {
       resetTeleportButton();
       BeeUtils.showToast(err.message || 'Teleport failed', 'error');
@@ -822,6 +854,7 @@ const BeeMap = (function () {
       // benign "could not teleport closer" teleport-finish, not a return field.
       await BeeTransport.teleportHome();
       applyMapTeleportProgress('starting', 'Starting');
+      revealMapOnPhone();
     } catch (err) {
       resetTeleportButton();
       BeeUtils.showToast(err.message || 'Teleport home failed', 'error');
@@ -904,6 +937,7 @@ const BeeMap = (function () {
     requestAnimationFrame(function () {
       renderTiles();
     });
+    if (typeof BeeLandmarks !== 'undefined') BeeLandmarks.activate();
   }
 
   function init() {
@@ -917,9 +951,15 @@ const BeeMap = (function () {
     const panS = el('map-pan-s');
     const panE = el('map-pan-e');
     const panW = el('map-pan-w');
+    const toolsToggle = el('map-tools-toggle');
 
     if (canvas) {
       canvas.addEventListener('click', handleMapClick);
+    }
+    if (toolsToggle) {
+      toolsToggle.addEventListener('click', function () {
+        setToolsOpen(!toolsOpen());
+      });
     }
     if (form) {
       form.addEventListener('submit', function (e) {
@@ -1116,7 +1156,8 @@ const BeeMap = (function () {
     setSelection: setSelection,
     renderTiles: renderTiles,
     beginMapTeleport: beginMapTeleport,
-    resetTeleportButton: resetTeleportButton
+    resetTeleportButton: resetTeleportButton,
+    setToolsOpen: setToolsOpen
   };
 })();
 

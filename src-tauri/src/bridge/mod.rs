@@ -9,6 +9,8 @@ pub mod eventqueue;
 pub mod feeds;
 pub mod http_client;
 pub mod hwid;
+pub mod inventory;
+pub mod landmarks;
 pub mod login;
 pub mod map;
 pub mod netmeter;

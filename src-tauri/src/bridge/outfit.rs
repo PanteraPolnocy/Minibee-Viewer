@@ -18,13 +18,8 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::bridge::circuit::Session;
-use crate::bridge::proxy;
+use crate::bridge::inventory::{fetch_folder, fetch_items, item_i64, item_str, link_target, AT_OBJECT};
 use crate::bridge::state::AppState;
-use crate::codec;
-
-/// Inventory asset types: a rezzable object, and an inventory link.
-const AT_OBJECT: i64 = 6;
-const AT_LINK: i64 = 24;
 
 /// AttachmentPt high bit: "add" (keep the point's other attachments). With the
 /// point byte 0 the sim uses the item's own stored attachment point.
@@ -34,137 +29,9 @@ const ATTACHMENT_ADD: u8 = 0x80;
 /// misbehave server-side, especially when replacing already-worn items.
 const REZ_SPACING_MS: u64 = 300;
 
-fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
 /// NUL-terminate a string and base64-encode it for a Variable message field.
 fn vstr(s: &str) -> Value {
     json!(B64.encode(format!("{s}\0").as_bytes()))
-}
-
-/// POST an LLSD body to a region cap; None when the cap is missing or the
-/// request fails. The response is parsed LLSD.
-async fn cap_post(state: &Arc<AppState>, session: &Arc<Session>, cap: &str, body: &str) -> Option<Value> {
-    let url = session.cap(cap)?;
-    let agent_session = session.agent_ids().map(|(_, s)| s).unwrap_or_default();
-    let headers: Vec<(String, String)> = if agent_session.is_empty() {
-        Vec::new()
-    } else {
-        vec![("X-SecondLife-Session-ID".to_string(), agent_session)]
-    };
-    let (pin, _) = proxy::simhost_pin(&url, "").await;
-    match proxy::exchange(
-        &state.ua,
-        "POST",
-        &url,
-        body,
-        "application/llsd+xml",
-        &headers,
-        pin,
-        Duration::from_secs(30),
-        true,
-    )
-    .await
-    {
-        Ok(ex) if (200..300).contains(&ex.status) => codec::llsd::parse(&ex.body, &ex.content_type).ok(),
-        Ok(ex) => {
-            crate::dlog!("outfit: {cap} HTTP {} body={:.200}", ex.status, ex.body);
-            None
-        }
-        Err(e) => {
-            crate::dlog!("outfit: {cap} failed: {e}");
-            None
-        }
-    }
-}
-
-/// Fetch the item rows of one inventory folder (FetchInventoryDescendents2).
-async fn fetch_folder_items(
-    state: &Arc<AppState>,
-    session: &Arc<Session>,
-    folder_id: &str,
-    owner_id: &str,
-) -> Option<Vec<Value>> {
-    let body = format!(
-        "<?xml version=\"1.0\"?><llsd><map><key>folders</key><array><map>\
-         <key>folder_id</key><uuid>{}</uuid>\
-         <key>owner_id</key><uuid>{}</uuid>\
-         <key>fetch_folders</key><boolean>0</boolean>\
-         <key>fetch_items</key><boolean>1</boolean>\
-         <key>sort_order</key><integer>0</integer>\
-         </map></array></map></llsd>",
-        xml_escape(folder_id),
-        xml_escape(owner_id),
-    );
-    let parsed = cap_post(state, session, "FetchInventoryDescendents2", &body).await?;
-    let folder = parsed.get("folders")?.as_array()?.first()?;
-    Some(folder.get("items")?.as_array()?.clone())
-}
-
-/// Fetch full inventory items by id (FetchInventory2), for the linked items'
-/// real type, name and permission masks.
-async fn fetch_items(
-    state: &Arc<AppState>,
-    session: &Arc<Session>,
-    owner_id: &str,
-    ids: &[String],
-) -> Vec<Value> {
-    if ids.is_empty() {
-        return Vec::new();
-    }
-    let rows: String = ids
-        .iter()
-        .map(|id| {
-            format!(
-                "<map><key>item_id</key><uuid>{}</uuid><key>owner_id</key><uuid>{}</uuid></map>",
-                xml_escape(id),
-                xml_escape(owner_id)
-            )
-        })
-        .collect();
-    let body = format!(
-        "<?xml version=\"1.0\"?><llsd><map><key>agent_id</key><uuid>{}</uuid>\
-         <key>items</key><array>{rows}</array></map></llsd>",
-        xml_escape(owner_id),
-    );
-    match cap_post(state, session, "FetchInventory2", &body).await {
-        Some(parsed) => parsed
-            .get("items")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default(),
-        None => Vec::new(),
-    }
-}
-
-fn item_str(item: &Value, key: &str) -> String {
-    item.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
-}
-
-fn item_i64(item: &Value, key: &str) -> i64 {
-    match item.get(key) {
-        Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
-        Some(Value::String(s)) => s.parse().unwrap_or(0),
-        _ => 0,
-    }
-}
-
-/// The item id a COF link points at. Links carry it as `linked_id` (AIS) or in
-/// `asset_id` (legacy LLSD); non-link rows return None.
-pub fn link_target(item: &Value) -> Option<String> {
-    if item_i64(item, "type") != AT_LINK {
-        return None;
-    }
-    let target = {
-        let l = item_str(item, "linked_id");
-        if l.is_empty() { item_str(item, "asset_id") } else { l }
-    };
-    if target.is_empty() || target.starts_with("00000000-0000-0000-0000") {
-        None
-    } else {
-        Some(target)
-    }
 }
 
 /// Build one RezMultipleAttachmentsFromInv for one inventory object,
@@ -199,38 +66,6 @@ pub fn build_attach_message(agent: &str, sess: &str, compound_id: &str, item: &V
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn link(item_type: i64, linked_id: &str, asset_id: &str) -> Value {
-        let mut v = json!({ "item_id": "0f000000-0000-0000-0000-00000000000f", "type": item_type });
-        if !linked_id.is_empty() {
-            v["linked_id"] = json!(linked_id);
-        }
-        if !asset_id.is_empty() {
-            v["asset_id"] = json!(asset_id);
-        }
-        v
-    }
-
-    #[test]
-    fn link_target_prefers_linked_id_then_asset_id() {
-        let real = "aa000000-0000-0000-0000-000000000001";
-        assert_eq!(link_target(&link(AT_LINK, real, "bb000000-0000-0000-0000-000000000002")), Some(real.to_string()));
-        assert_eq!(link_target(&link(AT_LINK, "", real)), Some(real.to_string()));
-    }
-
-    #[test]
-    fn link_target_rejects_non_links_and_null_targets() {
-        let real = "aa000000-0000-0000-0000-000000000001";
-        // A plain object row in COF is not a link.
-        assert_eq!(link_target(&link(AT_OBJECT, real, real)), None);
-        // A link to nothing.
-        assert_eq!(link_target(&link(AT_LINK, "", "")), None);
-        assert_eq!(link_target(&link(AT_LINK, "00000000-0000-0000-0000-000000000000", "")), None);
-        // Type as a string still parses (LLSD integers sometimes arrive stringly).
-        let mut v = link(0, real, "");
-        v["type"] = json!("24");
-        assert_eq!(link_target(&v), Some(real.to_string()));
-    }
 
     #[test]
     fn attach_message_is_one_additive_item() {
@@ -300,7 +135,7 @@ pub async fn restore(state: &Arc<AppState>, session: &Arc<Session>) {
     let Some((agent, sess_uuid)) = session.agent_ids() else {
         return;
     };
-    let Some(rows) = fetch_folder_items(state, session, &cof, &agent).await else {
+    let Some((rows, _)) = fetch_folder(state, session, &cof, &agent, false).await else {
         crate::dlog!("outfit: COF fetch failed");
         return;
     };

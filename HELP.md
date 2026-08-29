@@ -79,7 +79,9 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Radar** - who's nearby; range and alerts in **Bee -> Settings** or on the Radar tab.
 
-**Map** - pan, click, or type a region / SLURL -> **Show on map** -> **Teleport Here** or **Teleport Home**. Bad names get a toast, not a wild teleport. Progress dialog while moving.
+**Map** - pan, click, or type a region / SLURL -> **Show on map** -> **Teleport Here** or **Teleport Home**. Bad names get a toast, not a wild teleport. Progress dialog while moving. On a phone the map fills the screen; the controls slide out from the icon in the top-right corner.
+
+**Landmarks** - under the map controls, alphabetical, with a filter box. Tap one to see where it points (place, region and SLURL) and confirm the teleport. Lists your Landmarks folder (subfolders too) and the Favorites bar.
 
 **Guide** - featured destinations; teleport from a card.
 

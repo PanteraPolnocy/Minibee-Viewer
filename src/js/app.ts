@@ -543,6 +543,7 @@ const BeeApp = (function () {
       BeeSearch.init();
       BeeRadar.init();
       BeeMap.init();
+      BeeLandmarks.init();
       BeeLand.init();
       BeeDestinations.init();
       BeeTeleportUI.init();

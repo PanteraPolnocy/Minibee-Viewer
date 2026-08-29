@@ -263,9 +263,9 @@ const BeeTransport = (function () {
     return adapter.fetchParcelInfo(parcelId);
   }
 
-  function remoteParcel(gridX, gridY, x, y, z) {
+  function remoteParcel(gridX, gridY, x, y, z, regionId?) {
     if (!adapter || !adapter.remoteParcel) return Promise.resolve(null);
-    return adapter.remoteParcel(gridX, gridY, x, y, z);
+    return adapter.remoteParcel(gridX, gridY, x, y, z, regionId);
   }
 
   function sendTeleportOffer(targetId, message) {
@@ -319,11 +319,21 @@ const BeeTransport = (function () {
     return adapter.teleportHome();
   }
 
-  function teleportToLandmark(landmarkId) {
+  function teleportToLandmark(assetId, target?) {
     if (!adapter || !adapter.teleportToLandmark) {
       return Promise.reject(new Error('Landmark teleport not available'));
     }
-    return adapter.teleportToLandmark(landmarkId);
+    return adapter.teleportToLandmark(assetId, target);
+  }
+
+  function listLandmarks() {
+    if (!adapter || !adapter.listLandmarks) return Promise.reject(new Error('Landmarks not available'));
+    return adapter.listLandmarks();
+  }
+
+  function landmarkInfo(assetId) {
+    if (!adapter || !adapter.landmarkInfo) return Promise.reject(new Error('Landmarks not available'));
+    return adapter.landmarkInfo(assetId);
   }
 
   function cancelTeleport() {
@@ -451,6 +461,8 @@ const BeeTransport = (function () {
     teleportTo: teleportTo,
     teleportHome: teleportHome,
     teleportToLandmark: teleportToLandmark,
+    listLandmarks: listLandmarks,
+    landmarkInfo: landmarkInfo,
     cancelTeleport: cancelTeleport,
     isTeleportInProgress: isTeleportInProgress,
     requestMapArea: requestMapArea,

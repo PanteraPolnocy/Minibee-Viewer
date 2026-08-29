@@ -339,21 +339,35 @@ pub fn normalize_login(login: &Map<String, Value>) -> Value {
     })
 }
 
-/// Pull the Current Outfit folder id out of the login inventory skeleton
-/// (folder type_default 46 = FT_CURRENT_OUTFIT). Empty when absent.
-pub fn cof_folder_id(login: &Map<String, Value>) -> String {
-    const FT_CURRENT_OUTFIT: i64 = 46;
+/// The id of the login inventory skeleton's folder with this `type_default`.
+/// Empty when absent.
+fn skeleton_folder_id(login: &Map<String, Value>, type_default: i64) -> String {
     login
         .get("inventory-skeleton")
         .and_then(|v| v.as_array())
         .and_then(|folders| {
             folders.iter().find(|f| {
-                f.get("type_default").and_then(|t| t.as_i64()) == Some(FT_CURRENT_OUTFIT)
+                f.get("type_default").and_then(|t| t.as_i64()) == Some(type_default)
             })
         })
         .and_then(|f| f.get("folder_id").and_then(|v| v.as_str()))
         .unwrap_or("")
         .to_string()
+}
+
+/// The Current Outfit folder (FT_CURRENT_OUTFIT = 46). Empty when absent.
+pub fn cof_folder_id(login: &Map<String, Value>) -> String {
+    skeleton_folder_id(login, 46)
+}
+
+/// Where landmarks live: the Landmarks folder (FT_LANDMARK = 3) and the
+/// Favorites bar (FT_FAVORITE = 23). Only the ones the skeleton has.
+pub fn landmark_folder_ids(login: &Map<String, Value>) -> Vec<String> {
+    [3, 23]
+        .into_iter()
+        .map(|ft| skeleton_folder_id(login, ft))
+        .filter(|id| !id.is_empty())
+        .collect()
 }
 
 /// The agent's inventory root folder id from the login reply. Empty when absent.
@@ -456,6 +470,7 @@ const CAPS_WE_USE: &[&str] = &[
     "ParcelPropertiesUpdate",
     "RegionExperiences",
     "RemoteParcelRequest",
+    "ViewerAsset",
 ];
 
 /// Re-fetch a region's capability map from its seed URL (we do this on teleport and
@@ -613,6 +628,24 @@ mod tests {
             json!([{ "name": "Landmarks", "folder_id": "cc000000-0000-0000-0000-000000000003", "type_default": 3 }]),
         );
         assert_eq!(cof_folder_id(&login), "", "no COF folder means no restore, not a crash");
+    }
+
+    #[test]
+    fn landmark_folder_ids_take_landmarks_and_favorites_only() {
+        let mut login = Map::new();
+        login.insert(
+            "inventory-skeleton".into(),
+            json!([
+                { "name": "My Inventory", "folder_id": "aa000000-0000-0000-0000-000000000001", "type_default": 8 },
+                { "name": "Favorites", "folder_id": "ee000000-0000-0000-0000-000000000005", "type_default": 23 },
+                { "name": "Landmarks", "folder_id": "cc000000-0000-0000-0000-000000000003", "type_default": 3 },
+            ]),
+        );
+        assert_eq!(
+            landmark_folder_ids(&login),
+            vec!["cc000000-0000-0000-0000-000000000003", "ee000000-0000-0000-0000-000000000005"]
+        );
+        assert!(landmark_folder_ids(&Map::new()).is_empty());
     }
 
     #[test]
@@ -937,6 +970,7 @@ pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, St
         }
         *state.cof_folder.lock().unwrap() = cof;
         *state.inv_root.lock().unwrap() = inventory_root_id(&parsed);
+        *state.landmark_folders.lock().unwrap() = landmark_folder_ids(&parsed);
         let grid = credentials.get("grid").and_then(|v| v.as_str()).unwrap_or("");
         *state.currency.lock().unwrap() = Some(crate::bridge::currency::CurrencyContext {
             agent_id: trim_quotes(&map_str(&parsed, "agent_id")),
