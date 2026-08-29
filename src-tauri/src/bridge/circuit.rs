@@ -284,6 +284,23 @@ impl Session {
         }
     }
 
+    /// Keep the inbound-filter set in step with a block/unblock the moment it is
+    /// sent - the sim never echoes the write back.
+    pub fn set_block_state(&self, id: &str, blocked: bool) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.set_block_state(id, blocked);
+        }
+    }
+
+    /// The resolved legacy name for an agent, when the engine has seen one.
+    pub fn cached_name_of(&self, id: &str) -> Option<String> {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|s| s.cached_name(id).map(str::to_string))
+    }
+
     /// Record that the AgentProfile cap delivered notes for `agent_id`, so the
     /// legacy `AvatarNotesReply` stops being applied for that resident.
     pub fn mark_cap_notes(&self, agent_id: &str) {

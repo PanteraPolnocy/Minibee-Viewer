@@ -257,7 +257,7 @@
             <span id="parcel-music-now" class="sr-only" aria-live="polite"></span>
           </div>
           <div id="top-bar-stats" class="top-bar__stats" hidden>
-            <span id="balance-badge" class="status-chip status-chip--balance" title="Linden dollar balance">L$ -</span>
+            <button type="button" id="balance-badge" class="status-chip status-chip--balance" title="Linden dollar balance">L$ -</button>
             <span id="slt-clock" class="status-chip status-chip--time" title="Second Life Time (US Pacific)">--:-- SLT</span>
           </div>
           <div id="net-meter" class="net-meter" title="Network traffic" hidden aria-hidden="true">
@@ -286,7 +286,7 @@
       <div id="bee-menu" class="bee-menu" hidden role="dialog" aria-label="Session">
         <div class="bee-menu__row">
           <span class="bee-menu__label">Balance</span>
-          <span id="bee-menu-balance" class="bee-menu__value">L$ &mdash;</span>
+          <button type="button" id="bee-menu-balance" class="bee-menu__value bee-menu__value--action" title="Buy L$">L$ &mdash;</button>
         </div>
         <div class="bee-menu__row">
           <span class="bee-menu__label">SL time</span>
@@ -1290,6 +1290,59 @@
       </form>
     </dialog>
 
+    <dialog id="buy-currency-dialog" class="pay-dialog buy-currency-dialog">
+      <form id="buy-currency-form" method="dialog">
+        <h2 class="pay-dialog__title">Buy L$</h2>
+        <div class="buy-currency__rows">
+          <div class="buy-currency__row">
+            <span>You now have</span>
+            <span id="buy-currency-balance" class="buy-currency__amount">L$ &mdash;</span>
+          </div>
+          <div class="buy-currency__row">
+            <label for="buy-currency-amount">Choose amount to buy</label>
+            <span class="buy-currency__entry">
+              <span aria-hidden="true">L$</span>
+              <input type="number" id="buy-currency-amount" min="1" step="1" inputmode="numeric" placeholder="0" autocomplete="off">
+            </span>
+          </div>
+          <div class="buy-currency__row">
+            <span>Approx. cost</span>
+            <span id="buy-currency-estimate" class="buy-currency__amount buy-currency__amount--estimate">&mdash;</span>
+          </div>
+          <div class="buy-currency__row">
+            <span>Your new balance will be</span>
+            <span id="buy-currency-total" class="buy-currency__amount">L$ &mdash;</span>
+          </div>
+        </div>
+        <p id="buy-currency-note" class="buy-currency__hint" hidden>Re-enter the amount to see the latest exchange rate.</p>
+        <p id="buy-currency-links" class="buy-currency__hint" hidden>
+          <button type="button" class="buy-currency__link" id="buy-currency-payment-link">Payment method</button>
+          <span aria-hidden="true">&middot;</span>
+          <button type="button" class="buy-currency__link" id="buy-currency-history-link">Currency history</button>
+        </p>
+        <p id="buy-currency-status" class="buy-currency__status" hidden></p>
+        <div class="pay-dialog__actions">
+          <button type="button" class="btn btn--ghost" id="buy-currency-cancel">Cancel</button>
+          <button type="submit" class="btn btn--primary" id="buy-currency-submit" disabled>Buy now</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="buy-currency-password-dialog" class="pay-dialog">
+      <form id="buy-currency-password-form" method="dialog">
+        <h2 class="pay-dialog__title">Confirm purchase</h2>
+        <p id="buy-currency-password-text" class="pay-dialog__target"></p>
+        <label class="field">
+          <span>Account password</span>
+          <input type="password" id="buy-currency-password" autocomplete="current-password">
+        </label>
+        <div class="pay-dialog__actions">
+          <button type="button" class="btn btn--ghost" id="buy-currency-password-cancel">Cancel</button>
+          <button type="submit" class="btn btn--primary">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="conference-dialog" class="pay-dialog conference-dialog">
       <form id="conference-form" method="dialog">
         <h2 class="pay-dialog__title" id="conference-dialog-title">New conference chat</h2>
@@ -1370,6 +1423,7 @@
   <script src="js/ui/avatar-thumb.js"></script>
   <script src="js/ui/profile.js"></script>
   <script src="js/ui/settings.js"></script>
+  <script src="js/ui/currency.js"></script>
   <script src="js/ui/news.js"></script>
   <script src="js/ui/interact.js"></script>
   <script src="js/ui/context-menu.js"></script>

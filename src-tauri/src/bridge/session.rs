@@ -18,6 +18,8 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde_json::{json, Value};
 
+use crate::bridge::util::truthy;
+
 /// A UI-facing event name; it goes out as `minibee-viewer://<event>`.
 pub type EventName = String;
 
@@ -156,6 +158,15 @@ pub struct SessionState {
     /// True once we've asked for the mute list, so `UseCachedMuteList` - which we can
     /// never honour, having no disk cache - can't bounce us into asking forever.
     pub mute_asked: bool,
+    /// The grid block list as an inbound filter: lowercased id -> mute flags,
+    /// agents, objects, and groups alike (the UI's people-only list is a
+    /// subset). Flag bits are exemptions - 0 is a full block, bit 1 spares
+    /// text - matching how the reference viewer reads its mute list.
+    pub muted: HashMap<String, u32>,
+    /// Blocks and unblocks made this session (id -> Some(flags) / None for a
+    /// removal), re-applied over every fetched list. The sim's file can predate
+    /// a write that's already on the wire, so a fetch alone would undo it.
+    pub mute_overrides: HashMap<String, Option<u32>>,
     /// Residents whose notes the AgentProfile cap has actually delivered, lowercased.
     ///
     /// The cap is authoritative where it answers, but it does not always carry a
@@ -432,7 +443,7 @@ impl SessionState {
             }
         }
     }
-    fn cached_name(&self, id: &str) -> Option<&str> {
+    pub(crate) fn cached_name(&self, id: &str) -> Option<&str> {
         self.names.get(id).map(|s| s.as_str())
     }
 
@@ -489,15 +500,6 @@ fn as_i64(v: Option<&Value>) -> i64 {
         Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)).unwrap_or(0),
         Some(Value::String(s)) => s.parse().unwrap_or(0),
         _ => 0,
-    }
-}
-
-fn truthy(v: Option<&Value>) -> bool {
-    match v {
-        Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_i64().map(|i| i != 0).unwrap_or(false),
-        Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
-        _ => false,
     }
 }
 
@@ -1044,28 +1046,7 @@ fn confirm_xfer(id: u64, packet: u32) -> Action {
 pub(crate) fn parse_mute_list(text: &str) -> Vec<Value> {
     let mut out = Vec::new();
     for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        // type, then id, then the name up to a '|', then the flags.
-        let (kind, rest) = match line.split_once(char::is_whitespace) {
-            Some(p) => p,
-            None => continue,
-        };
-        let kind: i64 = match kind.trim().parse() {
-            Ok(k) => k,
-            Err(_) => continue,
-        };
-        let rest = rest.trim_start();
-        let (id, rest) = match rest.split_once(char::is_whitespace) {
-            Some(p) => p,
-            None => (rest, ""),
-        };
-        let (name, flags) = match rest.split_once('|') {
-            Some((n, f)) => (n.trim(), f.trim().parse::<i64>().unwrap_or(0)),
-            None => (rest.trim(), 0),
-        };
+        let Some((kind, id, name, flags)) = parse_mute_line(line) else { continue };
         if kind != MUTE_TYPE_AGENT && kind != MUTE_TYPE_BY_NAME {
             continue; // objects and groups aren't people
         }
@@ -1075,6 +1056,93 @@ pub(crate) fn parse_mute_list(text: &str) -> Vec<Value> {
         out.push(json!({ "id": id, "name": name, "type": kind, "flags": flags }));
     }
     out
+}
+
+/// One mute-list line: type, then id, then the name up to a '|', then the flags.
+fn parse_mute_line(line: &str) -> Option<(i64, &str, &str, i64)> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let (kind, rest) = line.split_once(char::is_whitespace)?;
+    let kind: i64 = kind.trim().parse().ok()?;
+    let rest = rest.trim_start();
+    let (id, rest) = match rest.split_once(char::is_whitespace) {
+        Some(p) => p,
+        None => (rest, ""),
+    };
+    let (name, flags) = match rest.split_once('|') {
+        Some((n, f)) => (n.trim(), f.trim().parse::<i64>().unwrap_or(0)),
+        None => (rest.trim(), 0),
+    };
+    Some((kind, id, name, flags))
+}
+
+/// Flag bit meaning "this entry does NOT mute text" (flags are exemptions).
+const MUTE_FLAG_TEXT_EXEMPT: u32 = 1;
+
+/// Canonical key into the block-list filter map.
+pub(crate) fn mute_key(id: &str) -> String {
+    id.trim().to_ascii_lowercase()
+}
+
+/// Every usable entry in the mute-list file, whatever its type - the map the
+/// inbound filters check. Objects and groups blocked from a full viewer must
+/// keep silencing chat and prompts here even though only people are listed.
+pub(crate) fn parse_mute_filters(text: &str) -> HashMap<String, u32> {
+    text.lines()
+        .filter_map(parse_mute_line)
+        .filter(|(_, id, _, _)| !is_zero_uuid(id) && id.len() >= 36)
+        .map(|(_, id, _, flags)| (mute_key(id), flags as u32))
+        .collect()
+}
+
+impl SessionState {
+    fn mute_flags(&self, id: &str) -> Option<u32> {
+        if id.is_empty() || self.muted.is_empty() {
+            return None;
+        }
+        // Wire-decoded ids are already canonical; normalize only on a miss.
+        self.muted.get(id).or_else(|| self.muted.get(&mute_key(id))).copied()
+    }
+
+    /// Whether an id has any block-list entry at all - what the reference
+    /// viewer's flag-less checks (script dialogs and prompts) ask.
+    pub fn is_muted(&self, id: &str) -> bool {
+        self.mute_flags(id).is_some()
+    }
+
+    /// Whether an id's TEXT is blocked - chat, IMs, offers, invites. An entry
+    /// can exempt text (say, a voice-only mute made in a full viewer).
+    pub fn is_muted_text(&self, id: &str) -> bool {
+        self.mute_flags(id).is_some_and(|flags| flags & MUTE_FLAG_TEXT_EXEMPT == 0)
+    }
+
+    /// Record a block (full, flags 0) or unblock the moment its write is sent.
+    pub fn set_block_state(&mut self, id: &str, blocked: bool) {
+        let key = mute_key(id);
+        if blocked {
+            self.muted.insert(key.clone(), 0);
+            self.mute_overrides.insert(key, Some(0));
+        } else {
+            self.muted.remove(&key);
+            self.mute_overrides.insert(key, None);
+        }
+    }
+
+    /// Lay this session's own blocks/unblocks back over a freshly fetched list.
+    fn apply_mute_overrides(&mut self) {
+        for (key, flags) in &self.mute_overrides {
+            match flags {
+                Some(f) => {
+                    self.muted.insert(key.clone(), *f);
+                }
+                None => {
+                    self.muted.remove(key);
+                }
+            }
+        }
+    }
 }
 
 /// You cannot arrive somewhere still sitting on the thing you left behind.
@@ -1239,6 +1307,15 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             } else {
                 String::new()
             };
+            // The block list: the sim keeps relaying chat from blocked residents
+            // (and their objects), so dropping it is the viewer's job.
+            if !is_self
+                && (source == "agent" && state.is_muted_text(&source_id)
+                    || source == "object"
+                        && (state.is_muted_text(&source_id) || state.is_muted_text(&owner_id)))
+            {
+                return actions;
+            }
             if source == "agent" {
                 state.cache_name(&source_id, &raw_name);
             }
@@ -1400,6 +1477,8 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     if x.kind == "mute-list" {
                         let text = String::from_utf8_lossy(&x.data).to_string();
                         let people = parse_mute_list(&text);
+                        state.muted = parse_mute_filters(&text);
+                        state.apply_mute_overrides();
                         crate::dlog!("mute list: {} blocked person/people", people.len());
                         let ids: Vec<String> = people
                             .iter()
@@ -2027,6 +2106,9 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             let owner_first = field_text(decoded, "Data", "FirstName").unwrap_or_default();
             let owner_last = field_text(decoded, "Data", "LastName").unwrap_or_default();
             let owner_id = inst_str(block0(decoded, "OwnerData").unwrap_or(&Value::Null), "OwnerID");
+            if state.is_muted(&object_id) || state.is_muted(&owner_id) {
+                return actions;
+            }
             let is_group = owner_first.trim().is_empty() && !owner_last.trim().is_empty();
             let owner_name = resident_name(&owner_first, &owner_last);
             let channel = inst_i64(block0(decoded, "Data").unwrap_or(&Value::Null), "ChatChannel");
@@ -2066,7 +2148,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             let d = block0(decoded, "Data").cloned().unwrap_or(Value::Null);
             let task_id = inst_str(&d, "TaskID");
             let item_id = inst_str(&d, "ItemID");
-            if task_id.is_empty() || item_id.is_empty() {
+            if task_id.is_empty() || item_id.is_empty() || state.is_muted(&task_id) {
                 return actions;
             }
             let name = {
@@ -2102,6 +2184,9 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 return actions;
             }
             let owner_id = inst_str(&d, "OwnerID");
+            if state.is_muted(&inst_str(&d, "ObjectID")) || state.is_muted(&owner_id) {
+                return actions;
+            }
             let object_name = {
                 let n = inst_text(&d, "ObjectName");
                 if n.trim().is_empty() { "Object".to_string() } else { n }
@@ -2569,7 +2654,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             let source_id = inst_str(block0(decoded, "AgentData").unwrap_or(&Value::Null), "AgentID");
             let ab = block0(decoded, "AgentBlock").cloned().unwrap_or(Value::Null);
             let transaction_id = inst_str(&ab, "TransactionID");
-            if is_zero_uuid(&transaction_id) {
+            if is_zero_uuid(&transaction_id) || state.is_muted_text(&source_id) {
                 return actions;
             }
             if !source_id.is_empty() && !is_zero_uuid(&source_id) {
@@ -3451,6 +3536,13 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             {
                 return actions;
             }
+            // A blocked sender must not pull us into a session: if the tab isn't
+            // already open, ignore the invitation entirely; if it is, keep the
+            // session but drop their text.
+            let muted_sender = state.is_muted_text(&from_id) || state.is_muted_text(&session_id);
+            if muted_sender && !state.im_rosters.contains_key(&session_id) {
+                return actions;
+            }
             let from_name = str_field(mp, &["from_name", "fromName"]);
             state.cache_name(&from_id, &from_name);
             let display = state.cached_name(&from_id).unwrap_or(&from_name).to_string();
@@ -3460,7 +3552,7 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             // Group vs conference is decided by session-id membership.
             let stype = if state.groups.contains(&session_id.to_lowercase()) { "group" } else { "conference" };
             let text = str_field(mp, &["message"]);
-            if !text.is_empty() {
+            if !text.is_empty() && !muted_sender {
                 let key = format!("{session_id}\0{from_id}\017\0{text}\0");
                 if !state.is_duplicate_im(&key) {
                     actions.push(Action::emit(
@@ -3824,6 +3916,20 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         return actions;
     }
 
+    // Nothing unsolicited gets through from a blocked sender: messages, typing,
+    // offers, invites. Replies to things WE sent (inventory 5/6, teleport 23/24,
+    // friendship 39/40) still land, matching the reference viewer. The ID field
+    // names the object for an object IM (dialog 19) and the group for session
+    // chat, so a blocked object or group is checked there.
+    let is_reply_dialog = matches!(dialog, 5 | 6 | 23 | 24 | 39 | 40);
+    if !is_reply_dialog
+        && (state.is_muted_text(&from_id)
+            || (dialog == 19 && state.is_muted(&im_id))
+            || (is_session && state.is_muted_text(&im_id)))
+    {
+        return actions;
+    }
+
     state.cache_name(&from_id, &from_name);
     let display = state.cached_name(&from_id).unwrap_or(&from_name).to_string();
 
@@ -3882,6 +3988,9 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             } else {
                 bucket_group
             };
+            if state.is_muted_text(&group_id) {
+                return actions; // the group itself is blocked
+            }
             let (subject, body) = split_notice_text(&text);
             // Notices can replay (online + offline delivery); one card is enough.
             if state.is_duplicate_im(&format!("group-notice\0{im_id}\0{text}")) {
@@ -4418,6 +4527,160 @@ mod tests {
         assert!(first.iter().any(|a| matches!(a, Action::Send { name, .. } if name == "MuteListRequest")));
         let second = route(&mut st, &pkt);
         assert!(second.is_empty(), "asking twice would never end");
+    }
+
+    #[test]
+    fn mute_filter_covers_every_type_while_the_people_list_stays_people() {
+        let text = "1 55555555-5555-5555-5555-555555555555 Rude Resident|0\n\
+                    2 66666666-6666-6666-6666-666666666666 Spammy Object|0\n\
+                    3 77777777-7777-7777-7777-777777777777 Loud Group|0\n\
+                    0 00000000-0000-0000-0000-000000000000 legacy name|\n";
+        let people = parse_mute_list(text);
+        assert_eq!(people.len(), 1, "objects, groups, and legacy names aren't people");
+        assert_eq!(people[0]["name"], "Rude Resident");
+        let ids = parse_mute_filters(text);
+        assert_eq!(ids.len(), 3, "every real id filters, whatever its type");
+        assert!(ids.contains_key("66666666-6666-6666-6666-666666666666"));
+        assert!(ids.contains_key("77777777-7777-7777-7777-777777777777"));
+    }
+
+    #[test]
+    fn blocks_made_during_a_list_fetch_survive_the_fetch() {
+        let mut st = me_state();
+        // A block sent while the (older) list file is in flight must not be
+        // undone when that file lands.
+        st.set_block_state(OTHER, true);
+        st.muted = parse_mute_filters("");
+        st.apply_mute_overrides();
+        assert!(st.is_muted_text(OTHER));
+        // Same for an unblock racing a file that still carries the entry.
+        st.set_block_state(OTHER, false);
+        st.muted = parse_mute_filters(&format!("1 {OTHER} Ruth Resident|0\n"));
+        st.apply_mute_overrides();
+        assert!(!st.is_muted(OTHER));
+    }
+
+    #[test]
+    fn mute_flags_exempt_text_but_not_prompts() {
+        // A voice-only mute made in a full viewer (flags bit 1 = text exempt)
+        // must NOT silence text here, while a full mute (flags 0) must.
+        let text = "1 55555555-5555-5555-5555-555555555555 Voice Only|1\n";
+        let mut st = me_state();
+        st.muted = parse_mute_filters(text);
+        assert!(st.is_muted("55555555-5555-5555-5555-555555555555"), "still a mute entry");
+        assert!(!st.is_muted_text("55555555-5555-5555-5555-555555555555"), "text is exempt");
+        let a = route(&mut st, &chat_packet(1, 1, 1, "Voice Only", "55555555-5555-5555-5555-555555555555", "hi"));
+        assert!(emit_of(&a, "chat").is_some(), "text-exempt entries keep chatting");
+    }
+
+    #[test]
+    fn chat_from_blocked_agents_and_their_objects_is_dropped() {
+        let mut st = me_state();
+        st.muted.insert(OTHER.into(), 0);
+        assert!(route(&mut st, &chat_packet(1, 1, 1, "Ruth Resident", OTHER, "unheard")).is_empty());
+        // Their objects are silent too, whether muted by object id or by owner.
+        let mut pkt = chat_packet(2, 1, 1, "Cube", "66666666-6666-6666-6666-666666666666", "buy now");
+        pkt["blocks"]["ChatData"][0]["OwnerID"] = json!(OTHER);
+        assert!(route(&mut st, &pkt).is_empty());
+        // Everyone else still comes through.
+        let ok = route(&mut st, &chat_packet(1, 1, 1, "Ann", "33333333-3333-3333-3333-333333333333", "hello"));
+        assert!(emit_of(&ok, "chat").is_some());
+    }
+
+    #[test]
+    fn ims_and_offers_from_blocked_senders_are_dropped_but_replies_pass() {
+        let mut st = me_state();
+        st.muted.insert(OTHER.into(), 0);
+        let zero = "00000000-0000-0000-0000-000000000000";
+        let tx = "33333333-3333-3333-3333-333333333333";
+        assert!(route(&mut st, &im_packet(0, OTHER, ME, false, zero, "hello", "")).is_empty(), "plain IM");
+        assert!(route(&mut st, &im_packet(41, OTHER, ME, false, "0", "", "")).is_empty(), "typing ping");
+        assert!(route(&mut st, &im_packet(22, OTHER, ME, false, tx, "Join me", "1|1|1|1|1|1|1|1|M")).is_empty(), "teleport offer");
+        assert!(route(&mut st, &im_packet(38, OTHER, ME, false, tx, "", "")).is_empty(), "friendship offer");
+        assert!(route(&mut st, &im_packet(4, OTHER, ME, false, tx, "Blue Hat", "")).is_empty(), "inventory offer");
+        // A friendship card offer is an offer too.
+        let card = json!({
+            "name": "OfferCallingCard",
+            "blocks": {
+                "AgentData": [{ "AgentID": OTHER, "SessionID": "s" }],
+                "AgentBlock": [{ "DestID": ME, "TransactionID": tx }],
+            }
+        });
+        assert!(route(&mut st, &card).is_empty(), "calling card offer");
+        // Answers to things WE initiated still land.
+        let a = route(&mut st, &im_packet(23, OTHER, ME, false, tx, "", ""));
+        assert!(emit_of(&a, "teleport-accepted").is_some(), "their reply to our offer");
+    }
+
+    #[test]
+    fn object_im_is_dropped_when_the_object_id_is_blocked() {
+        let mut st = me_state();
+        // Dialog 19 carries the object's id in the ID field; the sender field
+        // holds the owner. Blocking the object alone must be enough.
+        let object_id = "66666666-6666-6666-6666-666666666666";
+        st.muted.insert(object_id.into(), 0);
+        assert!(route(&mut st, &im_packet(19, OTHER, ME, false, object_id, "spam", "")).is_empty());
+    }
+
+    #[test]
+    fn group_notice_from_blocked_group_is_dropped() {
+        let mut st = me_state();
+        st.muted.insert("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa".into(), 0);
+        let mut bucket = vec![0u8, 0u8];
+        bucket.extend_from_slice(&[0xAA; 16]);
+        let pkt = json!({
+            "name": "ImprovedInstantMessage",
+            "blocks": {
+                "AgentData": [{ "AgentID": OTHER, "SessionID": "s" }],
+                "MessageBlock": [{
+                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 32,
+                    "ID": "33333333-3333-3333-3333-333333333333", "Timestamp": 0,
+                    "FromAgentName": B64.encode(b"Pantera\0"),
+                    "Message": B64.encode(b"Meeting|Bring snacks.\0"),
+                    "BinaryBucket": B64.encode(&bucket),
+                }]
+            }
+        });
+        assert!(route(&mut st, &pkt).is_empty());
+    }
+
+    #[test]
+    fn chatterbox_invitation_from_blocked_sender_cannot_open_a_session() {
+        let mut st = me_state();
+        st.muted.insert(OTHER.into(), 0);
+        let session = "55555555-5555-5555-5555-555555555555";
+        let body = json!({ "instantmessage": { "message_params": {
+            "from_id": OTHER, "id": session, "from_name": "Ruth", "message": "ping",
+        } } });
+        assert!(route_eq(&mut st, "ChatterBoxInvitation", &body).is_empty());
+        // With the session already open, it stays open but their text is dropped.
+        st.im_rosters.insert(session.into(), ImRoster::default());
+        let a = route_eq(&mut st, "ChatterBoxInvitation", &body);
+        assert!(emit_of(&a, "im").is_none());
+        assert!(
+            a.iter().any(|x| matches!(x, Action::AcceptChatSession { .. })),
+            "an open session keeps its lifeline"
+        );
+    }
+
+    #[test]
+    fn block_list_fetch_fills_the_filter_set() {
+        let mut st = me_state();
+        st.now_ms = 1;
+        let id = 4243u64;
+        st.xfers.insert(id, XferIn { kind: "mute-list".into(), ..Default::default() });
+        let line = "2 66666666-6666-6666-6666-666666666666 Spammy Object|0\n";
+        let mut first = (line.len() as u32).to_be_bytes().to_vec();
+        first.extend_from_slice(line.as_bytes());
+        route(&mut st, &json!({
+            "name": "SendXferPacket",
+            "blocks": {
+                "XferID": [{ "ID": id.to_string(), "Packet": 0x8000_0000u32 }],
+                "DataPacket": [{ "Data": B64.encode(&first) }],
+            },
+        }));
+        assert!(st.is_muted("66666666-6666-6666-6666-666666666666"));
+        assert!(!st.is_muted("77777777-7777-7777-7777-777777777777"));
     }
 
     #[test]

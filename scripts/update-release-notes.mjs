@@ -31,6 +31,7 @@ const ASSET_RULES = [
   { test: (n) => n.endsWith('.deb'), platform: 'Linux', label: 'Debian package (.deb)', sort: 1 },
   { test: (n) => n.endsWith('.rpm'), platform: 'Linux', label: 'RPM package (.rpm)', sort: 2 },
   { test: (n) => n.endsWith('.apk'), platform: 'Android', label: 'APK', recommended: true, sort: 0 },
+  { test: (n) => n.endsWith('.aab'), platform: 'Android', label: 'App Bundle (.aab, for Google Play)', sort: 1 },
 ];
 
 const FOOTER_MESSAGES = [

@@ -766,6 +766,26 @@ html.require-http #app {
   font-variant-numeric: tabular-nums;
 }
 
+/* The balance row doubles as the Buy L$ entry where the top bar hides its stats. */
+button.bee-menu__value--action {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+button.bee-menu__value--action:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: none;
+}
+
 .bee-menu__logout {
   margin-top: 4px;
   width: 100%;
@@ -4475,6 +4495,90 @@ html.require-http #app {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
+}
+
+/* Buy L$ */
+
+button.status-chip--balance {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+button.status-chip--balance:hover:enabled {
+  background: rgba(240, 180, 41, 0.22);
+}
+
+button.status-chip--balance:disabled {
+  cursor: default;
+}
+
+.buy-currency-dialog {
+  max-width: 24rem;
+}
+
+.buy-currency__rows {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+
+.buy-currency__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.9rem;
+}
+
+.buy-currency__amount {
+  font-family: var(--mono);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.buy-currency__amount--estimate {
+  color: var(--accent);
+}
+
+.buy-currency__entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.buy-currency__entry input {
+  width: 6.5rem;
+  text-align: right;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+}
+
+.buy-currency__hint {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.buy-currency__link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.buy-currency__status {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .avatar-thumb {

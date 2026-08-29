@@ -550,6 +550,7 @@ const BeeApp = (function () {
       BeeAvatarThumb.init();
       BeeProfile.init();
       BeeSettingsUI.init();
+      BeeCurrency.init();
       BeeNews.init();
       BeeInteract.init();
       BeeSessionLost.init();

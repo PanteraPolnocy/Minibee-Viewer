@@ -319,7 +319,9 @@ const BeeNavigation = (function () {
     }
     if (balance) {
       balance.textContent = BeeUtils.formatLindenBalance(s.lindenBalance);
-      balance.title = 'Linden dollar balance';
+      const canBuy = !!(s.connected && !s.sessionLost);
+      balance.title = canBuy ? 'Linden dollar balance - click to buy L$' : 'Linden dollar balance';
+      if (balance.tagName === 'BUTTON') (balance as HTMLButtonElement).disabled = !canBuy;
     }
     if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '-- FPS';
     updateActiveGroupLines();
@@ -331,7 +333,12 @@ const BeeNavigation = (function () {
     const s = BeeState.get();
     const balance = document.getElementById('bee-menu-balance');
     const fps = document.getElementById('bee-menu-fps');
-    if (balance) balance.textContent = BeeUtils.formatLindenBalance(s.lindenBalance);
+    if (balance) {
+      balance.textContent = BeeUtils.formatLindenBalance(s.lindenBalance);
+      const canBuy = !!(s.connected && !s.sessionLost);
+      balance.title = canBuy ? 'Buy L$' : 'Linden dollar balance';
+      if (balance.tagName === 'BUTTON') (balance as HTMLButtonElement).disabled = !canBuy;
+    }
     if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '--';
     const slt = document.getElementById('bee-menu-slt');
     if (slt) {
@@ -363,6 +370,15 @@ const BeeNavigation = (function () {
       logout.addEventListener('click', function () {
         setBeeMenuOpen(false);
         if (window.BeeApp) window.BeeApp.logout();
+      });
+    }
+    // The top-bar stats are hidden on narrow screens, so this row is the
+    // phone-width way into Buy L$.
+    const menuBalance = document.getElementById('bee-menu-balance');
+    if (menuBalance) {
+      menuBalance.addEventListener('click', function () {
+        setBeeMenuOpen(false);
+        if (typeof BeeCurrency !== 'undefined') BeeCurrency.open();
       });
     }
     // Tapping anywhere else, or pressing Escape, puts it away.

@@ -260,14 +260,20 @@ const BeeUtils = (function () {
         okBtn.textContent = o.confirmLabel || 'Confirm';
         okBtn.classList.toggle('btn--danger', !!o.danger);
       }
-      if (cancelBtn) cancelBtn.textContent = o.cancelLabel || 'Cancel';
+      if (cancelBtn) {
+        cancelBtn.textContent = o.cancelLabel || 'Cancel';
+        cancelBtn.hidden = !!o.hideCancel;
+      }
 
       let settled = false;
       function done(result) {
         if (settled) return;
         settled = true;
         if (okBtn) okBtn.removeEventListener('click', onOk);
-        if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+        if (cancelBtn) {
+          cancelBtn.removeEventListener('click', onCancel);
+          cancelBtn.hidden = false;
+        }
         dialog.removeEventListener('cancel', onDialogCancel);
         dismissDialog(dialog);
         resolve(result);
@@ -283,10 +289,28 @@ const BeeUtils = (function () {
     });
   }
 
+  // Backend command rejections arrive as bare strings; JS errors carry .message.
+  function errText(err) {
+    if (!err) return '';
+    if (typeof err === 'string') return err;
+    return err.message || '';
+  }
+
+  // Modal notice with a single OK button, for messages that must not be missed.
+  function alertDialog(options) {
+    const o = options || {};
+    return confirmDialog({
+      title: o.title, message: o.message,
+      confirmLabel: o.confirmLabel || 'OK', hideCancel: true
+    });
+  }
+
   return {
     uuid: uuid,
     dismissDialog: dismissDialog,
     confirm: confirmDialog,
+    alert: alertDialog,
+    errText: errText,
     formatTime: formatTime,
     formatSltTime: formatSltTime,
     formatLindenBalance: formatLindenBalance,

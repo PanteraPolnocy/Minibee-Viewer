@@ -435,7 +435,7 @@ const BeeBuddies = (function () {
         return true;
       })
       .catch(function (err) {
-        BeeUtils.showToast((err && err.message) || 'Could not block that resident.', 'warning');
+        BeeUtils.showToast(BeeUtils.errText(err) || 'Could not block that resident.', 'warning');
         return false;
       });
   }
@@ -454,7 +454,7 @@ const BeeBuddies = (function () {
         return true;
       })
       .catch(function (err) {
-        BeeUtils.showToast((err && err.message) || 'Could not unblock that resident.', 'warning');
+        BeeUtils.showToast(BeeUtils.errText(err) || 'Could not unblock that resident.', 'warning');
         return false;
       });
   }

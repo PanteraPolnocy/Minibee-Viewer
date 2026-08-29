@@ -51,7 +51,7 @@ fn sl_login_passwd(p: &Value) -> String {
     }
 }
 
-fn member_string(name: &str, value: &str) -> String {
+pub(crate) fn member_string(name: &str, value: &str) -> String {
     format!(
         "<member><name>{}</name><value><string>{}</string></value></member>",
         xml_escape(name),
@@ -65,7 +65,7 @@ fn member_bool(name: &str, value: bool) -> String {
         if value { "1" } else { "0" }
     )
 }
-fn member_int(name: &str, value: i64) -> String {
+pub(crate) fn member_int(name: &str, value: i64) -> String {
     format!(
         "<member><name>{}</name><value><int>{}</int></value></member>",
         xml_escape(name),
@@ -143,9 +143,13 @@ pub fn build_login_xml(p: &Value) -> String {
         options
     ));
 
+    xmlrpc_call("login_to_simulator", &members.join(""))
+}
+
+/// One XML-RPC call carrying a single struct parameter.
+pub(crate) fn xmlrpc_call(method: &str, members: &str) -> String {
     format!(
-        "<?xml version=\"1.0\"?><methodCall><methodName>login_to_simulator</methodName><params><param><value><struct>{}</struct></value></param></params></methodCall>",
-        members.join("")
+        "<?xml version=\"1.0\"?><methodCall><methodName>{method}</methodName><params><param><value><struct>{members}</struct></value></param></params></methodCall>"
     )
 }
 
@@ -933,6 +937,13 @@ pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, St
         }
         *state.cof_folder.lock().unwrap() = cof;
         *state.inv_root.lock().unwrap() = inventory_root_id(&parsed);
+        let grid = credentials.get("grid").and_then(|v| v.as_str()).unwrap_or("");
+        *state.currency.lock().unwrap() = Some(crate::bridge::currency::CurrencyContext {
+            agent_id: trim_quotes(&map_str(&parsed, "agent_id")),
+            secure_session_id: trim_quotes(&map_str(&parsed, "secure_session_id")),
+            helper_uri: crate::bridge::currency::helper_uri_for(grid, &map_str(&parsed, "helper_uri")),
+            linden_grid: grid.is_empty() || grid == "agni" || grid == "aditi",
+        });
     }
 
     let seed_caps = if login_ok {

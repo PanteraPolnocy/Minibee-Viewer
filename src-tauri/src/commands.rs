@@ -998,6 +998,22 @@ pub async fn sl_pay(state: State<'_, Arc<AppState>>, dest_id: String, amount: i6
     Ok(json!({ "ok": true }))
 }
 
+/// Ask the sim for the current L$ balance; the answer arrives as `money-balance`.
+#[tauri::command]
+pub async fn sl_request_balance(state: State<'_, Arc<AppState>>) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    s.send_encoded(
+        "MoneyBalanceRequest",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "MoneyData": [{ "TransactionID": ZERO_UUID }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
 // Agent control flags. STAND_UP and SIT_ON_GROUND are one-shot; FLY is a state
 // the viewer keeps re-sending, which is why we track it.
 use crate::bridge::session::AGENT_CONTROL_FLY; // 0x1 << 13
@@ -1699,6 +1715,14 @@ pub async fn sl_block_agent(
         return Err("You cannot block yourself".into());
     }
     let label = name.unwrap_or_default();
+    // Lindens can't be blocked - but only where Lindens exist, and judged by the
+    // resolved account name when we have it, not whatever label the UI passed
+    // (which can be a display name that merely ends in "Linden").
+    let linden_grid = state.currency.lock().unwrap().as_ref().map_or(false, |c| c.linden_grid);
+    let check = s.cached_name_of(&agent_id).unwrap_or_else(|| label.clone());
+    if linden_grid && is_linden_name(&check) {
+        return Err("Linden Lab employees cannot be blocked".into());
+    }
     s.send_encoded(
         "UpdateMuteListEntry",
         &json!({
@@ -1713,8 +1737,17 @@ pub async fn sl_block_agent(
         true,
     )
     .await;
+    s.set_block_state(&agent_id, true);
     crate::dlog!("blocked {}", agent_id);
     Ok(json!({ "ok": true }))
+}
+
+/// Whether a login name belongs to Linden Lab staff (last name "Linden"),
+/// spelled "First Linden" or "first.linden".
+fn is_linden_name(name: &str) -> bool {
+    name.trim()
+        .rsplit_once([' ', '.'])
+        .is_some_and(|(_, last)| last.eq_ignore_ascii_case("linden"))
 }
 
 #[tauri::command]
@@ -1736,6 +1769,7 @@ pub async fn sl_unblock_agent(
         true,
     )
     .await;
+    s.set_block_state(&agent_id, false);
     crate::dlog!("unblocked {}", agent_id);
     Ok(json!({ "ok": true }))
 }
@@ -2171,6 +2205,7 @@ pub async fn sl_reply_script_dialog(
 pub async fn sl_logout(state: State<'_, Arc<AppState>>) -> Cmd {
     // On an explicit logout, drop the cached reconnect credentials.
     state.creds.clear();
+    *state.currency.lock().unwrap() = None;
     let (s, agent, sess) = active_ids(&state)?;
     s.send_encoded(
         "LogoutRequest",

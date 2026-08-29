@@ -122,6 +122,9 @@ pub struct AppState {
     /// The inventory root folder id from login; accepting a task inventory
     /// offer has to name a folder to file the item into.
     pub inv_root: Mutex<String>,
+    /// What the currency helper needs about this session, captured at login so
+    /// money requests never take identity or endpoint from the frontend.
+    pub currency: Mutex<Option<crate::bridge::currency::CurrencyContext>>,
 }
 
 /// Parse `major.minor.patch` from a three-part semver string.
@@ -292,6 +295,7 @@ impl AppState {
             close_pending: AtomicBool::new(false),
             cof_folder: Mutex::new(String::new()),
             inv_root: Mutex::new(String::new()),
+            currency: Mutex::new(None),
         })
     }
 

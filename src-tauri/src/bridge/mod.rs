@@ -3,6 +3,7 @@
 
 pub mod caps;
 pub mod circuit;
+pub mod currency;
 pub mod events;
 pub mod eventqueue;
 pub mod feeds;

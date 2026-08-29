@@ -7,6 +7,7 @@
     "assetscompress": "node scripts/assetscompress.mjs",
     "build:local": "node scripts/build-local.mjs",
     "build:local:debug": "node scripts/build-local.mjs --debug",
+    "build:android": "tauri android build --apk --aab",
     "tauri": "tauri",
     "test": "node --test \"test/*.test.mjs\"",
     "typecheck": "tsc --noEmit",

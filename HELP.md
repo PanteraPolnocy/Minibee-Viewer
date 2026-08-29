@@ -41,7 +41,9 @@ Linden Lab's Terms of Service (and MFA when enabled) are shown when you connect 
 
 **Numbers** on Chat, IM, Events = new stuff. **Dots** on Radar or Land = something changed.
 
-**Top bar** - your name (profile), active group title, parcel and region, L$, Second Life time, connection, theme, logout. Speaker icon when the parcel streams music.
+**Top bar** - your name (profile), active group title, parcel and region, L$ (tap to buy more), Second Life time, connection, theme, logout. Speaker icon when the parcel streams music.
+
+**Buying L$** - tap the balance (on a narrow screen it lives in the bee session menu). Type an amount to see the estimated real-money cost and your new balance, then **Buy now** - every purchase asks for a confirmation first. Accounts without a payment method on file are pointed at the billing page instead, and any refusal from the billing system is shown word for word.
 
 ---
 
@@ -63,7 +65,7 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Friends** - tap for profile, IM, teleport, remove. Filter online-only; search by name or private note.
 
-**Blocked** - grid-wide mute list. Block or unblock from a profile, IM, or here.
+**Blocked** - grid-wide mute list. Block or unblock from a profile, IM, or here. Blocked residents' chat, IMs, offers, and script prompts are hidden while blocked (objects and groups muted from a full viewer stay silenced too, even though only people are listed).
 
 **Profiles** - About, picks, groups, private Notes (even on yourself). Pay, teleport offer/request, add/remove friend, block.
 

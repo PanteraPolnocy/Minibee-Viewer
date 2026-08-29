@@ -247,6 +247,16 @@ pub fn trim_quotes(s: &str) -> String {
         .to_string()
 }
 
+/// LLSD/XML-RPC truthiness: servers spell a boolean as true, 1, or "true".
+pub fn truthy(v: Option<&Value>) -> bool {
+    match v {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_i64().map(|i| i != 0).unwrap_or(false),
+        Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

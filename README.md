@@ -93,7 +93,7 @@ There is **no Debug tab** and no in-app log viewer. For a bug paper trail, start
 ## Getting around
 
 - **Side navigation** - Chat, IM, Interact, Events, People, Search, Radar, Map, Land, Guide, News, Bee down the left edge (bottom bar on a phone-width screen).
-- **Top bar** - connection dot, your name (tap for your profile), **active group title** underneath, parcel + region, parcel-music control when the parcel streams, L$ balance, SLT clock, sim FPS, theme toggle, logout.
+- **Top bar** - connection dot, your name (tap for your profile), **active group title** underneath, parcel + region, parcel-music control when the parcel streams, L$ balance (tap to buy L$ - amount, estimated cost, and new balance, with a confirmation before anything is charged), SLT clock, sim FPS, theme toggle, logout.
 - **Unread badges** - numbers on Chat, IM, and Events; dots on Radar (someone new in range) and Land (parcel updated). A new IM bumps the badge but doesn't yank you to the tab - you read when you're ready.
 
 Tabs load their data when you open them, so login stays quick. Chat and IM keep flowing in the background once you're connected.
@@ -165,7 +165,7 @@ Your current radar is searched locally too for quick matches.
 
 Two sub-tabs. **Friends** is the buddy list (search by name or private note, online-only toggle, right-click or tap for profile / IM / teleport / remove). **Blocked** is everyone you've muted on the grid.
 
-**Block / Unblock** on a profile or in IM (and on each row in Blocked). Blocking writes to the sim's list, so it applies in every viewer - which is why Minibee asks you to confirm first.
+**Block / Unblock** on a profile or in IM (and on each row in Blocked). Blocking writes to the sim's list, so it applies in every viewer - which is why Minibee asks you to confirm first. While someone is blocked their chat, IMs, offers, and script prompts are hidden; entries other viewers added for objects or groups keep silencing those too, even though only people show in the list.
 
 ## Radar
 
@@ -265,7 +265,7 @@ actually sends rather than against an assumption about it. See
 | NSIS setup | **Recommended** - bootstraps WebView2, Start-menu shortcut, uninstaller, LGPL during setup |
 | MSI | For group-policy / enterprise deploys |
 
-CI also publishes builds on [GitHub Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases) for Windows, Linux, macOS, and Android (APK sideload).
+CI also publishes builds on [GitHub Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases) for Windows, Linux, macOS, and Android - an APK for sideloading plus an `.aab` App Bundle ready for the Google Play Console (`npm run build:android` produces both locally). With a `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` repository secret configured, stable releases are also uploaded to the Play **internal track** automatically (the app's first bundle still has to be uploaded in the Play Console by hand).
 
 - **WebView2:** on Windows 11 and current Windows 10 already. The bare exe needs it; the NSIS installer fetches it if missing.
 - **Unsigned:** Windows releases are not code-signed, and that is not planned. SmartScreen will show the usual "unknown publisher" warning - use *More info -> Run anyway*.
