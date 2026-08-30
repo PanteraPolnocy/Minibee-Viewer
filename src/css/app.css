@@ -3789,6 +3789,7 @@ button.bee-menu__value--action:disabled {
 .parcel-music-bar__toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
 }
 
 .parcel-music-bar__toggle[aria-pressed="true"] {
@@ -5560,7 +5561,7 @@ button.status-chip--balance:disabled {
   .top-bar__stats { display: none; }
   #btn-theme { display: none; }
   #btn-logout { display: none; }
-  .top-bar__bee { display: inline-flex; }
+  .top-bar__bee { display: grid; }
   /* Give the whole name block a comfortable tap target. */
   .top-bar__identity { padding: 4px 8px 4px 0; }
 
