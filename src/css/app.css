@@ -5632,6 +5632,7 @@ button.status-chip--balance:disabled {
   line-height: 1.5;
 }
 .confirm-dialog .login-challenge__actions { margin-top: 6px; }
+.confirm-dialog__field { margin-top: 2px; }
 
 /* ============================================================
    Teleport progress lock - a padded, themed progress bar

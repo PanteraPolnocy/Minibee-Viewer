@@ -125,10 +125,14 @@ const BeeTeleportUI = (function () {
     }
   }
 
-  function promptOutgoing(kind, targetName) {
-    const label = kind === 'offer' ? 'Teleport offer message' : 'Teleport request message';
+  async function promptOutgoing(kind, targetName) {
     const fallback = kind === 'offer' ? 'Join me!' : 'Can I teleport to you?';
-    const message = window.prompt(label + ' to ' + (targetName || 'resident') + ':', fallback);
+    const message = await BeeUtils.prompt({
+      title: kind === 'offer' ? 'Offer teleport' : 'Request teleport',
+      message: 'Message to ' + (targetName || 'resident') + ':',
+      confirmLabel: 'Send',
+      value: fallback
+    });
     if (message === null) return null;
     return String(message).trim();
   }
@@ -139,7 +143,7 @@ const BeeTeleportUI = (function () {
       BeeUtils.showToast((agentName || 'That resident') + ' is offline.', 'warning');
       return;
     }
-    const message = promptOutgoing('offer', agentName);
+    const message = await promptOutgoing('offer', agentName);
     if (message === null) return;
     await BeeTransport.sendTeleportOffer(agentId, message || 'Join me!');
     BeeUtils.showToast('Teleport offer sent to ' + (agentName || 'resident'), 'success');
@@ -151,7 +155,7 @@ const BeeTeleportUI = (function () {
       BeeUtils.showToast((agentName || 'That resident') + ' is offline.', 'warning');
       return;
     }
-    const message = promptOutgoing('request', agentName);
+    const message = await promptOutgoing('request', agentName);
     if (message === null) return;
     await BeeTransport.sendTeleportRequest(agentId, message);
     BeeUtils.showToast('Teleport request sent to ' + (agentName || 'resident'), 'success');

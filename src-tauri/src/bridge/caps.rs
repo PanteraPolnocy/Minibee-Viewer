@@ -1024,9 +1024,9 @@ mod tests {
     }
 
     #[test]
-    fn parcel_body_carries_every_field_the_reference_sends() {
+    fn parcel_body_carries_every_expected_field() {
         let body = parcel_update_body(&parcel_fixture(), 0x8000_0001, [1.5, 2.5, 3.5], [1.0, 0.0, 0.0]);
-        // Every key LLParcel::packMessage(LLSD&) writes, plus the message flags.
+        // Every key the ParcelPropertiesUpdate cap accepts, plus the message flags.
         for key in [
             "flags", "local_id", "parcel_flags", "sale_price", "name", "description",
             "music_url", "media_url", "media_desc", "media_type", "media_width",

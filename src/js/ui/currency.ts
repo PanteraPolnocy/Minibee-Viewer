@@ -2,7 +2,7 @@
  * Buy L$ - opened from the balance in the top bar (or the session menu on
  * narrow screens).
  *
- * The same flow as the reference viewer: an amount is priced through the
+ * The flow is quote-then-buy: an amount is priced through the
  * grid's currency helper (which may adjust it and hands back a confirm
  * token), the estimate and resulting balance are shown, and the purchase
  * echoes the quote back. Every purchase is confirmed first - the helper's

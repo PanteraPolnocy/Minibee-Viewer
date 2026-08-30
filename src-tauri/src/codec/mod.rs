@@ -240,9 +240,9 @@ fn decode_field(ty: FieldType, r: &mut Reader) -> Option<Value> {
         FieldType::S32 => json!(r.u32le()? as i32),
         FieldType::S64 => json!((r.u64le()? as i64).to_string()),
         // Sanitize non-finite floats to 0: serde_json turns NaN/Inf into null, and a
-        // null landing in a position/velocity field breaks the JS math downstream. A
-        // vector is zeroed whole when any component is non-finite (matching the
-        // reference reader's getVector3/getQuat behaviour).
+        // null landing in a position/velocity field breaks the JS math downstream.
+        // A vector is zeroed whole when any component is non-finite, so a partly
+        // corrupt value can't smuggle two good axes past the guard.
         FieldType::F32 => json!(fin32(r.f32le()?)),
         FieldType::F64 => json!(fin64(r.f64le()?)),
         FieldType::Bool => json!(r.u8()? != 0),

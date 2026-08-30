@@ -20,14 +20,14 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     // Parcel music streams are nearly always plain http:// Shoutcast/Icecast,
-    // while the app itself is served over https - so Android counts them as mixed
-    // content and, by default, refuses to play them at all.
+    // while the app itself is served over https - mixed content to Android.
     //
-    // COMPATIBILITY_MODE is the narrowest setting that helps: it lets passive
-    // content through (audio, video, images) while still blocking the dangerous
-    // kind - insecure scripts, stylesheets and fetch/XHR. ALWAYS_ALLOW would also
-    // work but permits far more than we need for an audio stream.
-    webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+    // COMPATIBILITY_MODE is not enough: current WebView auto-upgrades mixed
+    // audio to https and blocks it when the stream host has no TLS, which is
+    // the norm for Shoutcast. ALWAYS_ALLOW is what actually lets it play. The
+    // exposure stays small because the page itself is bundled - the audio
+    // element is the only remote subresource the UI ever loads.
+    webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
   }
 
   override fun onPause() {

@@ -403,32 +403,19 @@ const BeeApp = (function () {
       BeeState.patch({ fps: stats.fps });
     });
 
-    // Payment/transaction events: the sim sometimes sends the same MoneyBalanceReply
-    // more than once, so we dedupe on (type, description, balance) within a TTL and
-    // refresh the existing card in place rather than stacking duplicates.
-    const recentPayments = new Map(); // keyed by signature -> { id, at }
-    const PAYMENT_TTL_MS = 15000;
+    // Payment/transaction events. Repeats of the same transaction are already
+    // collapsed by transaction id before they reach us (their description
+    // arrives blank), so a non-empty description is always a new card.
     BeeTransport.on('money-balance', function (data) {
       if (!data || data.balance === undefined || data.balance === null) return;
       BeeState.patch({ lindenBalance: data.balance });
       const desc = (data.description || '').trim();
       if (!desc) return; // balance-only update, so there's nothing to post as a transaction
-      const now = Date.now();
-      recentPayments.forEach(function (v, k) { if (now - v.at > PAYMENT_TTL_MS) recentPayments.delete(k); });
-      const sig = (data.transactionType != null ? data.transactionType : '') + '|' + desc + '|' + data.balance;
-      const existing = recentPayments.get(sig);
-      if (existing) {
-        BeeState.patchEventMessage(existing.id, { payment: { balance: data.balance } });
-        existing.at = now;
-        return;
-      }
-      const id = BeeUtils.uuid();
-      recentPayments.set(sig, { id: id, at: now });
       BeeState.addEventMessage({
-        id: id,
+        id: BeeUtils.uuid(),
         kind: 'payment',
         text: desc,
-        timestamp: now,
+        timestamp: Date.now(),
         payment: { balance: data.balance, transactionType: data.transactionType, description: desc }
       });
     });

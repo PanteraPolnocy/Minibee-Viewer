@@ -254,8 +254,13 @@ const BeeUtils = (function () {
       const msgEl = document.getElementById('confirm-message');
       const okBtn = document.getElementById('confirm-ok');
       const cancelBtn = document.getElementById('confirm-cancel');
+      const inputWrap = document.getElementById('confirm-input-wrap');
+      const inputEl = document.getElementById('confirm-input') as HTMLInputElement | null;
+      const withInput = !!o.input;
       if (titleEl) titleEl.textContent = o.title || 'Please confirm';
       if (msgEl) msgEl.textContent = o.message || 'Are you sure?';
+      if (inputWrap) inputWrap.hidden = !withInput;
+      if (inputEl && withInput) inputEl.value = o.inputValue || '';
       if (okBtn) {
         okBtn.textContent = o.confirmLabel || 'Confirm';
         okBtn.classList.toggle('btn--danger', !!o.danger);
@@ -274,6 +279,8 @@ const BeeUtils = (function () {
           cancelBtn.removeEventListener('click', onCancel);
           cancelBtn.hidden = false;
         }
+        if (inputEl) inputEl.removeEventListener('keydown', onInputKey);
+        if (inputWrap) inputWrap.hidden = true;
         dialog.removeEventListener('cancel', onDialogCancel);
         dismissDialog(dialog);
         resolve(result);
@@ -281,11 +288,30 @@ const BeeUtils = (function () {
       function onOk() { done(true); }
       function onCancel() { done(false); }
       function onDialogCancel(e) { e.preventDefault(); done(false); }
+      function onInputKey(e) {
+        if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+      }
       if (okBtn) okBtn.addEventListener('click', onOk);
       if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+      if (inputEl && withInput) inputEl.addEventListener('keydown', onInputKey);
       dialog.addEventListener('cancel', onDialogCancel);
       dialog.showModal();
-      if (okBtn) okBtn.focus();
+      if (withInput && inputEl) { inputEl.focus(); inputEl.select(); }
+      else if (okBtn) okBtn.focus();
+    });
+  }
+
+  // Styled replacement for window.prompt (which mobile WebViews don't show at
+  // all): resolves to the entered string, or null when cancelled.
+  function promptDialog(options) {
+    const o = options || {};
+    return confirmDialog({
+      title: o.title, message: o.message, confirmLabel: o.confirmLabel || 'OK',
+      input: true, inputValue: o.value || ''
+    }).then(function (ok) {
+      if (!ok) return null;
+      const inputEl = document.getElementById('confirm-input') as HTMLInputElement | null;
+      return inputEl ? inputEl.value : '';
     });
   }
 
@@ -309,6 +335,7 @@ const BeeUtils = (function () {
     uuid: uuid,
     dismissDialog: dismissDialog,
     confirm: confirmDialog,
+    prompt: promptDialog,
     alert: alertDialog,
     errText: errText,
     formatTime: formatTime,

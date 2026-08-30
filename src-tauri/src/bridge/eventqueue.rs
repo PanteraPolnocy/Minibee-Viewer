@@ -158,15 +158,11 @@ pub fn spawn(
         // put up "connection lost" while the UDP circuit was perfectly alive and chat,
         // IMs and teleports all still worked.
         //
-        // is this poll for the region the agent is actually in, and is it the main region
-        // rather than a neighbour? A stale poll just stops, quietly.
-        //
-        // We check the first - a poll whose cap is no longer the session's is a leftover
-        // from a region we've left - and then diverge deliberately on the second. The
-        // reference reasons that "things won't get better until they relog" because for it
-        // a dead EventQueue takes IMs, teleports and land with it. Ours run over UDP, so a
-        // dead poll costs us ChatterBox sessions and live updates, not the session. If the
-        // circuit is still answering, that's a degraded-features banner, not a disconnect.
+        // A poll whose cap is no longer the session's is a leftover from a region
+        // we've left, so it just stops quietly. For the current region's poll,
+        // most of what we need still runs over UDP - a dead poll costs ChatterBox
+        // sessions and live updates, not the session. So if the circuit is still
+        // answering, that's a degraded-features banner, not a disconnect.
         if !gave_up {
             crate::dlog!("eventqueue: stopped");
         } else if !session.is_current_eq(&cap_url) {

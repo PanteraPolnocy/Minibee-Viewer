@@ -1207,11 +1207,14 @@
       </div>
     </dialog>
 
-    <!-- Reusable confirmation dialog (BeeUtils.confirm) -->
+    <!-- Reusable confirmation dialog (BeeUtils.confirm / BeeUtils.prompt) -->
     <dialog id="confirm-dialog" class="login-challenge confirm-dialog">
       <div class="login-challenge__body">
         <h2 id="confirm-title" class="login-challenge__title">Please confirm</h2>
         <p id="confirm-message" class="login-challenge__text"></p>
+        <label id="confirm-input-wrap" class="field confirm-dialog__field" hidden>
+          <input type="text" id="confirm-input" maxlength="255" autocomplete="off">
+        </label>
         <div class="login-challenge__actions">
           <button type="button" class="btn btn--ghost" id="confirm-cancel">Cancel</button>
           <button type="button" class="btn btn--primary" id="confirm-ok">Confirm</button>

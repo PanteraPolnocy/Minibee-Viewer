@@ -934,8 +934,14 @@ const BeeIm = (function () {
     });
     BeeState.on('im-sessions-updated', function () {
       renderSessions();
+      // Session metadata changed (rename, remap, roster, presence) - the message
+      // list itself is untouched, so refresh the header only. A full renderThread
+      // here would yank the reader's scrollback to the bottom.
       const active = BeeState.get().activeImSession;
-      if (active && BeeNavigation.isTabActive('im')) renderThread(active);
+      if (active && BeeNavigation.isTabActive('im')) {
+        const session = BeeState.get().imSessions[active];
+        if (session) updateThreadHeader(session);
+      }
     });
     BeeState.on('im', function (data) {
       if (!data || !data.message) return;
@@ -994,8 +1000,12 @@ const BeeIm = (function () {
     BeeTransport.on('buddies-updated', function () {
       if (!BeeNavigation.isTabActive('im')) return;
       syncImLayout();
+      // Presence only affects the header/status line, never the transcript.
       const active = BeeState.get().activeImSession;
-      if (active) renderThread(active);
+      if (active) {
+        const session = BeeState.get().imSessions[active];
+        if (session) updateThreadHeader(session);
+      }
       renderSessions();
     });
 

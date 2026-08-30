@@ -11,7 +11,7 @@
 //! reader yet, and the cutover happens once the handler set is complete.
 #![allow(dead_code)]
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt::Write;
 
 use base64::engine::general_purpose::STANDARD as B64;
@@ -145,8 +145,13 @@ pub struct SessionState {
     /// Wall-clock ms, refreshed by the IO layer before every route() call so that
     /// time-based dedup stays deterministic and testable.
     pub now_ms: u64,
-    /// IM content dedup: key -> last-seen ms (1500ms window, capped at 600 entries).
+    /// IM content dedup: key -> last-seen ms (see `note_im`/`im_recent`), capped
+    /// at 600 entries.
     pub im_dedup: HashMap<String, u64>,
+    /// Transaction ids whose payment description has already been surfaced, so a
+    /// repeated MoneyBalanceReply for the same transaction updates the balance
+    /// without posting a second transaction card.
+    pub money_tx_seen: VecDeque<String>,
     /// Per-IM-session roster, so the incremental ChatterBoxSessionAgentListUpdates
     /// deltas can be merged into a full snapshot (the UI replaces the list wholesale).
     pub im_rosters: HashMap<String, ImRoster>,
@@ -161,7 +166,7 @@ pub struct SessionState {
     /// The grid block list as an inbound filter: lowercased id -> mute flags,
     /// agents, objects, and groups alike (the UI's people-only list is a
     /// subset). Flag bits are exemptions - 0 is a full block, bit 1 spares
-    /// text - matching how the reference viewer reads its mute list.
+    /// text - which is how the grid's mute-list file encodes them.
     pub muted: HashMap<String, u32>,
     /// Blocks and unblocks made this session (id -> Some(flags) / None for a
     /// removal), re-applied over every fetched list. The sim's file can predate
@@ -451,23 +456,40 @@ impl SessionState {
         self.cached_name(id).is_some_and(|n| !n.trim().is_empty())
     }
 
-    /// True if this IM key turned up within the 1500ms window, i.e. a duplicate.
-    /// Otherwise it records the key and prunes stale or oversized entries.
-    fn is_duplicate_im(&mut self, key: &str) -> bool {
-        const WINDOW: u64 = 1500;
+    const IM_DEDUP_WINDOW_MS: u64 = 5000;
+
+    /// Whether this IM key was recorded within the dedup window.
+    fn im_recent(&self, key: &str) -> bool {
+        self.im_dedup
+            .get(key)
+            .is_some_and(|&last| self.now_ms.saturating_sub(last) < Self::IM_DEDUP_WINDOW_MS)
+    }
+
+    /// `im_recent`, but consuming the sighting: one recorded delivery pardons
+    /// exactly one echo, so a later genuine repeat isn't swallowed with it.
+    fn take_im(&mut self, key: &str) -> bool {
+        let recent = self.im_recent(key);
+        self.im_dedup.remove(key);
+        recent
+    }
+
+    /// Record an IM key, pruning stale or oversized entries.
+    fn note_im(&mut self, key: &str) {
         const CAP: usize = 600;
         let now = self.now_ms;
-        if let Some(&last) = self.im_dedup.get(key) {
-            if now.saturating_sub(last) < WINDOW {
-                return true;
-            }
-        }
-        self.im_dedup.retain(|_, &mut t| now.saturating_sub(t) < WINDOW);
+        self.im_dedup.retain(|_, &mut t| now.saturating_sub(t) < Self::IM_DEDUP_WINDOW_MS);
         if self.im_dedup.len() >= CAP {
             self.im_dedup.clear();
         }
         self.im_dedup.insert(key.to_string(), now);
-        false
+    }
+
+    /// Check-and-record in one step, for keys with a real identity of their own
+    /// (a group notice id, say) where any repeat within the window is a replay.
+    fn is_duplicate_im(&mut self, key: &str) -> bool {
+        let dup = self.im_recent(key);
+        self.note_im(key);
+        dup
     }
 }
 
@@ -1106,8 +1128,8 @@ impl SessionState {
         self.muted.get(id).or_else(|| self.muted.get(&mute_key(id))).copied()
     }
 
-    /// Whether an id has any block-list entry at all - what the reference
-    /// viewer's flag-less checks (script dialogs and prompts) ask.
+    /// Whether an id has any block-list entry at all, ignoring flags - the right
+    /// question for script dialogs and prompts, which no exemption bit spares.
     pub fn is_muted(&self, id: &str) -> bool {
         self.mute_flags(id).is_some()
     }
@@ -1288,9 +1310,11 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if chat_type == 4 || chat_type == 5 {
                 return actions;
             }
-            // Audible 255 (== -1) means out of range, so there's nothing to render.
+            // Only fully-audible chat (1) gets a transcript line: 0 is the muffled
+            // fringe just past the type's range and 255 (== -1) is out of range,
+            // and neither carries text meant to be read.
             let audible = field(decoded, "ChatData", "Audible").and_then(|v| v.as_u64()).unwrap_or(1);
-            if audible == 255 {
+            if audible != 1 {
                 return actions;
             }
             // EChatSourceType: 1 is agent, 2 is object, anything else is system.
@@ -1346,13 +1370,30 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
 
         // A balance update, plus payment metadata when it's part of a transaction.
         "MoneyBalanceReply" => {
+            let tx = inst_str(block0(decoded, "MoneyData").unwrap_or(&Value::Null), "TransactionID");
+            let mut description = field_text(decoded, "MoneyData", "Description").unwrap_or_default();
+            // The sim can repeat the reply for one transaction (payment push plus
+            // the answer to our own balance request), so the description - which
+            // becomes a transaction card - only survives the first copy. The
+            // balance itself is always current and always passed through.
+            if !description.is_empty() && !tx.is_empty() && !is_zero_uuid(&tx) {
+                if state.money_tx_seen.contains(&tx) {
+                    description.clear();
+                } else {
+                    state.money_tx_seen.push_back(tx.clone());
+                    if state.money_tx_seen.len() > 30 {
+                        state.money_tx_seen.pop_front();
+                    }
+                }
+            }
             actions.push(Action::emit(
                 "money-balance",
                 json!({
                     "balance": as_i64(field(decoded, "MoneyData", "MoneyBalance")),
                     "landCredit": as_i64(field(decoded, "MoneyData", "SquareMetersCredit")),
                     "landCommitted": as_i64(field(decoded, "MoneyData", "SquareMetersCommitted")),
-                    "description": field_text(decoded, "MoneyData", "Description").unwrap_or_default(),
+                    "description": description,
+                    "transactionId": tx,
                     "transactionType": as_i64(field(decoded, "TransactionInfo", "TransactionType")),
                 }),
             ));
@@ -2875,7 +2916,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             actions.push(Action::InterestList360);
             actions.push(Action::emit(
                 "position",
-                json!({ "position": { "x": px, "y": py, "z": pz }, "region": region_obj(state), "source": "teleport" }),
+                json!({ "position": { "x": px, "y": py, "z": pz }, "region": region_obj(state), "source": "crossing" }),
             ));
         }
 
@@ -3553,8 +3594,12 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             let stype = if state.groups.contains(&session_id.to_lowercase()) { "group" } else { "conference" };
             let text = str_field(mp, &["message"]);
             if !text.is_empty() && !muted_sender {
-                let key = format!("{session_id}\0{from_id}\017\0{text}\0");
-                if !state.is_duplicate_im(&key) {
+                // Suppress the copy UDP already delivered, and EventQueue replays
+                // of this same invitation (an unacked poll re-sends its events).
+                let base = format!("{session_id}\0{from_id}\0{text}");
+                let udp_echo = state.take_im(&format!("udp\0{base}"));
+                let eq_replay = state.is_duplicate_im(&format!("eq\0{base}"));
+                if !udp_echo && !eq_replay {
                     actions.push(Action::emit(
                         "im",
                         json!({
@@ -3759,13 +3804,18 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             actions.push(Action::InterestList360);
             actions.push(Action::emit(
                 "position",
-                json!({ "position": { "x": px, "y": py, "z": pz }, "region": region_obj(state), "source": "teleport" }),
+                json!({ "position": { "x": px, "y": py, "z": pz }, "region": region_obj(state), "source": "crossing" }),
             ));
         }
 
         // Neighbour/child-sim setup - a rendering optimisation a no-3D client
-        // doesn't need (this mirrors the UDP EnableSimulator no-op).
+        // doesn't need (this matches the UDP EnableSimulator no-op).
         "EnableSimulator" => {}
+
+        // The seed capability for a neighbour sim. It only matters to a client
+        // holding child agents on adjacent regions; the main-region seed arrives
+        // inside TeleportFinish / CrossedRegion, which we do act on.
+        "EstablishAgentCommunication" => {}
 
         // Parcel data arrives here (flavor=llsd), not as a UDP block.
         "ParcelProperties" => {
@@ -3901,7 +3951,6 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     let from_group = msg.get("FromGroup").and_then(|v| v.as_bool()).unwrap_or(false);
     let dialog = inst_i64(&msg, "Dialog");
     let im_id = inst_str(&msg, "ID");
-    let wire_ts = inst_i64(&msg, "Timestamp");
     let offline = inst_i64(&msg, "Offline");
     let from_name = inst_text(&msg, "FromAgentName");
     let text = inst_text(&msg, "Message");
@@ -3918,7 +3967,7 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
 
     // Nothing unsolicited gets through from a blocked sender: messages, typing,
     // offers, invites. Replies to things WE sent (inventory 5/6, teleport 23/24,
-    // friendship 39/40) still land, matching the reference viewer. The ID field
+    // friendship 39/40) still land - we asked for those. The ID field
     // names the object for an object IM (dialog 19) and the group for session
     // chat, so a blocked object or group is checked there.
     let is_reply_dialog = matches!(dialog, 5 | 6 | 23 | 24 | 39 | 40);
@@ -4102,10 +4151,16 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
 
     let session_im_id = if !im_id.is_empty() && !same_uuid(&im_id, ZERO) { im_id.clone() } else { String::new() };
     if is_session && !session_im_id.is_empty() {
-        let dedup_key = format!("{session_im_id}\0{from_id}\0{dialog}\0{text}\0{wire_ts}");
-        if state.is_duplicate_im(&dedup_key) {
+        // A session line can arrive over both transports (the EventQueue's
+        // ChatterBoxInvitation carries the first message, UDP the rest), so only
+        // the cross-transport echo is suppressed. A repeat on the same transport
+        // is a resident really saying the same thing twice - wire resends are
+        // already filtered at the circuit by sequence number.
+        let base = format!("{session_im_id}\0{from_id}\0{text}");
+        if state.take_im(&format!("eq\0{base}")) {
             return actions;
         }
+        state.note_im(&format!("udp\0{base}"));
     }
 
     let mut participant = json!({ "id": &from_id, "name": &display });
@@ -4211,8 +4266,9 @@ mod tests {
         assert_eq!(p["text"], "hi all");
         // Typing start (ChatType 4) is still dropped, even when it's from us.
         assert!(route(&mut st, &chat_packet(1, 4, 1, "Me", me, "")).is_empty());
-        // Inaudible chat (255) is dropped.
+        // Inaudible chat (255) is dropped, and so is the barely-audible fringe (0).
         assert!(route(&mut st, &chat_packet(1, 1, 255, "A", "55555555-5555-5555-5555-555555555555", "far")).is_empty());
+        assert!(route(&mut st, &chat_packet(1, 1, 0, "A", "55555555-5555-5555-5555-555555555555", "fringe")).is_empty());
     }
 
     #[test]
@@ -4720,6 +4776,32 @@ mod tests {
     }
 
     #[test]
+    fn money_balance_repeats_keep_balance_but_not_the_card() {
+        let mut st = SessionState::default();
+        let pkt = |balance: i64| json!({
+            "name": "MoneyBalanceReply",
+            "blocks": {
+                "MoneyData": [{
+                    "TransactionID": "77777777-7777-7777-7777-777777777777",
+                    "MoneyBalance": balance, "SquareMetersCredit": 0, "SquareMetersCommitted": 0,
+                    "Description": B64.encode(b"Ruth Resident paid you L$100\0"),
+                }],
+                "TransactionInfo": [{ "TransactionType": 5001 }],
+            }
+        });
+        let a = route(&mut st, &pkt(1100));
+        let first = emit_of(&a, "money-balance").unwrap();
+        assert_eq!(first["description"], "Ruth Resident paid you L$100");
+        assert_eq!(first["transactionId"], "77777777-7777-7777-7777-777777777777");
+        // The sim repeats the reply for the same transaction: the fresher balance
+        // still lands, the description does not become a second card.
+        let b = route(&mut st, &pkt(1100));
+        let again = emit_of(&b, "money-balance").unwrap();
+        assert_eq!(again["balance"], 1100);
+        assert_eq!(again["description"], "");
+    }
+
+    #[test]
     fn agent_data_update_sets_name_and_active_group() {
         let mut st = SessionState::default();
         let pkt = json!({
@@ -5045,16 +5127,23 @@ mod tests {
     }
 
     #[test]
-    fn session_im_dedup_within_window() {
+    fn session_im_dedup_is_cross_transport_only() {
         let mut st = me_state();
-        // Session chat double-delivers (EventQueue + UDP dialog 17), so the
-        // same line arriving twice back-to-back is one message.
+        let sid = "44444444-4444-4444-4444-444444444444";
         let pkt = im_packet(17, OTHER, "00000000-0000-0000-0000-000000000000", true,
-            "44444444-4444-4444-4444-444444444444", "hi group", "Explorers");
-        assert!(emit_of(&route(&mut st, &pkt), "im").is_some());
-        st.now_ms = 1500; // still inside 1000 + 1500
+            sid, "hi group", "Explorers");
+        // The EventQueue invitation delivers a session's first line...
+        let body = json!({ "instantmessage": { "message_params": {
+            "from_id": OTHER, "id": sid, "from_name": "Ruth Resident", "message": "hi group",
+        } } });
+        assert!(emit_of(&route_eq(&mut st, "ChatterBoxInvitation", &body), "im").is_some());
+        // ...so the UDP copy of that same line is the double-delivery to drop.
+        st.now_ms = 1500;
         assert!(emit_of(&route(&mut st, &pkt), "im").is_none());
-        st.now_ms = 3000; // the window has elapsed - a genuine repeat
+        // A repeat on the same transport is someone really saying it again.
+        st.now_ms = 3000;
+        assert!(emit_of(&route(&mut st, &pkt), "im").is_some());
+        st.now_ms = 3500;
         assert!(emit_of(&route(&mut st, &pkt), "im").is_some());
     }
 
@@ -6183,7 +6272,7 @@ mod tests {
     }
 
     #[test]
-    fn pay_price_reply_follows_the_reference_sentinels() {
+    fn pay_price_reply_follows_the_wire_sentinels() {
         let mut st = SessionState::default();
         let reply = |price: i64, buttons: Vec<i64>| {
             let blocks = json!({

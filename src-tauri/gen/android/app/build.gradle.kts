@@ -45,7 +45,11 @@ android {
     compileSdk = 36
     namespace = "com.pantera.minibee_viewer"
     defaultConfig {
-        manifestPlaceholders["usesCleartextTraffic"] = "false"
+        // Parcel music streams are almost always plain-http Shoutcast/Icecast;
+        // with cleartext off the OS refuses the connection before the WebView's
+        // mixed-content policy even gets a say. The app's own sensitive traffic
+        // (login, caps) runs in the Rust core, which this flag does not govern.
+        manifestPlaceholders["usesCleartextTraffic"] = "true"
         applicationId = "com.pantera.minibee_viewer"
         minSdk = 24
         targetSdk = 36

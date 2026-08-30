@@ -1,6 +1,6 @@
 //! Buying L$ through the grid's currency helper.
 //!
-//! The flow is the reference viewer's, two XML-RPC calls against the helper's
+//! The flow is the one the helper expects, two XML-RPC calls against its
 //! `currency.php`: `getCurrencyQuote` prices an amount (and hands back a
 //! `confirm` token), then `buyCurrency` carries that quote back to make the
 //! purchase. The context these calls need - agent id, secure session id, and

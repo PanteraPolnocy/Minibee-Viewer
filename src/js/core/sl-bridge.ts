@@ -161,15 +161,29 @@ const BeeSLBridge = (function () {
   // --- login (Rust owns the parsing/orchestration; this is just the challenge loop) ---
 
   function mfaKey(credentials) {
+    // "First Last", "first.last" and "first_last" are the same account, and a
+    // lone name implies the "Resident" surname - normalize so the remembered
+    // hash is found no matter which spelling was typed this time.
+    let user = String(credentials.username || '').trim().toLowerCase().replace(/[\s._]+/g, '.');
+    user = user.replace(/\.resident$/, '');
+    return 'minibee-mfa-' + (credentials.grid || 'agni') + '-' + user;
+  }
+  function legacyMfaKey(credentials) {
     return 'minibee-mfa-' + (credentials.grid || 'agni') + '-' + String(credentials.username || '').trim().toLowerCase();
   }
   function loadMfaHash(credentials) {
-    try { return localStorage.getItem(mfaKey(credentials)) || ''; } catch (_e) { return ''; }
+    try {
+      return localStorage.getItem(mfaKey(credentials)) ||
+        localStorage.getItem(legacyMfaKey(credentials)) || '';
+    } catch (_e) { return ''; }
   }
   function saveMfaHash(credentials, hash, remember) {
     try {
       if (remember && hash) localStorage.setItem(mfaKey(credentials), hash);
       else localStorage.removeItem(mfaKey(credentials));
+      if (legacyMfaKey(credentials) !== mfaKey(credentials)) {
+        localStorage.removeItem(legacyMfaKey(credentials));
+      }
     } catch (_e) { /* storage is optional */ }
   }
 
@@ -205,15 +219,23 @@ const BeeSLBridge = (function () {
         }
         break;
       }
+      // A failure can still rotate the hash; echo the newest one back on the
+      // next attempt or the server keeps treating ours as stale.
+      if (c.mfaHash) session.mfaHash = c.mfaHash;
       if (c.type === 'update') {
         // The server wants a newer viewer, so surface its message (it carries
         // the version / update guidance) instead of routing to the TOS/MFA UI.
         throw new Error(c.message || 'This viewer is out of date and must be updated to log in.');
       }
       if (c.type === 'error') {
-        const hadToken = !!session.token;
-        if (c.reason === 'key' || hadToken) { session.token = ''; session.mfaHash = ''; saveMfaHash(credentials, '', false); }
-        if (hadToken) throw new Error('Authenticator code rejected. Generate a new code and try again.');
+        // A rejected token is the only failure that condemns the submitted MFA
+        // state. A plain bad-password ('key') must NOT wipe the remembered
+        // hash, or every typo re-arms the MFA challenge for days.
+        if (session.token) {
+          session.token = '';
+          session.mfaHash = '';
+          throw new Error('Authenticator code rejected. Generate a new code and try again.');
+        }
         throw new Error(c.message || 'Login failed.');
       }
       const onChallenge = credentials.onChallenge;
@@ -227,7 +249,6 @@ const BeeSLBridge = (function () {
         if (!token) throw new Error('Authenticator code required.');
         session.token = token;
         session.rememberMfa = answer.rememberMfa !== false;
-        if (c.mfaHash) session.mfaHash = c.mfaHash;
         continue;
       }
       throw new Error(c.message || 'Login failed.');
