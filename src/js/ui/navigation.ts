@@ -327,6 +327,7 @@ const BeeNavigation = (function () {
     updateActiveGroupLines();
     updateSltClock();
     updateBeeMenu();
+    updateLocationMenu();
   }
 
   function updateBeeMenu() {
@@ -352,9 +353,64 @@ const BeeNavigation = (function () {
     const menu = document.getElementById('bee-menu');
     const btn = document.getElementById('btn-bee-menu');
     if (!menu) return;
+    if (open) setLocationMenuOpen(false);
     menu.hidden = !open;
     if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (open) updateBeeMenu();
+  }
+
+  function updateLocationMenu() {
+    const parcelEl = document.getElementById('location-menu-parcel');
+    const regionEl = document.getElementById('location-menu-region');
+    if (!parcelEl && !regionEl) return;
+    const s = BeeState.get();
+    if (parcelEl) parcelEl.textContent = formatParcelLine(s) || '—';
+    if (regionEl) {
+      regionEl.textContent = s.sessionLost ? 'Disconnected' : (s.region ? s.region.name : 'Offline');
+    }
+  }
+
+  function setLocationMenuOpen(open) {
+    const menu = document.getElementById('location-menu');
+    const btn = document.getElementById('btn-location-menu');
+    if (!menu) return;
+    if (open) setBeeMenuOpen(false);
+    menu.hidden = !open;
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) updateLocationMenu();
+  }
+
+  // The phone-width stand-in for the top bar's parcel/region line: the pin
+  // button opens a popup with where you stand plus the ways to act on it.
+  function bindLocationMenu() {
+    const btn = document.getElementById('btn-location-menu');
+    const menu = document.getElementById('location-menu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      setLocationMenuOpen(menu.hidden);
+    });
+    const landBtn = document.getElementById('location-menu-land');
+    if (landBtn) {
+      landBtn.addEventListener('click', function () {
+        setLocationMenuOpen(false);
+        switchTab('land');
+      });
+    }
+    const mapBtn = document.getElementById('location-menu-map');
+    if (mapBtn) {
+      mapBtn.addEventListener('click', function () {
+        setLocationMenuOpen(false);
+        switchTab('map');
+      });
+    }
+    document.addEventListener('click', function (e) {
+      if (menu.hidden) return;
+      if (!menu.contains(e.target as Node) && e.target !== btn) setLocationMenuOpen(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') setLocationMenuOpen(false);
+    });
   }
 
   function bindBeeMenu() {
@@ -516,6 +572,7 @@ const BeeNavigation = (function () {
     }
 
     bindBeeMenu();
+    bindLocationMenu();
 
     const identity = document.querySelector('.top-bar__identity');
     if (identity) {

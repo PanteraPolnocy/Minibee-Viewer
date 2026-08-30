@@ -732,6 +732,7 @@ html.require-http #app {
 }
 
 .top-bar__bee { display: none; }
+.top-bar__location { display: none; }
 
 .bee-menu {
   position: absolute;
@@ -790,6 +791,16 @@ button.bee-menu__value--action:disabled {
   margin-top: 4px;
   width: 100%;
 }
+
+/* The location popup: same shell as the bee menu, but parcel/region names can
+   be long, so those rows stack label-over-value and wrap. */
+.location-menu { max-width: min(280px, calc(100vw - 16px)); }
+.bee-menu__row--stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.location-menu .bee-menu__value { overflow-wrap: anywhere; }
 
 .top-bar__center {
   flex: 1 1 auto;
@@ -5549,8 +5560,10 @@ button.status-chip--balance:disabled {
     padding: 0 calc(10px + var(--safe-right)) 0 calc(10px + var(--safe-left));
   }
   .top-bar__left { max-width: none; flex: 1 1 auto; }
-  .top-bar__center { flex: 0 1 auto; padding: 0 6px; }
-  .top-bar__parcel { display: none; }
+  /* No room for the parcel/region text on a phone: the whole center collapses
+     and the pin button takes over as the way to see where you stand. */
+  .top-bar__center { display: none; }
+  .top-bar__location { display: grid; }
   #fps-badge { display: none; }
   .parcel-music-bar__volume { display: none; }
   .parcel-music-bar { padding: 2px 4px; }
