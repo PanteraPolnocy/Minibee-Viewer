@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild';
+import { minify as minifyHtml } from 'html-minifier-terser';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +32,7 @@ fs.mkdirSync(DIST, { recursive: true });
 
 fs.cpSync(SRC, DIST, {
   recursive: true,
-  filter: (file) => !file.endsWith('.ts') && !file.endsWith('.css'),
+  filter: (file) => !file.endsWith('.ts') && !file.endsWith('.css') && !file.endsWith('.html'),
 });
 
 // esbuild transforms each file on its own (no bundling), so a .ts input lands
@@ -49,6 +50,25 @@ if (entryPoints.length > 0) {
     target: 'es2024',
     drop: ['console', 'debugger'],
   });
+}
+
+// Minify HTML files directly into dist
+const htmlFiles = findFiles(SRC, ['.html']);
+for (const file of htmlFiles) {
+  const relativePath = path.relative(SRC, file);
+  const distPath = path.join(DIST, relativePath);
+
+  fs.mkdirSync(path.dirname(distPath), { recursive: true });
+
+  const rawHtml = fs.readFileSync(file, 'utf8');
+  const minifiedHtml = await minifyHtml(rawHtml, {
+    collapseWhitespace: true,
+    removeComments: true,
+    minifyCSS: true,
+    minifyJS: true,
+  });
+
+  fs.writeFileSync(distPath, minifiedHtml, 'utf8');
 }
 
 console.log(`[Build] Minification complete. Processed ${entryPoints.length} assets into dist/`);
