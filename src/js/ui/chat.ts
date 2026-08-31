@@ -1039,6 +1039,16 @@ const BeeChat = (function () {
     return el;
   }
 
+  // Matches the state layer's transcript cap, so the live DOM can't outgrow
+  // the array it renders.
+  const MAX_TRANSCRIPT_NODES = 1000;
+
+  function trimList(list) {
+    while (list.childElementCount > MAX_TRANSCRIPT_NODES && list.firstElementChild) {
+      list.removeChild(list.firstElementChild);
+    }
+  }
+
   function appendMessage(msg, scroll?, listId?) {
     const list = document.getElementById(listId || 'chat-messages');
     if (!list) return;
@@ -1046,6 +1056,7 @@ const BeeChat = (function () {
     // pinned to the bottom (or a caller explicitly forces it).
     const pinned = (list.scrollHeight - list.scrollTop - list.clientHeight) < 40;
     list.appendChild(renderMessage(msg));
+    trimList(list);
     if (scroll === false) return;
     if (scroll === true || pinned) list.scrollTop = list.scrollHeight;
   }

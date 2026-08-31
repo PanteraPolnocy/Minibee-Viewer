@@ -2,12 +2,52 @@
 //! a 303, and redirects off-simhost are refused), with simhost IP pinning.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Mutex;
 use std::time::Duration;
 
+use once_cell::sync::Lazy;
 use reqwest::redirect::Policy;
 use reqwest::{Method, Url};
 
 use crate::bridge::util::normalize_seed_url;
+
+/// Clients pooled by (user agent, DNS pin), most recently used last. Reusing a
+/// client keeps its connection pool alive, so repeat calls to the same host -
+/// the EventQueue long-poll above all - skip a fresh TCP+TLS handshake each
+/// time. The pin is part of the key, so a cached client can still only connect
+/// to the exact address that was validated for it; a different resolution is a
+/// different key and gets its own client.
+type ClientKey = (String, Option<(String, SocketAddr)>);
+static CLIENT_CACHE: Lazy<Mutex<Vec<(ClientKey, reqwest::Client)>>> = Lazy::new(|| Mutex::new(Vec::new()));
+const CLIENT_CACHE_CAP: usize = 8;
+
+/// A pooled no-redirect client for this (user agent, pin) pair.
+pub(crate) fn pooled_client(
+    ua: &str,
+    pin: &Option<(String, SocketAddr)>,
+) -> Result<reqwest::Client, String> {
+    let key: ClientKey = (ua.to_string(), pin.clone());
+    let mut cache = CLIENT_CACHE.lock().unwrap();
+    if let Some(idx) = cache.iter().position(|(k, _)| *k == key) {
+        let entry = cache.remove(idx);
+        let client = entry.1.clone();
+        cache.push(entry);
+        return Ok(client);
+    }
+    let mut builder = crate::bridge::http_client::builder()
+        .user_agent(ua)
+        .redirect(Policy::none())
+        .gzip(true);
+    if let Some((host, addr)) = pin {
+        builder = builder.resolve(host, *addr);
+    }
+    let client = builder.build().map_err(|e| e.to_string())?;
+    if cache.len() >= CLIENT_CACHE_CAP {
+        cache.remove(0);
+    }
+    cache.push((key, client.clone()));
+    Ok(client)
+}
 
 /// SSRF guard for caller-supplied `bridge_proxy` URLs. Rejects loopback and private targets.
 pub fn egress_block_reason(url: &str) -> Option<String> {
@@ -231,18 +271,8 @@ pub async fn exchange(
 
     // Pin the validated address so we connect to the IP we actually checked, not a
     // possibly-rebound re-resolution at connect time. A simhost pin wins if it's set.
-    let mk_client = |pin: &Option<(String, SocketAddr)>| {
-        let mut builder = crate::bridge::http_client::builder()
-            .user_agent(ua)
-            .redirect(Policy::none())
-            .gzip(true);
-        if let Some((host, addr)) = pin {
-            builder = builder.resolve(host, *addr);
-        }
-        builder.build().map_err(|e| e.to_string())
-    };
     let mut pinned = pin.or(guard_pin);
-    let mut client = mk_client(&pinned)?;
+    let mut client = pooled_client(ua, &pinned)?;
 
     // A single wall-clock deadline covers the whole redirect chain (up to 6 hops), so
     // a slow chain can't tie up the EventQueue lane for ~6x the timeout.
@@ -306,7 +336,7 @@ pub async fn exchange(
                 };
                 if !same_pinned_host {
                     pinned = hop_pin;
-                    client = mk_client(&pinned)?;
+                    client = pooled_client(ua, &pinned)?;
                 }
                 cur_url = next_abs;
                 redirects += 1;
@@ -345,6 +375,24 @@ fn resolve_location(base: &str, location: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_pool_reuses_hits_and_stays_capped() {
+        // Unique UAs so this test never collides with other tests' entries.
+        let pin = Some(("simhost-t.agni.secondlife.io".to_string(), "10.0.0.1:12043".parse().unwrap()));
+        // Fill well past the cap; every call must still succeed.
+        for i in 0..(CLIENT_CACHE_CAP + 4) {
+            pooled_client(&format!("pool-test-ua-{i}"), &pin).unwrap();
+        }
+        assert!(CLIENT_CACHE.lock().unwrap().len() <= CLIENT_CACHE_CAP);
+        // A repeat of the newest key is a hit: the cache must not grow.
+        let len_before = CLIENT_CACHE.lock().unwrap().len();
+        pooled_client(&format!("pool-test-ua-{}", CLIENT_CACHE_CAP + 3), &pin).unwrap();
+        assert_eq!(CLIENT_CACHE.lock().unwrap().len(), len_before);
+        // A different pin for the same UA is a different client.
+        pooled_client(&format!("pool-test-ua-{}", CLIENT_CACHE_CAP + 3), &None).unwrap();
+        assert!(CLIENT_CACHE.lock().unwrap().len() <= CLIENT_CACHE_CAP);
+    }
 
     #[test]
     fn allows_public_sl_and_opensim_hosts() {

@@ -122,14 +122,7 @@ pub async fn fetch_map_tile(
     loop {
         crate::bridge::proxy::guard_url(&current).await?;
         let pin = crate::bridge::proxy::resolve_public_pin(&current).await;
-        let mut builder = crate::bridge::http_client::builder()
-            .user_agent(&state.ua)
-            .redirect(reqwest::redirect::Policy::none())
-            .gzip(true);
-        if let Some((host, addr)) = &pin {
-            builder = builder.resolve(host, *addr);
-        }
-        let client = builder.build().map_err(|e| e.to_string())?;
+        let client = crate::bridge::proxy::pooled_client(&state.ua, &pin)?;
         resp = client
             .get(&current)
             .header("Referer", "https://secondlife.com/")

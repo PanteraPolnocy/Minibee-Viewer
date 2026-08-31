@@ -295,12 +295,16 @@ const BeeIm = (function () {
   }
 
   // Append a single new message to the already-rendered active thread, keeping
-  // the user's scroll position unless they're already at the bottom.
+  // the user's scroll position unless they're already at the bottom. The DOM is
+  // trimmed to the same cap the state layer keeps its message arrays at.
   function appendImMessage(msg) {
     const list = document.getElementById('im-messages');
     if (!list || !msg) return;
     const pinned = (list.scrollHeight - list.scrollTop - list.clientHeight) < 40;
     list.appendChild(renderImMessage(msg));
+    while (list.childElementCount > 1000 && list.firstElementChild) {
+      list.removeChild(list.firstElementChild);
+    }
     if (pinned) list.scrollTop = list.scrollHeight;
   }
 

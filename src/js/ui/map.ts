@@ -475,6 +475,25 @@ const BeeMap = (function () {
     }
   }
 
+  // Each cached tile pins its image bytes (usually as a blob URL), so the cache
+  // is LRU-bounded: several screenfuls stay instant, but panning across the grid
+  // for an hour can't accumulate megabytes of off-screen tiles.
+  const TILE_CACHE_MAX = 300;
+
+  function pruneTileCache() {
+    let excess = tileImageCache.size - TILE_CACHE_MAX;
+    if (excess <= 0) return;
+    const drop = [];
+    tileImageCache.forEach(function (entry, key) {
+      if (drop.length < excess && (!entry || entry.state !== 'pending')) drop.push(key);
+    });
+    drop.forEach(function (key) {
+      const entry = tileImageCache.get(key);
+      if (entry && entry.revokeBlob && entry.blobUrl) URL.revokeObjectURL(entry.blobUrl);
+      tileImageCache.delete(key);
+    });
+  }
+
   function loadTileImage(gridX, gridY, imgEl, tileBtn, token) {
     const key = tileImageKey(gridX, gridY);
     const existing = tileImageCache.get(key);
@@ -486,6 +505,10 @@ const BeeMap = (function () {
         return;
       }
       if (existing.state === 'ok') {
+        // Re-insert so insertion order doubles as recency: a visible tile can't
+        // be the one pruned.
+        tileImageCache.delete(key);
+        tileImageCache.set(key, existing);
         applyTileImage(imgEl, tileBtn, existing, token);
         return;
       }
@@ -498,6 +521,7 @@ const BeeMap = (function () {
 
     const entry = { state: 'pending', waiters: [], revokeBlob: false, blobUrl: '', loadToken: token };
     tileImageCache.set(key, entry);
+    pruneTileCache();
 
     function finish(state, url?) {
       entry.state = state;

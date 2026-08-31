@@ -134,8 +134,16 @@ const BeeState = (function () {
     return patchEventMessage(id, partial);
   }
 
+  // Transcripts keep the newest MAX_TRANSCRIPT entries. Without a cap, hours in
+  // a busy region grow the arrays (and their rendered DOM) without bound.
+  const MAX_TRANSCRIPT = 1000;
+  function trimTranscript(list) {
+    if (list.length > MAX_TRANSCRIPT) list.splice(0, list.length - MAX_TRANSCRIPT);
+  }
+
   function addEventMessage(msg) {
     state.eventMessages.push(msg);
+    trimTranscript(state.eventMessages);
     if (state.activeTab !== 'events' && isEventUnread(msg)) {
       state.unreadEvents += 1;
     }
@@ -226,6 +234,7 @@ const BeeState = (function () {
 
   function addChatMessage(msg) {
     state.chatMessages.push(msg);
+    trimTranscript(state.chatMessages);
     if (state.activeTab !== 'chat' && isChatUnread(msg)) {
       state.unreadChat += 1;
     }
@@ -404,6 +413,7 @@ const BeeState = (function () {
       emit('im-sessions-updated');
     }
     session.messages.push(msg);
+    trimTranscript(session.messages);
     session.lastMessage = msg.text;
     session.updatedAt = msg.timestamp;
     if (shouldCountImUnread(resolvedId, msg)) {
