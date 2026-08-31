@@ -39,7 +39,7 @@ const BeeSLBridge = (function () {
     'teleport-offer', 'teleport-request', 'teleport-accepted', 'teleport-declined',
     'sit-state', 'object-properties', 'pay-price', 'mute-list', 'region-restart',
     'net-rate', 'covenant', 'covenant-text', 'parcel-access', 'parcel-object-owners',
-    'close-requested'
+    'script-source', 'script-created', 'close-requested'
   ];
 
   // Registers every backend listener. The returned Promise doesn't resolve
@@ -522,6 +522,23 @@ const BeeSLBridge = (function () {
     return invoke('sl_teleport_landmark', { assetId: assetId, target: target || null });
   }
 
+  // --- script editor ---
+
+  function listScripts() {
+    return invoke('sl_scripts_list').then(function (res) { return (res && res.scripts) || []; });
+  }
+  // The source arrives later as a 'script-source' event carrying the item id.
+  function requestScriptSource(itemId, assetId) {
+    return invoke('sl_script_source', { itemId: itemId, assetId: assetId || '' });
+  }
+  function saveScript(itemId, text, target) {
+    return invoke('sl_script_save', { itemId: itemId, text: text, target: target || null });
+  }
+  // The new item arrives later as a 'script-created' event.
+  function createScript(name) { return invoke('sl_script_create', { name: name }); }
+  function renameScript(itemId, name) { return invoke('sl_script_rename', { itemId: itemId, name: name }); }
+  function lslLanguage() { return invoke('sl_lsl_language'); }
+
   // --- scripts ---
 
   function replyScriptDialog(objectId, buttonIndex, buttonLabel, chatChannel) {
@@ -741,6 +758,9 @@ const BeeSLBridge = (function () {
     saveAvatarNotes: saveAvatarNotes, searchDirectory: searchDirectory,
     teleportTo: teleportTo, teleportHome: teleportHome,
     listLandmarks: listLandmarks, landmarkInfo: landmarkInfo, teleportToLandmark: teleportToLandmark,
+    listScripts: listScripts, requestScriptSource: requestScriptSource,
+    saveScript: saveScript, createScript: createScript, renameScript: renameScript,
+    lslLanguage: lslLanguage,
     sendTeleportOffer: sendTeleportOffer, sendTeleportRequest: sendTeleportRequest,
     acceptTeleportOffer: acceptTeleportOffer, declineTeleportOffer: declineTeleportOffer,
     acceptTeleportRequest: acceptTeleportRequest, declineTeleportRequest: declineTeleportRequest,

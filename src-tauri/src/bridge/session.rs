@@ -203,6 +203,17 @@ pub struct SessionState {
     /// An in-flight covenant download over the estate transfer channel:
     /// (transfer id, packets by sequence number).
     pub covenant_xfer: Option<(String, BTreeMap<i64, Vec<u8>>)>,
+    /// An in-flight script-source download over the asset transfer channel.
+    pub script_xfer: Option<ScriptXfer>,
+}
+
+/// A script source text on its way down: which transfer, which inventory item
+/// it is for, and the packets received so far.
+#[derive(Debug, Default, Clone)]
+pub struct ScriptXfer {
+    pub transfer_id: String,
+    pub item_id: String,
+    pub packets: BTreeMap<i64, Vec<u8>>,
 }
 
 /// Extract the plain text out of a Linden notecard container ("Linden text
@@ -1536,28 +1547,37 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
         }
 
-        // Estate-channel transfer status (the covenant download). A negative
-        // status means refused/unknown; surface it instead of hanging.
+        // Transfer-channel status (covenant or script-source download). A
+        // negative status means refused/unknown; surface it instead of hanging.
         "TransferInfo" => {
             let ti = block0(decoded, "TransferInfo").cloned().unwrap_or(Value::Null);
             let id = inst_str(&ti, "TransferID");
             let status = inst_i64(&ti, "Status");
-            let ours = state.covenant_xfer.as_ref().is_some_and(|(t, _)| same_uuid(t, &id));
-            if ours && status < 0 {
+            if status >= 0 {
+                return actions;
+            }
+            if state.covenant_xfer.as_ref().is_some_and(|(t, _)| same_uuid(t, &id)) {
                 state.covenant_xfer = None;
                 actions.push(Action::emit(
                     "covenant-text",
                     json!({ "ok": false, "error": "The covenant could not be downloaded." }),
                 ));
+            } else if state.script_xfer.as_ref().is_some_and(|x| same_uuid(&x.transfer_id, &id)) {
+                let x = state.script_xfer.take().unwrap();
+                actions.push(Action::emit(
+                    "script-source",
+                    json!({ "ok": false, "itemId": x.item_id, "error": "The script could not be downloaded." }),
+                ));
             }
         }
 
-        // One packet of an estate-channel transfer (covenant text).
+        // One packet of a transfer-channel download (covenant or script text).
         "TransferPacket" => {
             let td = block0(decoded, "TransferData").cloned().unwrap_or(Value::Null);
             let id = inst_str(&td, "TransferID");
-            let ours = state.covenant_xfer.as_ref().is_some_and(|(t, _)| same_uuid(t, &id));
-            if !ours {
+            let covenant = state.covenant_xfer.as_ref().is_some_and(|(t, _)| same_uuid(t, &id));
+            let script = state.script_xfer.as_ref().is_some_and(|x| same_uuid(&x.transfer_id, &id));
+            if !covenant && !script {
                 return actions;
             }
             let packet = inst_i64(&td, "Packet");
@@ -1567,23 +1587,42 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 .and_then(|v| v.as_str())
                 .and_then(|s| B64.decode(s).ok())
                 .unwrap_or_default();
-            const MAX_COVENANT_BYTES: usize = 1 << 20;
-            if let Some((_, packets)) = state.covenant_xfer.as_mut() {
-                let total: usize = packets.values().map(|d| d.len()).sum();
-                if total + data.len() <= MAX_COVENANT_BYTES {
-                    packets.insert(packet, data);
+            const MAX_TRANSFER_BYTES: usize = 1 << 20;
+            {
+                let packets = if covenant {
+                    state.covenant_xfer.as_mut().map(|(_, p)| p)
+                } else {
+                    state.script_xfer.as_mut().map(|x| &mut x.packets)
+                };
+                if let Some(packets) = packets {
+                    let total: usize = packets.values().map(|d| d.len()).sum();
+                    if total + data.len() <= MAX_TRANSFER_BYTES {
+                        packets.insert(packet, data);
+                    }
                 }
             }
             // LLTS_DONE = 1 marks the final packet.
             if status == 1 {
-                if let Some((_, packets)) = state.covenant_xfer.take() {
+                let assemble = |packets: BTreeMap<i64, Vec<u8>>| {
                     let mut raw = Vec::new();
                     for (_, chunk) in packets {
                         raw.extend_from_slice(&chunk);
                     }
+                    raw
+                };
+                if covenant {
+                    if let Some((_, packets)) = state.covenant_xfer.take() {
+                        actions.push(Action::emit(
+                            "covenant-text",
+                            json!({ "ok": true, "text": notecard_text(&assemble(packets)) }),
+                        ));
+                    }
+                } else if let Some(x) = state.script_xfer.take() {
+                    let raw = assemble(x.packets);
+                    let text = String::from_utf8_lossy(&raw).trim_end_matches('\0').to_string();
                     actions.push(Action::emit(
-                        "covenant-text",
-                        json!({ "ok": true, "text": notecard_text(&raw) }),
+                        "script-source",
+                        json!({ "ok": true, "itemId": x.item_id, "text": text }),
                     ));
                 }
             }
@@ -2975,6 +3014,26 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                         "AgentData": [{ "AgentID": state.agent_id, "SessionID": state.session_uuid }],
                     }),
                     true,
+                ));
+            }
+        }
+
+        // The server's answer to our CreateInventoryItem. Only creations this
+        // client asked for (tagged by callback id) are surfaced.
+        "UpdateCreateInventoryItem" => {
+            for item in block_instances(decoded, "InventoryData") {
+                let callback = item.get("CallbackID").and_then(|v| v.as_i64()).unwrap_or(0);
+                if callback != crate::bridge::scripts::SCRIPT_CREATE_CALLBACK {
+                    continue;
+                }
+                actions.push(Action::emit(
+                    "script-created",
+                    json!({
+                        "itemId": inst_str(&item, "ItemID").to_ascii_lowercase(),
+                        "assetId": inst_str(&item, "AssetID").to_ascii_lowercase(),
+                        "folderId": inst_str(&item, "FolderID"),
+                        "name": inst_text(&item, "Name"),
+                    }),
                 ));
             }
         }
@@ -6039,6 +6098,48 @@ mod tests {
         }));
         let e = emit_of(&fail, "covenant-text").expect("failure event");
         assert_eq!(e["ok"], false);
+    }
+
+    #[test]
+    fn script_source_transfer_assembles_and_reports_failure() {
+        let mut st = SessionState::default();
+        let begin = |st: &mut SessionState, tid: &str| {
+            st.script_xfer = Some(ScriptXfer {
+                transfer_id: tid.into(),
+                item_id: "aa000000-0000-0000-0000-000000000001".into(),
+                packets: BTreeMap::new(),
+            });
+        };
+        begin(&mut st, "99999999-9999-9999-9999-999999999999");
+        let pkt = |n: i64, status: i64, data: &[u8]| json!({
+            "name": "TransferPacket",
+            "blocks": { "TransferData": [{
+                "TransferID": "99999999-9999-9999-9999-999999999999",
+                "ChannelType": 2, "Packet": n, "Status": status,
+                "Data": B64.encode(data),
+            }] }
+        });
+        assert!(route(&mut st, &pkt(0, 0, b"default { state_entry() ")).is_empty());
+        let done = route(&mut st, &pkt(1, 1, b"{} }\0"));
+        let e = emit_of(&done, "script-source").expect("script source");
+        assert_eq!(e["ok"], true);
+        assert_eq!(e["itemId"], "aa000000-0000-0000-0000-000000000001");
+        assert_eq!(e["text"], "default { state_entry() {} }");
+        assert!(st.script_xfer.is_none(), "transfer state cleared");
+
+        // A refused transfer reports instead of hanging.
+        begin(&mut st, "98999999-9999-9999-9999-999999999999");
+        let fail = route(&mut st, &json!({
+            "name": "TransferInfo",
+            "blocks": { "TransferInfo": [{
+                "TransferID": "98999999-9999-9999-9999-999999999999",
+                "ChannelType": 2, "TargetType": 0, "Status": -2, "Size": 0,
+                "Params": B64.encode(b""),
+            }] }
+        }));
+        let e = emit_of(&fail, "script-source").expect("failure event");
+        assert_eq!(e["ok"], false);
+        assert_eq!(e["itemId"], "aa000000-0000-0000-0000-000000000001");
     }
 
     #[test]

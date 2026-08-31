@@ -336,6 +336,36 @@ const BeeTransport = (function () {
     return adapter.landmarkInfo(assetId);
   }
 
+  function listScripts() {
+    if (!adapter || !adapter.listScripts) return Promise.reject(new Error('Scripts not available'));
+    return adapter.listScripts();
+  }
+
+  function requestScriptSource(itemId, assetId) {
+    if (!adapter || !adapter.requestScriptSource) return Promise.reject(new Error('Scripts not available'));
+    return adapter.requestScriptSource(itemId, assetId);
+  }
+
+  function saveScript(itemId, text, target) {
+    if (!adapter || !adapter.saveScript) return Promise.reject(new Error('Scripts not available'));
+    return adapter.saveScript(itemId, text, target);
+  }
+
+  function createScript(name) {
+    if (!adapter || !adapter.createScript) return Promise.reject(new Error('Scripts not available'));
+    return adapter.createScript(name);
+  }
+
+  function renameScript(itemId, name) {
+    if (!adapter || !adapter.renameScript) return Promise.reject(new Error('Scripts not available'));
+    return adapter.renameScript(itemId, name);
+  }
+
+  function lslLanguage() {
+    if (!adapter || !adapter.lslLanguage) return Promise.reject(new Error('Scripts not available'));
+    return adapter.lslLanguage();
+  }
+
   function cancelTeleport() {
     if (!adapter || !adapter.cancelTeleport) {
       return Promise.resolve(false);
@@ -463,6 +493,12 @@ const BeeTransport = (function () {
     teleportToLandmark: teleportToLandmark,
     listLandmarks: listLandmarks,
     landmarkInfo: landmarkInfo,
+    listScripts: listScripts,
+    requestScriptSource: requestScriptSource,
+    saveScript: saveScript,
+    createScript: createScript,
+    renameScript: renameScript,
+    lslLanguage: lslLanguage,
     cancelTeleport: cancelTeleport,
     isTeleportInProgress: isTeleportInProgress,
     requestMapArea: requestMapArea,

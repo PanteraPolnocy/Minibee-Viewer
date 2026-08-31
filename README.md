@@ -24,6 +24,7 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 - [Interact (nearby objects, avatar actions)](#interact-nearby-objects-avatar-actions)
 - [Land](#land)
 - [Destination Guide](#destination-guide)
+- [Scripts](#scripts)
 - [News](#news)
 - [When the connection drops](#when-the-connection-drops)
 - [Limitations (a.k.a. things it honestly can't do)](#limitations-aka-things-it-honestly-cant-do)
@@ -199,6 +200,10 @@ Objects that message you (script dialogs, LoadURL) show a clickable title that o
 ## Destination Guide
 
 The **Guide** tab pulls curated destinations from Linden Lab's public feeds: Mobile, Popular, New, Editor, Events. Each entry has a name, blurb, maturity rating, and thumbnail. **Map**, **Teleport**, or follow its SLURL.
+
+## Scripts
+
+The **Scripts** tab is a small LSL editor over your inventory's Scripts folder (subfolders included). Pick a script to download its source - or create a new one with **+** - and edit with line numbers, syntax highlighting and autocomplete built from the grid's own LSL language data (the LSLSyntax capability, cached on disk for a week) plus the script's own variables, functions and states. Caret-driven signature help shows the enclosing call's arguments (touch-friendly - no hover needed), **Find** (Ctrl+F) searches the source with `:123` jumping to a line, scripts can be renamed in place, and item/asset UUIDs are one tap away. **Save** uploads and the sim compiles: compiler errors come back as a clickable list that jumps to the offending line. The **Mono** checkbox chooses the runtime target (off = LSL2). On phones, the list and the editor act as separate screens.
 
 ## News
 

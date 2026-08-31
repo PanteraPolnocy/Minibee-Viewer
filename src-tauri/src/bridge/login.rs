@@ -370,6 +370,12 @@ pub fn landmark_folder_ids(login: &Map<String, Value>) -> Vec<String> {
         .collect()
 }
 
+/// The Scripts folder (FT_LSL_TEXT = 10). Empty when the skeleton lacks one.
+pub fn script_folder_ids(login: &Map<String, Value>) -> Vec<String> {
+    let id = skeleton_folder_id(login, 10);
+    if id.is_empty() { Vec::new() } else { vec![id] }
+}
+
 /// The agent's inventory root folder id from the login reply. Empty when absent.
 pub fn inventory_root_id(login: &Map<String, Value>) -> String {
     login
@@ -466,10 +472,13 @@ const CAPS_WE_USE: &[&str] = &[
     "GetExperienceInfo",
     "GetObjectCost",
     "InterestList",
+    "InventoryAPIv3",
+    "LSLSyntax",
     "ObjectMedia",
     "ParcelPropertiesUpdate",
     "RegionExperiences",
     "RemoteParcelRequest",
+    "UpdateScriptAgent",
     "ViewerAsset",
 ];
 
@@ -517,6 +526,7 @@ async fn fetch_login_seed_caps(
         "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
         "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
         "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
+        "UpdateScriptAgent", "LSLSyntax",
     ]);
     // Ask for the FULL cap set first, in a single POST - the seed grant only hands
     // back the caps you request.
@@ -649,6 +659,20 @@ mod tests {
     }
 
     #[test]
+    fn script_folder_ids_take_the_scripts_folder_only() {
+        let mut login = Map::new();
+        login.insert(
+            "inventory-skeleton".into(),
+            json!([
+                { "name": "My Inventory", "folder_id": "aa000000-0000-0000-0000-000000000001", "type_default": 8 },
+                { "name": "Scripts", "folder_id": "dd000000-0000-0000-0000-000000000004", "type_default": 10 },
+            ]),
+        );
+        assert_eq!(script_folder_ids(&login), vec!["dd000000-0000-0000-0000-000000000004"]);
+        assert!(script_folder_ids(&Map::new()).is_empty());
+    }
+
+    #[test]
     fn every_cap_we_use_is_requested() {
         // Mirrors the list built in fetch_login_seed_caps.
         let mut requested = seed_bootstrap_cap_names();
@@ -658,6 +682,7 @@ mod tests {
             "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
             "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
             "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
+            "UpdateScriptAgent", "LSLSyntax",
         ]);
         let missing: Vec<&&str> =
             CAPS_WE_USE.iter().filter(|c| !requested.contains(c)).collect();
@@ -971,6 +996,7 @@ pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, St
         *state.cof_folder.lock().unwrap() = cof;
         *state.inv_root.lock().unwrap() = inventory_root_id(&parsed);
         *state.landmark_folders.lock().unwrap() = landmark_folder_ids(&parsed);
+        *state.script_folders.lock().unwrap() = script_folder_ids(&parsed);
         let grid = credentials.get("grid").and_then(|v| v.as_str()).unwrap_or("");
         *state.currency.lock().unwrap() = Some(crate::bridge::currency::CurrencyContext {
             agent_id: trim_quotes(&map_str(&parsed, "agent_id")),

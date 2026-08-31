@@ -124,6 +124,10 @@ pub struct AppState {
     pub inv_root: Mutex<String>,
     /// The folders landmarks are listed from (Landmarks, Favorites), from login.
     pub landmark_folders: Mutex<Vec<String>>,
+    /// The folder scripts are listed from (Scripts), from login.
+    pub script_folders: Mutex<Vec<String>>,
+    /// The transformed LSL language data, cached per LSLSyntax cap URL.
+    pub lsl_syntax: Mutex<Option<(String, serde_json::Value)>>,
     /// What the currency helper needs about this session, captured at login so
     /// money requests never take identity or endpoint from the frontend.
     pub currency: Mutex<Option<crate::bridge::currency::CurrencyContext>>,
@@ -298,6 +302,8 @@ impl AppState {
             cof_folder: Mutex::new(String::new()),
             inv_root: Mutex::new(String::new()),
             landmark_folders: Mutex::new(Vec::new()),
+            script_folders: Mutex::new(Vec::new()),
+            lsl_syntax: Mutex::new(None),
             currency: Mutex::new(None),
         })
     }

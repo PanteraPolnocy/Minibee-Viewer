@@ -85,6 +85,8 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Guide** - featured destinations; teleport from a card.
 
+**Scripts** - your inventory's Scripts folder as a small LSL editor: pick a script (or **+** for a new one), read or edit it with line numbers, syntax highlighting and autocomplete - both the grid's built-ins and this script's own variables and functions - then **Save**: the sim compiles it and any compiler errors are listed, click one to jump to that line. While the caret sits inside a call, the function's signature shows under the editor. **Find** (the magnifier or Ctrl+F) searches the source; type `:123` there to jump to a line. The pencil renames, the copy button offers the item/asset UUIDs, and the Mono checkbox picks the runtime target. On a phone, the list and the editor are separate screens.
+
 ---
 
 ## Land

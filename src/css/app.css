@@ -5592,6 +5592,310 @@ button.status-chip--balance:disabled {
   }
 }
 
+/* ============================================================
+   Scripts tab - inventory list + LSL editor
+   ============================================================ */
+.panel--scripts { padding: 0; }
+.scripts-layout {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.scripts-list {
+  flex: 0 0 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  padding: 10px;
+  gap: 8px;
+}
+.scripts-list__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.scripts-list__title {
+  margin: 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.scripts-list__tools { display: flex; gap: 2px; }
+.scripts-list__refresh { width: 30px; height: 30px; }
+.script-editor__rename,
+.script-editor__tool { width: 30px; height: 30px; flex: 0 0 auto; }
+.script-editor__rename[hidden],
+.script-editor__tool[hidden] { display: none; }
+.scripts-list__filter {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+}
+.scripts-list__status {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.scripts-list__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.scripts-list__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scripts-list__item:hover { background: var(--bg-elevated); }
+.scripts-list__item--open {
+  background: var(--bg-elevated);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.script-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.script-editor__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.script-editor__back { display: none; }
+.script-editor__titles { flex: 1 1 auto; min-width: 0; }
+.script-editor__name {
+  margin: 0;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.script-editor__state { font-size: 0.75rem; color: var(--text-muted); }
+.script-editor__state--dirty { color: var(--warning, #e0a63c); }
+.script-editor__state--ok { color: var(--success, #4caf50); }
+.script-editor__state--error { color: var(--danger, #e05c5c); }
+.script-editor__target {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.script-editor__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.script-editor__empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--text-muted);
+}
+/* These set their own display, which would beat the `hidden` attribute and
+   leave ghost panes (the placeholder used to fill half the tab under an open
+   editor). */
+.script-editor__body[hidden],
+.script-editor__empty[hidden],
+.script-editor__complete[hidden] {
+  display: none;
+}
+
+/* The classic overlay editor: a transparent-text textarea on top of a
+   highlighted <pre> that mirrors it exactly - same font, padding, wrapping. */
+.script-editor__scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.script-editor__highlight,
+.script-editor__input,
+.script-editor__gutter {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 10px 12px 10px 56px;
+  border: none;
+  font-family: ui-monospace, Consolas, 'Cascadia Mono', Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  tab-size: 4;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.script-editor__gutter {
+  right: auto;
+  width: 46px;
+  padding: 10px 8px 10px 0;
+  text-align: right;
+  color: var(--text-muted);
+  background: var(--bg-deep);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  user-select: none;
+}
+.script-editor__highlight {
+  overflow: hidden;
+  background: var(--bg-deep);
+  color: var(--text);
+  pointer-events: none;
+}
+.script-editor__input {
+  overflow: auto;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  outline: none;
+}
+.script-editor__input::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+.lsl-mark {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 2px;
+}
+.lsl-cmt { color: #7fa055; }
+.lsl-str { color: #c98a5a; }
+.lsl-num { color: #b5cea8; }
+.lsl-kw { color: #4a90d9; font-weight: 600; }
+.lsl-typ { color: #3aa8a0; }
+.lsl-fn { color: #c05c5c; }
+.lsl-ev { color: #2e7dd1; }
+.lsl-const { color: #4a90d9; }
+
+.script-find {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.script-find[hidden] { display: none; }
+.script-find__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+}
+.script-find__count {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.script-find__btn { width: 28px; height: 28px; flex: 0 0 auto; }
+
+/* Caret-driven signature help: works the same for touch and mouse. */
+.script-editor__signature {
+  padding: 5px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elevated);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.script-editor__signature[hidden] { display: none; }
+.script-editor__signature b { color: var(--accent); font-weight: 700; }
+.script-editor__signature .sig-name { color: var(--text); font-weight: 600; }
+
+.script-editor__complete {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+  background: var(--bg-elevated);
+}
+.script-complete__item {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  max-width: 260px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+  cursor: pointer;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+.script-complete__item--first { border-color: var(--accent); }
+.script-complete__detail {
+  color: var(--text-muted);
+  font-size: 10px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.script-editor__diagnostics {
+  max-height: 140px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding: 4px 0;
+}
+.script-diag {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--danger, #e05c5c);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: pre-wrap;
+}
+.script-diag:hover:not(:disabled) { background: var(--bg-elevated); }
+.script-diag:disabled { cursor: default; }
+
+@media (max-width: 640px) {
+  /* One pane at a time: list first, the editor slides in over it. */
+  .scripts-list { flex: 1 1 auto; border-right: none; }
+  .script-editor { display: none; }
+  .panel--scripts--editor-open .scripts-list { display: none; }
+  .panel--scripts--editor-open .script-editor { display: flex; }
+  .script-editor__back { display: grid; }
+  .scripts-list__item { padding: 12px 10px; }
+}
+
 .land-field--profile { cursor: pointer; color: var(--accent); }
 
 .msg__meta { display: flex; align-items: center; gap: 8px; }

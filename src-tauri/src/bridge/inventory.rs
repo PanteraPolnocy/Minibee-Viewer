@@ -14,6 +14,7 @@ use crate::codec;
 /// Inventory asset types the core reads.
 pub const AT_LANDMARK: i64 = 3;
 pub const AT_OBJECT: i64 = 6;
+pub const AT_LSL_TEXT: i64 = 10;
 pub const AT_LINK: i64 = 24;
 
 /// One FetchInventory2 request carries at most this many item ids.

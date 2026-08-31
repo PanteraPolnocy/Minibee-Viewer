@@ -4,7 +4,7 @@
 const BeeNavigation = (function () {
   'use strict';
 
-  const TABS = ['chat', 'im', 'interact', 'events', 'buddies', 'search', 'radar', 'map', 'land', 'destinations', 'news', 'settings'];
+  const TABS = ['chat', 'im', 'interact', 'events', 'buddies', 'search', 'radar', 'map', 'land', 'destinations', 'scripts', 'news', 'settings'];
   const radarKnownIds = new Set();
   const SLT_TICK_MS = 60000;
   let sltTimer = null;
@@ -128,6 +128,11 @@ const BeeNavigation = (function () {
       case 'destinations':
         if (typeof BeeDestinations.loadFeed === 'function') {
           BeeDestinations.loadFeed(null, false);
+        }
+        break;
+      case 'scripts':
+        if (typeof BeeScripts !== 'undefined' && typeof BeeScripts.activate === 'function') {
+          BeeScripts.activate();
         }
         break;
       case 'interact':

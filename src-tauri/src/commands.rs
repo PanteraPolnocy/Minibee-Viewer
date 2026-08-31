@@ -561,7 +561,7 @@ pub async fn sl_im_send(
 }
 
 /// A dashless-hex-tolerant UUID to raw 16 bytes; zeros on anything malformed.
-fn uuid_bytes(s: &str) -> Vec<u8> {
+pub(crate) fn uuid_bytes(s: &str) -> Vec<u8> {
     let hex: String = s.chars().filter(|c| c.is_ascii_hexdigit()).collect();
     if hex.len() != 32 {
         return vec![0u8; 16];

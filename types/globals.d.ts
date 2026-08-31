@@ -49,4 +49,5 @@ interface Window {
   BeeLandmarks?: typeof BeeLandmarks;
   BeeMap?: typeof BeeMap;
   BeeNews?: typeof BeeNews;
+  BeeScripts?: typeof BeeScripts;
 }

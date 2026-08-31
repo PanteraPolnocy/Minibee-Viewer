@@ -235,6 +235,16 @@ impl Session {
         }
     }
 
+    pub fn begin_script_transfer(&self, transfer_id: &str, item_id: &str) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.script_xfer = Some(session::ScriptXfer {
+                transfer_id: transfer_id.to_string(),
+                item_id: item_id.to_string(),
+                packets: std::collections::BTreeMap::new(),
+            });
+        }
+    }
+
     pub fn resident_teleport_target(&self, agent_id: &str) -> Option<(i64, i64, String, [f64; 3])> {
         let guard = self.engine.lock().unwrap();
         let st = guard.as_ref()?;

@@ -18,6 +18,7 @@ pub mod objects;
 pub mod outfit;
 pub mod platform;
 pub mod proxy;
+pub mod scripts;
 pub mod session;
 pub mod state;
 pub mod util;
