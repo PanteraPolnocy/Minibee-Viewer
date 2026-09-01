@@ -39,7 +39,8 @@ const BeeSLBridge = (function () {
     'teleport-offer', 'teleport-request', 'teleport-accepted', 'teleport-declined',
     'sit-state', 'object-properties', 'pay-price', 'mute-list', 'region-restart',
     'net-rate', 'covenant', 'covenant-text', 'parcel-access', 'parcel-object-owners',
-    'script-source', 'script-created', 'notecard-source', 'notecard-created', 'close-requested'
+    'script-source', 'script-created', 'notecard-source', 'notecard-created',
+    'voice-neighbours', 'close-requested'
   ];
 
   // Registers every backend listener. The returned Promise doesn't resolve

@@ -120,6 +120,19 @@ const BeeRadar = (function () {
     sub.textContent = ageText + ' · ' + String(entry.range) + 'm' + status;
     body.appendChild(sub);
 
+    // A small mic glyph for people in the voice channel: green while they
+    // speak, struck out when muted for us.
+    const voice = (typeof BeeVoice !== 'undefined' && BeeVoice.participantInfo)
+      ? BeeVoice.participantInfo(entry.id) : null;
+    if (voice) {
+      const mic = document.createElement('span');
+      mic.className = 'entity-item__voice' +
+        (voice.muted ? ' entity-item__voice--muted' : voice.speaking ? ' entity-item__voice--speaking' : '');
+      mic.title = voice.muted ? 'Voice muted for you' : voice.speaking ? 'Speaking' : 'In voice';
+      mic.textContent = voice.muted ? '\u{1F507}' : '\u{1F3A4}';
+      nameEl.appendChild(mic);
+    }
+
     const actions = document.createElement('div');
     actions.className = 'entity-item__actions';
 
@@ -226,6 +239,32 @@ const BeeRadar = (function () {
       { label: 'Copy UUID', fn: function () { copyToClipboard(entry.id, 'UUID'); } }
     ];
 
+    // Per-person voice controls, for people currently in the voice channel.
+    const voice = (typeof BeeVoice !== 'undefined' && BeeVoice.participantInfo)
+      ? BeeVoice.participantInfo(entry.id) : null;
+    if (voice) {
+      actions.push({
+        label: voice.muted ? 'Unmute voice (for me)' : 'Mute voice (for me)',
+        fn: function () { BeeVoice.setUserMute(entry.id, !voice.muted); }
+      });
+      actions.push({
+        label: 'Voice volume... (' + voice.volume + '%)',
+        fn: function () {
+          BeeUtils.prompt({
+            title: 'Voice volume',
+            message: 'Volume for ' + (names.title || 'this resident') + ' (0-200%):',
+            confirmLabel: 'Set',
+            value: String(voice.volume)
+          }).then(function (v) {
+            if (v === null) return;
+            const n = parseInt(String(v), 10);
+            if (Number.isFinite(n)) BeeVoice.setUserVolume(entry.id, n);
+            else BeeUtils.showToast('Enter a number between 0 and 200.', 'warning');
+          });
+        }
+      });
+    }
+
     actions.forEach(function (action) {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -305,6 +344,12 @@ const BeeRadar = (function () {
   }
 
   function init() {
+    // Speaking state rides the voice engine's participant events.
+    if (typeof BeeTransport !== 'undefined') {
+      BeeTransport.on('voice-participants', function () {
+        if (BeeState.get().activeTab === 'radar') scheduleRender();
+      });
+    }
     const rangeInput = document.getElementById('radar-range') as HTMLInputElement | null;
     const rangeLabel = document.getElementById('radar-range-label');
     const alertInput = document.getElementById('radar-alert') as HTMLInputElement | null;

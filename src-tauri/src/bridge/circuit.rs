@@ -881,6 +881,12 @@ impl Session {
                 self.awaiting.lock().unwrap().clear();
                 self.recent_reliable.lock().unwrap().clear();
                 self.pending_acks.lock().unwrap().clear();
+                // The old region's neighbours (and their voice endpoints) went with it.
+                app.state::<Arc<crate::bridge::state::AppState>>()
+                    .neighbour_voice
+                    .lock()
+                    .unwrap()
+                    .clear();
                 self.start_handshake(&agent_id, &session_uuid, circuit_code).await;
             }
             Action::RefreshCaps { seed_url, sim_ip } => {
@@ -888,6 +894,13 @@ impl Session {
                 let app = app.clone();
                 tokio::spawn(async move {
                     me.refresh_region_caps(&app, &seed_url, &sim_ip).await;
+                });
+            }
+            Action::NeighbourVoiceCaps { key, grid_x, grid_y, seed_url, sim_ip } => {
+                let me = self.clone();
+                let app = app.clone();
+                tokio::spawn(async move {
+                    me.fetch_neighbour_voice_caps(&app, key, grid_x, grid_y, &seed_url, &sim_ip).await;
                 });
             }
             Action::InterestList360 => {
@@ -925,6 +938,49 @@ impl Session {
                 });
             }
         }
+    }
+
+    /// Fetch a NEIGHBOUR region's capabilities from its seed and keep just the
+    /// two voice endpoints, so spatial voice can reach across the border. The
+    /// frontend hears about the updated neighbour set and connects when the
+    /// avatar is close enough to that edge.
+    async fn fetch_neighbour_voice_caps(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        key: String,
+        grid_x: i64,
+        grid_y: i64,
+        seed_url: &str,
+        sim_ip: &str,
+    ) {
+        let Some((_, session_uuid)) = self.agent_ids() else {
+            return;
+        };
+        let state = app.state::<Arc<crate::bridge::state::AppState>>().inner().clone();
+        let Some(caps) = crate::bridge::login::fetch_region_caps(&state, seed_url, sim_ip, &session_uuid).await else {
+            crate::dlog!("voice: neighbour {key} cap fetch failed");
+            return;
+        };
+        let provision = caps.get("ProvisionVoiceAccountRequest").cloned().unwrap_or_default();
+        let signaling = caps.get("VoiceSignalingRequest").cloned().unwrap_or_default();
+        if provision.is_empty() {
+            crate::dlog!("voice: neighbour {key} has no voice capability");
+            return;
+        }
+        let neighbours: Vec<serde_json::Value> = {
+            let mut guard = state.neighbour_voice.lock().unwrap();
+            guard.insert(key.clone(), (grid_x, grid_y, provision, signaling));
+            guard
+                .iter()
+                .map(|(k, (gx, gy, _, _))| serde_json::json!({ "key": k, "gridX": gx, "gridY": gy }))
+                .collect()
+        };
+        crate::dlog!("voice: neighbour {key} at ({grid_x},{grid_y}) voice-ready");
+        let _ = tauri::Emitter::emit(
+            app,
+            "minibee-viewer://voice-neighbours",
+            serde_json::json!({ "neighbours": neighbours }),
+        );
     }
 
     /// Re-fetch the new region's caps and restart the EventQueue against them.

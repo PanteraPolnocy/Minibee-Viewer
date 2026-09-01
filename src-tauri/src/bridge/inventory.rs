@@ -47,17 +47,24 @@ pub fn is_zero_uuid(s: &str) -> bool {
 /// request fails. The response is parsed LLSD.
 pub async fn cap_post(state: &Arc<AppState>, session: &Arc<Session>, cap: &str, body: &str) -> Option<Value> {
     let url = session.cap(cap)?;
+    cap_post_url(state, session, &url, body).await
+}
+
+/// Same POST against an explicit cap URL - for endpoints that belong to a
+/// region other than the one the session's cap map describes (a voice
+/// neighbour's, say).
+pub async fn cap_post_url(state: &Arc<AppState>, session: &Arc<Session>, url: &str, body: &str) -> Option<Value> {
     let agent_session = session.agent_ids().map(|(_, s)| s).unwrap_or_default();
     let headers: Vec<(String, String)> = if agent_session.is_empty() {
         Vec::new()
     } else {
         vec![("X-SecondLife-Session-ID".to_string(), agent_session)]
     };
-    let (pin, _) = proxy::simhost_pin(&url, "").await;
+    let (pin, _) = proxy::simhost_pin(url, "").await;
     match proxy::exchange(
         &state.ua,
         "POST",
-        &url,
+        url,
         body,
         "application/llsd+xml",
         &headers,
@@ -69,11 +76,11 @@ pub async fn cap_post(state: &Arc<AppState>, session: &Arc<Session>, cap: &str, 
     {
         Ok(ex) if (200..300).contains(&ex.status) => codec::llsd::parse(&ex.body, &ex.content_type).ok(),
         Ok(ex) => {
-            crate::dlog!("inventory: {cap} HTTP {} body={:.200}", ex.status, ex.body);
+            crate::dlog!("inventory: {url} HTTP {} body={:.200}", ex.status, ex.body);
             None
         }
         Err(e) => {
-            crate::dlog!("inventory: {cap} failed: {e}");
+            crate::dlog!("inventory: {url} failed: {e}");
             None
         }
     }

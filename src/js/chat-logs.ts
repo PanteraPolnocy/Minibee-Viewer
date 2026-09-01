@@ -17,6 +17,37 @@ const BeeChatLogs = (function () {
       ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
   }
 
+  function looksUuid(s) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
+  }
+
+  // The file should carry a person's name, not a UUID. Right after login the
+  // session participant can still be unresolved; the name cache usually knows
+  // better by the time a message lands.
+  function avatarLogName(participant) {
+    if (!participant) return 'Unknown';
+    let name = String(participant.userName || participant.legacyName || participant.name || '');
+    if (!name || looksUuid(name)) {
+      const info = typeof BeeTransport.getCachedNameInfo === 'function'
+        ? BeeTransport.getCachedNameInfo(participant.id)
+        : null;
+      name = (info && (info.userName || info.label || info.displayName)) || name;
+    }
+    return name && !looksUuid(name) ? name : String(participant.id || 'Unknown');
+  }
+
+  // A group file must never be named by the placeholder title ("Group chat")
+  // that early messages arrive under - separate groups would merge into one
+  // file. The group-name cache, then the session id, beat that.
+  function groupLogName(session) {
+    const title = String(session.title || '').trim();
+    if (title && title !== 'Group chat' && title !== 'Conference' && !looksUuid(title)) return title;
+    const cached = typeof BeeTransport.getGroupName === 'function'
+      ? BeeTransport.getGroupName(session.id)
+      : '';
+    return cached || String(session.id || 'Group chat');
+  }
+
   function logIm(payload) {
     if (typeof BeeSettings === 'undefined' || !payload || !payload.message) return;
     const msg = payload.message;
@@ -29,8 +60,8 @@ const BeeChatLogs = (function () {
     if (!BeeSettings.get(grouplike ? 'chatLogsGroups' : 'chatLogsAvatars')) return;
     const kind = grouplike ? 'groups' : 'avatars';
     const target = grouplike
-      ? (session.title || 'Group chat')
-      : ((session.participant && session.participant.name) || 'Unknown');
+      ? groupLogName(session)
+      : avatarLogName(session.participant);
     const who = String(msg.fromName || (msg.outgoing ? 'Me' : 'Unknown'));
     const line = '[' + stamp(msg.timestamp) + '] ' + who + ': ' + text;
     BeeTransport.chatLogAppend(kind, target, line).catch(function () {});
@@ -53,8 +84,27 @@ const BeeChatLogs = (function () {
     BeeSettings.set('chatLogsGroups', !!keep);
   }
 
+  // Nearby chat, behind its own switch. Only actual conversation lines land
+  // in the file - system lines and the interactive cards (dialogs, offers,
+  // payments) are viewer furniture, not chat.
+  function logChat(msg) {
+    if (typeof BeeSettings === 'undefined' || !BeeSettings.get('chatLogsLocal') || !msg) return;
+    if (msg.type === 'system' || msg.source === 'system') return;
+    if (msg.kind === 'script-dialog' || msg.kind === 'script-permission' ||
+        msg.kind === 'interactive-prompt' || msg.kind === 'payment' || msg.kind === 'motd' ||
+        msg.kind === 'group-notice') {
+      return;
+    }
+    const text = String(msg.text || '');
+    if (!text.trim()) return;
+    const who = String(msg.fromName || (msg.outgoing ? 'Me' : 'Unknown'));
+    const line = '[' + stamp(msg.timestamp) + '] ' + who + ': ' + text;
+    BeeTransport.chatLogAppend('local', 'Nearby Chat', line).catch(function () {});
+  }
+
   function init() {
     BeeState.on('im', logIm);
+    BeeState.on('chat', logChat);
     BeeState.on('change', function (partial) {
       if (partial && partial.connected === true) void maybeAsk();
     });

@@ -1,8 +1,8 @@
 //! Optional on-disk chat transcripts. Off by default; the frontend only calls
 //! in here when the user has said yes to keeping logs. Files live in the
 //! app's data directory (never the OS cache, which the system may wipe),
-//! split into `logs/avatars/` and `logs/groups/`, one plain-text file per
-//! conversation.
+//! split into `logs/avatars/`, `logs/groups/` and `logs/local/` (nearby
+//! chat), one plain-text file per conversation.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 type Cmd = Result<Value, String>;
 
-const KINDS: [&str; 2] = ["avatars", "groups"];
+const KINDS: [&str; 3] = ["avatars", "groups", "local"];
 /// One appended line is a chat message plus a timestamp; anything much bigger
 /// is not chat.
 const MAX_LINE_BYTES: usize = 8 * 1024;
@@ -60,6 +60,58 @@ pub fn append_line(base: &Path, kind: &str, name: &str, line: &str) -> Result<()
     writeln!(file, "{flat}").map_err(|e| format!("Could not write the log file: {e}"))
 }
 
+/// Every log file, per kind: (kind, file stem, bytes). Sorted by kind then name.
+pub fn list_logs(base: &Path) -> Vec<(String, String, u64)> {
+    let mut rows = Vec::new();
+    for kind in KINDS {
+        let Ok(entries) = std::fs::read_dir(base.join("logs").join(kind)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else { continue };
+            if !meta.is_file() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(stem) = name.strip_suffix(".txt") else { continue };
+            rows.push((kind.to_string(), stem.to_string(), meta.len()));
+        }
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())));
+    rows
+}
+
+/// Delete one conversation's log, or every log of a kind when `name` is None.
+/// The path is rebuilt through the same sanitizer that wrote it, so this can
+/// only ever touch files inside `logs/<kind>/`.
+pub fn delete_logs(base: &Path, kind: &str, name: Option<&str>) -> Result<u64, String> {
+    if !KINDS.contains(&kind) {
+        return Err("Bad log kind".into());
+    }
+    let mut deleted = 0u64;
+    match name {
+        Some(name) => {
+            let path = log_file(base, kind, name).ok_or("Bad log target")?;
+            if path.is_file() {
+                std::fs::remove_file(&path).map_err(|e| format!("Could not delete the log: {e}"))?;
+                deleted = 1;
+            }
+        }
+        None => {
+            if let Ok(entries) = std::fs::read_dir(base.join("logs").join(kind)) {
+                for entry in entries.flatten() {
+                    if entry.metadata().map(|m| m.is_file()).unwrap_or(false)
+                        && std::fs::remove_file(entry.path()).is_ok()
+                    {
+                        deleted += 1;
+                    }
+                }
+            }
+        }
+    }
+    Ok(deleted)
+}
+
 /// Total size and file count under `logs/`, for the About tab.
 pub fn usage(base: &Path) -> (u64, u64) {
     let mut bytes = 0u64;
@@ -89,6 +141,26 @@ pub fn chat_log_append(app: tauri::AppHandle, kind: String, name: String, line: 
     let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
     append_line(&base, &kind, &name, &line)?;
     Ok(json!({ "ok": true }))
+}
+
+/// The log files on disk, for the log manager.
+#[tauri::command]
+pub fn chat_log_list(app: tauri::AppHandle) -> Cmd {
+    let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
+    let rows: Vec<Value> = list_logs(&base)
+        .into_iter()
+        .map(|(kind, name, bytes)| json!({ "kind": kind, "name": name, "bytes": bytes }))
+        .collect();
+    Ok(json!({ "ok": true, "logs": rows }))
+}
+
+/// Delete one log file, or a whole kind (name omitted). Called only from the
+/// log manager, behind its own confirmation.
+#[tauri::command]
+pub fn chat_log_delete(app: tauri::AppHandle, kind: String, name: Option<String>) -> Cmd {
+    let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
+    let deleted = delete_logs(&base, &kind, name.as_deref())?;
+    Ok(json!({ "ok": true, "deleted": deleted }))
 }
 
 /// How much disk the chat logs take, and where they live.
@@ -135,6 +207,14 @@ mod tests {
         let (bytes, files) = usage(&base);
         assert_eq!(files, 2);
         assert!(bytes > 0);
+        // The manager sees both files, deletes one by name, then a whole kind.
+        let rows = list_logs(&base);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], ("avatars".into(), "Some One".into(), text.len() as u64));
+        assert_eq!(delete_logs(&base, "avatars", Some("Some One")).unwrap(), 1);
+        assert_eq!(delete_logs(&base, "groups", None).unwrap(), 1);
+        assert!(delete_logs(&base, "..", None).is_err());
+        assert_eq!(usage(&base).1, 0);
         let _ = std::fs::remove_dir_all(&base);
     }
 }

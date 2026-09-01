@@ -5793,6 +5793,78 @@ button.status-chip--balance:disabled {
   to { opacity: 1; }
 }
 
+/* Chat log manager: kind headers with delete-all, one row per file. */
+.log-manager {
+  width: min(92vw, 460px);
+}
+.log-manager__list {
+  max-height: min(55vh, 420px);
+  overflow-y: auto;
+  margin: 10px 0 14px;
+  font-size: 0.84rem;
+}
+.log-manager__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 0 2px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.log-manager__head:first-child { margin-top: 2px; }
+.log-manager__kind {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.log-manager__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+}
+.log-manager__row:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.log-manager__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-manager__size {
+  flex: 0 0 auto;
+  min-width: 44px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+.log-manager__row .btn,
+.log-manager__head .btn {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+}
+
+/* Radar voice badge: gray in-channel, green while speaking, dim when muted. */
+.entity-item__voice {
+  margin-left: 6px;
+  font-size: 0.72rem;
+  opacity: 0.55;
+  filter: grayscale(1);
+}
+.entity-item__voice--speaking {
+  opacity: 1;
+  filter: none;
+}
+.entity-item__voice--muted { opacity: 0.35; }
+
 /* The chat-log folder location under the size figure in About. */
 .about-chatlogs__path {
   margin-top: 2px;

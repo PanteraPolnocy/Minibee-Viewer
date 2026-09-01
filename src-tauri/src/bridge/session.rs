@@ -45,6 +45,11 @@ pub enum Action {
     /// the new seed URL and restart the EventQueue against them. This is
     /// best-effort: if it fails, the (already retargeted) UDP circuit still works.
     RefreshCaps { seed_url: String, sim_ip: String },
+    /// A neighbour sim introduced itself (EnableSimulator, then its seed via
+    /// EstablishAgentCommunication): fetch that region's voice capabilities so
+    /// spatial voice can span the border. Voice only - no circuit, no
+    /// EventQueue against the neighbour.
+    NeighbourVoiceCaps { key: String, grid_x: i64, grid_y: i64, seed_url: String, sim_ip: String },
     /// Accept a ChatterBox conference/ad-hoc invitation through the
     /// ChatSessionRequest cap, so the sim enrolls us and sends the roster plus any
     /// later messages. Skip it and the agent only ever sees a conference's first line.
@@ -205,6 +210,10 @@ pub struct SessionState {
     pub covenant_xfer: Option<(String, BTreeMap<i64, Vec<u8>>)>,
     /// An in-flight script-source download over the asset transfer channel.
     pub script_xfer: Option<ScriptXfer>,
+    /// Adjacent sims announced by EnableSimulator, keyed "ip:port", holding
+    /// their grid coordinates until EstablishAgentCommunication brings the
+    /// seed capability (voice needs both halves).
+    pub neighbour_sims: HashMap<String, (i64, i64)>,
 }
 
 /// A script or notecard text on its way down: which transfer, which inventory
@@ -616,6 +625,22 @@ fn llsd_region_grid(v: Option<&Value>) -> Option<(i64, i64)> {
         }
     }
     None
+}
+
+/// Remember a neighbour sim EnableSimulator announced, if it really is one:
+/// directly adjacent on the grid and not the region we stand in. The seed
+/// capability follows separately (EstablishAgentCommunication).
+fn note_neighbour_sim(state: &mut SessionState, ip: &str, port: i64, gx: i64, gy: i64) {
+    if ip.is_empty() || port <= 0 {
+        return;
+    }
+    if state.region_grid_x != 0 {
+        let (dx, dy) = (gx - state.region_grid_x, gy - state.region_grid_y);
+        if (dx == 0 && dy == 0) || dx.abs() > 1 || dy.abs() > 1 {
+            return;
+        }
+    }
+    state.neighbour_sims.insert(format!("{ip}:{port}"), (gx, gy));
 }
 
 /// Grid coordinates from a template-decoded U64 RegionHandle (a decimal
@@ -2947,6 +2972,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 }
             }
             state.objects.clear();
+            state.neighbour_sims.clear();
             let mut fin = json!({ "url": seed, "simIp": sim_ip, "simPort": sim_port, "regionHandle": handle });
             if let Some(name) = tp_target_region_name(state) {
                 fin["regionName"] = json!(name);
@@ -2997,6 +3023,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 }
             }
             state.objects.clear();
+            state.neighbour_sims.clear();
             state.last_pos = Some([px, py, pz]);
             actions.push(Action::InterestList360);
             actions.push(Action::emit(
@@ -3091,10 +3118,16 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
         }
 
-        // EnableSimulator (neighbour/child sims) is a rendering optimisation that a
-        // no-3D client doesn't need; the actual sim switch happens on
-        // TeleportFinish/CrossedRegion. So we intentionally ignore it.
-        "EnableSimulator" => {}
+        // A neighbour/child sim announcing itself. No circuit is opened (a
+        // no-3D client doesn't need one), but the sim's grid position is kept:
+        // once EstablishAgentCommunication brings its seed capability, spatial
+        // voice can extend across that border.
+        "EnableSimulator" => {
+            let si = block0(decoded, "SimulatorInfo").cloned().unwrap_or(Value::Null);
+            if let Some((gx, gy)) = wire_region_grid(&inst_str(&si, "Handle")) {
+                note_neighbour_sim(state, &inst_str(&si, "IP"), inst_i64(&si, "Port"), gx, gy);
+            }
+        }
 
         // A group's profile.
         "GroupProfileReply" => {
@@ -3871,6 +3904,7 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                 state.region_grid_x = gx;
                 state.region_grid_y = gy;
                 state.objects.clear();
+            state.neighbour_sims.clear();
                 fin["gridX"] = json!(gx);
                 fin["gridY"] = json!(gy);
                 fin["region"] = json!({ "x": gx, "y": gy, "gridX": gx, "gridY": gy });
@@ -3912,6 +3946,7 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                 }
             }
             state.objects.clear();
+            state.neighbour_sims.clear();
             state.last_pos = Some([px, py, pz]);
             actions.push(Action::InterestList360);
             actions.push(Action::emit(
@@ -3920,14 +3955,34 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             ));
         }
 
-        // Neighbour/child-sim setup - a rendering optimisation a no-3D client
-        // doesn't need (this matches the UDP EnableSimulator no-op).
-        "EnableSimulator" => {}
+        // A neighbour sim announcing itself over the EventQueue - same handling
+        // as the UDP arm: remember its grid position for cross-border voice.
+        "EnableSimulator" => {
+            if let Some(si) = body.get("SimulatorInfo").and_then(|v| v.as_array()).and_then(|a| a.first()) {
+                if let Some((gx, gy)) = llsd_region_grid(si.get("Handle")) {
+                    note_neighbour_sim(state, &llsd_ip(si.get("IP")), inst_i64(si, "Port"), gx, gy);
+                }
+            }
+        }
 
-        // The seed capability for a neighbour sim. It only matters to a client
-        // holding child agents on adjacent regions; the main-region seed arrives
-        // inside TeleportFinish / CrossedRegion, which we do act on.
-        "EstablishAgentCommunication" => {}
+        // The seed capability for a neighbour sim we saw in EnableSimulator:
+        // the missing half for cross-border voice. Fetch that region's voice
+        // caps (async - the circuit layer runs it).
+        "EstablishAgentCommunication" => {
+            let ip_port = body.get("sim-ip-and-port").and_then(|v| v.as_str()).unwrap_or("");
+            let seed = body.get("seed-capability").and_then(|v| v.as_str()).unwrap_or("");
+            if !ip_port.is_empty() && !seed.is_empty() {
+                if let Some(&(gx, gy)) = state.neighbour_sims.get(ip_port) {
+                    actions.push(Action::NeighbourVoiceCaps {
+                        key: ip_port.to_string(),
+                        grid_x: gx,
+                        grid_y: gy,
+                        seed_url: seed.to_string(),
+                        sim_ip: ip_port.split(':').next().unwrap_or("").to_string(),
+                    });
+                }
+            }
+        }
 
         // Parcel data arrives here (flavor=llsd), not as a UDP block.
         "ParcelProperties" => {

@@ -117,22 +117,67 @@ pub fn sl_voice_stun(state: State<'_, Arc<AppState>>) -> Cmd {
     Ok(json!({ "ok": true, "servers": stun_servers(&grid) }))
 }
 
-/// Ask the sim for a spatial voice session on the current region - the
+/// The neighbour regions whose voice endpoints are known, with their grid
+/// coordinates - the frontend connects to the ones the avatar stands near.
+#[tauri::command]
+pub fn sl_voice_neighbours(state: State<'_, Arc<AppState>>) -> Cmd {
+    let rows: Vec<Value> = state
+        .neighbour_voice
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, (gx, gy, _, _))| json!({ "key": k, "gridX": gx, "gridY": gy }))
+        .collect();
+    Ok(json!({ "ok": true, "neighbours": rows }))
+}
+
+/// The voice cap URL to use: the current region's own capability, or a known
+/// neighbour's endpoint when `neighbour` names one.
+fn voice_cap_url(
+    state: &Arc<AppState>,
+    session: &Arc<crate::bridge::circuit::Session>,
+    cap: &str,
+    neighbour: &Option<String>,
+) -> Result<String, String> {
+    match neighbour {
+        Some(key) => {
+            let guard = state.neighbour_voice.lock().unwrap();
+            let (_, _, provision, signaling) = guard.get(key).ok_or("Unknown voice neighbour")?;
+            let url = if cap == "VoiceSignalingRequest" { signaling } else { provision };
+            if url.is_empty() {
+                return Err("The neighbour lacks that capability".into());
+            }
+            Ok(url.clone())
+        }
+        None => session.cap(cap).ok_or_else(|| "This region has no voice".into()),
+    }
+}
+
+/// Ask a sim for a spatial voice session - the current region's (on the
 /// parcel-local channel when the parcel under our feet calls for one, the
-/// estate-wide channel otherwise. The SDP offer goes up; the answer (and the
+/// estate-wide channel otherwise), or a neighbour region's estate channel
+/// when `neighbour` names one. The SDP offer goes up; the answer (and the
 /// viewer_session handle every later signalling call needs) comes back.
 #[tauri::command]
-pub async fn sl_voice_provision(state: State<'_, Arc<AppState>>, offer: String) -> Cmd {
+pub async fn sl_voice_provision(
+    state: State<'_, Arc<AppState>>,
+    offer: String,
+    neighbour: Option<String>,
+) -> Cmd {
     let session = state.active().ok_or("No active session")?;
     if offer.trim().is_empty() || offer.len() > 128 * 1024 {
         return Err("Bad SDP offer".into());
     }
-    if session.cap("ProvisionVoiceAccountRequest").is_none() {
-        return Err("This region has no voice".into());
-    }
-    let parcel_local_id = parcel_channel(session.parcel_voice())?;
+    let url = voice_cap_url(state.inner(), &session, "ProvisionVoiceAccountRequest", &neighbour)?;
+    // Cross-border listening happens on the neighbour's estate channel, the
+    // way the standard client connects its non-primary regions.
+    let parcel_local_id = if neighbour.is_some() {
+        None
+    } else {
+        parcel_channel(session.parcel_voice())?
+    };
     let body = provision_body(&offer, parcel_local_id);
-    let res = inventory::cap_post(state.inner(), &session, "ProvisionVoiceAccountRequest", &body)
+    let res = inventory::cap_post_url(state.inner(), &session, &url, &body)
         .await
         .ok_or("The voice provisioning request failed")?;
     let viewer_session = res.get("viewer_session").and_then(|v| v.as_str()).unwrap_or("");
@@ -163,6 +208,7 @@ pub async fn sl_voice_ice(
     viewer_session: String,
     candidates: Vec<Value>,
     completed: bool,
+    neighbour: Option<String>,
 ) -> Cmd {
     let session = state.active().ok_or("No active session")?;
     if viewer_session.is_empty() || (candidates.is_empty() && !completed) {
@@ -171,11 +217,9 @@ pub async fn sl_voice_ice(
     if candidates.len() > 64 {
         return Err("Too many candidates".into());
     }
-    if session.cap("VoiceSignalingRequest").is_none() {
-        return Err("Voice signalling capability unavailable".into());
-    }
+    let url = voice_cap_url(state.inner(), &session, "VoiceSignalingRequest", &neighbour)?;
     let body = ice_body(&viewer_session, &candidates, completed);
-    inventory::cap_post(state.inner(), &session, "VoiceSignalingRequest", &body)
+    inventory::cap_post_url(state.inner(), &session, &url, &body)
         .await
         .ok_or("The voice signalling request failed")?;
     Ok(json!({ "ok": true }))
@@ -184,11 +228,18 @@ pub async fn sl_voice_ice(
 /// Tell the sim we're dropping a voice session, as a courtesy - closing the
 /// peer connection tears it down anyway.
 #[tauri::command]
-pub async fn sl_voice_logout(state: State<'_, Arc<AppState>>, viewer_session: String) -> Cmd {
+pub async fn sl_voice_logout(
+    state: State<'_, Arc<AppState>>,
+    viewer_session: String,
+    neighbour: Option<String>,
+) -> Cmd {
     let session = state.active().ok_or("No active session")?;
     if viewer_session.is_empty() {
         return Ok(json!({ "ok": true }));
     }
+    let Ok(url) = voice_cap_url(state.inner(), &session, "ProvisionVoiceAccountRequest", &neighbour) else {
+        return Ok(json!({ "ok": true }));
+    };
     let body = format!(
         "<?xml version=\"1.0\"?><llsd><map>\
          <key>logout</key><boolean>1</boolean>\
@@ -197,7 +248,7 @@ pub async fn sl_voice_logout(state: State<'_, Arc<AppState>>, viewer_session: St
          </map></llsd>",
         xml_escape(&viewer_session)
     );
-    let _ = inventory::cap_post(state.inner(), &session, "ProvisionVoiceAccountRequest", &body).await;
+    let _ = inventory::cap_post_url(state.inner(), &session, &url, &body).await;
     Ok(json!({ "ok": true }))
 }
 

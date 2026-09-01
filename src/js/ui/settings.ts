@@ -47,11 +47,24 @@ const BeeSettingsUI = (function () {
     { section: 'Voice', items: [
       { key: 'voiceEnabled', label: 'Voice chat (experimental)', kind: 'toggle' },
       { key: 'voiceVolume', label: 'Volume', kind: 'range', unit: '%' },
-      { key: 'voiceMicVolume', label: 'Microphone volume', kind: 'range', unit: '%' }
+      { key: 'voiceMicVolume', label: 'Microphone volume', kind: 'range', unit: '%' },
+      { key: 'voiceMicDevice', label: 'Microphone', kind: 'select', missingLabel: 'Saved microphone (unavailable)',
+        optionsFn: function () {
+          return (typeof window.BeeVoice !== 'undefined' && window.BeeVoice)
+            ? window.BeeVoice.listDevices('audioinput')
+            : Promise.resolve([['', 'System default']]);
+        } },
+      { key: 'voiceOutputDevice', label: 'Output device', kind: 'select', missingLabel: 'Saved output (unavailable)',
+        optionsFn: function () {
+          return (typeof window.BeeVoice !== 'undefined' && window.BeeVoice)
+            ? window.BeeVoice.listDevices('audiooutput')
+            : Promise.resolve([['', 'System default']]);
+        } }
     ] },
     { section: 'Chat logs', items: [
       { key: 'chatLogsAvatars', label: 'Keep IM logs (people)', kind: 'toggle' },
-      { key: 'chatLogsGroups', label: 'Keep IM logs (groups and conferences)', kind: 'toggle' }
+      { key: 'chatLogsGroups', label: 'Keep IM logs (groups and conferences)', kind: 'toggle' },
+      { key: 'chatLogsLocal', label: 'Keep nearby chat log', kind: 'toggle' }
     ] },
     { section: 'Parcel music', items: [
       { key: 'parcelMusicEnabled', label: 'Auto-play stream', kind: 'toggle' },
@@ -133,13 +146,30 @@ const BeeSettingsUI = (function () {
       const select = document.createElement('select');
       select.id = id;
       select.className = 'settings-control__select';
-      (item.options || []).forEach(function (opt) {
-        const o = document.createElement('option');
-        o.value = opt[0];
-        o.textContent = opt[1];
-        select.appendChild(o);
-      });
-      select.value = String(current);
+      const fill = function (options) {
+        select.innerHTML = '';
+        (options || []).forEach(function (opt) {
+          const o = document.createElement('option');
+          o.value = opt[0];
+          o.textContent = opt[1];
+          select.appendChild(o);
+        });
+        // A stored value the list doesn't know (an unplugged device) still
+        // shows up, so the user can see and change it.
+        if (current !== undefined && !Array.from(select.options).some(function (o) { return o.value === String(current); })) {
+          const o = document.createElement('option');
+          o.value = String(current);
+          o.textContent = item.missingLabel || 'Saved choice (unavailable)';
+          select.appendChild(o);
+        }
+        select.value = String(current);
+      };
+      if (item.optionsFn) {
+        fill([['', 'Loading...']]);
+        Promise.resolve(item.optionsFn()).then(fill).catch(function () { fill([['', 'System default']]); });
+      } else {
+        fill(item.options);
+      }
       select.addEventListener('change', function () {
         BeeSettings.set(item.key, select.value);
       });
@@ -266,6 +296,128 @@ const BeeSettingsUI = (function () {
     }).catch(function () {});
   }
 
+  function fmtLogSize(b) {
+    return b >= 1024 * 1024
+      ? (b / (1024 * 1024)).toFixed(1) + ' MB'
+      : Math.max(1, Math.round(b / 1024)) + ' KB';
+  }
+
+  // --- Log manager: list and delete the chat log files -----------------------
+
+  const LOG_KIND_LABELS = {
+    local: 'Nearby chat',
+    avatars: 'IM logs (people)',
+    groups: 'Group and conference logs'
+  };
+
+  function openLogManager() {
+    const d = document.getElementById('log-manager-dialog') as HTMLDialogElement | null;
+    if (!d || typeof d.showModal !== 'function') return;
+    void renderLogManager();
+    if (!d.open) d.showModal();
+  }
+
+  async function deleteLogs(kind, name, what) {
+    const ok = await BeeUtils.confirm({
+      title: 'Delete log files?',
+      message: 'Delete ' + what + '? The text files are removed from this device permanently.',
+      confirmLabel: 'Delete',
+      danger: true
+    });
+    if (!ok) return;
+    try {
+      await BeeBridge.invoke('chat_log_delete', { kind: kind, name: name || null });
+      BeeUtils.showToast('Deleted.', 'success');
+    } catch (err) {
+      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not delete the log.', 'error');
+    }
+    void renderLogManager();
+    updateChatLogUsage();
+  }
+
+  async function renderLogManager() {
+    const list = document.getElementById('log-manager-list');
+    if (!list) return;
+    list.textContent = 'Loading...';
+    let logs = [];
+    try {
+      const res = await BeeBridge.invoke('chat_log_list');
+      logs = (res && res.logs) || [];
+    } catch (_e) {
+      list.textContent = 'The log list is unavailable.';
+      return;
+    }
+    list.innerHTML = '';
+    if (!logs.length) {
+      list.textContent = 'No log files on this device.';
+      return;
+    }
+    Object.keys(LOG_KIND_LABELS).forEach(function (kind) {
+      const rows = logs.filter(function (l) { return l.kind === kind; });
+      if (!rows.length) return;
+      const head = document.createElement('div');
+      head.className = 'log-manager__head';
+      const title = document.createElement('span');
+      title.className = 'log-manager__kind';
+      title.textContent = LOG_KIND_LABELS[kind] + ' (' + rows.length + ')';
+      head.appendChild(title);
+      const all = document.createElement('button');
+      all.type = 'button';
+      all.className = 'btn btn--ghost btn--sm';
+      all.textContent = 'Delete all';
+      all.addEventListener('click', function () {
+        void deleteLogs(kind, null, 'ALL ' + LOG_KIND_LABELS[kind].toLowerCase() + ' files');
+      });
+      head.appendChild(all);
+      list.appendChild(head);
+      rows.forEach(function (l) {
+        const row = document.createElement('div');
+        row.className = 'log-manager__row';
+        const name = document.createElement('span');
+        name.className = 'log-manager__name';
+        // Older avatar logs can carry a bare UUID as their filename (written
+        // before the name resolved); show the person instead when the name
+        // cache knows them, and ask it to find out when it doesn't yet.
+        let display = l.name;
+        const isUuidName = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(l.name);
+        if (isUuidName && typeof BeeTransport !== 'undefined') {
+          if (kind === 'avatars') {
+            const info = BeeTransport.getCachedNameInfo ? BeeTransport.getCachedNameInfo(l.name) : null;
+            const resolved = info && (info.displayName || info.label || info.userName);
+            if (resolved) {
+              display = resolved;
+            } else if (BeeTransport.queueNameResolve && BeeState.gridOnline()) {
+              BeeTransport.queueNameResolve(l.name); // a names-updated event re-renders
+            }
+          } else if (kind === 'groups') {
+            const gname = BeeTransport.getGroupName ? BeeTransport.getGroupName(l.name) : '';
+            if (gname) {
+              display = gname;
+            } else if (BeeTransport.queueGroupNameResolve && BeeState.gridOnline()) {
+              BeeTransport.queueGroupNameResolve(l.name);
+            }
+          }
+        }
+        name.textContent = display;
+        name.title = l.name;
+        const size = document.createElement('span');
+        size.className = 'log-manager__size';
+        size.textContent = fmtLogSize(Number(l.bytes) || 0);
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'btn btn--ghost btn--sm';
+        del.textContent = 'Delete';
+        del.addEventListener('click', function () {
+          void deleteLogs(l.kind, l.name, 'the log for "' + l.name + '"');
+        });
+        row.appendChild(name);
+        row.appendChild(size);
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    });
+  }
+
   // The chat-log figure is fetched fresh on every About open: the files grow
   // while the app runs, so a one-time load would go stale.
   function updateChatLogUsage() {
@@ -282,15 +434,22 @@ const BeeSettingsUI = (function () {
         return;
       }
       const files = Number(u.files) || 0;
-      if (!files) {
-        cell.textContent = 'No log files';
-      } else {
-        const b = Number(u.bytes) || 0;
-        const size = b >= 1024 * 1024
-          ? (b / (1024 * 1024)).toFixed(1) + ' MB'
-          : Math.max(1, Math.round(b / 1024)) + ' KB';
-        cell.textContent = size + ' in ' + files + (files === 1 ? ' file' : ' files');
+      let label = 'No log files';
+      if (files) {
+        label = fmtLogSize(Number(u.bytes) || 0) + ' in ' + files + (files === 1 ? ' file' : ' files');
       }
+      // A link into the log manager, where files can be inspected and deleted.
+      cell.innerHTML = '';
+      const link = document.createElement('a');
+      link.href = '#';
+      link.className = 'settings-link';
+      link.textContent = label;
+      link.title = 'Manage and delete log files';
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        openLogManager();
+      });
+      cell.appendChild(link);
       // The folder path is spelled out (a hover tooltip is useless on touch).
       if (u.path) {
         const p = document.createElement('div');
@@ -551,6 +710,22 @@ const BeeSettingsUI = (function () {
     });
     const copyBtn = document.getElementById('about-copy');
     if (copyBtn) copyBtn.addEventListener('click', copyAbout);
+    const logClose = document.getElementById('log-manager-close');
+    if (logClose) {
+      logClose.addEventListener('click', function () {
+        const d = document.getElementById('log-manager-dialog') as HTMLDialogElement | null;
+        if (d && d.open) BeeUtils.dismissDialog(d);
+      });
+    }
+    // UUID-named log files resolve to people and groups asynchronously.
+    if (typeof BeeTransport !== 'undefined' && BeeTransport.on) {
+      const rerenderIfOpen = function () {
+        const d = document.getElementById('log-manager-dialog') as HTMLDialogElement | null;
+        if (d && d.open) void renderLogManager();
+      };
+      BeeTransport.on('names-updated', rerenderIfOpen);
+      BeeTransport.on('group-names', rerenderIfOpen);
+    }
     const updateBtn = document.getElementById('about-check-update');
     if (updateBtn) {
       updateBtn.addEventListener('click', function () {

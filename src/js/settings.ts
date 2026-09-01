@@ -26,6 +26,10 @@ const BeeSettings = (function () {
     voiceVolume: { type: 'number', default: 80, min: 0, max: 100, step: 1 },
     // Microphone gain: 100 = as captured, up to 200% boost.
     voiceMicVolume: { type: 'number', default: 100, min: 0, max: 200, step: 5 },
+    // Device ids; empty = system default. Labels resolve after the first
+    // microphone grant (browser rule).
+    voiceMicDevice: { type: 'string', default: '' },
+    voiceOutputDevice: { type: 'string', default: '' },
     // Parcel music streaming. Off by default because of autoplay policy; volume 0-100.
     parcelMusicEnabled: { type: 'boolean', default: false },
     parcelMusicVolume: { type: 'number', default: 50, min: 0, max: 100, step: 1 },
@@ -33,6 +37,7 @@ const BeeSettings = (function () {
     // the first login asks once (chatLogsAsked remembers it was answered).
     chatLogsAvatars: { type: 'boolean', default: false },
     chatLogsGroups: { type: 'boolean', default: false },
+    chatLogsLocal: { type: 'boolean', default: false },
     chatLogsAsked: { type: 'boolean', default: false },
     objectsRange: { type: 'number', default: 32 },
     objectsIncludeAttachments: { type: 'boolean', default: false },

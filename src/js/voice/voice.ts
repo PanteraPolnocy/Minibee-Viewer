@@ -54,6 +54,73 @@ const BeeVoice = (function () {
   // agent id -> { speaking, level }; server messages key by agent UUID.
   const participants = new Map();
 
+  // Per-person voice preferences (volume 0-200%, mute), persisted across
+  // sessions and re-applied whenever that person joins a channel - the same
+  // dance the standard client does with its speaker volume storage.
+  const PEER_PREFS_KEY = 'minibee-voice-peers';
+  let peerPrefs = null;
+
+  function loadPeerPrefs() {
+    if (!peerPrefs) {
+      const raw = BeeUtils.storageGet(PEER_PREFS_KEY, null);
+      peerPrefs = raw && typeof raw === 'object' ? raw : {};
+    }
+    return peerPrefs;
+  }
+
+  function peerPref(id) {
+    const p = loadPeerPrefs()[String(id).toLowerCase()];
+    return { volume: p && Number.isFinite(p.volume) ? p.volume : 100, muted: !!(p && p.muted) };
+  }
+
+  function savePeerPref(id, pref) {
+    const prefs = loadPeerPrefs();
+    const key = String(id).toLowerCase();
+    if (pref.volume === 100 && !pref.muted) delete prefs[key];
+    else prefs[key] = pref;
+    BeeUtils.storageSet(PEER_PREFS_KEY, prefs);
+  }
+
+  // The wire scale: a 0-200% volume rides as gain 0-400 (percent x 2, the
+  // standard client's volume x 200), mute as a plain boolean.
+  function setUserVolume(id, percent) {
+    const vol = Math.max(0, Math.min(200, Math.round(Number(percent) || 0)));
+    const pref = peerPref(id);
+    pref.volume = vol;
+    savePeerPref(id, pref);
+    const ug = {};
+    ug[String(id).toLowerCase()] = vol * 2;
+    sendDataAll({ ug: ug });
+    emitParticipants();
+  }
+
+  function setUserMute(id, muted) {
+    const pref = peerPref(id);
+    pref.muted = !!muted;
+    savePeerPref(id, pref);
+    const m = {};
+    m[String(id).toLowerCase()] = !!muted;
+    sendDataAll({ m: m });
+    emitParticipants();
+  }
+
+  function emitParticipants() {
+    BeeTransport.emit('voice-participants', {
+      participants: Array.from(participants, function (pair) {
+        const pref = peerPref(pair[0]);
+        return { id: pair[0], speaking: pair[1].speaking, level: pair[1].level, muted: pref.muted, volume: pref.volume };
+      })
+    });
+  }
+
+  // What the UI wants to know about one person, cheaply.
+  function participantInfo(id) {
+    const p = participants.get(String(id).toLowerCase());
+    if (!p) return null;
+    const pref = peerPref(id);
+    return { speaking: p.speaking, level: p.level, muted: pref.muted, volume: pref.volume };
+  }
+
   function el(id) { return document.getElementById(id); }
 
   // Every leg of the handshake logs here; with --enablelogfiles the "voice:"
@@ -81,7 +148,53 @@ const BeeVoice = (function () {
     audioEl.hidden = true;
     document.body.appendChild(audioEl);
     applyVolume();
+    applySink(audioEl);
     return audioEl;
+  }
+
+  // Route playback to the chosen output device, where the platform allows
+  // picking one (setSinkId is Chromium-only; elsewhere the default plays).
+  function applySink(el2) {
+    const want = typeof BeeSettings !== 'undefined' ? String(BeeSettings.get('voiceOutputDevice') || '') : '';
+    if (!el2 || typeof el2.setSinkId !== 'function') return;
+    el2.setSinkId(want).catch(function (err) {
+      vlog('output device rejected, using default: ' + err);
+    });
+  }
+
+  // The device lists for the settings pickers. Labels only exist once the
+  // microphone permission has been granted; numbered stand-ins otherwise.
+  async function listDevices(kind) {
+    const out = [['', 'System default']];
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return out;
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      let n = 0;
+      devs.forEach(function (d) {
+        if (d.kind !== kind || !d.deviceId || d.deviceId === 'default' || d.deviceId === 'communications') return;
+        n++;
+        out.push([d.deviceId, d.label || ((kind === 'audioinput' ? 'Microphone ' : 'Output ') + n)]);
+      });
+    } catch (_e) { /* the default entry stands */ }
+    return out;
+  }
+
+  // Drop the current microphone chain so the next unmute (or the immediate
+  // re-acquire below, when the mic is live) picks up the newly chosen device.
+  async function reacquireMic() {
+    if (!micStream) return;
+    const wasLive = !micMuted;
+    if (micSender) { try { await micSender.replaceTrack(null); } catch (_e) {} }
+    neighbourSessions.forEach(function (ns) {
+      if (ns.sender) ns.sender.replaceTrack(null).catch(function () {});
+    });
+    if (micCtx) { try { micCtx.close(); } catch (_e) {} micCtx = null; }
+    micGain = null;
+    sentTrack = null;
+    stopTracks();
+    micMuted = true;
+    emitState();
+    if (wasLive && state === 'on') void setMicLive(true);
   }
 
   function voiceVolume() {
@@ -91,6 +204,9 @@ const BeeVoice = (function () {
 
   function applyVolume() {
     if (audioEl) audioEl.volume = voiceVolume() / 100;
+    neighbourSessions.forEach(function (ns) {
+      if (ns.audioEl) ns.audioEl.volume = voiceVolume() / 100;
+    });
     const slider = el('voice-volume') as HTMLInputElement | null;
     if (slider && slider.value !== String(voiceVolume())) slider.value = String(voiceVolume());
   }
@@ -150,10 +266,13 @@ const BeeVoice = (function () {
   }
 
   // A permission-free stand-in for the microphone: a track rendering pure
-  // silence. The voice server expects uplink RTP from a participant the way
-  // the standard client always provides it (its mic track exists from the
-  // start); a trackless sender ships no packets at all.
+  // silence, shared by every session's sender. The voice server expects
+  // uplink RTP from a participant the way the standard client always provides
+  // it (its mic track exists from the start); a trackless sender ships no
+  // packets at all.
+  let silentTrack = null;
   function silentPlaceholderTrack() {
+    if (silentTrack && silentTrack.readyState === 'live') return silentTrack;
     const Ctx = window.AudioContext || (window as any).webkitAudioContext;
     if (!Ctx) return null;
     silentCtx = new Ctx();
@@ -165,7 +284,8 @@ const BeeVoice = (function () {
       // Autoplay policy can hold the context until a gesture lands somewhere.
       document.addEventListener('pointerdown', resume, { once: true });
     }
-    return dst.stream.getAudioTracks()[0] || null;
+    silentTrack = dst.stream.getAudioTracks()[0] || null;
+    return silentTrack;
   }
 
   // --- signalling ---
@@ -261,6 +381,21 @@ const BeeVoice = (function () {
     }
   }
 
+  // Positions and per-person settings go to every connected voice server -
+  // the primary region's and each neighbour's - like the standard client's
+  // per-session broadcast.
+  function sendDataAll(obj) {
+    const text = JSON.stringify(obj);
+    if (dc && dc.readyState === 'open') {
+      try { dc.send(text); } catch (_e) {}
+    }
+    neighbourSessions.forEach(function (ns) {
+      if (ns.dc && ns.dc.readyState === 'open') {
+        try { ns.dc.send(text); } catch (_e) {}
+      }
+    });
+  }
+
   async function sendPosition() {
     try {
       const res = await BeeBridge.invoke('sl_voice_position');
@@ -270,8 +405,9 @@ const BeeVoice = (function () {
       // camera, so the avatar simply faces "forward".
       const v = { x: Math.round(p[0] * 100), y: Math.round(p[1] * 100), z: Math.round(p[2] * 100) };
       const h = { x: 0, y: 0, z: 0, w: 100 };
-      sendData({ sp: v, sh: h, lp: v, lh: h });
+      sendDataAll({ sp: v, sh: h, lp: v, lh: h });
     } catch (_e) { /* between regions; the next tick retries */ }
+    manageNeighbours();
   }
 
   function handleData(text) {
@@ -279,6 +415,11 @@ const BeeVoice = (function () {
     try { doc = JSON.parse(text); } catch (_e) { return; }
     if (!doc || typeof doc !== 'object') return;
     let changed = false;
+    // Stored per-person prefs get pushed back to the server as people join,
+    // the way the standard client re-applies its mutes and speaker volumes.
+    const muteOut = {};
+    const gainOut = {};
+    let outAny = false;
     Object.keys(doc).forEach(function (id) {
       const entry = doc[id];
       if (!entry || typeof entry !== 'object' || !/^[0-9a-f-]{36}$/i.test(id)) return;
@@ -292,10 +433,21 @@ const BeeVoice = (function () {
         vlog('join acknowledged; server version ' + entry.V);
       }
       let p = participants.get(key);
-      if (!p && entry.j) {
+      // Only a join flagged primary announces a person for real - the same
+      // person shows up on neighbouring servers too, without the flag.
+      if (!p && entry.j && entry.j.p === true) {
         p = { speaking: false, level: 0 };
         participants.set(key, p);
         changed = true;
+        const pref = peerPref(key);
+        if (pref.muted) {
+          muteOut[key] = true;
+          outAny = true;
+        }
+        if (pref.volume !== 100) {
+          gainOut[key] = pref.volume * 2;
+          outAny = true;
+        }
       }
       if (!p) return;
       if (typeof entry.p === 'number') {
@@ -306,13 +458,13 @@ const BeeVoice = (function () {
         changed = true;
       }
     });
-    if (changed) {
-      BeeTransport.emit('voice-participants', {
-        participants: Array.from(participants, function (pair) {
-          return { id: pair[0], speaking: pair[1].speaking, level: pair[1].level };
-        })
-      });
+    if (outAny) {
+      const out: any = {};
+      if (Object.keys(muteOut).length) out.m = muteOut;
+      if (Object.keys(gainOut).length) out.ug = gainOut;
+      sendDataAll(out);
     }
+    if (changed) emitParticipants();
   }
 
   // --- lifecycle ---
@@ -357,6 +509,8 @@ const BeeVoice = (function () {
           state = 'on';
           emitState();
         }
+        // With the primary session up, border listening can come online.
+        refreshNeighbourList();
       }
 
       function bindDataChannel(ch) {
@@ -478,8 +632,10 @@ const BeeVoice = (function () {
     }
     if (dc) { try { dc.close(); } catch (_e) {} dc = null; }
     if (pc) { try { pc.close(); } catch (_e) {} pc = null; }
+    closeAllNeighbours();
     micSender = null;
     if (silentCtx) { try { silentCtx.close(); } catch (_e) {} silentCtx = null; }
+    silentTrack = null;
     if (micCtx) { try { micCtx.close(); } catch (_e) {} micCtx = null; }
     micGain = null;
     sentTrack = null;
@@ -491,7 +647,7 @@ const BeeVoice = (function () {
     if (audioEl) audioEl.srcObject = null;
     if (participants.size) {
       participants.clear();
-      BeeTransport.emit('voice-participants', { participants: [] });
+      emitParticipants();
     }
     state = 'off';
   }
@@ -507,6 +663,156 @@ const BeeVoice = (function () {
       reconnectTimer = null;
       if (desired && state === 'off' && available()) void connect(true);
     }, RECONNECT_DELAY_MS);
+  }
+
+  // --- neighbour regions -----------------------------------------------------
+  // Spatial voice continues across region borders: each voice-capable
+  // neighbour gets its own peer connection (to ITS voice server, estate
+  // channel) while the avatar stands within earshot of that edge. Join at
+  // 50m from the border, leave at 60m - the gap stops flapping on the line.
+
+  const NEIGHBOUR_JOIN_M = 50;
+  const NEIGHBOUR_LEAVE_M = 60;
+
+  const neighbourSessions = new Map(); // key -> { key, gen, pc, dc, viewerSession, sender, audioEl, joined }
+  let availableNeighbours = [];        // { key, gridX, gridY } from the core
+  const neighbourCooldown = new Map(); // key -> earliest retry time after a failure
+
+  function neighbourWanted(n, margin) {
+    const region = BeeState.get().region;
+    const pos = BeeState.get().position;
+    if (!region || !pos || !Number.isFinite(Number(region.gridX))) return false;
+    const dx = Number(n.gridX) - Number(region.gridX);
+    const dy = Number(n.gridY) - Number(region.gridY);
+    if ((dx === 0 && dy === 0) || Math.abs(dx) > 1 || Math.abs(dy) > 1) return false;
+    const nearX = dx === -1 ? pos.x <= margin : dx === 1 ? pos.x >= 256 - margin : true;
+    const nearY = dy === -1 ? pos.y <= margin : dy === 1 ? pos.y >= 256 - margin : true;
+    return nearX && nearY;
+  }
+
+  function manageNeighbours() {
+    if (state !== 'on') return;
+    availableNeighbours.forEach(function (n) {
+      const existing = neighbourSessions.get(n.key);
+      if (!existing && neighbourWanted(n, NEIGHBOUR_JOIN_M)) {
+        const until = neighbourCooldown.get(n.key) || 0;
+        if (Date.now() >= until) void openNeighbour(n);
+      } else if (existing && !neighbourWanted(n, NEIGHBOUR_LEAVE_M)) {
+        vlog('neighbour ' + n.key + ': out of earshot, leaving');
+        closeNeighbour(n.key);
+      }
+    });
+    // A neighbour that vanished from the list (region change churn) closes too.
+    neighbourSessions.forEach(function (_ns, key) {
+      if (!availableNeighbours.some(function (n) { return n.key === key; })) closeNeighbour(key);
+    });
+  }
+
+  async function openNeighbour(n) {
+    const ns: any = { key: n.key, gen: ++connectSeq, pc: null, dc: null, viewerSession: '', sender: null, audioEl: null, joined: null };
+    neighbourSessions.set(n.key, ns);
+    vlog('neighbour ' + n.key + ': connecting');
+    try {
+      const stun = await BeeBridge.invoke('sl_voice_stun');
+      if (neighbourSessions.get(n.key) !== ns) return;
+      const servers = (stun && stun.servers) || [];
+      const pc2 = new RTCPeerConnection(servers.length ? { iceServers: [{ urls: servers }] } : undefined);
+      ns.pc = pc2;
+
+      function nsChannelUp() {
+        if (neighbourSessions.get(n.key) !== ns || ns.joined === ns.dc) return;
+        ns.joined = ns.dc;
+        // Never primary: this is a listening post on someone else's region.
+        try { ns.dc.send(JSON.stringify({ j: {} })); } catch (_e) {}
+        vlog('neighbour ' + n.key + ': data channel up');
+      }
+      function nsBind(ch) {
+        ns.dc = ch;
+        ch.onopen = nsChannelUp;
+        ch.onmessage = function (e) {
+          if (neighbourSessions.get(n.key) === ns && typeof e.data === 'string') handleData(e.data);
+        };
+        if (ch.readyState === 'open') nsChannelUp();
+      }
+      nsBind(pc2.createDataChannel('SLData', { ordered: true }));
+      pc2.ondatachannel = function (e) {
+        if (neighbourSessions.get(n.key) === ns) nsBind(e.channel);
+      };
+
+      const track = sentTrack || silentPlaceholderTrack();
+      if (track) ns.sender = pc2.addTrack(track, new MediaStream([track]));
+      else ns.sender = pc2.addTransceiver('audio', { direction: 'sendrecv' }).sender;
+      pc2.getTransceivers().forEach(function (t) {
+        if (t.sender === ns.sender) preferOpusOnly(t);
+      });
+      pc2.ontrack = function (e) {
+        if (neighbourSessions.get(n.key) !== ns) return;
+        if (!ns.audioEl) {
+          ns.audioEl = document.createElement('audio');
+          ns.audioEl.autoplay = true;
+          ns.audioEl.hidden = true;
+          document.body.appendChild(ns.audioEl);
+        }
+        ns.audioEl.volume = voiceVolume() / 100;
+        applySink(ns.audioEl);
+        ns.audioEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+        const p = ns.audioEl.play();
+        if (p && p.catch) p.catch(function () {});
+      };
+      pc2.onconnectionstatechange = function () {
+        if (neighbourSessions.get(n.key) !== ns || !ns.pc) return;
+        if (ns.pc.connectionState === 'failed' || ns.pc.connectionState === 'closed') {
+          vlog('neighbour ' + n.key + ': connection ' + ns.pc.connectionState);
+          neighbourCooldown.set(n.key, Date.now() + 15000);
+          closeNeighbour(n.key);
+        }
+      };
+
+      const offer = await pc2.createOffer();
+      await pc2.setLocalDescription(offer);
+      await waitForIceGathering(pc2, 3000);
+      if (neighbourSessions.get(n.key) !== ns) return;
+      if (pc2.iceGatheringState !== 'complete') {
+        vlog('neighbour ' + n.key + ': gathering incomplete, proceeding anyway');
+      }
+      const localSdp = (pc2.localDescription && pc2.localDescription.sdp) || offer.sdp || '';
+      const res = await BeeBridge.invoke('sl_voice_provision', { offer: localSdp, neighbour: n.key });
+      if (neighbourSessions.get(n.key) !== ns) return;
+      ns.viewerSession = String(res.viewerSession || '');
+      await pc2.setRemoteDescription({ type: 'answer', sdp: String(res.sdp || '') });
+      vlog('neighbour ' + n.key + ': provisioned');
+    } catch (err) {
+      vlog('neighbour ' + n.key + ': failed: ' + (BeeUtils.errText(err) || err));
+      neighbourCooldown.set(n.key, Date.now() + 30000);
+      closeNeighbour(n.key);
+    }
+  }
+
+  function closeNeighbour(key) {
+    const ns = neighbourSessions.get(key);
+    if (!ns) return;
+    neighbourSessions.delete(key);
+    if (ns.viewerSession && BeeState.gridOnline()) {
+      BeeBridge.invoke('sl_voice_logout', { viewerSession: ns.viewerSession, neighbour: key }).catch(function () {});
+    }
+    if (ns.dc) { try { ns.dc.close(); } catch (_e) {} }
+    if (ns.pc) { try { ns.pc.close(); } catch (_e) {} }
+    if (ns.audioEl) {
+      ns.audioEl.srcObject = null;
+      ns.audioEl.remove();
+    }
+  }
+
+  function closeAllNeighbours() {
+    Array.from(neighbourSessions.keys()).forEach(closeNeighbour);
+    neighbourCooldown.clear();
+  }
+
+  function refreshNeighbourList() {
+    BeeBridge.invoke('sl_voice_neighbours').then(function (res) {
+      availableNeighbours = (res && res.neighbours) || [];
+      manageNeighbours();
+    }).catch(function () {});
   }
 
   function join() {
@@ -545,9 +851,19 @@ const BeeVoice = (function () {
         return;
       }
       try {
-        micStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-        });
+        const wantDevice = typeof BeeSettings !== 'undefined' ? String(BeeSettings.get('voiceMicDevice') || '') : '';
+        const audio: any = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        if (wantDevice) audio.deviceId = { exact: wantDevice };
+        try {
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: audio });
+        } catch (err) {
+          // The chosen device may be gone (unplugged headset); the default
+          // beats a dead mic.
+          if (!wantDevice) throw err;
+          vlog('chosen microphone unavailable, falling back to default');
+          delete audio.deviceId;
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: audio });
+        }
         const track = micStream.getAudioTracks()[0];
         if (state !== 'on' || !micSender || !track) {
           stopTracks();
@@ -572,6 +888,10 @@ const BeeVoice = (function () {
         micGain.connect(dst);
         sentTrack = dst.stream.getAudioTracks()[0];
         await micSender.replaceTrack(sentTrack);
+        // Every neighbour session speaks with the same microphone.
+        neighbourSessions.forEach(function (ns) {
+          if (ns.sender) ns.sender.replaceTrack(sentTrack).catch(function () {});
+        });
         vlog('microphone attached (gain ' + micVolume() + '%)');
         logSendStats(5000);
       } catch (err) {
@@ -674,6 +994,11 @@ const BeeVoice = (function () {
     BeeTransport.on('region', function () {
       if (desired && state !== 'off') scheduleReconnect('');
     });
+    // The core learned a neighbour region's voice endpoints (or the set changed).
+    BeeTransport.on('voice-neighbours', function (payload) {
+      availableNeighbours = (payload && payload.neighbours) || [];
+      manageNeighbours();
+    });
     // A parcel boundary can change the voice channel: parcels either share
     // the estate-wide channel or run their own, and some forbid voice.
     BeeTransport.on('parcel', function (p) {
@@ -719,6 +1044,15 @@ const BeeVoice = (function () {
           applyMicVolume();
           return;
         }
+        if (key === 'voiceMicDevice') {
+          void reacquireMic();
+          return;
+        }
+        if (key === 'voiceOutputDevice') {
+          applySink(audioEl);
+          neighbourSessions.forEach(function (ns) { applySink(ns.audioEl); });
+          return;
+        }
         if (key !== 'voiceEnabled') return;
         if (!BeeSettings.get('voiceEnabled')) leave();
         else maybeAutoJoin();
@@ -734,7 +1068,11 @@ const BeeVoice = (function () {
     leave: leave,
     toggleMute: toggleMute,
     isConnected: function () { return state === 'on'; },
-    participants: function () { return participants; }
+    participants: function () { return participants; },
+    participantInfo: participantInfo,
+    setUserMute: setUserMute,
+    setUserVolume: setUserVolume,
+    listDevices: listDevices
   };
 })();
 

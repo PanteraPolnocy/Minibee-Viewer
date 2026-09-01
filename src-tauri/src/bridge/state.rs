@@ -131,6 +131,10 @@ pub struct AppState {
     /// The grid this session logged into ("agni", "aditi", ...), for
     /// grid-derived infrastructure like the voice STUN servers.
     pub grid: Mutex<String>,
+    /// Neighbour regions' voice endpoints, keyed "ip:port":
+    /// (grid x, grid y, ProvisionVoiceAccountRequest url, VoiceSignalingRequest url).
+    /// Filled as neighbours introduce themselves; cleared on region change.
+    pub neighbour_voice: Mutex<std::collections::HashMap<String, (i64, i64, String, String)>>,
     /// The transformed LSL language data, cached per LSLSyntax cap URL.
     pub lsl_syntax: Mutex<Option<(String, serde_json::Value)>>,
     /// What the currency helper needs about this session, captured at login so
@@ -310,6 +314,7 @@ impl AppState {
             script_folders: Mutex::new(Vec::new()),
             notecard_folders: Mutex::new(Vec::new()),
             grid: Mutex::new(String::new()),
+            neighbour_voice: Mutex::new(std::collections::HashMap::new()),
             lsl_syntax: Mutex::new(None),
             currency: Mutex::new(None),
         })
