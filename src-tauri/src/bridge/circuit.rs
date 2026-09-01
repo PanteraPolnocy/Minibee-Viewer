@@ -279,6 +279,16 @@ impl Session {
         ])
     }
 
+    /// Our avatar's body rotation as a quaternion, identity until known.
+    pub fn agent_rotation(&self) -> [f64; 4] {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|s| s.last_rot)
+            .unwrap_or([0.0, 0.0, 0.0, 1.0])
+    }
+
     /// Our avatar's region-local position, [0,0,0] until the first update.
     pub fn agent_position(&self) -> [f64; 3] {
         self.engine

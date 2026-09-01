@@ -102,6 +102,9 @@ pub struct SessionState {
     pub names: HashMap<String, String>,
     /// Last self position we emitted (coarse), used for the 0.25m move threshold.
     pub last_pos: Option<[f64; 3]>,
+    /// Our avatar's last known body rotation (quaternion), from its own full
+    /// ObjectUpdate. Voice reports it so spatial pan tracks which way we face.
+    pub last_rot: Option<[f64; 4]>,
     /// The last coarse self-position rejected as a wild jump (x, y). If the
     /// next radar tick lands on the same spot, last_pos is the stale side and
     /// the jump is accepted as a repair. See the CoarseLocationUpdate arm.
@@ -1257,6 +1260,13 @@ fn track_self(state: &mut SessionState, inst: &Value) -> Vec<Action> {
     let parent_id = inst_i64(inst, "ParentID") as u32;
     let blob = B64.decode(inst_str(inst, "ObjectData")).unwrap_or_default();
     let local = crate::bridge::objects::position_from_object_data(&blob);
+
+    // A seated rotation is seat-relative; keep the last standing heading then.
+    if parent_id == 0 {
+        if let Some(r) = crate::bridge::objects::rotation_from_object_data(&blob) {
+            state.last_rot = Some([r[0] as f64, r[1] as f64, r[2] as f64, r[3] as f64]);
+        }
+    }
 
     if let Some(local) = local {
         let region_pos = if parent_id == 0 {
@@ -3708,6 +3718,31 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
     let mut actions = Vec::new();
     match name {
         "ChatterBoxInvitation" => {
+            // A voice call rides the invitation as a "voice" block carrying the
+            // ad-hoc channel's uri and credentials - possibly with no instant
+            // message attached at all. Surface it; nothing joins by itself.
+            if let Some(voice) = body.get("voice") {
+                let v_session = body.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+                let v_from = body.get("from_id").and_then(|v| v.as_str()).unwrap_or("");
+                let uri = voice.get("channel_uri").and_then(|v| v.as_str()).unwrap_or("");
+                let muted = state.is_muted_text(v_from) || state.is_muted_text(v_session);
+                if !uri.is_empty() && !v_session.is_empty() && !muted {
+                    actions.push(Action::emit(
+                        "voice-call-invite",
+                        json!({
+                            "sessionId": v_session,
+                            "sessionName": body.get("session_name").and_then(|v| v.as_str()).unwrap_or(""),
+                            "fromId": v_from,
+                            "fromName": body.get("from_name").and_then(|v| v.as_str()).unwrap_or(""),
+                            // EMultiAgentChatSessionType; the UI mostly cares
+                            // whether this is one person calling or a group.
+                            "invitationType": voice.get("invitation_type").and_then(|v| v.as_i64()).unwrap_or(-1),
+                            "channelUri": uri,
+                            "credentials": voice.get("channel_credentials").and_then(|v| v.as_str()).unwrap_or(""),
+                        }),
+                    ));
+                }
+            }
             let im = body.get("instantmessage").or_else(|| body.get("instant_message"));
             let mp = match im.and_then(|v| v.get("message_params").or_else(|| v.get("messageParams"))) {
                 Some(m) => m,

@@ -243,6 +243,20 @@ pub fn position_from_object_data(data: &[u8]) -> Option<[f32; 3]> {
     }
 }
 
+/// Rotation out of a full ObjectUpdate blob: the packed quaternion (x, y, z
+/// with w reconstructed) that follows position/velocity/acceleration. Only
+/// the full-precision forms carry one worth reading.
+pub fn rotation_from_object_data(data: &[u8]) -> Option<[f32; 4]> {
+    let off = match data.len() {
+        76 | 140 => 52,
+        60 | 124 => 40,
+        _ => return None,
+    };
+    let v = vec3_at(data, off)?;
+    let w2 = (1.0 - (v[0] * v[0] + v[1] * v[1] + v[2] * v[2])).max(0.0);
+    Some([v[0], v[1], v[2], w2.sqrt()])
+}
+
 /// Decode one ObjectUpdateCompressed data blob (compressed, non-terse layout).
 pub fn decode_compressed(data: &[u8]) -> Option<(ObjectRow, bool)> {
     if data.len() < 84 {

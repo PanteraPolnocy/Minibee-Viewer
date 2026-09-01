@@ -188,6 +188,9 @@ const BeeVoice = (function () {
     neighbourSessions.forEach(function (ns) {
       if (ns.sender) ns.sender.replaceTrack(null).catch(function () {});
     });
+    if (callSession && callSession.sender) {
+      callSession.sender.replaceTrack(null).catch(function () {});
+    }
     if (micCtx) { try { micCtx.close(); } catch (_e) {} micCtx = null; }
     micGain = null;
     sentTrack = null;
@@ -207,6 +210,7 @@ const BeeVoice = (function () {
     neighbourSessions.forEach(function (ns) {
       if (ns.audioEl) ns.audioEl.volume = voiceVolume() / 100;
     });
+    if (callSession && callSession.audioEl) callSession.audioEl.volume = voiceVolume() / 100;
     const slider = el('voice-volume') as HTMLInputElement | null;
     if (slider && slider.value !== String(voiceVolume())) slider.value = String(voiceVolume());
   }
@@ -394,6 +398,9 @@ const BeeVoice = (function () {
         try { ns.dc.send(text); } catch (_e) {}
       }
     });
+    if (callSession && callSession.dc && callSession.dc.readyState === 'open') {
+      try { callSession.dc.send(text); } catch (_e) {}
+    }
   }
 
   async function sendPosition() {
@@ -404,13 +411,18 @@ const BeeVoice = (function () {
       // Integers of centimeters; the heading stays identity - Minibee has no
       // camera, so the avatar simply faces "forward".
       const v = { x: Math.round(p[0] * 100), y: Math.round(p[1] * 100), z: Math.round(p[2] * 100) };
-      const h = { x: 0, y: 0, z: 0, w: 100 };
+      // The avatar's body rotation, so the server pans by facing too.
+      const r = res.rotation || [0, 0, 0, 1];
+      const h = {
+        x: Math.round(r[0] * 100), y: Math.round(r[1] * 100),
+        z: Math.round(r[2] * 100), w: Math.round(r[3] * 100)
+      };
       sendDataAll({ sp: v, sh: h, lp: v, lh: h });
     } catch (_e) { /* between regions; the next tick retries */ }
     manageNeighbours();
   }
 
-  function handleData(text) {
+  function handleData(text, anyJoin?: boolean) {
     let doc;
     try { doc = JSON.parse(text); } catch (_e) { return; }
     if (!doc || typeof doc !== 'object') return;
@@ -434,8 +446,9 @@ const BeeVoice = (function () {
       }
       let p = participants.get(key);
       // Only a join flagged primary announces a person for real - the same
-      // person shows up on neighbouring servers too, without the flag.
-      if (!p && entry.j && entry.j.p === true) {
+      // person shows up on neighbouring servers too, without the flag. Calls
+      // (ad-hoc channels) accept every join instead.
+      if (!p && entry.j && (anyJoin || entry.j.p === true)) {
         p = { speaking: false, level: 0 };
         participants.set(key, p);
         changed = true;
@@ -470,7 +483,8 @@ const BeeVoice = (function () {
   // --- lifecycle ---
 
   async function connect(auto?: boolean) {
-    if (state !== 'off' || !available()) return;
+    // One channel at a time: no spatial voice while a call runs.
+    if (state !== 'off' || inCall() || !available()) return;
     const seq = ++connectSeq;
     state = 'connecting';
     pendingIce = [];
@@ -815,6 +829,181 @@ const BeeVoice = (function () {
     }).catch(function () {});
   }
 
+  // --- calls (P2P / conference / group) ---------------------------------------
+  // A call is an ad-hoc ("multiagent") channel keyed by the chat session:
+  // groups and conferences call their own session; a P2P call rides a
+  // conference containing just the two of you (how the standard client does
+  // WebRTC P2P). While a call runs, spatial voice is suspended - one channel
+  // at a time, like the standard client.
+
+  let callSession = null; // { sessionId, title, gen, pc, dc, viewerSession, sender, audioEl, joined }
+  let spatialWasDesired = false;
+
+  function inCall() {
+    return !!callSession;
+  }
+
+  function emitCallState() {
+    BeeTransport.emit('voice-call', callSession
+      ? { active: true, sessionId: callSession.sessionId, title: callSession.title, connected: callSession.up === true }
+      : { active: false });
+    render();
+  }
+
+  // `origin` names the thread the user acted on when it differs from the
+  // call's own session - a P2P call rides a fresh conference session, but the
+  // IM tab it belongs to is the person's.
+  async function startCall(sessionId, title, origin?) {
+    if (callSession) {
+      BeeUtils.showToast('Already in a voice call.', 'warning');
+      return;
+    }
+    if (!BeeState.gridOnline() || !window.RTCPeerConnection) return;
+    try {
+      const res = await BeeBridge.invoke('sl_voice_call_request', { sessionId: sessionId });
+      await joinCallChannel(sessionId, title, String(res.channelUri || ''), String(res.credentials || ''), origin);
+    } catch (err) {
+      BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not be started.', 'error');
+    }
+  }
+
+  async function answerCall(invite) {
+    if (callSession) {
+      BeeUtils.showToast('Already in a voice call.', 'warning');
+      return;
+    }
+    await joinCallChannel(
+      String(invite.sessionId || ''),
+      String(invite.sessionName || invite.fromName || 'Voice call'),
+      String(invite.channelUri || ''),
+      String(invite.credentials || '')
+    );
+  }
+
+  async function joinCallChannel(sessionId, title, channelUri, credentials, origin?) {
+    if (!channelUri) {
+      BeeUtils.showToast('The call carried no voice channel.', 'error');
+      return;
+    }
+    // One channel at a time: spatial voice pauses for the call.
+    spatialWasDesired = desired;
+    desired = false;
+    teardown();
+    const cs: any = { sessionId: sessionId, title: title, origin: origin || '', gen: ++connectSeq, pc: null, dc: null, viewerSession: '', sender: null, audioEl: null, joined: null, up: false };
+    callSession = cs;
+    emitCallState();
+    vlog('call: connecting to ' + channelUri);
+    try {
+      const stun = await BeeBridge.invoke('sl_voice_stun');
+      if (callSession !== cs) return;
+      const servers = (stun && stun.servers) || [];
+      const pc2 = new RTCPeerConnection(servers.length ? { iceServers: [{ urls: servers }] } : undefined);
+      cs.pc = pc2;
+
+      function csChannelUp() {
+        if (callSession !== cs || cs.joined === cs.dc) return;
+        cs.joined = cs.dc;
+        try { cs.dc.send(JSON.stringify({ j: { p: true } })); } catch (_e) {}
+        cs.up = true;
+        vlog('call: data channel up');
+        void sendPosition();
+        if (posTimer) clearInterval(posTimer);
+        posTimer = setInterval(function () { void sendPosition(); }, POSITION_INTERVAL_MS);
+        emitCallState();
+        BeeUtils.showToast('Voice call connected.', 'success');
+      }
+      function csBind(ch) {
+        cs.dc = ch;
+        ch.onopen = csChannelUp;
+        ch.onmessage = function (e) {
+          // Calls accept every join: participants in an ad-hoc channel have
+          // no "primary server" distinction.
+          if (callSession === cs && typeof e.data === 'string') handleData(e.data, true);
+        };
+        if (ch.readyState === 'open') csChannelUp();
+      }
+      csBind(pc2.createDataChannel('SLData', { ordered: true }));
+      pc2.ondatachannel = function (e) {
+        if (callSession === cs) csBind(e.channel);
+      };
+
+      const track = sentTrack || silentPlaceholderTrack();
+      if (track) cs.sender = pc2.addTrack(track, new MediaStream([track]));
+      else cs.sender = pc2.addTransceiver('audio', { direction: 'sendrecv' }).sender;
+      pc2.getTransceivers().forEach(function (t) {
+        if (t.sender === cs.sender) preferOpusOnly(t);
+      });
+      pc2.ontrack = function (e) {
+        if (callSession !== cs) return;
+        if (!cs.audioEl) {
+          cs.audioEl = document.createElement('audio');
+          cs.audioEl.autoplay = true;
+          cs.audioEl.hidden = true;
+          document.body.appendChild(cs.audioEl);
+        }
+        cs.audioEl.volume = voiceVolume() / 100;
+        applySink(cs.audioEl);
+        cs.audioEl.srcObject = e.streams && e.streams[0] ? e.streams[0] : new MediaStream([e.track]);
+        const p = cs.audioEl.play();
+        if (p && p.catch) p.catch(function () {});
+      };
+      pc2.onconnectionstatechange = function () {
+        if (callSession !== cs || !cs.pc) return;
+        vlog('call: peer connection state ' + cs.pc.connectionState);
+        if (cs.pc.connectionState === 'failed' || cs.pc.connectionState === 'closed') {
+          endCall('The call dropped.');
+        }
+      };
+
+      const offer = await pc2.createOffer();
+      await pc2.setLocalDescription(offer);
+      await waitForIceGathering(pc2, 3000);
+      if (callSession !== cs) return;
+      const localSdp = (pc2.localDescription && pc2.localDescription.sdp) || offer.sdp || '';
+      const res = await BeeBridge.invoke('sl_voice_call_provision', {
+        offer: localSdp, channel: channelUri, credentials: credentials
+      });
+      if (callSession !== cs) return;
+      cs.viewerSession = String(res.viewerSession || '');
+      await pc2.setRemoteDescription({ type: 'answer', sdp: String(res.sdp || '') });
+      vlog('call: provisioned; viewer session ' + cs.viewerSession.slice(0, 13) + '...');
+    } catch (err) {
+      if (callSession !== cs) return;
+      vlog('call: failed: ' + (BeeUtils.errText(err) || err));
+      endCall('');
+      BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not connect.', 'error');
+    }
+  }
+
+  function endCall(reason) {
+    const cs = callSession;
+    if (!cs) return;
+    callSession = null;
+    if (posTimer) { clearInterval(posTimer); posTimer = null; }
+    if (cs.viewerSession && BeeState.gridOnline()) {
+      BeeBridge.invoke('sl_voice_logout', { viewerSession: cs.viewerSession, neighbour: null }).catch(function () {});
+    }
+    if (cs.dc) { try { cs.dc.close(); } catch (_e) {} }
+    if (cs.pc) { try { cs.pc.close(); } catch (_e) {} }
+    if (cs.audioEl) {
+      cs.audioEl.srcObject = null;
+      cs.audioEl.remove();
+    }
+    if (participants.size) {
+      participants.clear();
+      emitParticipants();
+    }
+    vlog('call: ended' + (reason ? ' (' + reason + ')' : ''));
+    if (reason) BeeUtils.showToast(reason, 'warning');
+    emitCallState();
+    // Spatial voice comes back if it was on before the call.
+    if (spatialWasDesired) {
+      desired = true;
+      spatialWasDesired = false;
+      if (available()) void connect(true);
+    }
+  }
+
   function join() {
     desired = true;
     void connect(false);
@@ -837,7 +1026,7 @@ const BeeVoice = (function () {
   // Unmuting for the first time is what actually asks for the microphone;
   // until then the session is listen-only and permission-free.
   async function setMicLive(live) {
-    if (state !== 'on') return;
+    if (state !== 'on' && !inCall()) return;
     if (!live) {
       micMuted = true;
       applyMicMute();
@@ -865,7 +1054,7 @@ const BeeVoice = (function () {
           micStream = await navigator.mediaDevices.getUserMedia({ audio: audio });
         }
         const track = micStream.getAudioTracks()[0];
-        if (state !== 'on' || !micSender || !track) {
+        if ((state !== 'on' && !inCall()) || !track) {
           stopTracks();
           return;
         }
@@ -887,11 +1076,14 @@ const BeeVoice = (function () {
         src.connect(micGain);
         micGain.connect(dst);
         sentTrack = dst.stream.getAudioTracks()[0];
-        await micSender.replaceTrack(sentTrack);
-        // Every neighbour session speaks with the same microphone.
+        // Every connected session speaks with the same microphone.
+        if (micSender) await micSender.replaceTrack(sentTrack);
         neighbourSessions.forEach(function (ns) {
           if (ns.sender) ns.sender.replaceTrack(sentTrack).catch(function () {});
         });
+        if (callSession && callSession.sender) {
+          await callSession.sender.replaceTrack(sentTrack);
+        }
         vlog('microphone attached (gain ' + micVolume() + '%)');
         logSendStats(5000);
       } catch (err) {
@@ -927,21 +1119,24 @@ const BeeVoice = (function () {
     // The slider only means something while connected.
     const slider = el('voice-volume');
     if (slider) slider.hidden = state !== 'on';
-    btn.classList.toggle('top-bar__voice--connecting', state === 'connecting');
-    btn.classList.toggle('top-bar__voice--on', state === 'on' && micMuted);
-    btn.classList.toggle('top-bar__voice--live', state === 'on' && !micMuted);
+    const connected = state === 'on' || inCall();
+    btn.classList.toggle('top-bar__voice--connecting', state === 'connecting' || (inCall() && callSession && !callSession.up));
+    btn.classList.toggle('top-bar__voice--on', connected && micMuted);
+    btn.classList.toggle('top-bar__voice--live', connected && !micMuted);
     // toggleAttribute, not .hidden: these are SVG elements, and the `hidden`
     // property only exists on HTML elements - assigning it to an SVG sets a
     // plain JS field and changes nothing on screen.
-    const live = state === 'on' && !micMuted;
+    const live = connected && !micMuted;
     const off = el('voice-icon-off');
     const on = el('voice-icon-on');
     if (off) off.toggleAttribute('hidden', live);
     if (on) on.toggleAttribute('hidden', !live);
-    btn.title = state === 'off' ? 'Join voice (nearby chat)'
-      : state === 'connecting' ? 'Voice connecting...'
-        : micMuted ? 'Voice on, listening - tap to unmute the microphone (right-click to leave)'
-          : 'Microphone live - tap to mute (right-click to leave)';
+    btn.title = inCall() ? ('In a call: ' + (callSession.title || 'voice call') +
+        (micMuted ? ' - tap to unmute (right-click to hang up)' : ' - tap to mute (right-click to hang up)'))
+      : state === 'off' ? 'Join voice (nearby chat)'
+        : state === 'connecting' ? 'Voice connecting...'
+          : micMuted ? 'Voice on, listening - tap to unmute the microphone (right-click to leave)'
+            : 'Microphone live - tap to mute (right-click to leave)';
     btn.setAttribute('aria-label', btn.title);
   }
 
@@ -949,23 +1144,25 @@ const BeeVoice = (function () {
     const btn = el('btn-voice');
     if (!btn) return;
     btn.addEventListener('click', function () {
-      if (state === 'off') join();
+      if (inCall()) toggleMute();
+      else if (state === 'off') join();
       else if (state === 'on') toggleMute();
       // while connecting, the tap is ignored rather than queueing surprises
     });
     btn.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      if (state === 'off') return;
+      if (state === 'off' && !inCall()) return;
       const menu = el('context-menu');
       if (!menu) return;
       menu.innerHTML = '';
       const item = document.createElement('button');
       item.type = 'button';
-      item.textContent = 'Leave voice';
+      item.textContent = inCall() ? 'Hang up' : 'Leave voice';
       item.addEventListener('click', function () {
         menu.hidden = true;
-        leave();
+        if (inCall()) endCall('');
+        else leave();
       });
       menu.appendChild(item);
       menu.hidden = false;
@@ -1027,9 +1224,9 @@ const BeeVoice = (function () {
         scheduleReconnect('');
       }
     });
-    BeeTransport.on('session-lost', function () { leave(); });
-    BeeTransport.on('disconnected', function () { leave(); });
-    BeeState.on('reset', function () { leave(); });
+    BeeTransport.on('session-lost', function () { endCall(''); leave(); });
+    BeeTransport.on('disconnected', function () { endCall(''); leave(); });
+    BeeState.on('reset', function () { endCall(''); leave(); });
     BeeState.on('change', function (partial) {
       if (partial.connected === true) maybeAutoJoin();
       if (partial.connected !== undefined || partial.sessionLost !== undefined) render();
@@ -1051,6 +1248,7 @@ const BeeVoice = (function () {
         if (key === 'voiceOutputDevice') {
           applySink(audioEl);
           neighbourSessions.forEach(function (ns) { applySink(ns.audioEl); });
+          if (callSession) applySink(callSession.audioEl);
           return;
         }
         if (key !== 'voiceEnabled') return;
@@ -1072,7 +1270,16 @@ const BeeVoice = (function () {
     participantInfo: participantInfo,
     setUserMute: setUserMute,
     setUserVolume: setUserVolume,
-    listDevices: listDevices
+    listDevices: listDevices,
+    startCall: startCall,
+    answerCall: answerCall,
+    endCall: function () { endCall(''); },
+    inCall: inCall,
+    callInfo: function () {
+      return callSession
+        ? { sessionId: callSession.sessionId, title: callSession.title, origin: callSession.origin, connected: callSession.up === true }
+        : null;
+    }
   };
 })();
 

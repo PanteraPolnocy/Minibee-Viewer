@@ -526,6 +526,22 @@ const BeeIm = (function () {
       blockBtn.title = blocked ? 'Unblock resident' : 'Block resident';
       blockBtn.setAttribute('aria-label', blockBtn.title);
     }
+    const callBtn = document.getElementById('im-call') as HTMLButtonElement | null;
+    if (callBtn) {
+      const voiceOk = typeof BeeVoice !== 'undefined' && typeof BeeSettings !== 'undefined' &&
+        !!BeeSettings.get('voiceEnabled') && BeeState.gridOnline();
+      const info = voiceOk && BeeVoice.callInfo ? BeeVoice.callInfo() : null;
+      const sid = String(sessionId || '').toLowerCase();
+      const inThisCall = !!(info && (String(info.sessionId || '').toLowerCase() === sid ||
+        String(info.origin || '').toLowerCase() === sid));
+      callBtn.hidden = !hasSession || !voiceOk;
+      callBtn.disabled = !hasSession || !voiceOk || (!!info && !inThisCall);
+      callBtn.classList.toggle('im-action-btn--active', inThisCall);
+      callBtn.title = inThisCall ? 'Hang up'
+        : info ? 'Already in another call'
+          : 'Start voice call';
+      callBtn.setAttribute('aria-label', callBtn.title);
+    }
     if (membersBtn) membersBtn.hidden = !sessionChat;
     if (inviteBtn) {
       inviteBtn.hidden = !isConference;
@@ -723,8 +739,73 @@ const BeeIm = (function () {
     if (active) renderThread(active);
   }
 
+  // The thread's call button: hang up when this thread's call is running,
+  // otherwise start one. Groups and conferences call their own session; a
+  // P2P call rides a fresh conference holding just the two of you (the way
+  // the grid does person-to-person voice).
+  async function handleCallButton() {
+    const sessionId = BeeState.get().activeImSession;
+    const session = sessionId ? BeeState.get().imSessions[sessionId] : null;
+    if (!session || typeof BeeVoice === 'undefined') return;
+    const info = BeeVoice.callInfo();
+    const sid = String(sessionId).toLowerCase();
+    if (info && (String(info.sessionId || '').toLowerCase() === sid || String(info.origin || '').toLowerCase() === sid)) {
+      BeeVoice.endCall();
+      return;
+    }
+    if (info) return; // one call at a time
+    const title = session.title || (session.participant && session.participant.name) || 'Voice call';
+    if (isSessionChat(session)) {
+      void BeeVoice.startCall(session.id, title);
+      return;
+    }
+    const peer = session.participant && session.participant.id;
+    if (!peer) return;
+    BeeUtils.showToast('Starting voice call...', 'info');
+    try {
+      const conf = await Promise.resolve(BeeTransport.startConference([peer], ''));
+      if (conf && conf.sessionId) void BeeVoice.startCall(conf.sessionId, title, sessionId);
+    } catch (err) {
+      BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not be started.', 'error');
+    }
+  }
+
+  // Someone rings: ask, never auto-join. Declining tells the sim so the
+  // caller's side stops ringing.
+  async function handleCallInvite(invite) {
+    if (!invite || !invite.sessionId || typeof BeeVoice === 'undefined') return;
+    if (typeof BeeSettings !== 'undefined' && !BeeSettings.get('voiceEnabled')) return;
+    if (BeeVoice.inCall()) return;
+    const who = String(invite.fromName || 'Someone');
+    const name = String(invite.sessionName || '');
+    const where = name && name !== who ? ' in "' + name + '"' : '';
+    const ok = await BeeUtils.confirm({
+      title: 'Incoming voice call',
+      message: who + ' is inviting you to a voice call' + where + '.',
+      confirmLabel: 'Join call',
+      cancelLabel: 'Decline'
+    });
+    if (!ok) {
+      BeeBridge.invoke('sl_chat_session_decline', { sessionId: invite.sessionId }).catch(function () {});
+      return;
+    }
+    // Joining the call also joins the text side of the session.
+    BeeBridge.invoke('sl_chat_session_accept', { sessionId: invite.sessionId }).catch(function () {});
+    void BeeVoice.answerCall(invite);
+  }
+
   function init() {
     document.getElementById('im-form').addEventListener('submit', handleSubmit);
+    const callBtn = document.getElementById('im-call');
+    if (callBtn) callBtn.addEventListener('click', function () { void handleCallButton(); });
+    BeeTransport.on('voice-call-invite', function (invite) { void handleCallInvite(invite); });
+    BeeTransport.on('voice-call', syncImLayout);
+    // Turning voice off in settings hides the call button immediately.
+    if (typeof BeeSettings !== 'undefined' && BeeSettings.onChange) {
+      BeeSettings.onChange(function (key) {
+        if (key === 'voiceEnabled') syncImLayout();
+      });
+    }
     document.getElementById('im-back').addEventListener('click', function () {
       BeeState.patch({ activeImSession: null });
       syncImLayout();

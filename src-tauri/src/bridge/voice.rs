@@ -77,6 +77,25 @@ pub fn provision_body(offer_sdp: &str, parcel_local_id: Option<i64>) -> String {
     )
 }
 
+/// The LLSD body for an ad-hoc (call) provision: P2P, conference and group
+/// voice all ride "multiagent" channels named and gated by the credentials
+/// the chat session's "call" request handed back.
+pub fn provision_body_adhoc(offer_sdp: &str, channel: &str, credentials: &str) -> String {
+    format!(
+        "<?xml version=\"1.0\"?><llsd><map>\
+         <key>jsep</key><map><key>type</key><string>offer</string>\
+         <key>sdp</key><string>{}</string></map>\
+         <key>credentials</key><string>{}</string>\
+         <key>channel</key><string>{}</string>\
+         <key>channel_type</key><string>multiagent</string>\
+         <key>voice_server_type</key><string>{VOICE_SERVER_TYPE}</string>\
+         </map></llsd>",
+        xml_escape(offer_sdp),
+        xml_escape(credentials),
+        xml_escape(channel)
+    )
+}
+
 /// The LLSD body for an ICE trickle: gathered candidates, and/or the
 /// gathering-complete marker.
 pub fn ice_body(viewer_session: &str, candidates: &[Value], completed: bool) -> String {
@@ -201,6 +220,76 @@ pub async fn sl_voice_provision(
     }))
 }
 
+/// Ask the sim to set up a voice call on a chat session (group, conference,
+/// or a conference standing in for a P2P call) - ChatSessionRequest method
+/// "call". The answer's voice_credentials carry the ad-hoc channel and its
+/// key, which sl_voice_call_provision then joins.
+#[tauri::command]
+pub async fn sl_voice_call_request(state: State<'_, Arc<AppState>>, session_id: String) -> Cmd {
+    let session = state.active().ok_or("No active session")?;
+    let session_id = session_id.trim().to_ascii_lowercase();
+    if !inventory::is_uuid(&session_id) || inventory::is_zero_uuid(&session_id) {
+        return Err("Not a chat session".into());
+    }
+    if session.cap("ChatSessionRequest").is_none() {
+        return Err("Voice calls are unavailable in this region".into());
+    }
+    let body = format!(
+        "<?xml version=\"1.0\"?><llsd><map>\
+         <key>method</key><string>call</string>\
+         <key>session-id</key><uuid>{session_id}</uuid>\
+         <key>alt_params</key><map>\
+         <key>preferred_voice_server_type</key><string>{VOICE_SERVER_TYPE}</string>\
+         </map></map></llsd>"
+    );
+    let res = inventory::cap_post(state.inner(), &session, "ChatSessionRequest", &body)
+        .await
+        .ok_or("The call could not be started (the session may not allow voice)")?;
+    let creds = res.get("voice_credentials").cloned().unwrap_or(Value::Null);
+    let uri = creds.get("channel_uri").and_then(|v| v.as_str()).unwrap_or("");
+    if uri.is_empty() {
+        crate::dlog!("voice: call request without channel: {:.300}", res.to_string());
+        return Err("The sim did not hand back a voice channel".into());
+    }
+    Ok(json!({
+        "ok": true,
+        "channelUri": uri,
+        "credentials": creds.get("channel_credentials").and_then(|v| v.as_str()).unwrap_or(""),
+    }))
+}
+
+/// Provision an ad-hoc (call) voice session with the channel and credentials
+/// a call request or an incoming invitation supplied.
+#[tauri::command]
+pub async fn sl_voice_call_provision(
+    state: State<'_, Arc<AppState>>,
+    offer: String,
+    channel: String,
+    credentials: String,
+) -> Cmd {
+    let session = state.active().ok_or("No active session")?;
+    if offer.trim().is_empty() || offer.len() > 128 * 1024 || channel.trim().is_empty() {
+        return Err("Bad call parameters".into());
+    }
+    let url = voice_cap_url(state.inner(), &session, "ProvisionVoiceAccountRequest", &None)?;
+    let body = provision_body_adhoc(&offer, &channel, &credentials);
+    let res = inventory::cap_post_url(state.inner(), &session, &url, &body)
+        .await
+        .ok_or("The call provisioning request failed")?;
+    let viewer_session = res.get("viewer_session").and_then(|v| v.as_str()).unwrap_or("");
+    let answer = res
+        .get("jsep")
+        .filter(|j| j.get("type").and_then(|t| t.as_str()) == Some("answer"))
+        .and_then(|j| j.get("sdp"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if viewer_session.is_empty() || answer.is_empty() {
+        crate::dlog!("voice: bad call provision response: {:.300}", res.to_string());
+        return Err("The sim refused the call".into());
+    }
+    Ok(json!({ "ok": true, "viewerSession": viewer_session, "sdp": answer }))
+}
+
 /// Trickle gathered ICE candidates (and/or the completion marker) to the sim.
 #[tauri::command]
 pub async fn sl_voice_ice(
@@ -258,7 +347,7 @@ pub async fn sl_voice_logout(
 pub fn sl_voice_position(state: State<'_, Arc<AppState>>) -> Cmd {
     let session = state.active().ok_or("No active session")?;
     match session.agent_global_position() {
-        Some(p) => Ok(json!({ "ok": true, "position": p })),
+        Some(p) => Ok(json!({ "ok": true, "position": p, "rotation": session.agent_rotation() })),
         None => Ok(json!({ "ok": false })),
     }
 }
@@ -304,6 +393,16 @@ mod tests {
         assert!(body.contains("<key>voice_server_type</key><string>webrtc</string>"));
         // Estate-wide channel: no parcel key at all.
         assert!(!provision_body("sdp", None).contains("parcel_local_id"));
+    }
+
+    #[test]
+    fn adhoc_body_carries_channel_and_credentials() {
+        let body = provision_body_adhoc("v=0\nsdp", "sl-channel-42", "s3cret&key");
+        assert!(body.contains("<key>channel</key><string>sl-channel-42</string>"));
+        assert!(body.contains("<key>credentials</key><string>s3cret&amp;key</string>"));
+        assert!(body.contains("<key>channel_type</key><string>multiagent</string>"));
+        assert!(body.contains("<key>voice_server_type</key><string>webrtc</string>"));
+        assert!(!body.contains("parcel_local_id"));
     }
 
     #[test]
