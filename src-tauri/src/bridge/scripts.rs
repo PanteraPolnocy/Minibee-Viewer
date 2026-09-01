@@ -2,7 +2,7 @@
 //! save/compile through the region caps, and serve the grid's LSL language
 //! data to the editor.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,17 +11,12 @@ use base64::Engine;
 use serde_json::{json, Map, Value};
 use tauri::State;
 
-use crate::bridge::circuit::Session;
 use crate::bridge::inventory::{self, AT_LSL_TEXT};
 use crate::bridge::proxy;
 use crate::bridge::state::AppState;
 use crate::codec;
 
 type Cmd = Result<Value, String>;
-
-/// Bounds on the folder walk, matching the landmarks listing.
-const MAX_FOLDERS: usize = 64;
-const MAX_DEPTH: usize = 6;
 
 /// The compiler enforces a much smaller source limit; this only stops a runaway
 /// frontend from shipping megabytes at the sim.
@@ -38,6 +33,8 @@ fn script_row(item: &Value) -> Option<Value> {
     Some(json!({
         "itemId": item_id.to_ascii_lowercase(),
         "assetId": inventory::item_str(item, "asset_id").to_ascii_lowercase(),
+        "creatorId": inventory::item_creator(item).to_ascii_lowercase(),
+        "lastOwnerId": inventory::item_last_owner(item).to_ascii_lowercase(),
         "name": inventory::item_str(item, "name"),
     }))
 }
@@ -54,36 +51,6 @@ pub fn script_rows(items: &[Value]) -> Vec<Value> {
     rows
 }
 
-/// Walk the Scripts folder tree, resolving links to the items they point at.
-async fn collect(state: &Arc<AppState>, session: &Arc<Session>, roots: &[String], owner: &str) -> Vec<Value> {
-    let mut queue: VecDeque<(String, usize)> = roots.iter().map(|r| (r.clone(), 0)).collect();
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut items = Vec::new();
-    let mut linked = Vec::new();
-    while let Some((folder, depth)) = queue.pop_front() {
-        if visited.len() >= MAX_FOLDERS || !visited.insert(folder.to_ascii_lowercase()) {
-            continue;
-        }
-        let Some((rows, cats)) = inventory::fetch_folder(state, session, &folder, owner, depth < MAX_DEPTH).await else {
-            continue;
-        };
-        for row in rows {
-            match inventory::link_target(&row) {
-                Some(target) => linked.push(target),
-                None => items.push(row),
-            }
-        }
-        for cat in cats {
-            let id = inventory::folder_id(&cat);
-            if !id.is_empty() {
-                queue.push_back((id, depth + 1));
-            }
-        }
-    }
-    items.extend(inventory::fetch_items(state, session, owner, &linked).await);
-    script_rows(&items)
-}
-
 #[tauri::command]
 pub async fn sl_scripts_list(state: State<'_, Arc<AppState>>) -> Cmd {
     let session = state.active().ok_or("No active session")?;
@@ -95,19 +62,25 @@ pub async fn sl_scripts_list(state: State<'_, Arc<AppState>>) -> Cmd {
     if session.cap("FetchInventoryDescendents2").is_none() {
         return Err("Inventory capability unavailable".into());
     }
-    let scripts = collect(state.inner(), &session, &roots, &agent).await;
-    Ok(json!({ "ok": true, "scripts": scripts }))
+    let items = inventory::collect_folder_items(state.inner(), &session, &roots, &agent).await;
+    Ok(json!({ "ok": true, "scripts": script_rows(&items) }))
 }
 
-/// Ask the sim for a script's source over the asset transfer channel. The
-/// text arrives as a `script-source` event once the packets are assembled.
-/// One download at a time: a newer request replaces a stalled older one.
-#[tauri::command]
-pub async fn sl_script_source(state: State<'_, Arc<AppState>>, item_id: String, asset_id: String) -> Cmd {
-    let (s, agent, sess) = crate::commands::active_ids(&state)?;
+/// Ask the sim for an agent-inventory text asset over the transfer channel.
+/// The text arrives as a `script-source` / `notecard-source` event once the
+/// packets are assembled. One download at a time: a newer request replaces a
+/// stalled older one.
+pub(crate) async fn request_item_source(
+    state: &State<'_, Arc<AppState>>,
+    item_id: &str,
+    asset_id: &str,
+    asset_type: i64,
+    notecard: bool,
+) -> Cmd {
+    let (s, agent, sess) = crate::commands::active_ids(state)?;
     let item_id = item_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&item_id) || inventory::is_zero_uuid(&item_id) {
-        return Err("Not a script".into());
+        return Err("Not an inventory item".into());
     }
     const CHANNEL_ASSET: i64 = 2; // LLTCT_ASSET
     const SOURCE_SIM_INV_ITEM: i64 = 3; // LLTST_SIM_INV_ITEM
@@ -115,11 +88,11 @@ pub async fn sl_script_source(state: State<'_, Arc<AppState>>, item_id: String, 
     // Params: agent, session, owner, task (null for agent inventory), item,
     // asset - six raw UUIDs - then the asset type as S32 LE.
     let mut params = Vec::with_capacity(100);
-    for id in [&agent, &sess, &agent, "", &item_id, &asset_id] {
+    for id in [&agent as &str, &sess, &agent, "", &item_id, asset_id] {
         params.extend_from_slice(&crate::commands::uuid_bytes(id));
     }
-    params.extend_from_slice(&(AT_LSL_TEXT as i32).to_le_bytes());
-    s.begin_script_transfer(&transfer_id, &item_id);
+    params.extend_from_slice(&(asset_type as i32).to_le_bytes());
+    s.begin_script_transfer(&transfer_id, &item_id, notecard);
     s.send_encoded(
         "TransferRequest",
         &json!({
@@ -135,6 +108,11 @@ pub async fn sl_script_source(state: State<'_, Arc<AppState>>, item_id: String, 
     )
     .await;
     Ok(json!({ "ok": true }))
+}
+
+#[tauri::command]
+pub async fn sl_script_source(state: State<'_, Arc<AppState>>, item_id: String, asset_id: String) -> Cmd {
+    request_item_source(&state, &item_id, &asset_id, AT_LSL_TEXT, false).await
 }
 
 /// Tags our CreateInventoryItem so the UpdateCreateInventoryItem reply can be
@@ -154,17 +132,17 @@ fn clean_item_name(name: &str) -> Result<String, String> {
     Ok(name)
 }
 
-/// Create a new script in the Scripts folder. The server assigns the default
-/// "Hello, Avatar!" source; the new item comes back as a `script-created`
-/// event once UpdateCreateInventoryItem lands.
-#[tauri::command]
-pub async fn sl_script_create(state: State<'_, Arc<AppState>>, name: String) -> Cmd {
-    let (s, agent, sess) = crate::commands::active_ids(&state)?;
-    let name = clean_item_name(&name)?;
-    let folder = state.script_folders.lock().unwrap().first().cloned().unwrap_or_default();
-    if folder.is_empty() {
-        return Err("No Scripts folder in this inventory".into());
-    }
+/// Create a new inventory item of `asset_type` in `folder`. The reply routes
+/// back as a `script-created` / `notecard-created` event (by item type) once
+/// UpdateCreateInventoryItem lands.
+pub(crate) async fn create_inventory_item(
+    state: &State<'_, Arc<AppState>>,
+    name: &str,
+    folder: &str,
+    asset_type: i64,
+) -> Cmd {
+    let (s, agent, sess) = crate::commands::active_ids(state)?;
+    let name = clean_item_name(name)?;
     // Next owner: move + transfer, the grid's usual default for new items.
     const NEXT_OWNER_DEFAULT: i64 = 0x0008_2000;
     s.send_encoded(
@@ -176,8 +154,8 @@ pub async fn sl_script_create(state: State<'_, Arc<AppState>>, name: String) -> 
                 "FolderID": folder,
                 "TransactionID": "00000000-0000-0000-0000-000000000000",
                 "NextOwnerMask": NEXT_OWNER_DEFAULT,
-                "Type": AT_LSL_TEXT,
-                "InvType": AT_LSL_TEXT,
+                "Type": asset_type,
+                "InvType": asset_type,
                 "WearableType": 0,
                 "Name": name,
                 "Description": "",
@@ -187,6 +165,17 @@ pub async fn sl_script_create(state: State<'_, Arc<AppState>>, name: String) -> 
     )
     .await;
     Ok(json!({ "ok": true }))
+}
+
+/// Create a new script in the Scripts folder. The server assigns the default
+/// "Hello, Avatar!" source.
+#[tauri::command]
+pub async fn sl_script_create(state: State<'_, Arc<AppState>>, name: String) -> Cmd {
+    let folder = state.script_folders.lock().unwrap().first().cloned().unwrap_or_default();
+    if folder.is_empty() {
+        return Err("No Scripts folder in this inventory".into());
+    }
+    create_inventory_item(&state, &name, &folder, AT_LSL_TEXT).await
 }
 
 /// Rename an inventory item over the AIS inventory cap (a PATCH of `name`).
@@ -427,11 +416,17 @@ fn fallback_language() -> Value {
 const SYNTAX_CACHE_VERSION: i64 = 1;
 const SYNTAX_CACHE_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
 
-fn syntax_cache_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+/// The app's own data directory - not the OS cache, which the system (and
+/// "clear cache" buttons) may wipe at will. Chat logs live under here too.
+pub(crate) fn app_data_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     use tauri::Manager;
-    let dir = app.path().app_cache_dir().ok()?;
+    let dir = app.path().app_data_dir().ok()?;
     std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("lsl-syntax.json"))
+    Some(dir)
+}
+
+fn syntax_cache_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    Some(app_data_dir(app)?.join("lsl-syntax.json"))
 }
 
 /// The cached language file, plus whether it is still fresh (under a week old).
@@ -503,6 +498,83 @@ pub async fn sl_lsl_language(app: tauri::AppHandle, state: State<'_, Arc<AppStat
     Ok(lang)
 }
 
+/// Conservative LSL pretty-printer: re-indents each line to its brace depth
+/// (4 spaces per level) and trims trailing whitespace. Nothing inside strings
+/// or comments is touched, and multi-line strings / block-comment bodies pass
+/// through byte-for-byte, so a format can never change what the code does.
+pub fn format_lsl(src: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+    let mut in_block_comment = false;
+    for line in src.split('\n') {
+        let starts_in_code = !in_string && !in_block_comment;
+        // Leading closers un-indent the line they sit on.
+        let mut indent = depth;
+        if starts_in_code {
+            let mut rest = line.trim_start();
+            while let Some(r) = rest.strip_prefix('}') {
+                indent -= 1;
+                rest = r.trim_start();
+            }
+        }
+        // Scan the line to carry depth/string/comment state to the next one.
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if in_string {
+                if b == b'\\' {
+                    i += 1; // the escaped byte can't close the string
+                } else if b == b'"' {
+                    in_string = false;
+                }
+            } else if in_block_comment {
+                if b == b'*' && bytes.get(i + 1) == Some(&b'/') {
+                    in_block_comment = false;
+                    i += 1;
+                }
+            } else {
+                match b {
+                    b'/' if bytes.get(i + 1) == Some(&b'/') => break, // line comment
+                    b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                        in_block_comment = true;
+                        i += 1;
+                    }
+                    b'"' => in_string = true,
+                    b'{' => depth += 1,
+                    b'}' => depth = (depth - 1).max(0),
+                    _ => {}
+                }
+            }
+            i += 1;
+        }
+        if !starts_in_code {
+            // Inside a string or block comment: the line is content, not code.
+            out.push(line.to_string());
+            continue;
+        }
+        // A line that ends inside a string keeps its tail (trailing spaces there
+        // are string content); a pure code line loses trailing whitespace.
+        let content = if in_string { line.trim_start() } else { line.trim() };
+        if content.is_empty() {
+            out.push(String::new());
+        } else {
+            out.push(format!("{}{}", "    ".repeat(indent.max(0) as usize), content));
+        }
+    }
+    out.join("\n")
+}
+
+/// Re-indent an LSL source. Pure text work; no session needed.
+#[tauri::command]
+pub fn sl_lsl_format(text: String) -> Cmd {
+    if text.len() > MAX_SOURCE_BYTES {
+        return Err("Script is too large".into());
+    }
+    Ok(json!({ "ok": true, "text": format_lsl(&text) }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,7 +582,7 @@ mod tests {
     #[test]
     fn rows_keep_scripts_only_sorted() {
         let items = vec![
-            json!({ "item_id": "aa000000-0000-0000-0000-000000000001", "type": AT_LSL_TEXT, "asset_id": "BB000000-0000-0000-0000-000000000002", "name": "zeta" }),
+            json!({ "item_id": "aa000000-0000-0000-0000-000000000001", "type": AT_LSL_TEXT, "asset_id": "BB000000-0000-0000-0000-000000000002", "name": "zeta", "permissions": { "creator_id": "CC000000-0000-0000-0000-000000000003", "last_owner_id": "DD000000-0000-0000-0000-000000000004" } }),
             json!({ "item_id": "aa000000-0000-0000-0000-000000000002", "type": AT_LSL_TEXT, "asset_id": "", "name": "Alpha" }),
             json!({ "item_id": "aa000000-0000-0000-0000-000000000002", "type": AT_LSL_TEXT, "asset_id": "", "name": "Alpha again" }),
             json!({ "item_id": "aa000000-0000-0000-0000-000000000003", "type": 3, "asset_id": "", "name": "a landmark" }),
@@ -520,6 +592,8 @@ mod tests {
         let names: Vec<&str> = rows.iter().map(|r| r["name"].as_str().unwrap()).collect();
         assert_eq!(names, vec!["Alpha", "zeta"]);
         assert_eq!(rows[1]["assetId"], "bb000000-0000-0000-0000-000000000002");
+        assert_eq!(rows[1]["creatorId"], "cc000000-0000-0000-0000-000000000003");
+        assert_eq!(rows[1]["lastOwnerId"], "dd000000-0000-0000-0000-000000000004");
     }
 
     #[test]
@@ -545,6 +619,34 @@ mod tests {
         let d = parse_diagnostic("Compile failed");
         assert_eq!(d["text"], "Compile failed");
         assert!(d.get("line").is_none());
+    }
+
+    #[test]
+    fn format_reindents_by_brace_depth() {
+        let src = "default\n{\nstate_entry()\n{\nif (TRUE)\n{\nllOwnerSay(\"hi\");   \n}\n}\n}";
+        let want = "default\n{\n    state_entry()\n    {\n        if (TRUE)\n        {\n            llOwnerSay(\"hi\");\n        }\n    }\n}";
+        assert_eq!(format_lsl(src), want);
+        // Leading closers un-indent their own line ("} else {").
+        let src = "default {\ntouch_start(integer n) {\nif (n) {\n} else {\nllSay(0, \"x\");\n}\n}\n}";
+        let out = format_lsl(src);
+        assert!(out.contains("\n        } else {\n"), "got:\n{out}");
+        // Idempotent: formatting twice changes nothing.
+        assert_eq!(format_lsl(&out), out);
+    }
+
+    #[test]
+    fn format_leaves_strings_and_comments_alone() {
+        // Braces inside strings and comments must not shift the indent.
+        let src = "default\n{\nstate_entry()\n{\nllSay(0, \"}{}{\"); // }}}\n/* {{{\n   raw comment body\n*/\nllSay(0, \"ok\");\n}\n}";
+        let out = format_lsl(src);
+        assert!(out.contains("        llSay(0, \"}{}{\"); // }}}"), "got:\n{out}");
+        // The block-comment body passes through untouched.
+        assert!(out.contains("\n   raw comment body\n"), "got:\n{out}");
+        assert!(out.contains("        llSay(0, \"ok\");"), "got:\n{out}");
+        // A string spanning lines keeps its inner lines byte-for-byte.
+        let src = "default\n{\nstate_entry()\n{\nllSay(0, \"line one\n  spaced line   \n\");\n}\n}";
+        let out = format_lsl(src);
+        assert!(out.contains("\n  spaced line   \n"), "got:\n{out}");
     }
 
     #[test]

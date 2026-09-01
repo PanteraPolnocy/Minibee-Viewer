@@ -533,6 +533,8 @@ const BeeApp = (function () {
       BeeLandmarks.init();
       BeeLand.init();
       BeeScripts.init();
+      BeeNotecards.init();
+      BeeChatLogs.init();
       BeeDestinations.init();
       BeeTeleportUI.init();
       BeeTeleportProgress.init();

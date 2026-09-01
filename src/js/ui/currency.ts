@@ -20,10 +20,15 @@ const BeeCurrency = (function () {
   // How long after the last keystroke the price is (re)fetched.
   const QUOTE_DEBOUNCE_MS = 1200;
 
+  // A purchase that gets no answer within this long unlocks the screen; the
+  // helper's own HTTP timeout is shorter, so this is a safety net only.
+  const BUY_TIMEOUT_MS = 120000;
+
   let bound = false;
   let quote = null;        // the helper's answer: { amount, estimate, usdCents, localCost, confirm }
   let quoteSeq = 0;        // bumped on every amount edit / close, so stale replies drop
   let busy = false;        // a purchase is in flight
+  let busyTimer = null;    // the in-flight purchase's safety timeout
   let paymentOkFor = '';   // agent id whose payment-info pre-check already passed
 
   function el(id) { return document.getElementById(id); }
@@ -91,6 +96,32 @@ const BeeCurrency = (function () {
     resetQuote();
     const d = dlg();
     if (d) BeeUtils.dismissDialog(d);
+  }
+
+  // Full-screen lock while a purchase runs, like the teleport screen: tapping
+  // the balance again shows this instead of a second Buy L$ form.
+  function progressDlg() { return el('currency-progress-dialog') as HTMLDialogElement | null; }
+
+  function showBuyProgress() {
+    const d = progressDlg();
+    if (!d || typeof d.showModal !== 'function') return;
+    if (!d.open) {
+      try { d.showModal(); } catch (_e) { /* already open */ }
+    }
+  }
+
+  function closeBuyProgress() {
+    const d = progressDlg();
+    if (d && d.open) BeeUtils.dismissDialog(d);
+  }
+
+  function endBusy() {
+    busy = false;
+    if (busyTimer) {
+      clearTimeout(busyTimer);
+      busyTimer = null;
+    }
+    closeBuyProgress();
   }
 
   function refreshBalance() {
@@ -200,9 +231,17 @@ const BeeCurrency = (function () {
     const d = dlg();
     if (seq !== quoteSeq || !d || !d.open) return;
 
+    // The form goes away and the progress lock takes over - reopening Buy L$
+    // while this runs shows the lock, not a second form.
     busy = true;
-    setStatus('Contacting the billing service...');
-    render();
+    closeDialog();
+    showBuyProgress();
+    let timedOut = false;
+    busyTimer = setTimeout(function () {
+      timedOut = true;
+      endBusy();
+      cannotBuy('The billing service did not answer in time. Check your transaction history before trying again.');
+    }, BUY_TIMEOUT_MS);
     let result = null;
     let failure = '';
     try {
@@ -216,10 +255,10 @@ const BeeCurrency = (function () {
     } catch (err) {
       failure = BeeUtils.errText(err);
     }
-    busy = false;
-    setStatus('');
-    closeDialog();
+    endBusy();
     refreshBalance();
+    // After a timeout the user already saw the failure screen; only a late
+    // success is still worth reporting, since money may have moved.
     if (result && result.ok === true) {
       BeeUtils.alert({
         title: 'Thank you for your payment!',
@@ -227,7 +266,7 @@ const BeeCurrency = (function () {
           'If processing takes more than 20 minutes, your transaction may be cancelled ' +
           'and the purchase amount credited back to your billing account.'
       });
-    } else {
+    } else if (!timedOut) {
       cannotBuy((result && result.error) || failure);
     }
   }
@@ -255,11 +294,16 @@ const BeeCurrency = (function () {
     if (cancel) cancel.addEventListener('click', closeDialog);
     const d = dlg();
     if (d) d.addEventListener('cancel', function () { resetQuote(); });
+    // The progress lock has no buttons and must ignore Escape; it closes on
+    // completion, timeout, or session loss.
+    const pd = progressDlg();
+    if (pd) pd.addEventListener('cancel', function (e) { e.preventDefault(); });
     const payment = el('buy-currency-payment-link');
     if (payment) payment.addEventListener('click', function () { BeeSlurl.openExternalUrl(PAYMENT_METHOD_URL); });
     const history = el('buy-currency-history-link');
     if (history) history.addEventListener('click', function () { BeeSlurl.openExternalUrl(CURRENCY_HISTORY_URL); });
     BeeState.on('change', function (partial) {
+      if (partial.connected === false || partial.sessionLost) endBusy();
       const open = dlg();
       if (!open || !open.open) return;
       if (partial.lindenBalance !== undefined) render();
@@ -272,7 +316,6 @@ const BeeCurrency = (function () {
     if (!d || typeof d.showModal !== 'function') return;
     bind();
     resetQuote();
-    busy = false;
     setStatus('');
     const input = amountInput();
     if (input) input.value = '';
@@ -303,6 +346,12 @@ const BeeCurrency = (function () {
   async function open() {
     const s = BeeState.get();
     if (!s.connected || s.sessionLost || !s.agent || !s.agent.id) return;
+    // A purchase is still running: show its lock, never a second Buy form.
+    if (busy) {
+      bind();
+      showBuyProgress();
+      return;
+    }
     // A passed check holds for the session; a failed one is re-checked each
     // time, so adding a payment method on the website takes effect on return.
     if (isLindenGrid() && paymentOkFor !== s.agent.id) {

@@ -36,6 +36,8 @@ Linden Lab's Terms of Service (and MFA when enabled) are shown when you connect 
 | Map | World map and teleport |
 | Land | Parcel under your feet |
 | Guide | Destination Guide |
+| Scripts | LSL script editor |
+| Notes | Notecard editor |
 | News | Blog, calendar, grid status, bloggers |
 | Bee | Preferences and bundled docs |
 
@@ -43,7 +45,7 @@ Linden Lab's Terms of Service (and MFA when enabled) are shown when you connect 
 
 **Top bar** - your name (profile), active group title, parcel and region, L$ (tap to buy more), Second Life time, connection, theme, logout. Speaker icon when the parcel streams music.
 
-**Buying L$** - tap the balance (on a narrow screen it lives in the bee session menu). Type an amount to see the estimated real-money cost and your new balance, then **Buy now** - every purchase asks for a confirmation first. Accounts without a payment method on file are pointed at the billing page instead, and any refusal from the billing system is shown word for word.
+**Buying L$** - tap the balance (on a narrow screen it lives in the bee session menu). Type an amount to see the estimated real-money cost and your new balance, then **Buy now** - every purchase asks for a confirmation first. While the purchase is processing, a "Buying L$" screen blocks the viewer (tapping the balance again shows the same screen, never a second purchase form) until the billing service answers or times out. Accounts without a payment method on file are pointed at the billing page instead, and any refusal from the billing system is shown word for word.
 
 ---
 
@@ -52,6 +54,8 @@ Linden Lab's Terms of Service (and MFA when enabled) are shown when you connect 
 **Chat** - local conversation and system lines.
 
 **IM** - one-to-one (with typing indicator), group chat, and conferences. Start a conference from IM or invite more people into an open one. Group moderators can mute participants in **group** chats; conferences don't get that.
+
+**Chat logs** - optional and **off by default**; the first login asks once. When on, IMs are kept as plain text files on this device - one file per person under `logs/avatars/`, one per group or conference under `logs/groups/`, in the app's data folder (never the OS cache). People and groups have **separate switches** in **Bee -> Settings**; **Bee -> About** shows how much space the logs take and the folder they live in.
 
 **Events** - script menus, permission requests, payments, teleport offers, LoadURL prompts. **Nothing answers by itself.**
 
@@ -85,7 +89,9 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Guide** - featured destinations; teleport from a card.
 
-**Scripts** - your inventory's Scripts folder as a small LSL editor: pick a script (or **+** for a new one), read or edit it with line numbers, syntax highlighting and autocomplete - both the grid's built-ins and this script's own variables and functions - then **Save**: the sim compiles it and any compiler errors are listed, click one to jump to that line. While the caret sits inside a call, the function's signature shows under the editor. **Find** (the magnifier or Ctrl+F) searches the source; type `:123` there to jump to a line. The pencil renames, the copy button offers the item/asset UUIDs, and the Mono checkbox picks the runtime target. On a phone, the list and the editor are separate screens.
+**Scripts** - your inventory's Scripts folder as a small LSL editor: pick a script (or **+** for a new one), read or edit it with line numbers, syntax highlighting and autocomplete - both the grid's built-ins and this script's own variables and functions - then **Save**: the sim compiles it and any compiler errors are listed, click one to jump to that line. While the caret sits inside a call, the function's signature shows under the editor. **Find** (the magnifier or Ctrl+F) searches the source; type `:123` there to jump to a line. **Ctrl+Z / Ctrl+Y** undo and redo, including Tab indents, completions and formatting. The lines button re-indents the whole script; the pencil renames; the copy button opens a small menu with the creator's and last owner's profiles and the item / creator / last-owner UUIDs; the Mono checkbox picks the runtime target. On a phone, the list and the editor are separate screens.
+
+**Notes** - the same idea for your Notecards folder: pick a notecard (or **+** for a new one), read or edit the text, **Save** (Ctrl+S works). A notecard that carries embedded inventory items warns before saving, because a save from Minibee keeps only the text. The pencil renames and the copy button has the same creator/UUID menu as scripts.
 
 ---
 
@@ -123,8 +129,8 @@ Open **Bee** in the nav. Sub-tabs:
 
 | Sub-tab | What |
 |---------|------|
-| Settings | Theme, auto-reconnect, sit after login, radar, buddies, guide feed, parcel music |
-| About | Version, updates, **Copy all** for bug reports |
+| Settings | Theme, auto-reconnect, sit after login, radar, buddies, chat logs, guide feed, parcel music |
+| About | Version, updates, chat-log disk usage, **Copy all** for bug reports |
 | Help | This guide |
 | README | Project overview |
 | License | LGPL 2.1 |

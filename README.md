@@ -25,6 +25,7 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 - [Land](#land)
 - [Destination Guide](#destination-guide)
 - [Scripts](#scripts)
+- [Notecards](#notecards)
 - [News](#news)
 - [When the connection drops](#when-the-connection-drops)
 - [Limitations (a.k.a. things it honestly can't do)](#limitations-aka-things-it-honestly-cant-do)
@@ -203,7 +204,11 @@ The **Guide** tab pulls curated destinations from Linden Lab's public feeds: Mob
 
 ## Scripts
 
-The **Scripts** tab is a small LSL editor over your inventory's Scripts folder (subfolders included). Pick a script to download its source - or create a new one with **+** - and edit with line numbers, syntax highlighting and autocomplete built from the grid's own LSL language data (the LSLSyntax capability, cached on disk for a week) plus the script's own variables, functions and states. Caret-driven signature help shows the enclosing call's arguments (touch-friendly - no hover needed), **Find** (Ctrl+F) searches the source with `:123` jumping to a line, scripts can be renamed in place, and item/asset UUIDs are one tap away. **Save** uploads and the sim compiles: compiler errors come back as a clickable list that jumps to the offending line. The **Mono** checkbox chooses the runtime target (off = LSL2). On phones, the list and the editor act as separate screens.
+The **Scripts** tab is a small LSL editor over your inventory's Scripts folder (subfolders included). Pick a script to download its source - or create a new one with **+** - and edit with line numbers, syntax highlighting and autocomplete built from the grid's own LSL language data (the LSLSyntax capability, cached on disk for a week) plus the script's own variables, functions and states. Caret-driven signature help shows the enclosing call's arguments (touch-friendly - no hover needed), **Find** (Ctrl+F) searches the source with `:123` jumping to a line, **Ctrl+Z / Ctrl+Y** undo and redo every edit (Tab indents, completions and formatting included), and a one-tap **Format** re-indents the whole script by brace depth without ever touching strings or comments. Scripts can be renamed in place, and the item menu opens the creator's or last owner's profile, or copies the item / creator / last-owner UUIDs. **Save** uploads and the sim compiles: compiler errors come back as a clickable list that jumps to the offending line. The **Mono** checkbox chooses the runtime target (off = LSL2). On phones, the list and the editor act as separate screens.
+
+## Notecards
+
+The **Notes** tab is the same layout over your Notecards folder: pick a notecard to download its text - or create one with **+** - edit it in a plain wrapped editor, and **Save** it back to the grid. Renaming and the creator/UUID menu work as in Scripts. Notecards that carry embedded inventory items are detected and warned about before saving, since a save from Minibee keeps the text but not the embedded items.
 
 ## News
 

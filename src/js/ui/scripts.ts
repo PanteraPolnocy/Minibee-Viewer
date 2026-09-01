@@ -16,7 +16,7 @@ const BeeScripts = (function () {
   let lang = null;
   let langSets = null;
   let langLoading = false;
-  let current = null; // { itemId, assetId, name, savedText, dirty }
+  let current = null; // { itemId, assetId, creatorId, lastOwnerId, name, savedText, dirty }
   let saving = false;
   let openSeq = 0;
   const sourceWaiters = new Map(); // itemId -> { resolve, reject, timer }
@@ -270,6 +270,96 @@ const BeeScripts = (function () {
     syncScroll();
   }
 
+  // --- editor: undo/redo ---
+  // Our own stack: the programmatic edits (Tab indent, completion, format)
+  // never enter the native textarea history, so Ctrl+Z has to be ours to be
+  // able to step back over them.
+
+  const UNDO_MAX = 200;
+  const UNDO_COALESCE_MS = 600;
+  let undoStack = [];
+  let redoStack = [];
+  let undoLastAt = 0;
+
+  function editorSnapshot(input) {
+    return { text: input.value, start: input.selectionStart, end: input.selectionEnd };
+  }
+
+  function clearUndo() {
+    undoStack = [];
+    redoStack = [];
+    undoLastAt = 0;
+  }
+
+  // Record the state BEFORE a change. A typing burst coalesces into one step;
+  // `force` (a programmatic edit) always records its own step.
+  function pushUndo(force?) {
+    const input = el<HTMLTextAreaElement>('script-input');
+    if (!input) return;
+    redoStack = [];
+    const now = Date.now();
+    const top = undoStack[undoStack.length - 1];
+    if (top && top.text === input.value) {
+      undoLastAt = now;
+      return;
+    }
+    if (!force && top !== undefined && now - undoLastAt < UNDO_COALESCE_MS) return;
+    undoStack.push(editorSnapshot(input));
+    if (undoStack.length > UNDO_MAX) undoStack.shift();
+    undoLastAt = now;
+  }
+
+  function dropFindMark() {
+    if (!findMark) return;
+    findMark = null;
+    findMatches = [];
+    findIndex = -1;
+    updateFindCount();
+  }
+
+  // Dirty follows the text, so undoing back to the saved source reads Saved.
+  function recomputeDirty() {
+    const input = el<HTMLTextAreaElement>('script-input');
+    if (!current || !input) return;
+    if (input.value === current.savedText) {
+      current.dirty = false;
+      setStatus('Saved');
+      const save = el<HTMLButtonElement>('script-save');
+      if (save) save.disabled = true;
+    } else {
+      markDirty();
+    }
+  }
+
+  function applyEditorSnapshot(snap) {
+    const input = el<HTMLTextAreaElement>('script-input');
+    if (!input) return;
+    input.value = snap.text;
+    input.setSelectionRange(snap.start, snap.end);
+    input.focus();
+    dropFindMark();
+    recomputeDirty();
+    hideCompletion();
+    refreshHighlight();
+    refreshSignature();
+  }
+
+  function undoEdit() {
+    const input = el<HTMLTextAreaElement>('script-input');
+    if (!input || input.disabled || !undoStack.length) return;
+    redoStack.push(editorSnapshot(input));
+    applyEditorSnapshot(undoStack.pop());
+    undoLastAt = 0;
+  }
+
+  function redoEdit() {
+    const input = el<HTMLTextAreaElement>('script-input');
+    if (!input || input.disabled || !redoStack.length) return;
+    undoStack.push(editorSnapshot(input));
+    applyEditorSnapshot(redoStack.pop());
+    undoLastAt = 0;
+  }
+
   // --- editor: find / go-to-line ---
 
   let findMatches = [];
@@ -466,6 +556,7 @@ const BeeScripts = (function () {
     const callable = !!(fn || localFn);
     const hasArgs = fn ? (fn.args || []).length > 0 : !!(localFn && localFn.argsText);
     const insert = callable ? name + '()' : name;
+    pushUndo(true);
     input.setRangeText(insert, start, input.selectionStart, 'end');
     if (callable && hasArgs) {
       // Land the caret between the parentheses, ready for the arguments.
@@ -560,6 +651,65 @@ const BeeScripts = (function () {
     revealOffset(offset);
   }
 
+  // The small per-item menu behind the copy button: creator and last-owner
+  // profiles plus the UUID copies. Shared with the notecards tab.
+  function openItemMenu(anchor, item) {
+    const menu = el('context-menu');
+    if (!menu) return;
+    menu.innerHTML = '';
+
+    function knownId(id) {
+      const s = String(id || '');
+      return s && !/^0+$/.test(s.replace(/-/g, '')) ? s : '';
+    }
+
+    function profileEntry(label, id) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = label;
+      if (id && typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) {
+        btn.addEventListener('click', function () {
+          menu.hidden = true;
+          BeeProfile.openAvatar(id);
+        });
+      } else {
+        btn.disabled = true;
+      }
+      menu.appendChild(btn);
+    }
+
+    function copyEntry(label, value) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = label;
+      if (!value) {
+        btn.disabled = true;
+      } else {
+        btn.addEventListener('click', function () {
+          menu.hidden = true;
+          if (!navigator.clipboard) return;
+          navigator.clipboard.writeText(value).then(function () {
+            BeeUtils.showToast(label.replace('Copy ', '') + ' copied', 'success');
+          }).catch(function () {});
+        });
+      }
+      menu.appendChild(btn);
+    }
+
+    const creator = knownId(item.creatorId);
+    const lastOwner = knownId(item.lastOwnerId);
+    profileEntry('Creator profile', creator);
+    profileEntry('Last owner profile', lastOwner);
+    copyEntry('Copy item UUID', item.itemId);
+    copyEntry('Copy creator UUID', creator);
+    copyEntry('Copy last owner UUID', lastOwner);
+    menu.hidden = false;
+    const rect = anchor.getBoundingClientRect();
+    const mrect = menu.getBoundingClientRect();
+    menu.style.left = Math.max(0, Math.min(rect.left, window.innerWidth - mrect.width - 8)) + 'px';
+    menu.style.top = Math.max(0, Math.min(rect.bottom + 4, window.innerHeight - mrect.height - 8)) + 'px';
+  }
+
   function setEditorOpen(open) {
     const panel = el('panel-scripts');
     if (panel) panel.classList.toggle('panel--scripts--editor-open', open);
@@ -607,7 +757,14 @@ const BeeScripts = (function () {
       });
       await BeeTransport.createScript(name.trim());
       const created = await wait;
-      const row = { itemId: created.itemId, assetId: created.assetId || '', name: created.name || name.trim() };
+      const agent = BeeState.get().agent;
+      const row = {
+        itemId: created.itemId,
+        assetId: created.assetId || '',
+        creatorId: (agent && agent.id) || '',
+        lastOwnerId: (agent && agent.id) || '',
+        name: created.name || name.trim()
+      };
       rows = rows.filter(function (r) { return r.itemId !== row.itemId; });
       rows.push(row);
       sortRows();
@@ -616,6 +773,36 @@ const BeeScripts = (function () {
       open(row);
     } catch (err) {
       BeeUtils.showToast(BeeUtils.errText(err) || 'Could not create the script.', 'error');
+    }
+  }
+
+  // Re-indent the whole source through the Rust formatter. One undo step.
+  async function formatCurrent() {
+    const input = el<HTMLTextAreaElement>('script-input');
+    if (!current || !input || input.disabled) return;
+    try {
+      const res = await BeeTransport.formatLsl(input.value);
+      if (!res || !res.ok || typeof res.text !== 'string') return;
+      if (res.text === input.value) {
+        BeeUtils.showToast('Already tidy.', 'success');
+        return;
+      }
+      pushUndo(true);
+      // Keep the caret on the same line; columns shift with the re-indent.
+      const line = input.value.slice(0, input.selectionStart).split('\n').length - 1;
+      input.value = res.text;
+      const lines = res.text.split('\n');
+      let offset = 0;
+      for (let i = 0; i < line && i < lines.length; i++) offset += lines[i].length + 1;
+      input.setSelectionRange(offset, offset);
+      dropFindMark();
+      recomputeDirty();
+      refreshHighlight();
+      refreshSignature();
+      revealOffset(offset);
+      BeeUtils.showToast('Script formatted.', 'success');
+    } catch (err) {
+      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not format the script.', 'error');
     }
   }
 
@@ -655,8 +842,9 @@ const BeeScripts = (function () {
       if (!ok) return;
     }
     const seq = ++openSeq;
-    current = { itemId: row.itemId, assetId: row.assetId, name: row.name, savedText: '', dirty: false };
-    ['script-rename', 'script-find-open', 'script-copy-ids'].forEach(function (id) {
+    current = { itemId: row.itemId, assetId: row.assetId, creatorId: row.creatorId || '', lastOwnerId: row.lastOwnerId || '', name: row.name, savedText: '', dirty: false };
+    clearUndo();
+    ['script-rename', 'script-find-open', 'script-format', 'script-copy-ids'].forEach(function (id) {
       const btn = el(id);
       if (btn) btn.hidden = false;
     });
@@ -743,6 +931,7 @@ const BeeScripts = (function () {
     langSets = null;
     current = null;
     openSeq++;
+    clearUndo();
     sourceWaiters.forEach(function (w) {
       clearTimeout(w.timer);
       w.reject(new Error('Session ended'));
@@ -753,7 +942,7 @@ const BeeScripts = (function () {
       createWaiter.reject(new Error('Session ended'));
       createWaiter = null;
     }
-    ['script-rename', 'script-find-open', 'script-copy-ids'].forEach(function (id) {
+    ['script-rename', 'script-find-open', 'script-format', 'script-copy-ids'].forEach(function (id) {
       const btn = el(id);
       if (btn) btn.hidden = true;
     });
@@ -797,6 +986,8 @@ const BeeScripts = (function () {
 
     const findOpenBtn = el('script-find-open');
     if (findOpenBtn) findOpenBtn.addEventListener('click', openFind);
+    const formatBtn = el('script-format');
+    if (formatBtn) formatBtn.addEventListener('click', function () { void formatCurrent(); });
     const findBox = el<HTMLInputElement>('script-find-input');
     if (findBox) {
       findBox.addEventListener('input', function () { findIndex = -1; runFind(0); });
@@ -821,31 +1012,8 @@ const BeeScripts = (function () {
     if (copyBtn) {
       copyBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        const menu = el('context-menu');
-        if (!menu || !current) return;
-        menu.innerHTML = '';
-        [['Copy item UUID', current.itemId], ['Copy asset UUID', current.assetId]].forEach(function (pair) {
-          const item = document.createElement('button');
-          item.type = 'button';
-          item.textContent = pair[0];
-          if (!pair[1]) {
-            item.disabled = true;
-          } else {
-            item.addEventListener('click', function () {
-              menu.hidden = true;
-              if (!navigator.clipboard) return;
-              navigator.clipboard.writeText(pair[1]).then(function () {
-                BeeUtils.showToast(pair[0].replace('Copy ', '') + ' copied', 'success');
-              }).catch(function () {});
-            });
-          }
-          menu.appendChild(item);
-        });
-        menu.hidden = false;
-        const rect = copyBtn.getBoundingClientRect();
-        const mrect = menu.getBoundingClientRect();
-        menu.style.left = Math.max(0, Math.min(rect.left, window.innerWidth - mrect.width - 8)) + 'px';
-        menu.style.top = Math.max(0, Math.min(rect.bottom + 4, window.innerHeight - mrect.height - 8)) + 'px';
+        if (!current) return;
+        openItemMenu(copyBtn, current);
       });
     }
     const back = el('script-back');
@@ -860,6 +1028,8 @@ const BeeScripts = (function () {
 
     const input = el<HTMLTextAreaElement>('script-input');
     if (input) {
+      // The value BEFORE each native edit is the undo step.
+      input.addEventListener('beforeinput', function () { pushUndo(); });
       input.addEventListener('input', function () {
         // Edits shift offsets, so a lingering find mark would sit on the
         // wrong text; searching again re-marks.
@@ -913,9 +1083,20 @@ const BeeScripts = (function () {
         }
         if (e.key === 'Tab') {
           e.preventDefault();
+          pushUndo(true);
           input.setRangeText('    ', input.selectionStart, input.selectionEnd, 'end');
           markDirty();
           refreshHighlight();
+        }
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+          e.preventDefault();
+          undoEdit();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+          e.preventDefault();
+          redoEdit();
+          return;
         }
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
           e.preventDefault();
@@ -958,7 +1139,8 @@ const BeeScripts = (function () {
     init: init,
     activate: activate,
     reload: function () { return load(true); },
-    reset: reset
+    reset: reset,
+    openItemMenu: openItemMenu
   };
 })();
 

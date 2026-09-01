@@ -366,6 +366,41 @@ const BeeTransport = (function () {
     return adapter.lslLanguage();
   }
 
+  function formatLsl(text) {
+    if (!adapter || !adapter.formatLsl) return Promise.reject(new Error('Scripts not available'));
+    return adapter.formatLsl(text);
+  }
+
+  function listNotecards() {
+    if (!adapter || !adapter.listNotecards) return Promise.reject(new Error('Notecards not available'));
+    return adapter.listNotecards();
+  }
+
+  function requestNotecardSource(itemId, assetId) {
+    if (!adapter || !adapter.requestNotecardSource) return Promise.reject(new Error('Notecards not available'));
+    return adapter.requestNotecardSource(itemId, assetId);
+  }
+
+  function saveNotecard(itemId, text) {
+    if (!adapter || !adapter.saveNotecard) return Promise.reject(new Error('Notecards not available'));
+    return adapter.saveNotecard(itemId, text);
+  }
+
+  function createNotecard(name) {
+    if (!adapter || !adapter.createNotecard) return Promise.reject(new Error('Notecards not available'));
+    return adapter.createNotecard(name);
+  }
+
+  function chatLogAppend(kind, name, line) {
+    if (!adapter || !adapter.chatLogAppend) return Promise.resolve(false);
+    return adapter.chatLogAppend(kind, name, line);
+  }
+
+  function chatLogUsage() {
+    if (!adapter || !adapter.chatLogUsage) return Promise.reject(new Error('Logs not available'));
+    return adapter.chatLogUsage();
+  }
+
   function cancelTeleport() {
     if (!adapter || !adapter.cancelTeleport) {
       return Promise.resolve(false);
@@ -499,6 +534,13 @@ const BeeTransport = (function () {
     createScript: createScript,
     renameScript: renameScript,
     lslLanguage: lslLanguage,
+    formatLsl: formatLsl,
+    listNotecards: listNotecards,
+    requestNotecardSource: requestNotecardSource,
+    saveNotecard: saveNotecard,
+    createNotecard: createNotecard,
+    chatLogAppend: chatLogAppend,
+    chatLogUsage: chatLogUsage,
     cancelTeleport: cancelTeleport,
     isTeleportInProgress: isTeleportInProgress,
     requestMapArea: requestMapArea,

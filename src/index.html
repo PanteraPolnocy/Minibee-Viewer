@@ -372,6 +372,10 @@
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
               <span>Scripts</span>
             </button>
+            <button type="button" class="bottom-nav__item" data-tab="notecards" role="tab" aria-selected="false" aria-controls="panel-notecards" title="Notecards">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h9l6-6V5c0-1.1-.9-2-2-2zm-6 16v-5h5l-5 5zM7 8h10v2H7V8zm0 4h6v2H7v-2z"/></svg>
+              <span>Notes</span>
+            </button>
             <button type="button" class="bottom-nav__item" data-tab="news" role="tab" aria-selected="false" aria-controls="panel-news" title="News, calendar, grid status and blogs">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M20 3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H4V5h16v14zM6 7h6v6H6V7zm7 0h5v2h-5V7zm0 3h5v2h-5v-2zM6 14h12v2H6v-2z"/></svg>
               <span>News</span>
@@ -1038,7 +1042,10 @@
                 <button type="button" id="script-find-open" class="icon-btn script-editor__tool" title="Find in script (Ctrl+F)" aria-label="Find in script" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                 </button>
-                <button type="button" id="script-copy-ids" class="icon-btn script-editor__tool" title="Copy UUIDs" aria-label="Copy UUIDs" hidden>
+                <button type="button" id="script-format" class="icon-btn script-editor__tool" title="Format script (re-indent)" aria-label="Format script" hidden>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 5h18v2H3V5zm4 4h14v2H7V9zm-4 4h18v2H3v-2zm4 4h14v2H7v-2z"/></svg>
+                </button>
+                <button type="button" id="script-copy-ids" class="icon-btn script-editor__tool" title="UUIDs and creator" aria-label="UUIDs and creator" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
                 </button>
                 <button type="button" id="script-rename" class="icon-btn script-editor__rename" title="Rename script" aria-label="Rename script" hidden>
@@ -1073,6 +1080,52 @@
                 <div id="script-diagnostics" class="script-editor__diagnostics" hidden></div>
               </div>
               <p id="script-editor-empty" class="script-editor__empty">Pick a script to view or edit it.</p>
+            </section>
+          </div>
+        </div>
+
+        <!-- Notecards: inventory notecards on the left, plain text on the right. -->
+        <div id="panel-notecards" class="panel panel--scripts" data-panel="notecards" role="tabpanel" aria-label="Notecards" hidden>
+          <div class="scripts-layout">
+            <aside class="scripts-list" aria-label="Notecard inventory">
+              <div class="scripts-list__head">
+                <h3 class="scripts-list__title">My Notecards</h3>
+                <div class="scripts-list__tools">
+                  <button type="button" id="notecards-new" class="icon-btn scripts-list__refresh" title="New notecard" aria-label="New notecard">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                  </button>
+                  <button type="button" id="notecards-refresh" class="icon-btn scripts-list__refresh" title="Reload notecards" aria-label="Reload notecards">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                  </button>
+                </div>
+              </div>
+              <input type="search" id="notecards-filter" class="scripts-list__filter" placeholder="Filter notecards..." autocomplete="off">
+              <p id="notecards-status" class="scripts-list__status" hidden></p>
+              <ul id="notecards-items" class="scripts-list__items"></ul>
+            </aside>
+            <section class="script-editor" aria-label="Notecard editor">
+              <div class="script-editor__head">
+                <button type="button" id="notecard-back" class="icon-btn script-editor__back" title="Back to notecard list" aria-label="Back to notecard list">
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                </button>
+                <div class="script-editor__titles">
+                  <h3 id="notecard-name" class="script-editor__name">No notecard open</h3>
+                  <span id="notecard-state" class="script-editor__state"></span>
+                </div>
+                <button type="button" id="notecard-copy-ids" class="icon-btn script-editor__tool" title="UUIDs and creator" aria-label="UUIDs and creator" hidden>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                </button>
+                <button type="button" id="notecard-rename" class="icon-btn script-editor__rename" title="Rename notecard" aria-label="Rename notecard" hidden>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                </button>
+                <button type="button" id="notecard-save" class="btn btn--primary btn--sm" disabled>Save</button>
+              </div>
+              <div class="script-editor__body" id="notecard-editor-body" hidden>
+                <div class="script-editor__scroll">
+                  <textarea id="notecard-input" class="notecard-editor__input" autocapitalize="sentences" autocomplete="off" aria-label="Notecard text"></textarea>
+                </div>
+              </div>
+              <p id="notecard-editor-empty" class="script-editor__empty">Pick a notecard to read or edit it.</p>
             </section>
           </div>
         </div>
@@ -1232,6 +1285,10 @@
               <dl class="about-meta about-meta--mono" id="about-build"></dl>
               <hr class="about-hr">
               <dl class="about-meta about-meta--mono" id="about-system"></dl>
+              <hr class="about-hr">
+              <dl class="about-meta about-meta--mono">
+                <dt>Chat logs</dt><dd id="about-chatlogs">&mdash;</dd>
+              </dl>
               <div class="about-actions">
                 <span id="about-update-status" class="about-action-status" role="status" aria-live="polite"></span>
                 <span id="about-copy-status" class="about-action-status" role="status" aria-live="polite"></span>
@@ -1295,6 +1352,15 @@
         <h2 class="login-challenge__title">Teleporting</h2>
         <p id="teleport-progress-label" class="login-challenge__text">Requesting teleport...</p>
         <div class="tp-progress__track"><div id="teleport-progress-bar" class="tp-progress__bar"></div></div>
+      </div>
+    </dialog>
+
+    <!-- Buy-L$ progress lock (BeeCurrency): blocks the UI while a purchase runs -->
+    <dialog id="currency-progress-dialog" class="login-challenge tp-progress-dialog">
+      <div class="login-challenge__body tp-progress">
+        <h2 class="login-challenge__title">Buying L$</h2>
+        <p class="login-challenge__text">Your purchase is being processed...</p>
+        <div class="tp-progress__track"><div class="tp-progress__bar tp-progress__bar--busy"></div></div>
       </div>
     </dialog>
 
@@ -1544,6 +1610,8 @@
   <script src="js/ui/landmarks.js"></script>
   <script src="js/ui/land.js"></script>
   <script src="js/ui/scripts.js"></script>
+  <script src="js/ui/notecards.js"></script>
+  <script src="js/chat-logs.js"></script>
   <script src="js/ui/destinations.js"></script>
   <script src="js/ui/teleport.js"></script>
   <script src="js/ui/teleport-progress.js"></script>

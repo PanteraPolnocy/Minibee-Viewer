@@ -207,13 +207,25 @@ pub struct SessionState {
     pub script_xfer: Option<ScriptXfer>,
 }
 
-/// A script source text on its way down: which transfer, which inventory item
-/// it is for, and the packets received so far.
+/// A script or notecard text on its way down: which transfer, which inventory
+/// item it is for, and the packets received so far.
 #[derive(Debug, Default, Clone)]
 pub struct ScriptXfer {
     pub transfer_id: String,
     pub item_id: String,
+    /// true when this is a notecard download (unwrap the Linden text envelope,
+    /// report as `notecard-source`); false for a plain script source.
+    pub notecard: bool,
     pub packets: BTreeMap<i64, Vec<u8>>,
+}
+
+impl ScriptXfer {
+    fn event(&self) -> &'static str {
+        if self.notecard { "notecard-source" } else { "script-source" }
+    }
+    fn label(&self) -> &'static str {
+        if self.notecard { "notecard" } else { "script" }
+    }
 }
 
 /// Extract the plain text out of a Linden notecard container ("Linden text
@@ -233,6 +245,21 @@ pub(crate) fn notecard_text(raw: &[u8]) -> String {
         }
     }
     String::from_utf8_lossy(raw).trim_end_matches('\0').to_string()
+}
+
+/// How many inventory items ride embedded in a notecard container. A save
+/// from this client writes text only, so anything above zero means a save
+/// would drop those items - the editor warns first.
+pub(crate) fn notecard_embedded_count(raw: &[u8]) -> i64 {
+    if !raw.starts_with(b"Linden text version") {
+        return 0;
+    }
+    let Some(idx) = raw.windows(6).position(|w| w == b"count ") else {
+        return 0;
+    };
+    let after = &raw[idx + 6..];
+    let end = after.iter().position(|&b| b == b'\n').unwrap_or(after.len());
+    String::from_utf8_lossy(&after[..end]).trim().parse().unwrap_or(0)
 }
 
 /// What the money paths need to know about the parcel under our feet.
@@ -1565,8 +1592,12 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             } else if state.script_xfer.as_ref().is_some_and(|x| same_uuid(&x.transfer_id, &id)) {
                 let x = state.script_xfer.take().unwrap();
                 actions.push(Action::emit(
-                    "script-source",
-                    json!({ "ok": false, "itemId": x.item_id, "error": "The script could not be downloaded." }),
+                    x.event(),
+                    json!({
+                        "ok": false,
+                        "itemId": x.item_id,
+                        "error": format!("The {} could not be downloaded.", x.label()),
+                    }),
                 ));
             }
         }
@@ -1619,11 +1650,23 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     }
                 } else if let Some(x) = state.script_xfer.take() {
                     let raw = assemble(x.packets);
-                    let text = String::from_utf8_lossy(&raw).trim_end_matches('\0').to_string();
-                    actions.push(Action::emit(
-                        "script-source",
-                        json!({ "ok": true, "itemId": x.item_id, "text": text }),
-                    ));
+                    if x.notecard {
+                        actions.push(Action::emit(
+                            "notecard-source",
+                            json!({
+                                "ok": true,
+                                "itemId": x.item_id,
+                                "text": notecard_text(&raw),
+                                "hasEmbeds": notecard_embedded_count(&raw) > 0,
+                            }),
+                        ));
+                    } else {
+                        let text = String::from_utf8_lossy(&raw).trim_end_matches('\0').to_string();
+                        actions.push(Action::emit(
+                            "script-source",
+                            json!({ "ok": true, "itemId": x.item_id, "text": text }),
+                        ));
+                    }
                 }
             }
         }
@@ -3026,8 +3069,15 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 if callback != crate::bridge::scripts::SCRIPT_CREATE_CALLBACK {
                     continue;
                 }
+                // The same callback tags every item this client creates; the
+                // item type says which editor asked.
+                let event = if inst_i64(&item, "Type") == crate::bridge::inventory::AT_NOTECARD {
+                    "notecard-created"
+                } else {
+                    "script-created"
+                };
                 actions.push(Action::emit(
-                    "script-created",
+                    event,
                     json!({
                         "itemId": inst_str(&item, "ItemID").to_ascii_lowercase(),
                         "assetId": inst_str(&item, "AssetID").to_ascii_lowercase(),
@@ -6107,7 +6157,7 @@ mod tests {
             st.script_xfer = Some(ScriptXfer {
                 transfer_id: tid.into(),
                 item_id: "aa000000-0000-0000-0000-000000000001".into(),
-                packets: BTreeMap::new(),
+                ..Default::default()
             });
         };
         begin(&mut st, "99999999-9999-9999-9999-999999999999");
@@ -6149,6 +6199,38 @@ mod tests {
         assert_eq!(notecard_text(b""), "");
         // A length larger than the body must not panic.
         assert_eq!(notecard_text(b"Linden text version 2\n{\nText length 999\nabc"), "abc");
+    }
+
+    #[test]
+    fn notecard_transfer_unwraps_and_flags_embeds() {
+        let mut st = SessionState::default();
+        st.script_xfer = Some(ScriptXfer {
+            transfer_id: "97999999-9999-9999-9999-999999999999".into(),
+            item_id: "aa000000-0000-0000-0000-000000000002".into(),
+            notecard: true,
+            ..Default::default()
+        });
+        let body = b"Linden text version 2\n{\nLLEmbeddedItems version 1\n{\ncount 2\n}\nText length 5\nHello}\n";
+        let done = route(&mut st, &json!({
+            "name": "TransferPacket",
+            "blocks": { "TransferData": [{
+                "TransferID": "97999999-9999-9999-9999-999999999999",
+                "ChannelType": 2, "Packet": 0, "Status": 1,
+                "Data": B64.encode(body),
+            }] }
+        }));
+        let e = emit_of(&done, "notecard-source").expect("notecard source");
+        assert_eq!(e["ok"], true);
+        assert_eq!(e["text"], "Hello");
+        assert_eq!(e["hasEmbeds"], true);
+        assert!(st.script_xfer.is_none());
+    }
+
+    #[test]
+    fn notecard_embedded_count_reads_the_header() {
+        assert_eq!(notecard_embedded_count(b"Linden text version 2\n{\nLLEmbeddedItems version 1\n{\ncount 0\n}\nText length 2\nhi}\n"), 0);
+        assert_eq!(notecard_embedded_count(b"Linden text version 2\n{\nLLEmbeddedItems version 1\n{\ncount 3\n}\nText length 2\nhi}\n"), 3);
+        assert_eq!(notecard_embedded_count(b"plain text"), 0);
     }
 
     #[test]

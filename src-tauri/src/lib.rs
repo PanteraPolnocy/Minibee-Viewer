@@ -2,6 +2,7 @@
 #![recursion_limit = "512"]
 
 pub mod bridge;
+pub mod chatlogs;
 pub mod codec;
 pub mod commands;
 pub mod diaglog;
@@ -145,6 +146,13 @@ pub fn run() {
             bridge::scripts::sl_script_create,
             bridge::scripts::sl_script_rename,
             bridge::scripts::sl_lsl_language,
+            bridge::scripts::sl_lsl_format,
+            bridge::notecards::sl_notecards_list,
+            bridge::notecards::sl_notecard_source,
+            bridge::notecards::sl_notecard_save,
+            bridge::notecards::sl_notecard_create,
+            chatlogs::chat_log_append,
+            chatlogs::chat_log_usage,
             commands::sl_teleport_to_agent,
             commands::sl_current_slurl,
             commands::sl_teleport_cancel,

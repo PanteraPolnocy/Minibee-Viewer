@@ -376,6 +376,12 @@ pub fn script_folder_ids(login: &Map<String, Value>) -> Vec<String> {
     if id.is_empty() { Vec::new() } else { vec![id] }
 }
 
+/// The Notecards folder (FT_NOTECARD = 7). Empty when the skeleton lacks one.
+pub fn notecard_folder_ids(login: &Map<String, Value>) -> Vec<String> {
+    let id = skeleton_folder_id(login, 7);
+    if id.is_empty() { Vec::new() } else { vec![id] }
+}
+
 /// The agent's inventory root folder id from the login reply. Empty when absent.
 pub fn inventory_root_id(login: &Map<String, Value>) -> String {
     login
@@ -478,6 +484,7 @@ const CAPS_WE_USE: &[&str] = &[
     "ParcelPropertiesUpdate",
     "RegionExperiences",
     "RemoteParcelRequest",
+    "UpdateNotecardAgentInventory",
     "UpdateScriptAgent",
     "ViewerAsset",
 ];
@@ -526,7 +533,7 @@ async fn fetch_login_seed_caps(
         "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
         "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
         "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
-        "UpdateScriptAgent", "LSLSyntax",
+        "UpdateScriptAgent", "LSLSyntax", "UpdateNotecardAgentInventory",
     ]);
     // Ask for the FULL cap set first, in a single POST - the seed grant only hands
     // back the caps you request.
@@ -666,10 +673,13 @@ mod tests {
             json!([
                 { "name": "My Inventory", "folder_id": "aa000000-0000-0000-0000-000000000001", "type_default": 8 },
                 { "name": "Scripts", "folder_id": "dd000000-0000-0000-0000-000000000004", "type_default": 10 },
+                { "name": "Notecards", "folder_id": "ee000000-0000-0000-0000-000000000007", "type_default": 7 },
             ]),
         );
         assert_eq!(script_folder_ids(&login), vec!["dd000000-0000-0000-0000-000000000004"]);
         assert!(script_folder_ids(&Map::new()).is_empty());
+        assert_eq!(notecard_folder_ids(&login), vec!["ee000000-0000-0000-0000-000000000007"]);
+        assert!(notecard_folder_ids(&Map::new()).is_empty());
     }
 
     #[test]
@@ -682,7 +692,7 @@ mod tests {
             "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
             "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
             "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
-            "UpdateScriptAgent", "LSLSyntax",
+            "UpdateScriptAgent", "LSLSyntax", "UpdateNotecardAgentInventory",
         ]);
         let missing: Vec<&&str> =
             CAPS_WE_USE.iter().filter(|c| !requested.contains(c)).collect();
@@ -997,6 +1007,7 @@ pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, St
         *state.inv_root.lock().unwrap() = inventory_root_id(&parsed);
         *state.landmark_folders.lock().unwrap() = landmark_folder_ids(&parsed);
         *state.script_folders.lock().unwrap() = script_folder_ids(&parsed);
+        *state.notecard_folders.lock().unwrap() = notecard_folder_ids(&parsed);
         let grid = credentials.get("grid").and_then(|v| v.as_str()).unwrap_or("");
         *state.currency.lock().unwrap() = Some(crate::bridge::currency::CurrencyContext {
             agent_id: trim_quotes(&map_str(&parsed, "agent_id")),

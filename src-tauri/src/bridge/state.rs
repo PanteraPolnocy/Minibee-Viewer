@@ -126,6 +126,8 @@ pub struct AppState {
     pub landmark_folders: Mutex<Vec<String>>,
     /// The folder scripts are listed from (Scripts), from login.
     pub script_folders: Mutex<Vec<String>>,
+    /// The folder notecards are listed from (Notecards), from login.
+    pub notecard_folders: Mutex<Vec<String>>,
     /// The transformed LSL language data, cached per LSLSyntax cap URL.
     pub lsl_syntax: Mutex<Option<(String, serde_json::Value)>>,
     /// What the currency helper needs about this session, captured at login so
@@ -303,6 +305,7 @@ impl AppState {
             inv_root: Mutex::new(String::new()),
             landmark_folders: Mutex::new(Vec::new()),
             script_folders: Mutex::new(Vec::new()),
+            notecard_folders: Mutex::new(Vec::new()),
             lsl_syntax: Mutex::new(None),
             currency: Mutex::new(None),
         })

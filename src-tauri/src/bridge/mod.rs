@@ -14,6 +14,7 @@ pub mod landmarks;
 pub mod login;
 pub mod map;
 pub mod netmeter;
+pub mod notecards;
 pub mod objects;
 pub mod outfit;
 pub mod platform;

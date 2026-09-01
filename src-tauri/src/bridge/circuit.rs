@@ -235,11 +235,12 @@ impl Session {
         }
     }
 
-    pub fn begin_script_transfer(&self, transfer_id: &str, item_id: &str) {
+    pub fn begin_script_transfer(&self, transfer_id: &str, item_id: &str, notecard: bool) {
         if let Some(st) = self.engine.lock().unwrap().as_mut() {
             st.script_xfer = Some(session::ScriptXfer {
                 transfer_id: transfer_id.to_string(),
                 item_id: item_id.to_string(),
+                notecard,
                 packets: std::collections::BTreeMap::new(),
             });
         }

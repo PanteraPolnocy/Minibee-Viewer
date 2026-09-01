@@ -44,6 +44,7 @@ Your password is **not** sent anywhere except the login server you picked.
 | MFA "remember device" | If you opt in |
 | Preferences (theme, radar, etc.) | As you change settings |
 | Auto-reconnect login details | In memory only while connected or reconnecting - **never on disk**; cleared on logout |
+| IM chat logs (plain text files in the app's data folder) | Only if you say yes - asked once at first login, off by default, separate people/groups switches in Bee -> Settings; delete the files any time (Bee -> About shows where and how much) |
 | Diagnostic log file | Only if you start with `--enablelogfiles` (off by default) |
 
 ---

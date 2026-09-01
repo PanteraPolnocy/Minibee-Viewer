@@ -50,4 +50,6 @@ interface Window {
   BeeMap?: typeof BeeMap;
   BeeNews?: typeof BeeNews;
   BeeScripts?: typeof BeeScripts;
+  BeeNotecards?: typeof BeeNotecards;
+  BeeChatLogs?: typeof BeeChatLogs;
 }

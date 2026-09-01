@@ -39,7 +39,7 @@ const BeeSLBridge = (function () {
     'teleport-offer', 'teleport-request', 'teleport-accepted', 'teleport-declined',
     'sit-state', 'object-properties', 'pay-price', 'mute-list', 'region-restart',
     'net-rate', 'covenant', 'covenant-text', 'parcel-access', 'parcel-object-owners',
-    'script-source', 'script-created', 'close-requested'
+    'script-source', 'script-created', 'notecard-source', 'notecard-created', 'close-requested'
   ];
 
   // Registers every backend listener. The returned Promise doesn't resolve
@@ -538,6 +538,29 @@ const BeeSLBridge = (function () {
   function createScript(name) { return invoke('sl_script_create', { name: name }); }
   function renameScript(itemId, name) { return invoke('sl_script_rename', { itemId: itemId, name: name }); }
   function lslLanguage() { return invoke('sl_lsl_language'); }
+  function formatLsl(text) { return invoke('sl_lsl_format', { text: text }); }
+
+  // --- notecards ---
+
+  function listNotecards() {
+    return invoke('sl_notecards_list').then(function (res) { return (res && res.notecards) || []; });
+  }
+  // The text arrives later as a 'notecard-source' event carrying the item id.
+  function requestNotecardSource(itemId, assetId) {
+    return invoke('sl_notecard_source', { itemId: itemId, assetId: assetId || '' });
+  }
+  function saveNotecard(itemId, text) {
+    return invoke('sl_notecard_save', { itemId: itemId, text: text });
+  }
+  // The new item arrives later as a 'notecard-created' event.
+  function createNotecard(name) { return invoke('sl_notecard_create', { name: name }); }
+
+  // --- chat logs ---
+
+  function chatLogAppend(kind, name, line) {
+    return invoke('chat_log_append', { kind: kind, name: name, line: line });
+  }
+  function chatLogUsage() { return invoke('chat_log_usage'); }
 
   // --- scripts ---
 
@@ -760,7 +783,10 @@ const BeeSLBridge = (function () {
     listLandmarks: listLandmarks, landmarkInfo: landmarkInfo, teleportToLandmark: teleportToLandmark,
     listScripts: listScripts, requestScriptSource: requestScriptSource,
     saveScript: saveScript, createScript: createScript, renameScript: renameScript,
-    lslLanguage: lslLanguage,
+    lslLanguage: lslLanguage, formatLsl: formatLsl,
+    listNotecards: listNotecards, requestNotecardSource: requestNotecardSource,
+    saveNotecard: saveNotecard, createNotecard: createNotecard,
+    chatLogAppend: chatLogAppend, chatLogUsage: chatLogUsage,
     sendTeleportOffer: sendTeleportOffer, sendTeleportRequest: sendTeleportRequest,
     acceptTeleportOffer: acceptTeleportOffer, declineTeleportOffer: declineTeleportOffer,
     acceptTeleportRequest: acceptTeleportRequest, declineTeleportRequest: declineTeleportRequest,

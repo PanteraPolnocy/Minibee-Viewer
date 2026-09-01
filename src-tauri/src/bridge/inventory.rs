@@ -14,8 +14,13 @@ use crate::codec;
 /// Inventory asset types the core reads.
 pub const AT_LANDMARK: i64 = 3;
 pub const AT_OBJECT: i64 = 6;
+pub const AT_NOTECARD: i64 = 7;
 pub const AT_LSL_TEXT: i64 = 10;
 pub const AT_LINK: i64 = 24;
+
+/// Bounds on the folder walks the item listings do.
+pub const MAX_FOLDERS: usize = 64;
+pub const MAX_DEPTH: usize = 6;
 
 /// One FetchInventory2 request carries at most this many item ids.
 const FETCH_ITEMS_MAX: usize = 200;
@@ -158,6 +163,63 @@ pub fn folder_id(cat: &Value) -> String {
         .map(|k| item_str(cat, k))
         .find(|v| !v.is_empty())
         .unwrap_or_default()
+}
+
+/// A per-item agent id, wherever this reply shape put it: inside the
+/// permissions block, or flat on the item.
+fn item_agent_field(item: &Value, key: &str) -> String {
+    let nested = item
+        .get("permissions")
+        .map(|p| item_str(p, key))
+        .unwrap_or_default();
+    if nested.is_empty() { item_str(item, key) } else { nested }
+}
+
+/// The item's creator.
+pub fn item_creator(item: &Value) -> String {
+    item_agent_field(item, "creator_id")
+}
+
+/// Who owned the item before the current owner.
+pub fn item_last_owner(item: &Value) -> String {
+    item_agent_field(item, "last_owner_id")
+}
+
+/// Walk a folder tree breadth-first, resolving links to the items they point
+/// at, and hand back every item found (bounded by MAX_FOLDERS / MAX_DEPTH).
+pub async fn collect_folder_items(
+    state: &Arc<AppState>,
+    session: &Arc<Session>,
+    roots: &[String],
+    owner: &str,
+) -> Vec<Value> {
+    use std::collections::{HashSet, VecDeque};
+    let mut queue: VecDeque<(String, usize)> = roots.iter().map(|r| (r.clone(), 0)).collect();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut items = Vec::new();
+    let mut linked = Vec::new();
+    while let Some((folder, depth)) = queue.pop_front() {
+        if visited.len() >= MAX_FOLDERS || !visited.insert(folder.to_ascii_lowercase()) {
+            continue;
+        }
+        let Some((rows, cats)) = fetch_folder(state, session, &folder, owner, depth < MAX_DEPTH).await else {
+            continue;
+        };
+        for row in rows {
+            match link_target(&row) {
+                Some(target) => linked.push(target),
+                None => items.push(row),
+            }
+        }
+        for cat in cats {
+            let id = folder_id(&cat);
+            if !id.is_empty() {
+                queue.push_back((id, depth + 1));
+            }
+        }
+    }
+    items.extend(fetch_items(state, session, owner, &linked).await);
+    items
 }
 
 /// The item id a link points at. Links carry it as `linked_id` (AIS) or in

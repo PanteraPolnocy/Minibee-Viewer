@@ -44,6 +44,10 @@ const BeeSettingsUI = (function () {
         options: [['mobile', 'Mobile'], ['popular', 'Popular'], ['new', 'New'],
           ['editor', 'Editor'], ['events', 'Events']] }
     ] },
+    { section: 'Chat logs', items: [
+      { key: 'chatLogsAvatars', label: 'Keep IM logs (people)', kind: 'toggle' },
+      { key: 'chatLogsGroups', label: 'Keep IM logs (groups and conferences)', kind: 'toggle' }
+    ] },
     { section: 'Parcel music', items: [
       { key: 'parcelMusicEnabled', label: 'Auto-play stream', kind: 'toggle' },
       { key: 'parcelMusicVolume', label: 'Volume', kind: 'range', unit: '%' }
@@ -255,6 +259,43 @@ const BeeSettingsUI = (function () {
       const pcell = document.getElementById('about-mem-proc');
       if (pcell) pcell.textContent = fmtBytes(m.process);
     }).catch(function () {});
+  }
+
+  // The chat-log figure is fetched fresh on every About open: the files grow
+  // while the app runs, so a one-time load would go stale.
+  function updateChatLogUsage() {
+    const cell = document.getElementById('about-chatlogs');
+    if (!cell) return;
+    if (typeof BeeTransport === 'undefined' || typeof BeeTransport.chatLogUsage !== 'function') {
+      cell.textContent = '-';
+      return;
+    }
+    cell.textContent = 'Checking...';
+    BeeTransport.chatLogUsage().then(function (u) {
+      if (!u || !u.ok) {
+        cell.textContent = '-';
+        return;
+      }
+      const files = Number(u.files) || 0;
+      if (!files) {
+        cell.textContent = 'No log files';
+      } else {
+        const b = Number(u.bytes) || 0;
+        const size = b >= 1024 * 1024
+          ? (b / (1024 * 1024)).toFixed(1) + ' MB'
+          : Math.max(1, Math.round(b / 1024)) + ' KB';
+        cell.textContent = size + ' in ' + files + (files === 1 ? ' file' : ' files');
+      }
+      // The folder path is spelled out (a hover tooltip is useless on touch).
+      if (u.path) {
+        const p = document.createElement('div');
+        p.className = 'about-chatlogs__path';
+        p.textContent = String(u.path);
+        cell.appendChild(p);
+      }
+    }).catch(function () {
+      cell.textContent = '-';
+    });
   }
 
   function startMemPoll() {
@@ -484,7 +525,7 @@ const BeeSettingsUI = (function () {
       if (pane) pane.hidden = key !== activeTab;
     });
     stopMemPoll();
-    if (activeTab === 'about') { loadAbout(); startMemPoll(); }
+    if (activeTab === 'about') { loadAbout(); startMemPoll(); updateChatLogUsage(); }
     else if (activeTab === 'help') loadDoc('help', 'app_help', 'settings-help');
     else if (activeTab === 'privacy') loadDoc('privacy', 'app_privacy', 'settings-privacy');
     else if (activeTab === 'readme') loadDoc('readme', 'app_readme', 'settings-readme');

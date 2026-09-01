@@ -22,6 +22,11 @@ const BeeSettings = (function () {
     // Parcel music streaming. Off by default because of autoplay policy; volume 0-100.
     parcelMusicEnabled: { type: 'boolean', default: false },
     parcelMusicVolume: { type: 'number', default: 50, min: 0, max: 100, step: 1 },
+    // IM transcripts as text files on disk, split by source. Off by default;
+    // the first login asks once (chatLogsAsked remembers it was answered).
+    chatLogsAvatars: { type: 'boolean', default: false },
+    chatLogsGroups: { type: 'boolean', default: false },
+    chatLogsAsked: { type: 'boolean', default: false },
     objectsRange: { type: 'number', default: 32 },
     objectsIncludeAttachments: { type: 'boolean', default: false },
     objectsIncludePhysical: { type: 'boolean', default: true },

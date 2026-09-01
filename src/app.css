@@ -5775,6 +5775,31 @@ button.status-chip--balance:disabled {
 }
 .script-editor__input::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 
+/* The chat-log folder location under the size figure in About. */
+.about-chatlogs__path {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* Notecard editor: prose, not code - a plain visible textarea that wraps. */
+.notecard-editor__input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border: none;
+  resize: none;
+  outline: none;
+  overflow: auto;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .lsl-mark {
   background: color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 2px;
@@ -5988,4 +6013,13 @@ button.status-chip--balance:disabled {
   background: linear-gradient(90deg, var(--accent-deep), var(--accent));
   border-radius: 999px;
   transition: width 0.3s ease;
+}
+/* Indeterminate variant: no stages to report, just "still working". */
+.tp-progress__bar--busy {
+  width: 35%;
+  animation: tp-busy-slide 1.4s ease-in-out infinite alternate;
+}
+@keyframes tp-busy-slide {
+  from { margin-left: 0; }
+  to { margin-left: 65%; }
 }
