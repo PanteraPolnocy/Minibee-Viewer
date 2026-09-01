@@ -47,6 +47,8 @@ Linden Lab's Terms of Service (and MFA when enabled) are shown when you connect 
 
 **Buying L$** - tap the balance (on a narrow screen it lives in the bee session menu). Type an amount to see the estimated real-money cost and your new balance, then **Buy now** - every purchase asks for a confirmation first. While the purchase is processing, a "Buying L$" screen blocks the viewer (tapping the balance again shows the same screen, never a second purchase form) until the billing service answers or times out. Accounts without a payment method on file are pointed at the billing page instead, and any refusal from the billing system is shown word for word.
 
+In the **Google Play edition** you can't buy L$ at all - Google Play requires virtual-currency purchases to go through its own billing, which the L$ exchange doesn't support - so tapping the balance there explains this instead. Spending your balance works normally; buy L$ on the Second Life website or in the desktop Minibee version. The sideload APK from GitHub Releases is not affected.
+
 ---
 
 ## Chat, IM, and Events

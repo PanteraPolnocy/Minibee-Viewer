@@ -64,6 +64,15 @@ pub fn login_platform() -> LoginPlatform {
     }
 }
 
+/// True for the Google Play edition: the Android AAB built with
+/// MINIBEE_PLAY_BUILD=1 (`npm run build:android:play`). Play policy puts
+/// virtual-currency purchases under the store's own billing and publishes a
+/// monetized developer's legal address, so that edition compiles without the
+/// Buy L$ flow. Sideload APKs and desktop builds keep it.
+pub fn play_store_build() -> bool {
+    cfg!(target_os = "android") && option_env!("MINIBEE_PLAY_BUILD").is_some_and(|v| v == "1")
+}
+
 pub fn login_address_size() -> u64 {
     if cfg!(target_pointer_width = "64") {
         64
@@ -110,6 +119,15 @@ mod tests {
         assert!(!p.platform.is_empty());
         assert!(!p.platform_version.is_empty());
         assert!(!p.platform_string.is_empty());
+    }
+
+    #[test]
+    fn play_store_flag_is_android_only() {
+        // Whatever the build environment says, a non-Android target is never
+        // the Play edition.
+        if !cfg!(target_os = "android") {
+            assert!(!play_store_build());
+        }
     }
 
     #[test]

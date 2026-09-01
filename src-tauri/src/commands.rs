@@ -159,6 +159,14 @@ fn mem_snapshot() -> (u64, u64, u64) {
     (total, used, proc)
 }
 
+/// Which edition this binary is: the Google Play AAB reports playStore=true
+/// and the frontend hides the Buy L$ flow there (Play policy: virtual
+/// currency must go through the store's own billing).
+#[tauri::command]
+pub fn app_distribution() -> Cmd {
+    Ok(json!({ "ok": true, "playStore": crate::bridge::platform::play_store_build() }))
+}
+
 /// Current system and Minibee memory (bytes) for the About tab's periodic refresh.
 #[tauri::command]
 pub fn app_memory() -> Cmd {

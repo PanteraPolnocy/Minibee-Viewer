@@ -25,6 +25,7 @@ const BeeCurrency = (function () {
   const BUY_TIMEOUT_MS = 120000;
 
   let bound = false;
+  let playStoreBuild = null; // cached app_distribution answer; null until asked
   let quote = null;        // the helper's answer: { amount, estimate, usdCents, localCost, confirm }
   let quoteSeq = 0;        // bumped on every amount edit / close, so stale replies drop
   let busy = false;        // a purchase is in flight
@@ -96,6 +97,21 @@ const BeeCurrency = (function () {
     resetQuote();
     const d = dlg();
     if (d) BeeUtils.dismissDialog(d);
+  }
+
+  // The Google Play edition ships without the L$ purchase: Play policy routes
+  // virtual-currency sales through the store's own billing, which the LindeX
+  // exchange doesn't use. Spending an existing balance is unaffected.
+  async function isPlayStoreBuild() {
+    if (playStoreBuild === null) {
+      try {
+        const d = await BeeBridge.invoke('app_distribution');
+        playStoreBuild = !!(d && d.playStore);
+      } catch (_e) {
+        playStoreBuild = false;
+      }
+    }
+    return playStoreBuild;
   }
 
   // Full-screen lock while a purchase runs, like the teleport screen: tapping
@@ -346,6 +362,17 @@ const BeeCurrency = (function () {
   async function open() {
     const s = BeeState.get();
     if (!s.connected || s.sessionLost || !s.agent || !s.agent.id) return;
+    if (await isPlayStoreBuild()) {
+      BeeUtils.alert({
+        title: 'Buying L$ unavailable',
+        message: 'Buying Linden Dollars is not available in this Google Play edition: Google Play ' +
+          'requires virtual-currency purchases to go through its own billing system, which the L$ ' +
+          'exchange does not support. Your balance still works normally everywhere in the app. ' +
+          'To buy more L$, use the Second Life website in your web browser, or the desktop ' +
+          'Minibee version.'
+      });
+      return;
+    }
     // A purchase is still running: show its lock, never a second Buy form.
     if (busy) {
       bind();

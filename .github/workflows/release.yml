@@ -211,11 +211,21 @@ jobs:
           } > src-tauri/gen/android/keystore.properties
 
       # APK for sideloading from the release page, AAB for the Google Play Console
-      # (Play only accepts App Bundles for new apps).
-      - name: Build Android APK and AAB
+      # (Play only accepts App Bundles for new apps). Two separate builds on
+      # purpose: the Play edition is compiled with MINIBEE_PLAY_BUILD=1, which
+      # removes the in-app L$ purchase (Play policy routes virtual currency
+      # through its own billing, and a monetized listing publishes the
+      # developer's legal address). The sideload APK keeps the full app.
+      - name: Build Android APK (sideload)
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        run: npx tauri android build --apk --aab
+        run: npx tauri android build --apk
+
+      - name: Build Android AAB (Google Play edition)
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          MINIBEE_PLAY_BUILD: "1"
+        run: npx tauri android build --aab
 
       - name: Verify signed APK and AAB
         if: github.event_name == 'release'

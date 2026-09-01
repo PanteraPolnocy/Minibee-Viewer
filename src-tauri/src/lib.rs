@@ -97,6 +97,7 @@ pub fn run() {
             commands::app_help,
             commands::app_privacy,
             commands::app_memory,
+            commands::app_distribution,
             updater::imp::app_updater_available,
             updater::imp::app_check_update,
             updater::imp::app_install_update,
