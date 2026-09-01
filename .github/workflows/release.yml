@@ -268,7 +268,7 @@ jobs:
       # account's JSON key, invited under Play Console -> Users and permissions
       # with release rights) and always for prereleases. The app's very first
       # bundle has to be uploaded by hand in the Play Console; afterwards every
-      # stable release lands on the internal track, ready to promote. While the
+      # stable release lands on the alpha track, ready to promote. While the
       # Play listing is still a draft, change `status` to `draft`.
       - name: Check for Play upload credentials
         id: play
@@ -277,14 +277,14 @@ jobs:
           SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
         run: echo "enabled=$([ -n "$SERVICE_ACCOUNT_JSON" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
-      - name: Upload AAB to Google Play (internal track)
+      - name: Upload AAB to Google Play (alpha track)
         if: github.event_name == 'release' && github.event.release.prerelease == false && steps.play.outputs.enabled == 'true'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.pantera.minibee_viewer
           releaseFiles: ${{ env.AAB_PATH }}
-          track: internal
+          track: alpha
           status: completed
           releaseName: ${{ github.event.release.tag_name }}
 
