@@ -1534,6 +1534,30 @@
       </form>
     </dialog>
 
+    <dialog id="report-abuse-dialog" class="pay-dialog">
+      <form id="report-abuse-form" method="dialog">
+        <h2 class="pay-dialog__title">Report abuse</h2>
+        <p id="report-abuse-target" class="pay-dialog__target"></p>
+        <label class="field">
+          <span>Category</span>
+          <select id="report-abuse-category"></select>
+        </label>
+        <label class="field">
+          <span>Summary</span>
+          <input type="text" id="report-abuse-summary" maxlength="120" autocomplete="off" placeholder="What happened, in one line">
+        </label>
+        <label class="field">
+          <span>Details</span>
+          <textarea id="report-abuse-details" rows="5" maxlength="4000" placeholder="When, where, and anything that helps the moderators"></textarea>
+        </label>
+        <p class="field-hint">The report goes to the grid's moderation team. The person being reported is not notified.</p>
+        <div class="pay-dialog__actions">
+          <button type="button" class="btn btn--ghost" id="report-abuse-cancel">Cancel</button>
+          <button type="submit" class="btn btn--primary" id="report-abuse-submit">Send report</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="conference-dialog" class="pay-dialog conference-dialog">
       <form id="conference-form" method="dialog">
         <h2 class="pay-dialog__title" id="conference-dialog-title">New conference chat</h2>

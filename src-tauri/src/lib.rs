@@ -154,6 +154,8 @@ pub fn run() {
             bridge::notecards::sl_notecard_create,
             chatlogs::chat_log_append,
             chatlogs::chat_log_usage,
+            bridge::abuse::sl_abuse_categories,
+            bridge::abuse::sl_report_abuse,
             commands::sl_teleport_to_agent,
             commands::sl_current_slurl,
             commands::sl_teleport_cancel,

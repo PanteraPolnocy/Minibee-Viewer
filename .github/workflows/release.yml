@@ -161,7 +161,10 @@ jobs:
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
-          ndk-version: r26d
+          # r28+ aligns native libraries to 16 KB pages by default - a Google
+          # Play requirement (since Nov 2025) for apps targeting Android 15+,
+          # and needed on devices that boot with 16 KB kernels.
+          ndk-version: r28c
           link-to-sdk: true
 
       - name: Set up Rust & Android Targets

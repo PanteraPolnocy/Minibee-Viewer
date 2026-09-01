@@ -265,6 +265,16 @@ impl Session {
         ))
     }
 
+    /// Our avatar's region-local position, [0,0,0] until the first update.
+    pub fn agent_position(&self) -> [f64; 3] {
+        self.engine
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|s| s.last_pos)
+            .unwrap_or([0.0, 0.0, 0.0])
+    }
+
     pub fn region_name(&self) -> String {
         self.engine
             .lock()

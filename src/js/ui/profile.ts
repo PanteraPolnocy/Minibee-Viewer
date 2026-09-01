@@ -1113,7 +1113,102 @@ const BeeProfile = (function () {
         await BeeBuddies.block(agentId, name);
         renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
       });
+
+      addAction('Report abuse', function () {
+        openReportAbuse(agentId, profileTitleText(profile) || 'this resident');
+      });
     }
+  }
+
+  // --- abuse report ---------------------------------------------------------
+
+  let abuseCategories = null; // fetched once from the core
+
+  async function loadAbuseCategories() {
+    if (abuseCategories) return abuseCategories;
+    const res = await BeeBridge.invoke('sl_abuse_categories');
+    abuseCategories = (res && res.categories) || [];
+    return abuseCategories;
+  }
+
+  function openReportAbuse(agentId, name) {
+    const d = document.getElementById('report-abuse-dialog') as HTMLDialogElement | null;
+    const form = document.getElementById('report-abuse-form') as HTMLFormElement | null;
+    const target = document.getElementById('report-abuse-target');
+    const select = document.getElementById('report-abuse-category') as HTMLSelectElement | null;
+    const summary = document.getElementById('report-abuse-summary') as HTMLInputElement | null;
+    const details = document.getElementById('report-abuse-details') as HTMLTextAreaElement | null;
+    const cancel = document.getElementById('report-abuse-cancel');
+    const submit = document.getElementById('report-abuse-submit') as HTMLButtonElement | null;
+    if (!d || !form || !select || !summary || !details || typeof d.showModal !== 'function') return;
+
+    if (target) target.textContent = 'Reporting ' + name;
+    summary.value = '';
+    details.value = '';
+    if (submit) submit.disabled = false;
+
+    let done = false;
+    function teardown() {
+      if (done) return;
+      done = true;
+      form.removeEventListener('submit', onSubmit);
+      if (cancel) cancel.removeEventListener('click', onCancel);
+      BeeUtils.dismissDialog(d);
+    }
+    function onCancel() { teardown(); }
+    async function onSubmit(e) {
+      e.preventDefault();
+      const category = parseInt(select.value, 10);
+      if (!category) {
+        BeeUtils.showToast('Pick a category first.', 'warning');
+        return;
+      }
+      if (!summary.value.trim()) {
+        BeeUtils.showToast('A short summary is required.', 'warning');
+        summary.focus();
+        return;
+      }
+      if (submit) submit.disabled = true;
+      try {
+        await BeeBridge.invoke('sl_report_abuse', {
+          abuserId: agentId,
+          abuserName: name,
+          category: category,
+          summary: summary.value.trim(),
+          details: details.value.trim()
+        });
+        teardown();
+        BeeUtils.showToast('Abuse report sent to the moderation team.', 'success');
+      } catch (err) {
+        if (submit) submit.disabled = false;
+        BeeUtils.showToast(BeeUtils.errText(err) || 'The report could not be sent.', 'error');
+      }
+    }
+
+    loadAbuseCategories().then(function (cats) {
+      select.innerHTML = '';
+      const placeholder = document.createElement('option');
+      placeholder.value = '0';
+      placeholder.textContent = 'Select category';
+      select.appendChild(placeholder);
+      cats.forEach(function (c) {
+        const opt = document.createElement('option');
+        opt.value = String(c.value);
+        opt.textContent = c.label;
+        select.appendChild(opt);
+      });
+      select.value = '0';
+      form.addEventListener('submit', onSubmit);
+      if (cancel) cancel.addEventListener('click', onCancel);
+      d.addEventListener('cancel', function onDialogCancel(e) {
+        e.preventDefault();
+        d.removeEventListener('cancel', onDialogCancel);
+        teardown();
+      });
+      d.showModal();
+    }).catch(function () {
+      BeeUtils.showToast('The report form is unavailable right now.', 'error');
+    });
   }
 
   // Groups where we hold GP_MEMBER_INVITE (bit 1). Powers is a 64-bit mask

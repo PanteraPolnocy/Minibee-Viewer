@@ -73,7 +73,9 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Blocked** - grid-wide mute list. Block or unblock from a profile, IM, or here. Blocked residents' chat, IMs, offers, and script prompts are hidden while blocked (objects and groups muted from a full viewer stay silenced too, even though only people are listed).
 
-**Profiles** - About, picks, groups, private Notes (even on yourself). Pay, teleport offer/request, add/remove friend, block.
+**Profiles** - About, picks, groups, private Notes (even on yourself). Pay, teleport offer/request, add/remove friend, block, report abuse.
+
+**Report abuse** - from a profile: pick a category, write a short summary and details, send. The report goes to the grid's moderation team; the person reported is not notified.
 
 **Groups** - charter, insignia, join/leave, activate, set active title, open group chat.
 

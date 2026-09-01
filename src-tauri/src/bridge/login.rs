@@ -484,6 +484,7 @@ const CAPS_WE_USE: &[&str] = &[
     "ParcelPropertiesUpdate",
     "RegionExperiences",
     "RemoteParcelRequest",
+    "SendUserReport",
     "UpdateNotecardAgentInventory",
     "UpdateScriptAgent",
     "ViewerAsset",
@@ -533,7 +534,7 @@ async fn fetch_login_seed_caps(
         "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
         "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
         "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
-        "UpdateScriptAgent", "LSLSyntax", "UpdateNotecardAgentInventory",
+        "UpdateScriptAgent", "LSLSyntax", "UpdateNotecardAgentInventory", "SendUserReport",
     ]);
     // Ask for the FULL cap set first, in a single POST - the seed grant only hands
     // back the caps you request.
@@ -692,7 +693,7 @@ mod tests {
             "FetchInventoryDescendents2", "InventoryAPIv3", "LibraryAPIv3", "ViewerAsset",
             "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
             "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
-            "UpdateScriptAgent", "LSLSyntax", "UpdateNotecardAgentInventory",
+            "UpdateScriptAgent", "LSLSyntax", "UpdateNotecardAgentInventory", "SendUserReport",
         ]);
         let missing: Vec<&&str> =
             CAPS_WE_USE.iter().filter(|c| !requested.contains(c)).collect();

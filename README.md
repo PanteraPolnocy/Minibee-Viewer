@@ -131,7 +131,7 @@ You can pay another resident from the IM pay dialog.
 
 Open a resident or group profile from **Search**, **People**, **Radar**, **IM**, **Chat**, **Land**, or the **top bar** (your own name).
 
-**Avatar profiles** show display name, username, photo, about text, picks, classifieds, groups, and private **Notes** (including on yourself). Actions: IM, Pay, offer/request teleport, add/remove friend (with confirm), block.
+**Avatar profiles** show display name, username, photo, about text, picks, classifieds, groups, and private **Notes** (including on yourself). Actions: IM, Pay, offer/request teleport, add/remove friend (with confirm), block, and **Report abuse** - a category picker plus summary and details, filed with the grid's moderation team over the same channel full viewers use.
 
 **Group profiles** show charter, insignia, member count, founder. Members can open group chat, **Activate** the group, pick and save an **active title**, or **Join** / **Leave**. Non-members can join when enrollment is open.
 
