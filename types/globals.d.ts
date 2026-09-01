@@ -52,4 +52,5 @@ interface Window {
   BeeScripts?: typeof BeeScripts;
   BeeNotecards?: typeof BeeNotecards;
   BeeChatLogs?: typeof BeeChatLogs;
+  BeeVoice?: typeof BeeVoice;
 }

@@ -24,3 +24,4 @@ pub mod scripts;
 pub mod session;
 pub mod state;
 pub mod util;
+pub mod voice;

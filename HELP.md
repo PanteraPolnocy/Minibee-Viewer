@@ -57,6 +57,8 @@ In the **Google Play edition** you can't buy L$ at all - Google Play requires vi
 
 **IM** - one-to-one (with typing indicator), group chat, and conferences. Start a conference from IM or invite more people into an open one. Group moderators can mute participants in **group** chats; conferences don't get that.
 
+**Voice (experimental)** - on by default: logging in joins nearby (spatial) voice **listening only**, so you hear people around you and the microphone stays untouched. The top-bar mic button shows the state - tap to go live (this is when the microphone permission is asked), tap again to mute, right-click (long-press) to leave voice for the session. A volume slider sits next to the button while connected (on a phone, use **Bee -> Settings -> Voice -> Volume**, like parcel music); **Microphone volume** in the same settings section adjusts how loud you are to others (up to 200%). Sound is positional: the grid's voice server mixes by where people stand. Turn voice off entirely in **Bee -> Settings -> Voice** (the button disappears). Current limits: nearby chat only (no P2P/group calls yet), the region's estate voice channel, and it's been exercised on desktop - treat other platforms as untested.
+
 **Chat logs** - optional and **off by default**; the first login asks once. When on, IMs are kept as plain text files on this device - one file per person under `logs/avatars/`, one per group or conference under `logs/groups/`, in the app's data folder (never the OS cache). People and groups have **separate switches** in **Bee -> Settings**; **Bee -> About** shows how much space the logs take and the folder they live in.
 
 **Events** - script menus, permission requests, payments, teleport offers, LoadURL prompts. **Nothing answers by itself.**

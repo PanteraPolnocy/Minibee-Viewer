@@ -5775,6 +5775,24 @@ button.status-chip--balance:disabled {
 }
 .script-editor__input::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 
+/* Top-bar voice button: gray when off, pulsing while connecting, accent when
+   connected (muted), green when the microphone is live. The explicit [hidden]
+   rules matter: .icon-btn's display:grid would win over the attribute. */
+.top-bar__voice[hidden] { display: none; }
+.top-bar__voice svg[hidden] { display: none; }
+#voice-bar[hidden] { display: none; }
+.parcel-music-bar__volume[hidden] { display: none; }
+.top-bar__voice--connecting {
+  color: var(--accent);
+  animation: voice-connecting 1.1s ease-in-out infinite alternate;
+}
+.top-bar__voice--on { color: var(--accent); }
+.top-bar__voice--live { color: #4caf50; }
+@keyframes voice-connecting {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
 /* The chat-log folder location under the size figure in About. */
 .about-chatlogs__path {
   margin-top: 2px;

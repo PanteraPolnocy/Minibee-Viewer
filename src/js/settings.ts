@@ -19,6 +19,13 @@ const BeeSettings = (function () {
     // When off (the default), info/warn diagnostics aren't kept in the in-memory
     // log - hard errors still are. (File logging lives separately, in Rust.)
     debugLogDiagnostics: { type: 'boolean', default: false },
+    // Spatial voice (experimental). On by default: login joins nearby voice
+    // listen-only (no microphone until the first unmute). Turning this off
+    // hides the top-bar mic button entirely.
+    voiceEnabled: { type: 'boolean', default: true },
+    voiceVolume: { type: 'number', default: 80, min: 0, max: 100, step: 1 },
+    // Microphone gain: 100 = as captured, up to 200% boost.
+    voiceMicVolume: { type: 'number', default: 100, min: 0, max: 200, step: 5 },
     // Parcel music streaming. Off by default because of autoplay policy; volume 0-100.
     parcelMusicEnabled: { type: 'boolean', default: false },
     parcelMusicVolume: { type: 'number', default: 50, min: 0, max: 100, step: 1 },

@@ -265,6 +265,20 @@ impl Session {
         ))
     }
 
+    /// Our avatar's grid-global position (region corner + local position),
+    /// bumped to head height the way voice expects. None until the first
+    /// position update lands.
+    pub fn agent_global_position(&self) -> Option<[f64; 3]> {
+        let guard = self.engine.lock().unwrap();
+        let st = guard.as_ref()?;
+        let p = st.last_pos?;
+        Some([
+            (st.region_grid_x * 256) as f64 + p[0],
+            (st.region_grid_y * 256) as f64 + p[1],
+            p[2] + 1.0,
+        ])
+    }
+
     /// Our avatar's region-local position, [0,0,0] until the first update.
     pub fn agent_position(&self) -> [f64; 3] {
         self.engine
@@ -273,6 +287,14 @@ impl Session {
             .as_ref()
             .and_then(|s| s.last_pos)
             .unwrap_or([0.0, 0.0, 0.0])
+    }
+
+    /// The current parcel's (local id, raw flag bits), for voice-channel
+    /// selection. None until the first parcel reply lands.
+    pub fn parcel_voice(&self) -> Option<(i64, u32)> {
+        let guard = self.engine.lock().unwrap();
+        let st = guard.as_ref()?;
+        st.parcel_snapshot.as_ref().map(|p| (p.local_id, p.flags))
     }
 
     pub fn region_name(&self) -> String {

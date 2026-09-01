@@ -482,12 +482,14 @@ const CAPS_WE_USE: &[&str] = &[
     "LSLSyntax",
     "ObjectMedia",
     "ParcelPropertiesUpdate",
+    "ProvisionVoiceAccountRequest",
     "RegionExperiences",
     "RemoteParcelRequest",
     "SendUserReport",
     "UpdateNotecardAgentInventory",
     "UpdateScriptAgent",
     "ViewerAsset",
+    "VoiceSignalingRequest",
 ];
 
 /// Re-fetch a region's capability map from its seed URL (we do this on teleport and
@@ -535,6 +537,7 @@ async fn fetch_login_seed_caps(
         "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
         "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
         "UpdateScriptAgent", "LSLSyntax", "UpdateNotecardAgentInventory", "SendUserReport",
+        "ProvisionVoiceAccountRequest", "VoiceSignalingRequest",
     ]);
     // Ask for the FULL cap set first, in a single POST - the seed grant only hands
     // back the caps you request.
@@ -694,6 +697,7 @@ mod tests {
             "SimulatorFeatures", "GetObjectCost", "ObjectMedia",
             "ExtEnvironment", "RegionExperiences", "GetExperienceInfo",
             "UpdateScriptAgent", "LSLSyntax", "UpdateNotecardAgentInventory", "SendUserReport",
+            "ProvisionVoiceAccountRequest", "VoiceSignalingRequest",
         ]);
         let missing: Vec<&&str> =
             CAPS_WE_USE.iter().filter(|c| !requested.contains(c)).collect();
@@ -1010,6 +1014,7 @@ pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, St
         *state.script_folders.lock().unwrap() = script_folder_ids(&parsed);
         *state.notecard_folders.lock().unwrap() = notecard_folder_ids(&parsed);
         let grid = credentials.get("grid").and_then(|v| v.as_str()).unwrap_or("");
+        *state.grid.lock().unwrap() = grid.to_ascii_lowercase();
         *state.currency.lock().unwrap() = Some(crate::bridge::currency::CurrencyContext {
             agent_id: trim_quotes(&map_str(&parsed, "agent_id")),
             secure_session_id: trim_quotes(&map_str(&parsed, "secure_session_id")),

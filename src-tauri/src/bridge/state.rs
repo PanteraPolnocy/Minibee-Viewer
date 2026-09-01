@@ -128,6 +128,9 @@ pub struct AppState {
     pub script_folders: Mutex<Vec<String>>,
     /// The folder notecards are listed from (Notecards), from login.
     pub notecard_folders: Mutex<Vec<String>>,
+    /// The grid this session logged into ("agni", "aditi", ...), for
+    /// grid-derived infrastructure like the voice STUN servers.
+    pub grid: Mutex<String>,
     /// The transformed LSL language data, cached per LSLSyntax cap URL.
     pub lsl_syntax: Mutex<Option<(String, serde_json::Value)>>,
     /// What the currency helper needs about this session, captured at login so
@@ -306,6 +309,7 @@ impl AppState {
             landmark_folders: Mutex::new(Vec::new()),
             script_folders: Mutex::new(Vec::new()),
             notecard_folders: Mutex::new(Vec::new()),
+            grid: Mutex::new(String::new()),
             lsl_syntax: Mutex::new(None),
             currency: Mutex::new(None),
         })

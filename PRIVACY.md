@@ -13,6 +13,7 @@ Also in the app: **Bee -> Privacy**.
 ## In short
 
 - Minibee runs **on your device**. We do not run servers that receive your chat or IM.
+- The **microphone** is used only if you turn voice on and join a voice channel; audio goes directly to your grid's voice service (Linden Lab's, on Second Life), never to us.
 - Your **password is never saved** to disk.
 - Login data goes **only to the grid you choose** (by default Linden Lab's Second Life).
 - No analytics, ads, or third-party tracking.

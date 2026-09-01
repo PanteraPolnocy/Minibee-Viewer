@@ -26,6 +26,7 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 - [Destination Guide](#destination-guide)
 - [Scripts](#scripts)
 - [Notecards](#notecards)
+- [Voice (experimental)](#voice-experimental)
 - [News](#news)
 - [When the connection drops](#when-the-connection-drops)
 - [Limitations (a.k.a. things it honestly can't do)](#limitations-aka-things-it-honestly-cant-do)
@@ -209,6 +210,10 @@ The **Scripts** tab is a small LSL editor over your inventory's Scripts folder (
 ## Notecards
 
 The **Notes** tab is the same layout over your Notecards folder: pick a notecard to download its text - or create one with **+** - edit it in a plain wrapped editor, and **Save** it back to the grid. Renaming and the creator/UUID menu work as in Scripts. Notecards that carry embedded inventory items are detected and warned about before saving, since a save from Minibee keeps the text but not the embedded items.
+
+## Voice (experimental)
+
+Spatial (nearby) voice over Second Life's WebRTC voice system. The WebView's own WebRTC stack carries the audio - microphone in, one stereo stream out - while the Rust core does the authenticated signalling: the SDP offer/answer through the `ProvisionVoiceAccountRequest` capability, ICE trickling through `VoiceSignalingRequest`, and the position reports the voice server uses to spatialise the mix (SL mixes server-side; no 3D renderer needed to hear people where they stand). Login joins **listen-only** - the offer carries a trackless audio transceiver, so no microphone permission is asked until the first unmute. The top-bar mic button goes live/muted with a tap, right-click leaves for the session, and **Bee -> Settings -> Voice** turns the whole thing off. Teleports and region crossings reconnect automatically. Current scope: nearby chat on the region's estate channel - P2P/group calls, device pickers and per-speaker volume are future work - and it is desktop-tested; other WebViews may behave differently.
 
 ## News
 

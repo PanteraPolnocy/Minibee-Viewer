@@ -44,6 +44,11 @@ const BeeSettingsUI = (function () {
         options: [['mobile', 'Mobile'], ['popular', 'Popular'], ['new', 'New'],
           ['editor', 'Editor'], ['events', 'Events']] }
     ] },
+    { section: 'Voice', items: [
+      { key: 'voiceEnabled', label: 'Voice chat (experimental)', kind: 'toggle' },
+      { key: 'voiceVolume', label: 'Volume', kind: 'range', unit: '%' },
+      { key: 'voiceMicVolume', label: 'Microphone volume', kind: 'range', unit: '%' }
+    ] },
     { section: 'Chat logs', items: [
       { key: 'chatLogsAvatars', label: 'Keep IM logs (people)', kind: 'toggle' },
       { key: 'chatLogsGroups', label: 'Keep IM logs (groups and conferences)', kind: 'toggle' }

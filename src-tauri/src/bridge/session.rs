@@ -262,9 +262,11 @@ pub(crate) fn notecard_embedded_count(raw: &[u8]) -> i64 {
     String::from_utf8_lossy(&after[..end]).trim().parse().unwrap_or(0)
 }
 
-/// What the money paths need to know about the parcel under our feet.
+/// What the money and voice paths need to know about the parcel under our feet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParcelSnapshot {
+    /// The raw parcel flag bits, for voice-channel selection.
+    pub flags: u32,
     pub local_id: i64,
     pub region_id: String,
     pub sale_price: i64,
@@ -326,6 +328,7 @@ fn emit_parcel_deduped(state: &mut SessionState, payload: Value) -> Option<Actio
     const PF_FOR_SALE: u32 = 1 << 2;
     let flags = payload.get("parcelFlags").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     state.parcel_snapshot = Some(ParcelSnapshot {
+        flags,
         local_id: gi("localId"),
         region_id: g("regionId"),
         sale_price: gi("salePrice"),
