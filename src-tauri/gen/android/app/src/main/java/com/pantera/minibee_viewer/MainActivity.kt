@@ -9,8 +9,14 @@ import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  // The window insets as a CSS-variable assignment, kept so a late-loading
+  // page can still receive them (see the retries in onWebViewCreate).
+  private var safeAreaJs: String = ""
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -28,6 +34,38 @@ class MainActivity : TauriActivity() {
     // exposure stays small because the page itself is bundled - the audio
     // element is the only remote subresource the UI ever loads.
     webView.settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+
+    // Edge-to-edge puts the page under the status and gesture bars, and
+    // Android's WebView never fills CSS env(safe-area-inset-*). Hand the real
+    // window insets to the page's --safe-* variables so the top bar clears
+    // the clock and the bottom nav clears the gesture strip.
+    ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
+      val bars = insets.getInsets(
+        WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+      )
+      val d = resources.displayMetrics.density
+      safeAreaJs = "var s=document.documentElement.style;" +
+        "s.setProperty('--safe-top','${bars.top / d}px');" +
+        "s.setProperty('--safe-bottom','${bars.bottom / d}px');" +
+        "s.setProperty('--safe-left','${bars.left / d}px');" +
+        "s.setProperty('--safe-right','${bars.right / d}px');"
+      applySafeArea(webView)
+      insets
+    }
+    // The first insets can land before the page exists; a few retries around
+    // startup make sure the loaded document gets them too.
+    for (delay in longArrayOf(500, 1500, 4000)) {
+      webView.postDelayed({ applySafeArea(webView) }, delay)
+    }
+  }
+
+  private fun applySafeArea(webView: WebView) {
+    if (safeAreaJs.isNotEmpty()) {
+      try {
+        webView.evaluateJavascript(safeAreaJs, null)
+      } catch (_: Exception) {
+      }
+    }
   }
 
   override fun onPause() {
