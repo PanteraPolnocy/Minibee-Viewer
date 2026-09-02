@@ -344,6 +344,7 @@ jobs:
           releaseName: ${{ github.event.release.name || github.event.release.tag_name }}
           whatsNewDirectory: play-whatsnew
           debugSymbols: ${{ steps.symbols.outputs.path }}
+          mappingFile: src-tauri/gen/android/app/build/outputs/mapping/universalRelease/mapping.txt
 
   update-release-notes:
     name: Patch release notes (changelog + downloads + footer)
