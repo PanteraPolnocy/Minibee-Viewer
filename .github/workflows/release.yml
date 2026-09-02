@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload compile-check installers
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}-installer
           path: |
@@ -176,6 +176,16 @@ jobs:
           # and needed on devices that boot with 16 KB kernels.
           ndk-version: r28c
           link-to-sdk: true
+
+      - name: Pin the NDK version for Gradle
+        run: |
+          NDK_VERSION="$(sed -n 's/^Pkg\.Revision *= *//p' "${{ steps.setup-ndk.outputs.ndk-path }}/source.properties" | tr -d '\r')"
+          if [ -z "$NDK_VERSION" ]; then
+            echo "::error::Could not read the NDK revision from source.properties"
+            exit 1
+          fi
+          echo "MINIBEE_NDK_VERSION=${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "Gradle will use NDK ${NDK_VERSION}"
 
       - name: Set up Rust & Android Targets
         uses: dtolnay/rust-toolchain@stable
@@ -278,7 +288,7 @@ jobs:
 
       - name: Upload compile-check artifacts
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MiniBee-Viewer-Android-AAB
           path: |
@@ -312,6 +322,16 @@ jobs:
           SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
         run: echo "enabled=$([ -n "$SERVICE_ACCOUNT_JSON" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
+      # The release event payload is a snapshot from publish time, so the name
+      # and body here are the author's own notes - the changelog/downloads/footer
+      # patched in later never reach Play.
+      - name: Prepare Play release notes
+        if: github.event_name == 'release' && github.event.release.prerelease == false && steps.play.outputs.enabled == 'true'
+        env:
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: node scripts/play-whatsnew.mjs
+
       - name: Upload AAB to Google Play (alpha track)
         if: github.event_name == 'release' && github.event.release.prerelease == false && steps.play.outputs.enabled == 'true'
         uses: r0adkll/upload-google-play@v1
@@ -321,8 +341,10 @@ jobs:
           releaseFiles: ${{ env.AAB_PATH }}
           tracks: alpha
           status: completed
-          releaseName: ${{ github.event.release.tag_name }}
+          releaseName: ${{ github.event.release.name || github.event.release.tag_name }}
+          whatsNewDirectory: play-whatsnew
           debugSymbols: ${{ steps.symbols.outputs.path }}
+          mappingFile: src-tauri/gen/android/app/build/outputs/mapping/universalRelease/mapping.txt
 
   update-release-notes:
     name: Patch release notes (changelog + downloads + footer)

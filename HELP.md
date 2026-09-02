@@ -59,7 +59,7 @@ In the **Google Play edition** you can't buy L$ at all - Google Play requires vi
 
 **Voice (experimental)** - on by default: logging in joins nearby (spatial) voice **listening only**, so you hear people around you and the microphone stays untouched. The top-bar mic button shows the state - tap to go live (this is when the microphone permission is asked), tap again to mute, right-click (long-press) to leave voice for the session. A volume slider sits next to the button while connected (on a phone, use **Bee -> Settings -> Voice -> Volume**, like parcel music); **Microphone volume** in the same settings section adjusts how loud you are to others (up to 200%), and the **Microphone** / **Output device** pickers choose your hardware (device names appear after the first unmute). Near a region border, voice reaches across it - people standing within earshot on the next region are heard too. On the **Radar**, people in voice carry a small mic that lights up while they speak; the row's menu can mute someone just for you or set their personal volume.
 
-**Voice calls** - the phone button in an IM thread starts a call: group chats and conferences call the whole session, a private IM calls just the two of you. Nearby voice pauses for the call and comes back when it ends (the phone button again, or right-click the top-bar mic -> Hang up). Incoming calls ask first - **Join call** or **Decline** - and never connect by themselves. Sound in calls is plain (not positional), like a phone. Sound is positional: the grid's voice server mixes by where people stand. Turn voice off entirely in **Bee -> Settings -> Voice** (the button disappears). Current limits: nearby chat only (no P2P/group calls yet), the region's estate voice channel, and it's been exercised on desktop - treat other platforms as untested.
+**Voice calls** - the phone button in an IM thread starts a call: group chats and conferences call the whole session, a private IM rings just the other person ("Ringing..." until they pick up; an unanswered call gives up on its own). Nearby voice pauses for the call and comes back when it ends (the phone button again, or right-click the top-bar mic -> Hang up). Incoming calls ask first - **Join call** or **Decline** - and never connect by themselves. Sound in calls is plain (not positional), like a phone; nearby voice is positional - the grid's voice server mixes by where people stand. Turn voice off entirely in **Bee -> Settings -> Voice** (the mic and call buttons disappear). Voice has been exercised on desktop - treat other platforms as untested.
 
 **Chat logs** - optional and **off by default**; the first login asks once. When on, IMs are kept as plain text files on this device - one file per person under `logs/avatars/`, one per group or conference under `logs/groups/`, in the app's data folder (never the OS cache). People, groups and **nearby chat** (`logs/local/`) have **separate switches** in **Bee -> Settings**. **Bee -> About** shows how much space the logs take and the folder they live in - the figure is a link into the **log manager**, where single conversations or whole categories can be deleted (with a confirmation; deletion is permanent).
 
@@ -67,7 +67,7 @@ In the **Google Play edition** you can't buy L$ at all - Google Play requires vi
 
 Links in chat and IM open the map, profiles, or your browser. Unfamiliar websites ask first.
 
-**Right-click** in text: Cut, Copy, Paste, Select all. On links: Copy link, Open in browser.
+**Right-click** in text: Cut, Copy, Paste, Select all. On links: Copy link, Open in browser. Nearly everything else answers a right-click (long-press on touch) with actions that fit it: a speaker's name in chat offers their profile, conversation rows open/mute/close, the voice pill mutes or leaves voice, the music pill copies the stream URL, the L$ balance buys or refreshes, landmark and destination rows teleport or copy, land owner rows open profiles, and every name or UUID in sight can be copied.
 
 ---
 
@@ -137,7 +137,7 @@ Open **Bee** in the nav. Sub-tabs:
 
 | Sub-tab | What |
 |---------|------|
-| Settings | Theme, auto-reconnect, sit after login, radar, buddies, chat logs, guide feed, parcel music |
+| Settings | Theme, auto-reconnect, sit after login, radar, buddies, voice, chat logs, guide feed, parcel music |
 | About | Version, updates, chat-log disk usage, **Copy all** for bug reports |
 | Help | This guide |
 | README | Project overview |

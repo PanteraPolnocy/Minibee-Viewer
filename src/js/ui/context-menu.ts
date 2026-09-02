@@ -6,6 +6,37 @@ const BeeContextMenu = (function () {
 
   let menu = null;
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  // Registered action providers: a module declares "when the pointer is over
+  // SELECTOR, offer these actions". fn(host, target) returns
+  // [{ label, action, disabled? }]; every provider whose selector matches an
+  // ancestor of the click contributes, actions first, copies after.
+  const providers = [];
+
+  function register(selector, fn) {
+    providers.push({ selector: selector, fn: fn });
+  }
+
+  function actionsFor(target) {
+    const out = [];
+    const labels = new Set();
+    if (!target || !target.closest) return out;
+    providers.forEach(function (p) {
+      let host = null;
+      try { host = target.closest(p.selector); } catch (_e) { return; }
+      if (!host) return;
+      let items = [];
+      try { items = p.fn(host, target) || []; } catch (_e) { items = []; }
+      items.forEach(function (item) {
+        if (!item || !item.label || labels.has(item.label)) return;
+        labels.add(item.label);
+        out.push(item);
+      });
+    });
+    return out;
+  }
+
   function isTextField(node) {
     if (!node || !node.tagName) return false;
     if (node.disabled || node.readOnly) return false;
@@ -172,6 +203,13 @@ const BeeContextMenu = (function () {
 
     const contextual = editable ? [] : copyEntriesFor(target);
 
+    // Actions the surrounding element registered (verbs before copies). Text
+    // fields keep the plain edit menu - their verbs are Cut/Copy/Paste.
+    const actions = editable ? [] : actionsFor(target);
+    actions.forEach(function (item) {
+      addItem(item.label, !item.disabled, item.action || function () {});
+    });
+
     if (editable) {
       addItem('Cut', !!selection && inField, function () { cut(target); });
       addItem('Copy', !!selection, function () { copyText(selection); });
@@ -190,8 +228,11 @@ const BeeContextMenu = (function () {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) BeeUtils.showToast('Copied', 'success');
         });
       });
-    } else {
+    } else if (!actions.length) {
+      // Nothing contextual anywhere near the click: the bare page-copy.
       addItem('Copy', !!selection, function () { copyText(selection); });
+    } else if (selection) {
+      addItem('Copy selection', true, function () { copyText(selection); });
     }
 
     if (link) {
@@ -204,6 +245,35 @@ const BeeContextMenu = (function () {
 
     return menu.childElementCount > 0;
   }
+
+  // Every element that already carries an agent or group id (chat avatars,
+  // roster rows, search results, land owner rows...) gets the matching
+  // profile action for free.
+  register('[data-agent-id], [data-avatar-id], [data-profile-id]', function (host) {
+    const d = host.dataset || {};
+    // Group insignia thumbnails reuse data-agent-id as their image key; they
+    // are groups, not people (the provider below picks them up).
+    if (d.kind === 'group') return [];
+    const id = d.agentId || d.avatarId || d.profileId || '';
+    if (!UUID_RE.test(id)) return [];
+    return [{
+      label: 'View profile',
+      action: function () {
+        if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) BeeProfile.openAvatar(id);
+      }
+    }];
+  });
+  register('[data-group-id], [data-kind="group"][data-agent-id]', function (host) {
+    const d = host.dataset || {};
+    const id = d.groupId || (d.kind === 'group' ? d.agentId : '') || '';
+    if (!UUID_RE.test(id)) return [];
+    return [{
+      label: 'Group profile',
+      action: function () {
+        if (typeof BeeProfile !== 'undefined' && BeeProfile.openGroup) BeeProfile.openGroup(id);
+      }
+    }];
+  });
 
   function init() {
     menu = document.getElementById('edit-context-menu');
@@ -234,7 +304,7 @@ const BeeContextMenu = (function () {
     document.addEventListener('scroll', hide, true);
   }
 
-  return { init: init, hide: hide };
+  return { init: init, hide: hide, register: register };
 })();
 
 window.BeeContextMenu = BeeContextMenu;

@@ -40,7 +40,7 @@ const BeeSLBridge = (function () {
     'sit-state', 'object-properties', 'pay-price', 'mute-list', 'region-restart',
     'net-rate', 'covenant', 'covenant-text', 'parcel-access', 'parcel-object-owners',
     'script-source', 'script-created', 'notecard-source', 'notecard-created',
-    'voice-neighbours', 'voice-call-invite', 'close-requested'
+    'voice-neighbours', 'voice-call-invite', 'voice-call-ready', 'close-requested'
   ];
 
   // Registers every backend listener. The returned Promise doesn't resolve

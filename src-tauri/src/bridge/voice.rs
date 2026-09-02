@@ -258,6 +258,43 @@ pub async fn sl_voice_call_request(state: State<'_, Arc<AppState>>, session_id: 
     }))
 }
 
+/// Start a person-to-person voice call - ChatSessionRequest method
+/// "start p2p voice" on the existing P2P session id, with the other party as
+/// params. No conference is created; the ad-hoc channel's uri+credentials
+/// arrive asynchronously in ChatterBoxSessionStartReply (the
+/// `voice-call-ready` event).
+#[tauri::command]
+pub async fn sl_voice_call_p2p(
+    state: State<'_, Arc<AppState>>,
+    session_id: String,
+    peer_id: String,
+) -> Cmd {
+    let session = state.active().ok_or("No active session")?;
+    let session_id = session_id.trim().to_ascii_lowercase();
+    let peer_id = peer_id.trim().to_ascii_lowercase();
+    if !inventory::is_uuid(&session_id) || inventory::is_zero_uuid(&session_id)
+        || !inventory::is_uuid(&peer_id) || inventory::is_zero_uuid(&peer_id)
+    {
+        return Err("Not a resident conversation".into());
+    }
+    if session.cap("ChatSessionRequest").is_none() {
+        return Err("Voice calls are unavailable in this region".into());
+    }
+    let body = format!(
+        "<?xml version=\"1.0\"?><llsd><map>\
+         <key>method</key><string>start p2p voice</string>\
+         <key>session-id</key><uuid>{session_id}</uuid>\
+         <key>params</key><uuid>{peer_id}</uuid>\
+         <key>alt_params</key><map>\
+         <key>voice_server_type</key><string>{VOICE_SERVER_TYPE}</string>\
+         </map></map></llsd>"
+    );
+    inventory::cap_post(state.inner(), &session, "ChatSessionRequest", &body)
+        .await
+        .ok_or("The call could not be started")?;
+    Ok(json!({ "ok": true }))
+}
+
 /// Provision an ad-hoc (call) voice session with the channel and credentials
 /// a call request or an incoming invitation supplied.
 #[tauri::command]

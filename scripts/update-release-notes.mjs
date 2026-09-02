@@ -118,6 +118,17 @@ Options:
     process.exit(1);
   }
 
+  // Everything below ends up interpolated into GitHub API URLs; refuse inputs
+  // that could point the request anywhere else.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9._-]+$/.test(repo)) {
+    console.error(`Not an owner/name repository: ${repo}`);
+    process.exit(1);
+  }
+  if (releaseId && !/^\d+$/.test(String(releaseId))) {
+    console.error(`Release id must be numeric: ${releaseId}`);
+    process.exit(1);
+  }
+
   return { releaseId, tag, repo, dryRun, skipChangelog };
 }
 

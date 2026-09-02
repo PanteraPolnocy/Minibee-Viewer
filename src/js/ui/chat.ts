@@ -971,6 +971,12 @@ const BeeChat = (function () {
 
     const name = document.createElement('span');
     name.className = 'msg__name ' + nameClass;
+    // Right-clicking a speaker's name offers their profile and copies
+    // (objects have no profile, so only agents get the id).
+    if (speakerId && !isObject) {
+      name.setAttribute('data-agent-id', String(speakerId));
+      name.setAttribute('data-label', String(msg.fromName || ''));
+    }
     name.appendChild(document.createTextNode(String(msg.fromName || '')));
     if (label) {
       name.appendChild(document.createTextNode(' '));

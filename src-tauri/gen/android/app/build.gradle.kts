@@ -67,6 +67,7 @@ android {
             }
         }
     }
+    System.getenv("MINIBEE_NDK_VERSION")?.takeIf { it.isNotBlank() }?.let { ndkVersion = it }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"

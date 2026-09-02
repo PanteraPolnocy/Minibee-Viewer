@@ -975,6 +975,27 @@ const BeeScripts = (function () {
         if (row) open(row);
       });
     }
+    // Right-click on a list row: open, plus the creator/owner entries the
+    // open editor's item menu offers (the copy of the item UUID is already
+    // there via data-copy).
+    if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
+      BeeContextMenu.register('#scripts-items .scripts-list__item', function (host) {
+        const row = rows.find(function (r) { return r.itemId === host.dataset.itemId; });
+        if (!row) return [];
+        const creatorKnown = /^[0-9a-f]{8}-/i.test(String(row.creatorId || '')) &&
+          !/^0+(-0+)*$/.test(String(row.creatorId || '').replace(/-/g, ''));
+        return [
+          { label: 'Open script', action: function () { void open(row); } },
+          {
+            label: 'Creator profile',
+            disabled: !creatorKnown,
+            action: function () {
+              if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) BeeProfile.openAvatar(row.creatorId);
+            }
+          }
+        ];
+      });
+    }
     const filter = el<HTMLInputElement>('scripts-filter');
     if (filter) filter.addEventListener('input', renderList);
     const refresh = el('scripts-refresh');

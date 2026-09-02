@@ -852,17 +852,66 @@ const BeeVoice = (function () {
 
   // `origin` names the thread the user acted on when it differs from the
   // call's own session - a P2P call rides a fresh conference session, but the
-  // IM tab it belongs to is the person's.
-  async function startCall(sessionId, title, origin?) {
+  // IM tab it belongs to is the person's. `p2p` turns on call semantics for
+  // two people: ring timeout and hang-up when the other side leaves.
+  async function startCall(sessionId, title, origin?, p2p?) {
     if (callSession) {
       BeeUtils.showToast('Already in a voice call.', 'warning');
       return;
     }
     if (!BeeState.gridOnline() || !window.RTCPeerConnection) return;
     try {
-      const res = await BeeBridge.invoke('sl_voice_call_request', { sessionId: sessionId });
-      await joinCallChannel(sessionId, title, String(res.channelUri || ''), String(res.credentials || ''), origin);
+      let res;
+      try {
+        res = await BeeBridge.invoke('sl_voice_call_request', { sessionId: sessionId });
+      } catch (first) {
+        // A session confirmed a moment ago can still be settling sim-side;
+        // one retry covers that window before giving up.
+        vlog('call: request failed once (' + (BeeUtils.errText(first) || first) + '); retrying');
+        await new Promise(function (r) { setTimeout(r, 1500); });
+        res = await BeeBridge.invoke('sl_voice_call_request', { sessionId: sessionId });
+      }
+      await joinCallChannel(sessionId, title, String(res.channelUri || ''), String(res.credentials || ''), origin, p2p);
     } catch (err) {
+      BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not be started.', 'error');
+    }
+  }
+
+  // A person-to-person call: "start p2p voice" on the existing IM session id
+  // (no conference is created - the IM tab stays exactly what it was). The
+  // channel arrives asynchronously as a voice-call-ready event.
+  let pendingP2P = null; // { sessionId, title, timer }
+
+  async function startP2PCall(sessionId, peerId, title) {
+    if (callSession) {
+      BeeUtils.showToast('Already in a voice call.', 'warning');
+      return;
+    }
+    if (!BeeState.gridOnline() || !window.RTCPeerConnection) return;
+    if (pendingP2P) {
+      clearTimeout(pendingP2P.timer);
+      pendingP2P = null;
+    }
+    const key = String(sessionId).toLowerCase();
+    pendingP2P = {
+      sessionId: key,
+      title: title,
+      timer: setTimeout(function () {
+        if (pendingP2P && pendingP2P.sessionId === key) {
+          pendingP2P = null;
+          vlog('call: p2p setup timed out');
+          BeeUtils.showToast('The call could not be set up in time.', 'error');
+        }
+      }, 20000)
+    };
+    try {
+      await BeeBridge.invoke('sl_voice_call_p2p', { sessionId: sessionId, peerId: peerId });
+      BeeUtils.showToast('Calling ' + (title || '...') + '...', 'info');
+    } catch (err) {
+      if (pendingP2P && pendingP2P.sessionId === key) {
+        clearTimeout(pendingP2P.timer);
+        pendingP2P = null;
+      }
       BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not be started.', 'error');
     }
   }
@@ -872,15 +921,19 @@ const BeeVoice = (function () {
       BeeUtils.showToast('Already in a voice call.', 'warning');
       return;
     }
+    // invitation_type 2 marks a person-to-person call on the wire.
+    const p2p = Number(invite.invitationType) === 2;
     await joinCallChannel(
       String(invite.sessionId || ''),
       String(invite.sessionName || invite.fromName || 'Voice call'),
       String(invite.channelUri || ''),
-      String(invite.credentials || '')
+      String(invite.credentials || ''),
+      '',
+      p2p
     );
   }
 
-  async function joinCallChannel(sessionId, title, channelUri, credentials, origin?) {
+  async function joinCallChannel(sessionId, title, channelUri, credentials, origin?, p2p?) {
     if (!channelUri) {
       BeeUtils.showToast('The call carried no voice channel.', 'error');
       return;
@@ -889,7 +942,7 @@ const BeeVoice = (function () {
     spatialWasDesired = desired;
     desired = false;
     teardown();
-    const cs: any = { sessionId: sessionId, title: title, origin: origin || '', gen: ++connectSeq, pc: null, dc: null, viewerSession: '', sender: null, audioEl: null, joined: null, up: false };
+    const cs: any = { sessionId: sessionId, title: title, origin: origin || '', p2p: !!p2p, peerJoined: false, noAnswerTimer: null, gen: ++connectSeq, pc: null, dc: null, viewerSession: '', sender: null, audioEl: null, joined: null, up: false };
     callSession = cs;
     emitCallState();
     vlog('call: connecting to ' + channelUri);
@@ -910,7 +963,33 @@ const BeeVoice = (function () {
         if (posTimer) clearInterval(posTimer);
         posTimer = setInterval(function () { void sendPosition(); }, POSITION_INTERVAL_MS);
         emitCallState();
-        BeeUtils.showToast('Voice call connected.', 'success');
+        if (cs.p2p) {
+          // We're in the channel; the other side hasn't picked up yet.
+          BeeUtils.showToast('Ringing...', 'info');
+          cs.noAnswerTimer = setTimeout(function () {
+            if (callSession === cs && !cs.peerJoined) endCall('No answer.');
+          }, 45000);
+        } else {
+          BeeUtils.showToast('Voice call connected.', 'success');
+        }
+      }
+      // P2P call semantics from the participant roster: "connected" once the
+      // other side actually joins, hang up once everyone else has left.
+      function csWatchParticipants() {
+        if (callSession !== cs || !cs.p2p) return;
+        const self = String((BeeState.get().agent || {}).id || '').toLowerCase();
+        let others = 0;
+        participants.forEach(function (_v, id) {
+          if (id !== self) others++;
+        });
+        if (others > 0 && !cs.peerJoined) {
+          cs.peerJoined = true;
+          if (cs.noAnswerTimer) { clearTimeout(cs.noAnswerTimer); cs.noAnswerTimer = null; }
+          vlog('call: peer joined');
+          BeeUtils.showToast('Call connected.', 'success');
+        } else if (others === 0 && cs.peerJoined) {
+          endCall('The call ended.');
+        }
       }
       function csBind(ch) {
         cs.dc = ch;
@@ -918,7 +997,10 @@ const BeeVoice = (function () {
         ch.onmessage = function (e) {
           // Calls accept every join: participants in an ad-hoc channel have
           // no "primary server" distinction.
-          if (callSession === cs && typeof e.data === 'string') handleData(e.data, true);
+          if (callSession === cs && typeof e.data === 'string') {
+            handleData(e.data, true);
+            csWatchParticipants();
+          }
         };
         if (ch.readyState === 'open') csChannelUp();
       }
@@ -979,6 +1061,7 @@ const BeeVoice = (function () {
     const cs = callSession;
     if (!cs) return;
     callSession = null;
+    if (cs.noAnswerTimer) { clearTimeout(cs.noAnswerTimer); cs.noAnswerTimer = null; }
     if (posTimer) { clearInterval(posTimer); posTimer = null; }
     if (cs.viewerSession && BeeState.gridOnline()) {
       BeeBridge.invoke('sl_voice_logout', { viewerSession: cs.viewerSession, neighbour: null }).catch(function () {});
@@ -993,13 +1076,28 @@ const BeeVoice = (function () {
       participants.clear();
       emitParticipants();
     }
+    // A call that rode a throwaway conference (an incoming ad-hoc invite)
+    // leaves an empty shell tab behind - close it when nothing was typed.
+    // P2P calls live on the person's own IM session, which always stays.
+    if (cs.p2p && cs.sessionId) {
+      const shell = BeeState.get().imSessions[cs.sessionId];
+      if (shell && shell.type === 'conference' && (!shell.messages || !shell.messages.length)) {
+        if (typeof BeeTransport.leaveImSession === 'function') BeeTransport.leaveImSession(cs.sessionId);
+        BeeState.closeImSession(cs.sessionId);
+      }
+    }
     vlog('call: ended' + (reason ? ' (' + reason + ')' : ''));
     if (reason) BeeUtils.showToast(reason, 'warning');
     emitCallState();
-    // Spatial voice comes back if it was on before the call.
-    if (spatialWasDesired) {
+    // Nearby voice comes back after the call - both when it was on before,
+    // and whenever the preference is on (the same rule the login auto-join
+    // follows), so a call can never leave voice silently dead.
+    const wantSpatial = spatialWasDesired ||
+      (typeof BeeSettings !== 'undefined' && !!BeeSettings.get('voiceEnabled'));
+    spatialWasDesired = false;
+    if (wantSpatial) {
       desired = true;
-      spatialWasDesired = false;
+      vlog('call: resuming nearby voice');
       if (available()) void connect(true);
     }
   }
@@ -1149,28 +1247,33 @@ const BeeVoice = (function () {
       else if (state === 'on') toggleMute();
       // while connecting, the tap is ignored rather than queueing surprises
     });
-    btn.addEventListener('contextmenu', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (state === 'off' && !inCall()) return;
-      const menu = el('context-menu');
-      if (!menu) return;
-      menu.innerHTML = '';
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.textContent = inCall() ? 'Hang up' : 'Leave voice';
-      item.addEventListener('click', function () {
-        menu.hidden = true;
-        if (inCall()) endCall('');
-        else leave();
+    // The whole voice pill - mic button AND volume slider - offers the same
+    // contextual actions.
+    if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
+      BeeContextMenu.register('#voice-bar', function () {
+        const items = [];
+        const connected = state === 'on' || inCall();
+        if (connected) {
+          items.push({ label: micMuted ? 'Unmute microphone' : 'Mute microphone', action: toggleMute });
+          items.push({
+            label: inCall() ? 'Hang up' : 'Leave voice',
+            action: function () {
+              if (inCall()) endCall('');
+              else leave();
+            }
+          });
+        } else if (state === 'off') {
+          items.push({ label: 'Join voice', action: join, disabled: !available() });
+        }
+        items.push({
+          label: 'Voice settings',
+          action: function () {
+            if (typeof BeeNavigation !== 'undefined') BeeNavigation.switchTab('settings');
+          }
+        });
+        return items;
       });
-      menu.appendChild(item);
-      menu.hidden = false;
-      const rect = btn.getBoundingClientRect();
-      const mrect = menu.getBoundingClientRect();
-      menu.style.left = Math.max(0, Math.min(rect.left, window.innerWidth - mrect.width - 8)) + 'px';
-      menu.style.top = Math.max(0, Math.min(rect.bottom + 4, window.innerHeight - mrect.height - 8)) + 'px';
-    });
+    }
   }
 
   function init() {
@@ -1190,6 +1293,19 @@ const BeeVoice = (function () {
     });
     BeeTransport.on('region', function () {
       if (desired && state !== 'off') scheduleReconnect('');
+    });
+    // The sim answered our "start p2p voice" with the ad-hoc channel.
+    BeeTransport.on('voice-call-ready', function (data) {
+      if (!data || !data.sessionId || !pendingP2P) return;
+      if (pendingP2P.sessionId !== String(data.sessionId).toLowerCase()) return;
+      const p = pendingP2P;
+      clearTimeout(p.timer);
+      pendingP2P = null;
+      void joinCallChannel(
+        data.sessionId, p.title,
+        String(data.channelUri || ''), String(data.credentials || ''),
+        data.sessionId, true
+      );
     });
     // The core learned a neighbour region's voice endpoints (or the set changed).
     BeeTransport.on('voice-neighbours', function (payload) {
@@ -1272,6 +1388,7 @@ const BeeVoice = (function () {
     setUserVolume: setUserVolume,
     listDevices: listDevices,
     startCall: startCall,
+    startP2PCall: startP2PCall,
     answerCall: answerCall,
     endCall: function () { endCall(''); },
     inCall: inCall,

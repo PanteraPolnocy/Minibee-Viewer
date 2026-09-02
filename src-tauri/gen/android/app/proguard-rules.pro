@@ -19,3 +19,8 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Move every renamed class into one package: shorter package strings in DEX
+# (Play Console: "class repackaging"; default from AGP 9.1). Classes pinned by
+# keep rules (Tauri/wry consumer rules, @JavascriptInterface) keep their names.
+-repackageclasses
