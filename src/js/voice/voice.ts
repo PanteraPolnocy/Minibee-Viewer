@@ -1247,28 +1247,33 @@ const BeeVoice = (function () {
       else if (state === 'on') toggleMute();
       // while connecting, the tap is ignored rather than queueing surprises
     });
-    btn.addEventListener('contextmenu', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (state === 'off' && !inCall()) return;
-      const menu = el('context-menu');
-      if (!menu) return;
-      menu.innerHTML = '';
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.textContent = inCall() ? 'Hang up' : 'Leave voice';
-      item.addEventListener('click', function () {
-        menu.hidden = true;
-        if (inCall()) endCall('');
-        else leave();
+    // The whole voice pill - mic button AND volume slider - offers the same
+    // contextual actions.
+    if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
+      BeeContextMenu.register('#voice-bar', function () {
+        const items = [];
+        const connected = state === 'on' || inCall();
+        if (connected) {
+          items.push({ label: micMuted ? 'Unmute microphone' : 'Mute microphone', action: toggleMute });
+          items.push({
+            label: inCall() ? 'Hang up' : 'Leave voice',
+            action: function () {
+              if (inCall()) endCall('');
+              else leave();
+            }
+          });
+        } else if (state === 'off') {
+          items.push({ label: 'Join voice', action: join, disabled: !available() });
+        }
+        items.push({
+          label: 'Voice settings',
+          action: function () {
+            if (typeof BeeNavigation !== 'undefined') BeeNavigation.switchTab('settings');
+          }
+        });
+        return items;
       });
-      menu.appendChild(item);
-      menu.hidden = false;
-      const rect = btn.getBoundingClientRect();
-      const mrect = menu.getBoundingClientRect();
-      menu.style.left = Math.max(0, Math.min(rect.left, window.innerWidth - mrect.width - 8)) + 'px';
-      menu.style.top = Math.max(0, Math.min(rect.bottom + 4, window.innerHeight - mrect.height - 8)) + 'px';
-    });
+    }
   }
 
   function init() {

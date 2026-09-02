@@ -80,6 +80,13 @@ const BeeBuddies = (function () {
       showContextMenu(e, buddy);
     });
 
+    // Right-click opens the same row menu the tap does.
+    li.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e, buddy);
+    });
+
     li.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -260,6 +267,9 @@ const BeeBuddies = (function () {
       const li = document.createElement('li');
       li.className = 'entity-item';
       li.dataset.id = person.id;
+      // The generic context menu turns the agent id into profile/copy entries.
+      li.dataset.agentId = person.id;
+      li.dataset.label = labelFor(person);
       li.innerHTML =
         '<div class="entity-item__body">' +
           '<div class="entity-item__name">' + BeeUtils.escapeHtml(labelFor(person)) + '</div>' +
@@ -323,6 +333,19 @@ const BeeBuddies = (function () {
       onlineOnly = !!BeeSettings.get('buddiesOnlineOnly');
       const onlineEl = document.getElementById('buddies-online-only') as HTMLInputElement | null;
       if (onlineEl) onlineEl.checked = onlineOnly;
+    }
+    // Right-clicking a blocked row offers the unblock next to the generic
+    // profile/copy entries the agent id already provides.
+    if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
+      BeeContextMenu.register('#blocked-list .entity-item', function (host) {
+        const id = host.dataset.id;
+        if (!id) return [];
+        const name = host.dataset.label || '';
+        return [{
+          label: 'Unblock',
+          action: function () { unblock(id, name); }
+        }];
+      });
     }
 
     document.querySelectorAll<HTMLElement>('[data-people-tab]').forEach(function (btn) {

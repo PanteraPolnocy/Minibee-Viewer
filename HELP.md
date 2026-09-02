@@ -67,7 +67,7 @@ In the **Google Play edition** you can't buy L$ at all - Google Play requires vi
 
 Links in chat and IM open the map, profiles, or your browser. Unfamiliar websites ask first.
 
-**Right-click** in text: Cut, Copy, Paste, Select all. On links: Copy link, Open in browser.
+**Right-click** in text: Cut, Copy, Paste, Select all. On links: Copy link, Open in browser. Nearly everything else answers a right-click (long-press on touch) with actions that fit it: a speaker's name in chat offers their profile, conversation rows open/mute/close, the voice pill mutes or leaves voice, the music pill copies the stream URL, the L$ balance buys or refreshes, landmark and destination rows teleport or copy, land owner rows open profiles, and every name or UUID in sight can be copied.
 
 ---
 

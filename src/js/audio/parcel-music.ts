@@ -241,6 +241,35 @@ const BeeParcelMusic = (function () {
     if (els.toggle) {
       els.toggle.addEventListener('click', toggle);
     }
+    // Right-click anywhere on the music pill (speaker or volume slider).
+    if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
+      BeeContextMenu.register('#parcel-music', function () {
+        return [
+          {
+            label: enabled ? 'Stop the stream' : 'Play the stream',
+            action: toggle,
+            disabled: !currentUrl
+          },
+          {
+            label: 'Copy stream URL',
+            disabled: !currentUrl,
+            action: function () {
+              if (navigator.clipboard && currentUrl) {
+                navigator.clipboard.writeText(currentUrl).then(function () {
+                  BeeUtils.showToast('Stream URL copied', 'success');
+                }).catch(function () {});
+              }
+            }
+          },
+          {
+            label: 'Music settings',
+            action: function () {
+              if (typeof BeeNavigation !== 'undefined') BeeNavigation.switchTab('settings');
+            }
+          }
+        ];
+      });
+    }
     showRoot(false);
     updateToggleUI();
 

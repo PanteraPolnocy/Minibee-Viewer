@@ -44,6 +44,9 @@ const BeeLandmarks = (function () {
       btn.dataset.assetId = r.assetId;
       btn.textContent = r.name || 'Unnamed landmark';
       btn.title = btn.textContent;
+      // Right-click: the shared menu offers this copy alongside "Open".
+      btn.dataset.copy = btn.textContent;
+      btn.dataset.copyLabel = 'Copy landmark name';
       li.appendChild(btn);
       list.appendChild(li);
     });
@@ -188,6 +191,13 @@ const BeeLandmarks = (function () {
         const row = rows.find(function (r) { return r.assetId === btn.dataset.assetId; });
         if (row) open(row);
       });
+      if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
+        BeeContextMenu.register('.map-landmark', function (host) {
+          const row = rows.find(function (r) { return r.assetId === host.dataset.assetId; });
+          if (!row) return [];
+          return [{ label: 'Open landmark', action: function () { open(row); } }];
+        });
+      }
     }
     if (filter) filter.addEventListener('input', render);
     if (refresh) refresh.addEventListener('click', function () { load(true); });

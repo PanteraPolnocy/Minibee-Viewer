@@ -62,6 +62,9 @@ const BeeNews = (function () {
     rows.forEach(function (item) {
       const card = document.createElement('article');
       card.className = 'news-item';
+      // The shared context menu turns this into "Copy link address" and
+      // "Open link in browser" on right-click anywhere in the card.
+      if (item.link) card.dataset.url = item.link;
 
       const head = document.createElement('button');
       head.type = 'button';

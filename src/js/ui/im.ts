@@ -203,6 +203,11 @@ const BeeIm = (function () {
     const name = document.createElement('span');
     name.className = 'msg__name';
     name.textContent = String(msg.fromName || '');
+    // Right-clicking a sender's name offers their profile and copies.
+    if (msg.fromId) {
+      name.setAttribute('data-agent-id', String(msg.fromId));
+      name.setAttribute('data-label', String(msg.fromName || ''));
+    }
 
     const time = document.createElement('span');
     time.className = 'msg__time';
@@ -800,6 +805,93 @@ const BeeIm = (function () {
     if (callBtn) callBtn.addEventListener('click', function () { void handleCallButton(); });
     BeeTransport.on('voice-call-invite', function (invite) { void handleCallInvite(invite); });
     BeeTransport.on('voice-call', syncImLayout);
+    // Right-click actions on conversation rows and the open thread's title.
+    if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
+      BeeContextMenu.register('.im-session', function (host) {
+        const sid = host.dataset.sessionId;
+        const session = sid ? BeeState.get().imSessions[sid] : null;
+        if (!session) return [];
+        const sessionChat = isSessionChat(session);
+        const items = [
+          { label: 'Open conversation', action: function () { openSession(sid); } }
+        ];
+        if (sessionChat) {
+          items.push({
+            label: session.muted ? 'Unmute notifications' : 'Mute notifications',
+            action: function () {
+              BeeState.setSessionMuted(sid);
+              renderSessions();
+            }
+          });
+        }
+        items.push({
+          label: sessionChat ? 'Leave session' : 'Close conversation',
+          action: function () { closeSession(sid); }
+        });
+        // P2P rows: profile and copies (the avatar carries the id, but the
+        // whole row deserves them).
+        const p = !sessionChat && session.participant ? session.participant : null;
+        if (p && p.id) {
+          items.push({
+            label: 'View profile',
+            action: function () {
+              if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) BeeProfile.openAvatar(p.id);
+            }
+          });
+          items.push({
+            label: 'Copy UUID',
+            action: function () {
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(p.id).then(function () {
+                  BeeUtils.showToast('UUID copied', 'success');
+                }).catch(function () {});
+              }
+            }
+          });
+        }
+        return items;
+      });
+      BeeContextMenu.register('.im-thread__title', function () {
+        const sid = BeeState.get().activeImSession;
+        const session = sid ? BeeState.get().imSessions[sid] : null;
+        if (!session) return [];
+        const items = [];
+        const p = !isSessionChat(session) && session.participant ? session.participant : null;
+        const name = p ? (p.name || '') : (session.title || '');
+        if (p && p.id) {
+          items.push({
+            label: 'View profile',
+            action: function () {
+              if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) BeeProfile.openAvatar(p.id);
+            }
+          });
+        }
+        if (name) {
+          items.push({
+            label: 'Copy name',
+            action: function () {
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(name).then(function () {
+                  BeeUtils.showToast('Name copied', 'success');
+                }).catch(function () {});
+              }
+            }
+          });
+        }
+        items.push({
+          label: 'Copy UUID',
+          action: function () {
+            const id = p && p.id ? p.id : sid;
+            if (navigator.clipboard && id) {
+              navigator.clipboard.writeText(id).then(function () {
+                BeeUtils.showToast('UUID copied', 'success');
+              }).catch(function () {});
+            }
+          }
+        });
+        return items;
+      });
+    }
     // Turning voice off in settings hides the call button immediately.
     if (typeof BeeSettings !== 'undefined' && BeeSettings.onChange) {
       BeeSettings.onChange(function (key) {

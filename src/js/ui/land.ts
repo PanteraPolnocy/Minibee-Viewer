@@ -508,6 +508,11 @@ const BeeLand = (function () {
     entries.forEach(function (entry) {
       const li = document.createElement('li');
       li.className = 'land-owners-list__row';
+      // The shared context menu turns the id into profile/copy entries.
+      if (entry.id) {
+        li.dataset.agentId = entry.id;
+        li.dataset.label = nameFor(entry.id);
+      }
       const label = document.createElement('span');
       label.textContent = labelFn ? labelFn(entry) : nameFor(entry.id);
       li.appendChild(label);
@@ -608,6 +613,12 @@ const BeeLand = (function () {
       li.className = 'land-owners-list__row';
       const label = document.createElement('span');
       const who = owner.isGroup ? (BeeProfiles.getGroupName(owner.id) || owner.id) : nameFor(owner.id);
+      // Profile and copy entries via the shared context menu.
+      if (owner.id) {
+        if (owner.isGroup) li.dataset.groupId = owner.id;
+        else li.dataset.agentId = owner.id;
+        li.dataset.label = who;
+      }
       label.textContent = who + ' - ' + owner.count + ' prim' + (owner.count === 1 ? '' : 's') +
         (owner.isGroup ? ' (group)' : '');
       li.appendChild(label);

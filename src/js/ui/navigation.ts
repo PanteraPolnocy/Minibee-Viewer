@@ -560,6 +560,98 @@ const BeeNavigation = (function () {
     });
   }
 
+  // Right-click actions for the top-bar readouts: the identity block, the L$
+  // balance (both the chip and its bee-menu row), and the SLT clock.
+  function bindTopBarContextActions() {
+    if (typeof BeeContextMenu === 'undefined' || !BeeContextMenu.register) return;
+
+    BeeContextMenu.register('.top-bar__identity', function () {
+      const s = BeeState.get();
+      const agent = s.agent;
+      const online = !!(agent && agent.id && s.connected && !s.sessionLost);
+      return [
+        {
+          label: 'View profile',
+          disabled: !online,
+          action: function () {
+            if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) {
+              BeeProfile.openAvatar(agent.id, { agent: agent });
+            }
+          }
+        },
+        {
+          label: 'Copy name',
+          disabled: !agent,
+          action: function () {
+            if (agent && navigator.clipboard) {
+              navigator.clipboard.writeText(agent.displayName || agent.name || '').then(function () {
+                BeeUtils.showToast('Name copied', 'success');
+              }).catch(function () {});
+            }
+          }
+        },
+        {
+          label: 'Copy UUID',
+          disabled: !(agent && agent.id),
+          action: function () {
+            if (agent && agent.id && navigator.clipboard) {
+              navigator.clipboard.writeText(agent.id).then(function () {
+                BeeUtils.showToast('UUID copied', 'success');
+              }).catch(function () {});
+            }
+          }
+        }
+      ];
+    });
+
+    BeeContextMenu.register('#balance-badge, #bee-menu-balance', function () {
+      const online = BeeState.gridOnline();
+      const balance = BeeState.get().lindenBalance;
+      return [
+        {
+          label: 'Buy L$...',
+          disabled: !online,
+          action: function () {
+            if (typeof BeeCurrency !== 'undefined') BeeCurrency.open();
+          }
+        },
+        {
+          label: 'Refresh balance',
+          disabled: !online,
+          action: function () {
+            BeeBridge.invoke('sl_request_balance').catch(function () {});
+          }
+        },
+        {
+          label: 'Copy balance',
+          disabled: typeof balance !== 'number',
+          action: function () {
+            if (navigator.clipboard) {
+              navigator.clipboard.writeText(String(balance)).then(function () {
+                BeeUtils.showToast('Balance copied', 'success');
+              }).catch(function () {});
+            }
+          }
+        }
+      ];
+    });
+
+    BeeContextMenu.register('#slt-clock, #bee-menu-slt', function (host) {
+      const text = String(host.textContent || '').trim();
+      return [{
+        label: 'Copy time',
+        disabled: !text || text.indexOf('--') === 0,
+        action: function () {
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function () {
+              BeeUtils.showToast('Time copied', 'success');
+            }).catch(function () {});
+          }
+        }
+      }];
+    });
+  }
+
   function init() {
     document.querySelectorAll<HTMLElement>('.bottom-nav__item').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -569,6 +661,7 @@ const BeeNavigation = (function () {
 
     bindLocationContextMenu();
     bindNetMeter();
+    bindTopBarContextActions();
 
     document.getElementById('btn-logout').addEventListener('click', function () {
       if (window.BeeApp) window.BeeApp.logout();

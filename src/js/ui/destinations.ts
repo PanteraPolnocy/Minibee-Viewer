@@ -394,6 +394,35 @@ const BeeDestinations = (function () {
     bindEvents();
     bindTeleportEvents();
     renderFeedBar();
+    // Right-click anywhere on a destination card: the same map/teleport
+    // choices as its buttons, plus the SLURL as text.
+    if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
+      BeeContextMenu.register('.dest-card', function (host) {
+        const anyAction = host.querySelector('.dest-action[data-slurl]');
+        const slurl = anyAction ? anyAction.dataset.slurl || '' : '';
+        if (!slurl) return [];
+        const clickAction = function (action) {
+          return function () {
+            const btn = host.querySelector('.dest-action[data-action="' + action + '"]');
+            if (btn) btn.click();
+          };
+        };
+        return [
+          { label: 'Open in Map', action: clickAction('map') },
+          { label: 'Teleport', action: clickAction('tp'), disabled: !BeeState.gridOnline() },
+          {
+            label: 'Copy SLURL',
+            action: function () {
+              if (navigator.clipboard) {
+                navigator.clipboard.writeText(slurl).then(function () {
+                  BeeUtils.showToast('SLURL copied', 'success');
+                }).catch(function () {});
+              }
+            }
+          }
+        ];
+      });
+    }
   }
 
   return { init: init, loadFeed: loadFeed };
