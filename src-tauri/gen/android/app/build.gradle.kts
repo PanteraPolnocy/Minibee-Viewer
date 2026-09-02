@@ -73,12 +73,6 @@ android {
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
-            packaging {
-                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
-                jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
-                jniLibs.keepDebugSymbols.add("*/x86/*.so")
-                jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
-            }
         }
         getByName("release") {
             if (keystorePropertiesFile.exists()) {
@@ -105,6 +99,19 @@ android {
     }
     buildFeatures {
         buildConfig = true
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        listOf(
+            "*/arm64-v8a/*.so",
+            "*/armeabi-v7a/*.so",
+            "*/x86/*.so",
+            "*/x86_64/*.so"
+        ).forEach {
+            variant.packaging.jniLibs.keepDebugSymbols.add(it)
+        }
     }
 }
 
