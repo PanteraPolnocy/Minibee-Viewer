@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload compile-check installers
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}-installer
           path: |
@@ -288,7 +288,7 @@ jobs:
 
       - name: Upload compile-check artifacts
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MiniBee-Viewer-Android-AAB
           path: |
