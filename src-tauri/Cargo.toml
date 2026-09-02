@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "minibee-viewer"
 version = "0.13.0"
 description = "Minibee Viewer"
