@@ -191,7 +191,7 @@ jobs:
         run: npm ci
 
       - name: Require Android signing secrets
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -207,7 +207,7 @@ jobs:
           exit "$missing"
 
       - name: Configure Android release signing
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -263,20 +263,28 @@ jobs:
             exit 1
           fi
 
-      - name: Upload compile-check artifacts - APK
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: MiniBee-Viewer-Android-APK
-          path: ${{ env.APK_PATH }}
-          if-no-files-found: error
+      - name: Find native debug symbols
+        id: symbols
+        run: |
+          SYMBOLS="$(find src-tauri/gen/android/app/build -type f \
+            \( -name "native-debug-symbols.zip" -o -name "*native*symbols*.zip" \) \
+            -print -quit)"
+          if [ -z "$SYMBOLS" ]; then
+            echo "::error::Native debug symbols were not generated."
+            exit 1
+          fi
+          echo "Found native debug symbols: $SYMBOLS"
+          echo "path=$SYMBOLS" >> "$GITHUB_OUTPUT"
 
-      - name: Upload compile-check artifacts - AAB
+      - name: Upload compile-check artifacts
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: MiniBee-Viewer-Android-AAB
-          path: ${{ env.AAB_PATH }}
+          path: |
+            ${{ env.AAB_PATH }}
+            ${{ env.APK_PATH }}
+            ${{ steps.symbols.outputs.path }}
           if-no-files-found: error
 
       - name: Upload APK and AAB to Release
@@ -286,6 +294,7 @@ jobs:
           files: |
             ${{ env.APK_PATH }}
             ${{ env.AAB_PATH }}
+            ${{ steps.symbols.outputs.path }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -310,9 +319,10 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.pantera.minibee_viewer
           releaseFiles: ${{ env.AAB_PATH }}
-          track: alpha
+          tracks: alpha
           status: completed
           releaseName: ${{ github.event.release.tag_name }}
+          debugSymbols: ${{ steps.symbols.outputs.path }}
 
   update-release-notes:
     name: Patch release notes (changelog + downloads + footer)
