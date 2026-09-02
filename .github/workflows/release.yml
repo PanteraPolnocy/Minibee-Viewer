@@ -2,8 +2,9 @@ name: Release (build + attach installers)
 
 # Publish a release -> full chain (desktop matrix + Android + release notes + upload).
 #
-# Manual run (Actions -> this workflow -> Run workflow): compile check for ONE
-# platform only. Nothing is uploaded or attached.
+# Manual run (Actions -> this workflow -> Run workflow): build ONE platform
+# and expose the resulting installers as downloadable workflow artifacts.
+# Nothing is uploaded to a GitHub Release or Google Play.
 #
 # Updater note: desktop clients fetch .../releases/latest/download/latest.json.
 # GitHub only resolves /releases/latest for non-prerelease releases.
@@ -131,6 +132,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- ${{ matrix.args }}
 
+      - name: Upload compile-check installers
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-installer
+          path: |
+            src-tauri/target/release/bundle/**
+          if-no-files-found: error
+
   build-android:
     needs: plan
     if: needs.plan.outputs.run_android == 'true'
@@ -252,6 +262,16 @@ jobs:
             echo "::error::App Bundle is not signed; the Play Console will reject it."
             exit 1
           fi
+
+      - name: Upload Android compile-check artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-builds
+          path: |
+            ${{ env.APK_PATH }}
+            ${{ env.AAB_PATH }}
+          if-no-files-found: error
 
       - name: Upload APK and AAB to Release
         uses: softprops/action-gh-release@v3
