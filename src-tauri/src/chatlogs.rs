@@ -35,16 +35,37 @@ pub fn sanitize_log_name(name: &str) -> String {
     if out.is_empty() {
         out = "unnamed".to_string();
     }
+    // Windows still treats CON/PRN/AUX/NUL/COM1-9/LPT1-9 as devices even with
+    // an extension appended.
+    let upper = out.to_ascii_uppercase();
+    let reserved = matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (upper.len() == 4
+            && (upper.starts_with("COM") || upper.starts_with("LPT"))
+            && upper.as_bytes()[3].is_ascii_digit());
+    if reserved {
+        out.insert(0, '_');
+    }
     out
 }
 
+/// `logs/<kind>/` for a known kind. The caller's string never reaches the
+/// filesystem - it only selects one of the fixed KINDS entries.
+fn kind_dir(base: &Path, kind: &str) -> Option<PathBuf> {
+    let kind = KINDS.into_iter().find(|k| *k == kind)?;
+    Some(base.join("logs").join(kind))
+}
+
 fn log_file(base: &Path, kind: &str, name: &str) -> Option<PathBuf> {
-    if !KINDS.contains(&kind) {
+    let dir = kind_dir(base, kind)?;
+    std::fs::create_dir_all(&dir).ok()?;
+    let file = format!("{}.txt", sanitize_log_name(name));
+    let path = dir.join(&file);
+    // The sanitizer guarantees a single plain component; keep that invariant
+    // checked where the path is actually assembled.
+    if Path::new(&file).components().count() != 1 || !path.starts_with(&dir) {
         return None;
     }
-    let dir = base.join("logs").join(kind);
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join(format!("{}.txt", sanitize_log_name(name))))
+    Some(path)
 }
 
 pub fn append_line(base: &Path, kind: &str, name: &str, line: &str) -> Result<(), String> {
@@ -85,9 +106,7 @@ pub fn list_logs(base: &Path) -> Vec<(String, String, u64)> {
 /// The path is rebuilt through the same sanitizer that wrote it, so this can
 /// only ever touch files inside `logs/<kind>/`.
 pub fn delete_logs(base: &Path, kind: &str, name: Option<&str>) -> Result<u64, String> {
-    if !KINDS.contains(&kind) {
-        return Err("Bad log kind".into());
-    }
+    let dir = kind_dir(base, kind).ok_or("Bad log kind")?;
     let mut deleted = 0u64;
     match name {
         Some(name) => {
@@ -98,7 +117,7 @@ pub fn delete_logs(base: &Path, kind: &str, name: Option<&str>) -> Result<u64, S
             }
         }
         None => {
-            if let Ok(entries) = std::fs::read_dir(base.join("logs").join(kind)) {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
                 for entry in entries.flatten() {
                     if entry.metadata().map(|m| m.is_file()).unwrap_or(false)
                         && std::fs::remove_file(entry.path()).is_ok()
@@ -187,10 +206,24 @@ mod tests {
         assert_eq!(sanitize_log_name("  ..hidden..  "), "hidden");
         assert_eq!(sanitize_log_name(""), "unnamed");
         assert_eq!(sanitize_log_name("..."), "unnamed");
+        assert_eq!(sanitize_log_name("../../evil"), "_.._evil");
+        assert_eq!(sanitize_log_name("con"), "_con");
+        assert_eq!(sanitize_log_name("COM3"), "_COM3");
+        assert_eq!(sanitize_log_name("Console"), "Console");
         assert!(sanitize_log_name(&"x".repeat(300)).len() <= 100);
         // Multi-byte names get cut on a char boundary.
         let cut = sanitize_log_name(&"ż".repeat(80));
         assert!(cut.len() <= 100 && cut.chars().all(|c| c == 'ż'));
+    }
+
+    #[test]
+    fn traversal_names_stay_inside_the_log_dir() {
+        let base = std::env::temp_dir().join(format!("minibee-logtrav-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        append_line(&base, "avatars", "../../evil", "x").unwrap();
+        assert!(base.join("logs").join("avatars").join("_.._evil.txt").is_file());
+        assert!(!base.join("evil.txt").exists());
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
