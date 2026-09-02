@@ -11,6 +11,7 @@ What it does **not** do is render the 3D world. Minibee is the friend who comes 
 - [Read this first (the "use at your own risk" bit)](#read-this-first-the-use-at-your-own-risk-bit)
 - [Download](#download)
 - [Third-party viewer](#third-party-viewer)
+- [Pricing](#pricing)
 - [How Minibee connects](#how-minibee-connects)
 - [Bee](#bee)
 - [Getting around](#getting-around)
@@ -67,6 +68,10 @@ Minibee Viewer is a **third-party client** for [Second Life](https://secondlife.
 **Updates (desktop):** after startup, Minibee checks [GitHub Releases](https://github.com/PanteraPolnocy/Minibee-Viewer/releases) for a newer version. Downloads and installs happen only if you confirm. Details in [PRIVACY.md](PRIVACY.md).
 
 **Source:** LGPL 2.1 - https://github.com/PanteraPolnocy/Minibee-Viewer
+
+## Pricing
+
+Minibee is, and will remain, **completely free to use**. There are no payments, subscriptions, premium tiers, or other costs associated with the viewer - and none are planned. You also won't need to create an account with Minibee or any additional service - only the accounts and authentication required by the Lab's own systems, as you'd expect. The goal is simply to provide a useful, native, multi-platform, accessible viewer / simple text client without putting a price tag on it.
 
 ## How Minibee connects
 
