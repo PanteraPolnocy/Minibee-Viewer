@@ -177,6 +177,16 @@ jobs:
           ndk-version: r28c
           link-to-sdk: true
 
+      - name: Pin the NDK version for Gradle
+        run: |
+          NDK_VERSION="$(sed -n 's/^Pkg\.Revision *= *//p' "${{ steps.setup-ndk.outputs.ndk-path }}/source.properties" | tr -d '\r')"
+          if [ -z "$NDK_VERSION" ]; then
+            echo "::error::Could not read the NDK revision from source.properties"
+            exit 1
+          fi
+          echo "MINIBEE_NDK_VERSION=${NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "Gradle will use NDK ${NDK_VERSION}"
+
       - name: Set up Rust & Android Targets
         uses: dtolnay/rust-toolchain@stable
         with:
