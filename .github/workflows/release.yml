@@ -1,4 +1,4 @@
-name: Release (build + attach installers)
+name: Main Code Builder
 
 # Publish a release -> full chain (desktop matrix + Android + release notes + upload).
 #
@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: Compile check (one platform; no upload)
+        description: Compile check (artifacts in action)
         type: choice
         required: true
         options:
@@ -161,7 +161,7 @@ jobs:
       - name: Sync version from Cargo.toml
         run: npm run version:sync
 
-      - name: Set up Java JDK 17
+      - name: Set up Java JDK
         uses: actions/setup-java@v6.0.0
         with:
           distribution: 'temurin'
@@ -263,14 +263,20 @@ jobs:
             exit 1
           fi
 
-      - name: Upload Android compile-check artifacts
+      - name: Upload compile-check artifacts - APK
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: android-builds
-          path: |
-            ${{ env.APK_PATH }}
-            ${{ env.AAB_PATH }}
+          name: MiniBee-Viewer-Android-APK
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+
+      - name: Upload compile-check artifacts - AAB
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniBee-Viewer-Android-AAB
+          path: ${{ env.AAB_PATH }}
           if-no-files-found: error
 
       - name: Upload APK and AAB to Release
