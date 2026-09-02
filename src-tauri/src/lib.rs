@@ -165,6 +165,7 @@ pub fn run() {
             bridge::voice::sl_voice_logout,
             bridge::voice::sl_voice_position,
             bridge::voice::sl_voice_call_request,
+            bridge::voice::sl_voice_call_p2p,
             bridge::voice::sl_voice_call_provision,
             commands::sl_teleport_to_agent,
             commands::sl_current_slurl,

@@ -3726,7 +3726,10 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                 let v_from = body.get("from_id").and_then(|v| v.as_str()).unwrap_or("");
                 let uri = voice.get("channel_uri").and_then(|v| v.as_str()).unwrap_or("");
                 let muted = state.is_muted_text(v_from) || state.is_muted_text(v_session);
-                if !uri.is_empty() && !v_session.is_empty() && !muted {
+                // Our own outgoing call can echo back as an invitation; never
+                // ring for ourselves.
+                let self_echo = same_uuid(v_from, &state.agent_id);
+                if !uri.is_empty() && !v_session.is_empty() && !muted && !self_echo {
                     actions.push(Action::emit(
                         "voice-call-invite",
                         json!({
@@ -3817,10 +3820,27 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                     "im-session-remap",
                     json!({
                         "tempId": temp,
-                        "sessionId": if sid.is_empty() { temp.clone() } else { sid },
+                        "sessionId": if sid.is_empty() { temp.clone() } else { sid.clone() },
                         "success": success,
                     }),
                 ));
+            }
+            // A voice session we asked for ("start p2p voice", or a call on a
+            // conference) answers here: the ad-hoc channel's uri+credentials
+            // ride the reply's session info.
+            if let Some(vci) = body.get("info").and_then(|i| i.get("voice_channel_info")) {
+                let uri = vci.get("channel_uri").and_then(|v| v.as_str()).unwrap_or("");
+                if !uri.is_empty() {
+                    let call_sid = if sid.is_empty() { temp } else { sid };
+                    actions.push(Action::emit(
+                        "voice-call-ready",
+                        json!({
+                            "sessionId": call_sid,
+                            "channelUri": uri,
+                            "credentials": vci.get("channel_credentials").and_then(|v| v.as_str()).unwrap_or(""),
+                        }),
+                    ));
+                }
             }
         }
         "ChatterBoxSessionAgentListUpdates" => {

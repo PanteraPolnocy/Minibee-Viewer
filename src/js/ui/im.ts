@@ -740,9 +740,9 @@ const BeeIm = (function () {
   }
 
   // The thread's call button: hang up when this thread's call is running,
-  // otherwise start one. Groups and conferences call their own session; a
-  // P2P call rides a fresh conference holding just the two of you (the way
-  // the grid does person-to-person voice).
+  // otherwise start one. Groups and conferences call their own session
+  // ("call"); a private thread rings the person directly ("start p2p voice"
+  // on the same session id) - no conference is involved.
   async function handleCallButton() {
     const sessionId = BeeState.get().activeImSession;
     const session = sessionId ? BeeState.get().imSessions[sessionId] : null;
@@ -761,13 +761,7 @@ const BeeIm = (function () {
     }
     const peer = session.participant && session.participant.id;
     if (!peer) return;
-    BeeUtils.showToast('Starting voice call...', 'info');
-    try {
-      const conf = await Promise.resolve(BeeTransport.startConference([peer], ''));
-      if (conf && conf.sessionId) void BeeVoice.startCall(conf.sessionId, title, sessionId);
-    } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not be started.', 'error');
-    }
+    void BeeVoice.startP2PCall(sessionId, peer, title);
   }
 
   // Someone rings: ask, never auto-join. Declining tells the sim so the
@@ -785,12 +779,18 @@ const BeeIm = (function () {
       confirmLabel: 'Join call',
       cancelLabel: 'Decline'
     });
+    const p2p = Number(invite.invitationType) === 2;
     if (!ok) {
-      BeeBridge.invoke('sl_chat_session_decline', { sessionId: invite.sessionId }).catch(function () {});
+      if (!p2p) {
+        BeeBridge.invoke('sl_chat_session_decline', { sessionId: invite.sessionId }).catch(function () {});
+      }
       return;
     }
-    // Joining the call also joins the text side of the session.
-    BeeBridge.invoke('sl_chat_session_accept', { sessionId: invite.sessionId }).catch(function () {});
+    // Group/conference calls join the text side of the session too; a P2P
+    // call lives on the plain IM session, which needs no server-side join.
+    if (!p2p) {
+      BeeBridge.invoke('sl_chat_session_accept', { sessionId: invite.sessionId }).catch(function () {});
+    }
     void BeeVoice.answerCall(invite);
   }
 
