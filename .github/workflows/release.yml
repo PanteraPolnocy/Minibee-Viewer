@@ -322,6 +322,16 @@ jobs:
           SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
         run: echo "enabled=$([ -n "$SERVICE_ACCOUNT_JSON" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
+      # The release event payload is a snapshot from publish time, so the name
+      # and body here are the author's own notes - the changelog/downloads/footer
+      # patched in later never reach Play.
+      - name: Prepare Play release notes
+        if: github.event_name == 'release' && github.event.release.prerelease == false && steps.play.outputs.enabled == 'true'
+        env:
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: node scripts/play-whatsnew.mjs
+
       - name: Upload AAB to Google Play (alpha track)
         if: github.event_name == 'release' && github.event.release.prerelease == false && steps.play.outputs.enabled == 'true'
         uses: r0adkll/upload-google-play@v1
@@ -331,7 +341,8 @@ jobs:
           releaseFiles: ${{ env.AAB_PATH }}
           tracks: alpha
           status: completed
-          releaseName: ${{ github.event.release.tag_name }}
+          releaseName: ${{ github.event.release.name || github.event.release.tag_name }}
+          whatsNewDirectory: play-whatsnew
           debugSymbols: ${{ steps.symbols.outputs.path }}
 
   update-release-notes:
