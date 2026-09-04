@@ -244,22 +244,13 @@ const BeeParcelMusic = (function () {
     // Right-click anywhere on the music pill (speaker or volume slider).
     if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
       BeeContextMenu.register('#parcel-music', function () {
+        // No copy entry here: the root's data-copy already puts "Copy stream
+        // URL" on the shared menu, and a second one would double it.
         return [
           {
             label: enabled ? 'Stop the stream' : 'Play the stream',
             action: toggle,
             disabled: !currentUrl
-          },
-          {
-            label: 'Copy stream URL',
-            disabled: !currentUrl,
-            action: function () {
-              if (navigator.clipboard && currentUrl) {
-                navigator.clipboard.writeText(currentUrl).then(function () {
-                  BeeUtils.showToast('Stream URL copied', 'success');
-                }).catch(function () {});
-              }
-            }
           },
           {
             label: 'Music settings',

@@ -5808,6 +5808,11 @@ button.status-chip--balance:disabled {
   margin: 10px 0 14px;
   font-size: 0.84rem;
 }
+.log-manager__empty {
+  padding: 26px 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
 .log-manager__head {
   display: flex;
   align-items: center;

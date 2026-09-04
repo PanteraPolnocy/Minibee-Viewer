@@ -351,21 +351,31 @@ const BeeSettingsUI = (function () {
     return label || agent;
   }
 
+  // Status lines (loading / empty / error) get a padded, muted note instead
+  // of bare text flush against the dialog edge.
+  function logManagerNote(list, text) {
+    list.innerHTML = '';
+    const note = document.createElement('div');
+    note.className = 'log-manager__empty';
+    note.textContent = text;
+    list.appendChild(note);
+  }
+
   async function renderLogManager() {
     const list = document.getElementById('log-manager-list');
     if (!list) return;
-    list.textContent = 'Loading...';
+    logManagerNote(list, 'Loading...');
     let logs = [];
     try {
       const res = await BeeBridge.invoke('chat_log_list');
       logs = (res && res.logs) || [];
     } catch (_e) {
-      list.textContent = 'The log list is unavailable.';
+      logManagerNote(list, 'The log list is unavailable.');
       return;
     }
     list.innerHTML = '';
     if (!logs.length) {
-      list.textContent = 'No log files on this device.';
+      logManagerNote(list, 'No log files on this device.');
       return;
     }
     // One section per account ("" marks files from before logs were split per
