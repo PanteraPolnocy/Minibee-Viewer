@@ -20,7 +20,8 @@ const BeeDestinations = (function () {
     events: true
   };
 
-  let activeFeed = (typeof BeeSettings !== 'undefined' ? BeeSettings.get('destFeed') : null) || 'mobile';
+  // Filled in init(): settings aren't loaded yet at script parse time.
+  let activeFeed = 'mobile';
   const cache = new Map();
   let loadToken = 0;
   let bound = false;
@@ -391,6 +392,7 @@ const BeeDestinations = (function () {
   }
 
   function init() {
+    activeFeed = (typeof BeeSettings !== 'undefined' ? BeeSettings.get('destFeed') : null) || 'mobile';
     bindEvents();
     bindTeleportEvents();
     renderFeedBar();

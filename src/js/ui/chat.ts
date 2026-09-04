@@ -358,7 +358,7 @@ const BeeChat = (function () {
 
     if (prompt.type === 'friendship-offer') {
       if (action === 'accept') {
-        return BeeTransport.acceptFriendship(prompt.transactionId).then(function (result) {
+        return BeeTransport.acceptFriendship(prompt.transactionId, prompt.fromId, prompt.fromName).then(function (result) {
           if (!result || !result.sent) throw new Error('send failed');
           finish('Accepted');
         }).catch(function () {

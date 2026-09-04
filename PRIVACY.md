@@ -41,11 +41,11 @@ Your password is **not** sent anywhere except the login server you picked.
 
 | Data | When |
 |------|------|
-| Username, grid, "remember me" | If you turn on remember me |
-| MFA "remember device" | If you opt in |
-| Preferences (theme, radar, etc.) | As you change settings |
+| Username, grid, "remember me" | If you turn on remember me (in `settings.json` in the app's data folder) |
+| MFA "remember device" | If you opt in (same `settings.json`) |
+| Preferences (theme, radar, etc.) | As you change settings (same `settings.json`) |
 | Auto-reconnect login details | In memory only while connected or reconnecting - **never on disk**; cleared on logout |
-| IM chat logs (plain text files in the app's data folder) | Only if you say yes - asked once at first login, off by default, separate people/groups switches in Bee -> Settings; delete the files any time (Bee -> About shows where and how much) |
+| IM chat logs (plain text files in the app's data folder, one folder per account) | Only if you say yes - asked once at first login, off by default, separate people/groups switches in Bee -> Settings; delete the files any time (Bee -> About shows where and how much) |
 | Diagnostic log file | Only if you start with `--enablelogfiles` (off by default) |
 
 ---

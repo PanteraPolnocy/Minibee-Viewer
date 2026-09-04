@@ -512,12 +512,14 @@ const BeeApp = (function () {
     BeeLogin.showScreen(false);
   }
 
-  function init() {
+  async function init() {
     if (window.MINIBEE_BLOCKED) return;
     try {
       setCloseGuard(false);
       if (typeof BeeDiag !== 'undefined') BeeDiag.init();
       installContextMenu();
+      // The settings file has to be in memory before anything reads a setting.
+      await BeeUtils.storageInit();
       if (typeof BeeSettings !== 'undefined') BeeSettings.init();
       bindUnloadGuard();
       bindTransport();

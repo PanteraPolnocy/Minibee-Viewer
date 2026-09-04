@@ -1,5 +1,6 @@
 /**
- * Viewer preferences, kept in localStorage between sessions.
+ * Viewer preferences, persisted through BeeUtils' storage (the settings file
+ * in the app data directory) between sessions.
  */
 const BeeSettings = (function () {
   'use strict';

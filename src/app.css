@@ -5818,6 +5818,15 @@ button.status-chip--balance:disabled {
   border-bottom: 1px solid var(--border);
 }
 .log-manager__head:first-child { margin-top: 2px; }
+.log-manager__account {
+  margin-top: 22px;
+  padding: 4px 2px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border-bottom: 2px solid var(--accent);
+  overflow-wrap: anywhere;
+}
+.log-manager__account:first-child { margin-top: 2px; }
 .log-manager__kind {
   font-size: 0.72rem;
   font-weight: 700;

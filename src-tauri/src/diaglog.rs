@@ -21,9 +21,11 @@ fn log_dir() -> std::path::PathBuf {
     std::env::temp_dir().join("minibee-viewer")
 }
 
-/// Full path to the log file: `<temp>/minibee-viewer/minibee-viewer.log`.
+/// Full path to this instance's log file:
+/// `<temp>/minibee-viewer/minibee-viewer-<pid>.log`. The pid keeps two
+/// viewer instances from truncating each other's log.
 pub fn path() -> std::path::PathBuf {
-    log_dir().join("minibee-viewer.log")
+    log_dir().join(format!("minibee-viewer-{}.log", std::process::id()))
 }
 
 /// True when the user has asked for logging, whether via the flag or the env var.
@@ -50,6 +52,25 @@ pub fn init() {
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    // Ended instances leave their pid-named logs behind; sweep the stale ones
+    // so the folder doesn't grow forever.
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        let cutoff = SystemTime::now() - std::time::Duration::from_secs(3 * 24 * 3600);
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.starts_with("minibee-viewer") || !name.ends_with(".log") {
+                continue;
+            }
+            let stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .map(|t| t < cutoff)
+                .unwrap_or(false);
+            if stale {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
     }
     let file = OpenOptions::new()
         .create(true)
@@ -108,7 +129,8 @@ mod tests {
     }
 
     #[test]
-    fn path_is_named() {
-        assert!(path().to_string_lossy().ends_with("minibee-viewer.log"));
+    fn path_is_named_per_instance() {
+        let expected = format!("minibee-viewer-{}.log", std::process::id());
+        assert!(path().to_string_lossy().ends_with(&expected));
     }
 }

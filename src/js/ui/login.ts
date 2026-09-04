@@ -57,21 +57,14 @@ const BeeLogin = (function () {
         remember: true
       });
     } else {
-      try { localStorage.removeItem(STORAGE_KEY); } catch (_e) { /* ignore; storage may be unavailable */ }
+      BeeUtils.storageRemove(STORAGE_KEY);
     }
   }
 
   function mfaKeys() {
-    const keys = [];
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && MFA_KEY_PATTERNS.some(function (re) { return re.test(key); })) {
-          keys.push(key);
-        }
-      }
-    } catch (_e) { /* ignore; storage may be unavailable */ }
-    return keys;
+    return BeeUtils.storageKeys().filter(function (key) {
+      return MFA_KEY_PATTERNS.some(function (re) { return re.test(key); });
+    });
   }
 
   function hasSavedLogin() {
@@ -89,7 +82,7 @@ const BeeLogin = (function () {
     });
     if (!ok) return;
     [STORAGE_KEY].concat(mfaKeys()).forEach(function (key) {
-      try { localStorage.removeItem(key); } catch (_e) { /* ignore; storage may be unavailable */ }
+      BeeUtils.storageRemove(key);
     });
     const user = document.getElementById('login-username') as HTMLInputElement;
     const pass = document.getElementById('login-password') as HTMLInputElement;

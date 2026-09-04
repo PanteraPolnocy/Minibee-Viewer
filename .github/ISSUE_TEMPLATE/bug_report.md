@@ -31,4 +31,4 @@ If they help, attach them.
 - Install: [e.g. NSIS setup, APK, dev build]
 
 **Extra**
-Optional: ran with `--enablelogfiles`? Attach `minibee-viewer.log` from your temp folder if relevant.
+Optional: ran with `--enablelogfiles`? Attach `minibee-viewer-<pid>.log` from your temp folder's `minibee-viewer` directory if relevant.

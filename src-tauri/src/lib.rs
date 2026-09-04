@@ -6,6 +6,7 @@ pub mod chatlogs;
 pub mod codec;
 pub mod commands;
 pub mod diaglog;
+pub mod settings;
 pub mod updater;
 pub mod urlmatch;
 
@@ -156,6 +157,8 @@ pub fn run() {
             chatlogs::chat_log_usage,
             chatlogs::chat_log_list,
             chatlogs::chat_log_delete,
+            settings::settings_load,
+            settings::settings_save,
             bridge::abuse::sl_abuse_categories,
             bridge::abuse::sl_report_abuse,
             bridge::voice::sl_voice_stun,

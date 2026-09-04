@@ -129,11 +129,11 @@ const BeeTransport = (function () {
     return adapter.declineCallingCard(transactionId);
   }
 
-  function acceptFriendship(transactionId) {
+  function acceptFriendship(transactionId, fromId, fromName) {
     if (!adapter || !adapter.acceptFriendship) {
       return Promise.resolve({ sent: false });
     }
-    return adapter.acceptFriendship(transactionId);
+    return adapter.acceptFriendship(transactionId, fromId, fromName);
   }
 
   function declineFriendship(transactionId) {

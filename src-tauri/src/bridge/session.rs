@@ -2875,6 +2875,18 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
         }
 
+        // A friend removed us. There is no confirmation flow - the sim just says
+        // the relationship is gone; the frontend drops them from its roster.
+        "TerminateFriendship" => {
+            let other = field(decoded, "ExBlock", "OtherID")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !other.is_empty() && !is_zero_uuid(&other) {
+                actions.push(Action::emit("buddy-removed", json!({ "id": other })));
+            }
+        }
+
         // The sim froze or unfroze the avatar.
         "ViewerFrozenMessage" => {
             let frozen = field(decoded, "FrozenData", "Data").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -4355,8 +4367,23 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             ));
             return actions;
         }
-        // Friendship accepted (39) or declined (40) - just confirm it to the user.
+        // Friendship accepted (39) or declined (40). The roster is frontend-owned,
+        // so an accept also hands over the new friend, and we ask the sim whether
+        // they are online - the grid does not volunteer that on its own here.
         39 => {
+            actions.push(Action::ResolveNames(vec![from_id.clone()]));
+            actions.push(Action::emit("buddy-added", json!({ "id": &from_id, "name": &display })));
+            if !state.agent_id.is_empty() {
+                actions.push(Action::send(
+                    "GenericMessage",
+                    json!({
+                        "AgentData": [{ "AgentID": state.agent_id, "SessionID": state.session_uuid, "TransactionID": ZERO }],
+                        "MethodData": [{ "Method": B64.encode(b"requestonlinenotification\0"), "Invoice": ZERO }],
+                        "ParamList": [{ "Parameter": B64.encode(format!("{from_id}\0").as_bytes()) }],
+                    }),
+                    true,
+                ));
+            }
             actions.push(system_chat(&format!("{display} is now your friend.")));
             return actions;
         }
@@ -5121,6 +5148,35 @@ mod tests {
         let e = emit_of(&a, "event").expect("friendship offer event");
         assert_eq!(e["prompt"]["type"], "friendship-offer");
         assert_eq!(e["prompt"]["transactionId"], tx);
+    }
+
+    #[test]
+    fn friendship_accepted_hands_the_frontend_the_new_friend() {
+        let mut st = me_state();
+        let a = route(&mut st, &im_packet(39, OTHER, ME, false, "00000000-0000-0000-0000-000000000000", "", ""));
+        let added = emit_of(&a, "buddy-added").expect("buddy-added event");
+        assert_eq!(added["id"], OTHER);
+        // The sim does not volunteer the new friend's presence - we have to ask.
+        let asked = a.iter().any(|x| matches!(x, Action::Send { name, blocks, reliable: true }
+            if name == "GenericMessage"
+                && blocks["MethodData"][0]["Method"] == B64.encode(b"requestonlinenotification\0")
+                && blocks["ParamList"][0]["Parameter"] == B64.encode(format!("{OTHER}\0").as_bytes())));
+        assert!(asked, "online status of the new friend has to be requested");
+        assert!(emit_of(&a, "chat").is_some(), "the accept still shows as a system line");
+    }
+
+    #[test]
+    fn terminate_friendship_tells_the_frontend_who_left() {
+        let mut st = me_state();
+        let a = route(&mut st, &json!({
+            "name": "TerminateFriendship",
+            "blocks": {
+                "AgentData": [{ "AgentID": ME }],
+                "ExBlock": [{ "OtherID": OTHER }],
+            }
+        }));
+        let removed = emit_of(&a, "buddy-removed").expect("buddy-removed event");
+        assert_eq!(removed["id"], OTHER);
     }
 
     #[test]

@@ -100,6 +100,13 @@ const BeeSLBridge = (function () {
     pending.push(BeeBridge.listen('minibee-viewer://buddy-offline', function (data) {
       applyPresence(data && data.ids, false);
     }));
+    // A friendship formed or ended mid-session (they accepted our offer / removed us).
+    pending.push(BeeBridge.listen('minibee-viewer://buddy-added', function (data) {
+      if (data && data.id) noteFriendship(data.id, data.name || '');
+    }));
+    pending.push(BeeBridge.listen('minibee-viewer://buddy-removed', function (data) {
+      if (data && data.id) forgetBuddy(data.id);
+    }));
 
     // Parcel-info lookup (about-land): resolve every pending fetchParcelInfo()
     // for this parcel, so concurrent lookups of the same id each get the reply.
@@ -150,6 +157,37 @@ const BeeSLBridge = (function () {
     BeeTransport.emit('buddies-updated', buddyRoster.slice());
   }
 
+  // A friendship formed mid-session: the sim never re-sends the roster, so grow
+  // it locally the way login would have. Presence may already be known - the
+  // sim can send OnlineNotification around the accept - so honour it.
+  function noteFriendship(id, name) {
+    const key = normId(id);
+    if (!key || key === ZERO_UUID || buddies.has(key)) return;
+    buddies.add(key);
+    buddyRoster.push({
+      id: id,
+      name: name || id,
+      displayName: name || '',
+      userName: '',
+      online: buddyOnline.get(key) === true,
+      // A fresh friendship grants online-status visibility both ways.
+      rightsHas: 1,
+      rightsGiven: 1
+    });
+    invoke('sl_resolve_display_names', { ids: [id] }).catch(function () {});
+    BeeTransport.emit('buddies-updated', buddyRoster.slice());
+  }
+
+  // The reverse: drop someone from the local roster and tell the UI.
+  function forgetBuddy(id) {
+    const key = normId(id);
+    buddies.delete(key);
+    buddyOnline.delete(key);
+    const before = buddyRoster.length;
+    buddyRoster = buddyRoster.filter(function (b) { return b && normId(b.id) !== key; });
+    if (buddyRoster.length !== before) BeeTransport.emit('buddies-updated', buddyRoster.slice());
+  }
+
   function invoke(cmd: string, args?: Record<string, unknown>) {
     return BeeBridge.invoke(cmd, args || {});
   }
@@ -173,19 +211,15 @@ const BeeSLBridge = (function () {
     return 'minibee-mfa-' + (credentials.grid || 'agni') + '-' + String(credentials.username || '').trim().toLowerCase();
   }
   function loadMfaHash(credentials) {
-    try {
-      return localStorage.getItem(mfaKey(credentials)) ||
-        localStorage.getItem(legacyMfaKey(credentials)) || '';
-    } catch (_e) { return ''; }
+    return BeeUtils.storageGet(mfaKey(credentials), '') ||
+      BeeUtils.storageGet(legacyMfaKey(credentials), '') || '';
   }
   function saveMfaHash(credentials, hash, remember) {
-    try {
-      if (remember && hash) localStorage.setItem(mfaKey(credentials), hash);
-      else localStorage.removeItem(mfaKey(credentials));
-      if (legacyMfaKey(credentials) !== mfaKey(credentials)) {
-        localStorage.removeItem(legacyMfaKey(credentials));
-      }
-    } catch (_e) { /* storage is optional */ }
+    if (remember && hash) BeeUtils.storageSet(mfaKey(credentials), hash);
+    else BeeUtils.storageRemove(mfaKey(credentials));
+    if (legacyMfaKey(credentials) !== mfaKey(credentials)) {
+      BeeUtils.storageRemove(legacyMfaKey(credentials));
+    }
   }
 
   const GRID_NAMES = { agni: 'Second Life', aditi: 'Second Life Beta', local: 'OpenSim Local' };
@@ -408,18 +442,20 @@ const BeeSLBridge = (function () {
     if (!isBuddy(destId)) return Promise.resolve({ sent: false, notFriend: true });
     return sent('sl_remove_friendship', { otherId: destId }).then(function (r) {
       // The sim won't echo the roster for our own removal, so drop them locally.
-      const key = normId(destId);
-      buddies.delete(key);
-      buddyOnline.delete(key);
-      const before = buddyRoster.length;
-      buddyRoster = buddyRoster.filter(function (b) { return b && normId(b.id) !== key; });
-      if (buddyRoster.length !== before) BeeTransport.emit('buddies-updated', buddyRoster.slice());
+      forgetBuddy(destId);
       return r;
     });
   }
   function acceptCallingCard(transactionId) { return sent('sl_accept_calling_card', { transactionId: transactionId }); }
   function declineCallingCard(transactionId) { return sent('sl_decline_calling_card', { transactionId: transactionId }); }
-  function acceptFriendship(transactionId) { return sent('sl_accept_friendship', { transactionId: transactionId }); }
+  function acceptFriendship(transactionId, fromId, fromName) {
+    return sent('sl_accept_friendship', { transactionId: transactionId }).then(function (r) {
+      // Accepting forms the friendship right away; the sim follows up with
+      // presence, never with a roster, so the roster entry is on us.
+      if (fromId) noteFriendship(fromId, fromName || '');
+      return r;
+    });
+  }
   function declineFriendship(transactionId) { return sent('sl_decline_friendship', { transactionId: transactionId }); }
 
   // --- money ---
@@ -559,7 +595,8 @@ const BeeSLBridge = (function () {
   // --- chat logs ---
 
   function chatLogAppend(kind, name, line) {
-    return invoke('chat_log_append', { kind: kind, name: name, line: line });
+    // Logs are split per account; the backend refuses appends without one.
+    return invoke('chat_log_append', { agent: agentId, kind: kind, name: name, line: line });
   }
   function chatLogUsage() { return invoke('chat_log_usage'); }
 

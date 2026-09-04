@@ -317,7 +317,7 @@ const BeeSettingsUI = (function () {
     if (!d.open) d.showModal();
   }
 
-  async function deleteLogs(kind, name, what) {
+  async function deleteLogs(agent, kind, name, what) {
     const ok = await BeeUtils.confirm({
       title: 'Delete log files?',
       message: 'Delete ' + what + '? The text files are removed from this device permanently.',
@@ -326,13 +326,29 @@ const BeeSettingsUI = (function () {
     });
     if (!ok) return;
     try {
-      await BeeBridge.invoke('chat_log_delete', { kind: kind, name: name || null });
+      await BeeBridge.invoke('chat_log_delete', { agent: agent || '', kind: kind, name: name || null });
       BeeUtils.showToast('Deleted.', 'success');
     } catch (err) {
       BeeUtils.showToast(BeeUtils.errText(err) || 'Could not delete the log.', 'error');
     }
     void renderLogManager();
     updateChatLogUsage();
+  }
+
+  // Section titles for the log manager: the resolved avatar name when the
+  // cache knows it, the raw account id otherwise.
+  function accountLabel(agent, me) {
+    if (!agent) return 'Older shared logs';
+    let label = '';
+    if (typeof BeeTransport !== 'undefined' && BeeTransport.getCachedNameInfo) {
+      const info = BeeTransport.getCachedNameInfo(agent);
+      label = (info && (info.displayName || info.label || info.userName)) || '';
+    }
+    if (!label && typeof BeeTransport !== 'undefined' && BeeTransport.queueNameResolve && BeeState.gridOnline()) {
+      BeeTransport.queueNameResolve(agent); // a names-updated event re-renders
+    }
+    if (agent === me) return label ? label + ' (this account)' : 'This account';
+    return label || agent;
   }
 
   async function renderLogManager() {
@@ -352,6 +368,31 @@ const BeeSettingsUI = (function () {
       list.textContent = 'No log files on this device.';
       return;
     }
+    // One section per account ("" marks files from before logs were split per
+    // account): the logged-in account first, the shared leftovers last.
+    const me = String((BeeState.get().agent || {}).id || '').toLowerCase();
+    const agents = [];
+    logs.forEach(function (l) {
+      const a = String(l.agent || '');
+      if (agents.indexOf(a) === -1) agents.push(a);
+    });
+    agents.sort(function (a, b) {
+      const rank = function (x) { return x === me ? 0 : (x === '' ? 2 : 1); };
+      return rank(a) - rank(b) || a.localeCompare(b);
+    });
+    agents.forEach(function (agent) {
+      const mine = logs.filter(function (l) { return String(l.agent || '') === agent; });
+      if (agents.length > 1) {
+        const acc = document.createElement('div');
+        acc.className = 'log-manager__account';
+        acc.textContent = accountLabel(agent, me);
+        list.appendChild(acc);
+      }
+      renderLogKinds(list, agent, mine);
+    });
+  }
+
+  function renderLogKinds(list, agent, logs) {
     Object.keys(LOG_KIND_LABELS).forEach(function (kind) {
       const rows = logs.filter(function (l) { return l.kind === kind; });
       if (!rows.length) return;
@@ -366,7 +407,7 @@ const BeeSettingsUI = (function () {
       all.className = 'btn btn--ghost btn--sm';
       all.textContent = 'Delete all';
       all.addEventListener('click', function () {
-        void deleteLogs(kind, null, 'ALL ' + LOG_KIND_LABELS[kind].toLowerCase() + ' files');
+        void deleteLogs(agent, kind, null, 'ALL ' + LOG_KIND_LABELS[kind].toLowerCase() + ' files in this section');
       });
       head.appendChild(all);
       list.appendChild(head);
@@ -408,7 +449,7 @@ const BeeSettingsUI = (function () {
         del.className = 'btn btn--ghost btn--sm';
         del.textContent = 'Delete';
         del.addEventListener('click', function () {
-          void deleteLogs(l.kind, l.name, 'the log for "' + l.name + '"');
+          void deleteLogs(agent, l.kind, l.name, 'the log for "' + l.name + '"');
         });
         row.appendChild(name);
         row.appendChild(size);

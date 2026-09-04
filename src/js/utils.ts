@@ -141,7 +141,24 @@ const BeeUtils = (function () {
     }, duration || 3200);
   }
 
+  // --- persistent store ---
+  // Everything the viewer remembers between runs lives in one JSON file next
+  // to the chat logs (settings_load / settings_save on the Rust side), so it
+  // survives a webview storage wipe and is shared by every instance. Values
+  // are held in memory for synchronous reads; writes are coalesced into
+  // snapshot pushes. Without a backend (plain-browser dev) localStorage keeps
+  // working as before.
+
+  const store = new Map<string, any>();
+  let storeLoaded = false;              // the file was read; from then on it is the authority
+  const storeDirty = new Set<string>(); // keys this instance changed since the last push
+  let storeTimer = null;
+
   function storageGet(key, fallback) {
+    if (storeLoaded) {
+      const value = store.get(key);
+      return value === undefined ? fallback : value;
+    }
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
@@ -151,11 +168,115 @@ const BeeUtils = (function () {
   }
 
   function storageSet(key, value) {
+    if (storeLoaded) {
+      store.set(key, value);
+      storeDirty.add(key);
+      scheduleStoreFlush();
+      return;
+    }
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch (_e) {
       /* likely a quota error or private mode; nothing to do */
     }
+  }
+
+  function storageRemove(key) {
+    if (storeLoaded) {
+      if (!store.delete(key)) return;
+      storeDirty.add(key);
+      scheduleStoreFlush();
+      return;
+    }
+    try {
+      localStorage.removeItem(key);
+    } catch (_e) { /* storage may be unavailable */ }
+  }
+
+  function storageKeys() {
+    if (storeLoaded) return Array.from(store.keys());
+    const keys = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key) keys.push(key);
+      }
+    } catch (_e) { /* storage may be unavailable */ }
+    return keys;
+  }
+
+  function scheduleStoreFlush(delay?) {
+    if (storeTimer) return;
+    storeTimer = setTimeout(function () {
+      storeTimer = null;
+      void storageFlush();
+    }, delay || 400);
+  }
+
+  // Push local changes to the file. It is re-read first and only the keys this
+  // instance actually touched are overlaid, so two viewers running at once
+  // don't wipe each other's writes. Flushes run one at a time - a save landing
+  // between another flush's read and write would otherwise be lost.
+  let storeFlushChain = Promise.resolve();
+  function storageFlush() {
+    storeFlushChain = storeFlushChain.then(pushDirtyKeys, pushDirtyKeys);
+    return storeFlushChain;
+  }
+
+  async function pushDirtyKeys() {
+    if (!storeLoaded || !storeDirty.size) return;
+    const dirty = Array.from(storeDirty);
+    storeDirty.clear();
+    try {
+      const resp = await BeeBridge.invoke('settings_load');
+      const merged = (resp && resp.settings && typeof resp.settings === 'object') ? resp.settings : {};
+      dirty.forEach(function (key) {
+        if (store.has(key)) merged[key] = store.get(key);
+        else delete merged[key];
+      });
+      await BeeBridge.invoke('settings_save', { settings: merged });
+    } catch (_e) {
+      // Put the keys back and try again in a while.
+      dirty.forEach(function (key) { storeDirty.add(key); });
+      scheduleStoreFlush(5000);
+    }
+  }
+
+  // Load the file into memory, once, before anything reads a setting. The
+  // first run after this store appeared migrates whatever webview storage
+  // still holds, so nobody loses their settings or saved login.
+  async function storageInit() {
+    let resp = null;
+    try {
+      resp = await BeeBridge.invoke('settings_load');
+    } catch (_e) {
+      return; // no backend: stay on localStorage
+    }
+    const disk = (resp && resp.settings && typeof resp.settings === 'object') ? resp.settings : {};
+    Object.keys(disk).forEach(function (key) { store.set(key, disk[key]); });
+    storeLoaded = true;
+    if (!Object.keys(disk).length) {
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key || !/^minibee-/.test(key) || store.has(key)) continue;
+          const raw = localStorage.getItem(key);
+          if (raw === null) continue;
+          // Most values are JSON; the odd raw string (old MFA hashes) is kept as-is.
+          let value;
+          try { value = JSON.parse(raw); } catch (_e2) { value = raw; }
+          store.set(key, value);
+          storeDirty.add(key);
+        }
+      } catch (_e) { /* storage may be unavailable */ }
+      if (storeDirty.size) storageFlush();
+    }
+    // A backgrounded app can be killed without warning (Android especially),
+    // so push pending changes whenever the page stops being visible.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') storageFlush();
+    });
+    window.addEventListener('beforeunload', function () { storageFlush(); });
   }
 
   // Should an in-progress edit survive a pane rebuild?
@@ -355,6 +476,10 @@ const BeeUtils = (function () {
     xorSessionId: xorSessionId,
     showToast: showToast,
     storageGet: storageGet,
-    storageSet: storageSet
+    storageSet: storageSet,
+    storageRemove: storageRemove,
+    storageKeys: storageKeys,
+    storageInit: storageInit,
+    storageFlush: storageFlush
   };
 })();

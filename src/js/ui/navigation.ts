@@ -164,16 +164,12 @@ const BeeNavigation = (function () {
     if (TABS.indexOf(tab) === -1) return;
 
     const patch: {
-      activeTab: any; unreadChat?: number; unreadIm?: number;
+      activeTab: any; unreadChat?: number;
       unreadEvents?: number; unreadRadar?: number; landUpdated?: boolean;
     } = { activeTab: tab };
     if (tab === 'chat') patch.unreadChat = 0;
-    if (tab === 'im') {
-      patch.unreadIm = 0;
-      Object.keys(BeeState.get().imSessions).forEach(function (sid) {
-        BeeState.get().imSessions[sid].unread = 0;
-      });
-    }
+    // IM unread is per conversation: opening the tab shows the dots, only
+    // opening a conversation (openSession) clears that conversation's count.
     if (tab === 'events') patch.unreadEvents = 0;
     if (tab === 'radar') patch.unreadRadar = 0;
     if (tab === 'land') patch.landUpdated = false;
