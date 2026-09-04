@@ -976,6 +976,23 @@ fn system_chat(text: &str) -> Action {
     )
 }
 
+/// The region-restart warning: its own event (the UI raises a modal with a live
+/// countdown) plus a system chat line kept as the record.
+fn region_restart_warning(seconds: i64, region: &str) -> [Action; 2] {
+    let seconds = seconds.max(0);
+    let when = if seconds >= 120 {
+        format!("{} minutes", seconds / 60)
+    } else {
+        format!("{seconds} seconds")
+    };
+    [
+        Action::emit("region-restart", json!({ "seconds": seconds, "regionName": region })),
+        system_chat(&format!(
+            "The region '{region}' is about to restart (in roughly {when}). Teleport out or you will be logged off."
+        )),
+    ]
+}
+
 fn chat_type_name(n: u64) -> &'static str {
     match n {
         0 => "whisper",
@@ -1778,18 +1795,20 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     .filter(|s| !s.is_empty())
                     .unwrap_or(&state.region_name)
                     .to_string();
-                actions.push(Action::emit(
-                    "region-restart",
-                    json!({ "seconds": seconds, "regionName": region }),
-                ));
-                let when = if seconds >= 120 {
-                    format!("{} minutes", seconds / 60)
-                } else {
-                    format!("{seconds} seconds")
-                };
-                actions.push(system_chat(&format!(
-                    "The region '{region}' is about to restart (in roughly {when}). Teleport out or you will be logged off."
-                )));
+                actions.extend(region_restart_warning(seconds, &region));
+                return actions;
+            }
+            // The legacy wrapper for the same warning: a system message like
+            // "/RESTART_X_MINUTES 5", still sent by older estate tools and
+            // OpenSim grids.
+            let legacy = raw.strip_prefix('/').unwrap_or(&raw);
+            if let Some((scale, rest)) = legacy
+                .strip_prefix("RESTART_X_MINUTES")
+                .map(|r| (60, r))
+                .or_else(|| legacy.strip_prefix("RESTART_X_SECONDS").map(|r| (1, r)))
+            {
+                let n: i64 = rest.split_whitespace().next().and_then(|t| t.parse().ok()).unwrap_or(0);
+                actions.extend(region_restart_warning(n * scale, &state.region_name));
                 return actions;
             }
             // A sit refusal while our request is in flight: stop pretending the
@@ -7124,6 +7143,28 @@ mod tests {
         let e = emit_of(&actions, "region-restart").expect("region-restart event");
         assert_eq!(e["seconds"], 30);
         assert_eq!(e["regionName"], "Natoma", "falls back to the current region name");
+    }
+
+    #[test]
+    fn legacy_restart_text_raises_the_same_event() {
+        let mut st = SessionState { region_name: "Wright Plaza".into(), ..Default::default() };
+        let pkt = json!({
+            "name": "AlertMessage",
+            "blocks": { "AlertData": [{ "Message": B64.encode(b"/RESTART_X_MINUTES 5\0") }] }
+        });
+        let actions = route(&mut st, &pkt);
+        let e = emit_of(&actions, "region-restart").expect("region-restart event");
+        assert_eq!(e["seconds"], 300);
+        assert_eq!(e["regionName"], "Wright Plaza", "legacy form carries no name; use the current region");
+        let chat = emit_of(&actions, "chat").expect("chat record");
+        assert!(chat["text"].as_str().unwrap().contains("restart"));
+
+        let pkt = json!({
+            "name": "AlertMessage",
+            "blocks": { "AlertData": [{ "Message": B64.encode(b"/RESTART_X_SECONDS 30\0") }] }
+        });
+        let actions = route(&mut st, &pkt);
+        assert_eq!(emit_of(&actions, "region-restart").expect("seconds variant")["seconds"], 30);
     }
 
     // --- mute list transfer ---
