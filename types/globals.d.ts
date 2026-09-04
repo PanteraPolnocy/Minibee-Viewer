@@ -38,8 +38,6 @@ interface TauriGlobal {
 interface Window {
   /** Present only inside the Tauri webview; absent in a plain browser. */
   __TAURI__?: TauriGlobal;
-  /** Set by serve-guard when loaded from file://, which the viewer refuses. */
-  MINIBEE_BLOCKED?: boolean;
 
   // Reached through `window.` where the caller treats the module as optional
   // (load order means it may legitimately not be there yet).

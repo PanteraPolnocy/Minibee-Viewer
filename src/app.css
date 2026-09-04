@@ -280,71 +280,6 @@ body {
   letter-spacing: 0.02em;
 }
 
-.screen-require-http {
-  display: none;
-  position: relative;
-  isolation: isolate;
-  min-height: 100vh;
-  min-height: 100dvh;
-  flex-direction: column;
-  padding-bottom: 24px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  background:
-    radial-gradient(ellipse 70% 45% at 50% 0%, rgba(240, 180, 41, 0.1), transparent 68%),
-    var(--bg-surface);
-}
-
-.screen-require-http .login-shell {
-  min-height: 100%;
-}
-
-html.require-http .screen-require-http {
-  display: flex;
-}
-
-html.require-http #app {
-  display: none !important;
-}
-
-.require-http-panel {
-  padding: 0 20px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 420px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.require-http-step {
-  margin: 0;
-  color: var(--text);
-  font-size: 0.85rem;
-}
-
-.require-http-cmd {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border);
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-.require-http-cmd code,
-.require-http-panel code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.require-http-alt {
-  margin: -4px 0 0;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  line-height: 1.4;
-}
-
 .login-form {
   padding: 0 20px 20px;
   display: flex;
@@ -3625,6 +3560,38 @@ button.bee-menu__value--action:disabled {
 .about-meta--mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.74rem;
+}
+
+/* Packages tab: everything the build was compiled from, as a scrollable list. */
+.packages-list {
+  max-height: min(62vh, 560px);
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 0 8px;
+}
+.packages-list__head {
+  padding: 12px 10px 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.packages-list__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 10px;
+}
+.packages-list__name { overflow-wrap: anywhere; }
+.packages-list__version {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .about-actions {

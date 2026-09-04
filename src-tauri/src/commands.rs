@@ -167,6 +167,62 @@ pub fn app_distribution() -> Cmd {
     Ok(json!({ "ok": true, "playStore": crate::bridge::platform::play_store_build() }))
 }
 
+/// One "[[package]]" entry per crate: (name, version) pairs out of Cargo.lock.
+fn parse_cargo_lock(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut name: Option<String> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line == "[[package]]" {
+            name = None;
+        } else if let Some(v) = line.strip_prefix("name = \"") {
+            name = Some(v.trim_end_matches('"').to_string());
+        } else if let Some(v) = line.strip_prefix("version = \"") {
+            if let Some(n) = name.take() {
+                out.push((n, v.trim_end_matches('"').to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// What this build was compiled from, for the Packages tab: every Rust crate
+/// baked into the binary (Cargo.lock) and the Node tools that build the
+/// frontend and installers (package.json). Both files are embedded at compile
+/// time, so the list always matches the running binary.
+#[tauri::command]
+pub fn app_packages() -> Cmd {
+    let mut rust: Vec<(String, String)> = parse_cargo_lock(include_str!("../Cargo.lock"))
+        .into_iter()
+        .filter(|(name, _)| name != "minibee-viewer")
+        .collect();
+    rust.sort();
+    let manifest: Value = serde_json::from_str(include_str!("../../package.json")).unwrap_or(Value::Null);
+    let mut node: Vec<(String, String)> = Vec::new();
+    for section in ["dependencies", "devDependencies"] {
+        if let Some(map) = manifest.get(section).and_then(|v| v.as_object()) {
+            for (name, ver) in map {
+                let ver = ver.as_str().unwrap_or("").trim_start_matches(|c| c == '^' || c == '~');
+                node.push((name.clone(), ver.to_string()));
+            }
+        }
+    }
+    node.sort();
+    let rows = |list: Vec<(String, String)>| -> Vec<Value> {
+        list.into_iter()
+            .map(|(name, version)| json!({ "name": name, "version": version }))
+            .collect()
+    };
+    Ok(json!({
+        "ok": true,
+        "rust": rows(rust),
+        "node": rows(node),
+        // The wire protocol itself: Linden Lab's message template, bundled
+        // verbatim, credited alongside the packages.
+        "templateVersion": crate::codec::template::template_version(),
+    }))
+}
+
 /// Current system and Minibee memory (bytes) for the About tab's periodic refresh.
 #[tauri::command]
 pub fn app_memory() -> Cmd {
@@ -2479,6 +2535,24 @@ fn people_query(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cargo_lock_parses_into_name_version_pairs() {
+        let lock = "version = 4\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.200\"\nsource = \"x\"\n\n[[package]]\nname = \"tokio\"\nversion = \"1.40.0\"\n";
+        assert_eq!(
+            parse_cargo_lock(lock),
+            vec![("serde".into(), "1.0.200".into()), ("tokio".into(), "1.40.0".into())]
+        );
+        // The real embedded lock: plenty of crates, and never the app itself.
+        let all = app_packages().unwrap();
+        let rust = all["rust"].as_array().unwrap();
+        assert!(rust.len() > 100, "a Tauri app pulls in hundreds of crates");
+        assert!(rust.iter().any(|p| p["name"] == "tauri"));
+        assert!(rust.iter().all(|p| p["name"] != "minibee-viewer"));
+        let node = all["node"].as_array().unwrap();
+        assert!(node.iter().any(|p| p["name"] == "typescript"));
+        assert!(!all["templateVersion"].as_str().unwrap().is_empty());
+    }
 
     #[test]
     fn people_query_dots_to_spaces() {

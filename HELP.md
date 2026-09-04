@@ -140,7 +140,8 @@ Open **Bee** in the nav. Sub-tabs:
 | Sub-tab | What |
 |---------|------|
 | Settings | Theme, auto-reconnect, sit after login, radar, buddies, voice, chat logs, guide feed, parcel music |
-| About | Version, updates, chat-log disk usage, **Copy all** for bug reports |
+| About | Version, updates, chat-log disk usage, **Copy all** for bug reports (includes the package list) |
+| Packages | Everything this build was compiled from: Linden Lab's message template, every Rust crate, the build tools |
 | Help | This guide |
 | README | Project overview |
 | License | LGPL 2.1 |

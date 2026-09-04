@@ -11,6 +11,15 @@ use std::sync::Arc;
 /// Raw template text, shipped inside the binary.
 const TEMPLATE_SRC: &str = include_str!("../../resources/message_template.msg");
 
+/// The `version x.y` line of the bundled template, for the Packages credit.
+pub fn template_version() -> &'static str {
+    TEMPLATE_SRC
+        .lines()
+        .map(str::trim)
+        .find_map(|l| l.strip_prefix("version "))
+        .unwrap_or("")
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Frequency {
     High,

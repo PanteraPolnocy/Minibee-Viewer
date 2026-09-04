@@ -513,7 +513,6 @@ const BeeApp = (function () {
   }
 
   async function init() {
-    if (window.MINIBEE_BLOCKED) return;
     try {
       setCloseGuard(false);
       if (typeof BeeDiag !== 'undefined') BeeDiag.init();

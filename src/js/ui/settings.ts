@@ -13,6 +13,7 @@ const BeeSettingsUI = (function () {
   const PANES = {
     prefs: 'settings-pane-prefs',
     about: 'settings-pane-about',
+    packages: 'settings-pane-packages',
     help: 'settings-pane-help',
     privacy: 'settings-pane-privacy',
     readme: 'settings-pane-readme',
@@ -656,6 +657,78 @@ const BeeSettingsUI = (function () {
     });
   }
 
+  // --- Packages tab: what this build was compiled from ------------------------
+
+  let packages = null;
+
+  async function fetchPackages() {
+    if (packages) return packages;
+    const res = await BeeBridge.invoke('app_packages');
+    if (!res || !res.ok) throw new Error('unavailable');
+    packages = {
+      rust: res.rust || [],
+      node: res.node || [],
+      templateVersion: res.templateVersion || ''
+    };
+    return packages;
+  }
+
+  function templateCredit() {
+    if (!packages) return '';
+    return 'Grid messages are read and written with Linden Lab\'s message template' +
+      (packages.templateVersion ? ' (version ' + packages.templateVersion + ')' : '') +
+      ', bundled verbatim.';
+  }
+
+  function packagesText() {
+    if (!packages) return '';
+    const lines = ['Packages:', templateCredit(), ''];
+    lines.push('Rust crates (' + packages.rust.length + '):');
+    packages.rust.forEach(function (p) { lines.push('  ' + p.name + ' ' + p.version); });
+    lines.push('');
+    lines.push('Build tools (' + packages.node.length + '):');
+    packages.node.forEach(function (p) { lines.push('  ' + p.name + ' ' + p.version); });
+    return lines.join('\n');
+  }
+
+  async function loadPackages() {
+    const el = document.getElementById('settings-packages');
+    if (!el || el.dataset.ready === '1') return;
+    try {
+      await fetchPackages();
+    } catch (_e) {
+      el.textContent = 'The package list is unavailable.';
+      return;
+    }
+    el.dataset.ready = '1';
+    const note = document.getElementById('settings-packages-note');
+    if (note) {
+      note.textContent = templateCredit() + ' Everything below went into compiling this build of the viewer.';
+    }
+    el.innerHTML = '';
+    const section = function (title, rows) {
+      const head = document.createElement('div');
+      head.className = 'packages-list__head';
+      head.textContent = title + ' (' + rows.length + ')';
+      el.appendChild(head);
+      rows.forEach(function (p) {
+        const row = document.createElement('div');
+        row.className = 'packages-list__row';
+        const name = document.createElement('span');
+        name.className = 'packages-list__name';
+        name.textContent = p.name;
+        const ver = document.createElement('span');
+        ver.className = 'packages-list__version';
+        ver.textContent = p.version;
+        row.appendChild(name);
+        row.appendChild(ver);
+        el.appendChild(row);
+      });
+    };
+    section('Rust crates', packages.rust);
+    section('Build tools', packages.node);
+  }
+
   function fallbackCopy(text, done) {
     try {
       const ta = document.createElement('textarea');
@@ -671,7 +744,10 @@ const BeeSettingsUI = (function () {
     } catch (_e) { done(false); }
   }
 
-  function copyAbout() {
+  async function copyAbout() {
+    // The copy carries the full package list too; fetch it if the Packages
+    // tab was never opened. A copy without it still beats no copy.
+    try { await fetchPackages(); } catch (_e) { /* list stays absent */ }
     const d = aboutInfo || {};
     const b = d.build || {};
     const s = d.system || {};
@@ -699,7 +775,9 @@ const BeeSettingsUI = (function () {
       (s.memTotal ? 'Memory: ' + memText(s.memUsed, s.memTotal) : ''),
       (s.memProcess ? 'Minibee memory: ' + fmtBytes(s.memProcess) : '')
     ].filter(function (l) { return l !== ''; });
-    const text = lines.join('\n');
+    let text = lines.join('\n');
+    const pk = packagesText();
+    if (pk) text += '\n\n' + pk;
     const done = function (ok) {
       setText('about-copy-status', ok ? 'Copied!' : 'Copy failed');
       window.setTimeout(function () { setText('about-copy-status', ''); }, 2500);
@@ -741,6 +819,7 @@ const BeeSettingsUI = (function () {
     });
     stopMemPoll();
     if (activeTab === 'about') { loadAbout(); startMemPoll(); updateChatLogUsage(); }
+    else if (activeTab === 'packages') void loadPackages();
     else if (activeTab === 'help') loadDoc('help', 'app_help', 'settings-help');
     else if (activeTab === 'privacy') loadDoc('privacy', 'app_privacy', 'settings-privacy');
     else if (activeTab === 'readme') loadDoc('readme', 'app_readme', 'settings-readme');

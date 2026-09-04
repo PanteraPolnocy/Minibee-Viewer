@@ -250,7 +250,6 @@ const BeeLogin = (function () {
   }
 
   function init() {
-    if (window.MINIBEE_BLOCKED) return;
     loadSaved();
     setViewerVersion();
     const form = document.getElementById('login-form');
@@ -259,35 +258,14 @@ const BeeLogin = (function () {
       return;
     }
     form.addEventListener('submit', handleSubmit);
-    checkBridge();
-    const gridEl = document.getElementById('login-grid') as HTMLSelectElement;
-    if (gridEl) gridEl.addEventListener('change', checkBridge);
     const forgetBtn = document.getElementById('login-forget') as HTMLButtonElement;
     if (forgetBtn) forgetBtn.addEventListener('click', forgetCredentials);
     updateForgetVisibility();
   }
 
-  async function checkBridge() {
-    const el = document.getElementById('bridge-status');
-    if (!el) return;
-    el.textContent = 'Checking backend...';
-    try {
-      const b = new BeeBridge.Bridge();
-      const health = await b.health();
-      if (!health || !health.ok) {
-        el.textContent = 'Backend unavailable - run the Minibee app';
-        return;
-      }
-      el.textContent = 'Backend ready';
-    } catch (_e) {
-      el.textContent = 'Backend unavailable - run the Minibee app';
-    }
-  }
-
   return {
     init: init,
     showScreen: showScreen,
-    showError: showError,
-    checkBridge: checkBridge
+    showError: showError
   };
 })();

@@ -8,105 +8,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Minibee Viewer</title>
   <link rel="icon" href="favicon.ico" sizes="any">
-  <script src="js/serve-guard.js"></script>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <section id="screen-require-http" class="screen screen-require-http" aria-label="HTTP required">
-    <div class="login-shell login-shell--center">
-      <div class="login-side-decor" aria-hidden="true">
-      <svg class="login-side-decor__svg login-side-decor__svg--left" viewBox="0 -50 280 980" preserveAspectRatio="xMinYMin slice">
-        <defs>
-          <linearGradient id="honey-flow-l" x1="0%" y1="0%" x2="85%" y2="100%">
-            <stop offset="0%" stop-color="#ffe08a" stop-opacity="0.92"/>
-            <stop offset="45%" stop-color="#f0b429" stop-opacity="0.78"/>
-            <stop offset="100%" stop-color="#c88719" stop-opacity="0.42"/>
-          </linearGradient>
-          <linearGradient id="honey-drip-l" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#fff0b8"/>
-            <stop offset="100%" stop-color="#d49a12" stop-opacity="0.6"/>
-          </linearGradient>
-        </defs>
-        <path d="M0,-50 C6,70 52,115 44,250 C34,390 16,530 0,655 C14,775 42,870 22,980 L0,980 Z" fill="url(#honey-flow-l)" opacity="0.72"/>
-        <path d="M0,55 C28,135 78,185 62,320 C48,465 26,605 40,745 C48,865 30,945 58,980 L0,980 L0,55 Z" fill="url(#honey-flow-l)" opacity="0.5"/>
-        <path d="M0,620 C38,685 58,780 42,880 C30,935 12,970 0,980 L0,620 Z" fill="url(#honey-flow-l)" opacity="0.38"/>
-        <ellipse cx="50" cy="188" rx="22" ry="36" fill="url(#honey-drip-l)" opacity="0.75"/>
-        <rect x="41" y="156" width="18" height="48" rx="9" fill="url(#honey-drip-l)" opacity="0.68"/>
-        <ellipse cx="36" cy="318" rx="19" ry="32" fill="url(#honey-drip-l)" opacity="0.7"/>
-        <rect x="28" y="290" width="16" height="42" rx="8" fill="url(#honey-drip-l)" opacity="0.62"/>
-        <ellipse cx="58" cy="455" rx="24" ry="40" fill="url(#honey-drip-l)" opacity="0.72"/>
-        <rect x="48" y="420" width="20" height="52" rx="10" fill="url(#honey-drip-l)" opacity="0.65"/>
-        <ellipse cx="40" cy="595" rx="18" ry="34" fill="url(#honey-drip-l)" opacity="0.62"/>
-        <rect x="32" y="565" width="16" height="46" rx="8" fill="url(#honey-drip-l)" opacity="0.56"/>
-        <ellipse cx="54" cy="752" rx="20" ry="36" fill="url(#honey-drip-l)" opacity="0.55"/>
-        <rect x="45" y="720" width="18" height="50" rx="9" fill="url(#honey-drip-l)" opacity="0.48"/>
-        <ellipse cx="32" cy="878" rx="15" ry="28" fill="url(#honey-drip-l)" opacity="0.42"/>
-        <rect x="25" y="855" width="14" height="38" rx="7" fill="url(#honey-drip-l)" opacity="0.38"/>
-      </svg>
-      <svg class="login-side-decor__svg login-side-decor__svg--right" viewBox="0 -50 280 980" preserveAspectRatio="xMinYMin slice">
-        <defs>
-          <linearGradient id="honey-flow-r" x1="0%" y1="0%" x2="85%" y2="100%">
-            <stop offset="0%" stop-color="#ffe08a" stop-opacity="0.92"/>
-            <stop offset="45%" stop-color="#f0b429" stop-opacity="0.78"/>
-            <stop offset="100%" stop-color="#c88719" stop-opacity="0.42"/>
-          </linearGradient>
-          <linearGradient id="honey-drip-r" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stop-color="#fff0b8"/>
-            <stop offset="100%" stop-color="#d49a12" stop-opacity="0.6"/>
-          </linearGradient>
-        </defs>
-        <path d="M0,-50 C6,70 52,115 44,250 C34,390 16,530 0,655 C14,775 42,870 22,980 L0,980 Z" fill="url(#honey-flow-r)" opacity="0.72"/>
-        <path d="M0,55 C28,135 78,185 62,320 C48,465 26,605 40,745 C48,865 30,945 58,980 L0,980 L0,55 Z" fill="url(#honey-flow-r)" opacity="0.5"/>
-        <path d="M0,620 C38,685 58,780 42,880 C30,935 12,970 0,980 L0,620 Z" fill="url(#honey-flow-r)" opacity="0.38"/>
-        <ellipse cx="50" cy="188" rx="22" ry="36" fill="url(#honey-drip-r)" opacity="0.75"/>
-        <rect x="41" y="156" width="18" height="48" rx="9" fill="url(#honey-drip-r)" opacity="0.68"/>
-        <ellipse cx="36" cy="318" rx="19" ry="32" fill="url(#honey-drip-r)" opacity="0.7"/>
-        <rect x="28" y="290" width="16" height="42" rx="8" fill="url(#honey-drip-r)" opacity="0.62"/>
-        <ellipse cx="58" cy="455" rx="24" ry="40" fill="url(#honey-drip-r)" opacity="0.72"/>
-        <rect x="48" y="420" width="20" height="52" rx="10" fill="url(#honey-drip-r)" opacity="0.65"/>
-        <ellipse cx="40" cy="595" rx="18" ry="34" fill="url(#honey-drip-r)" opacity="0.62"/>
-        <rect x="32" y="565" width="16" height="46" rx="8" fill="url(#honey-drip-r)" opacity="0.56"/>
-        <ellipse cx="54" cy="752" rx="20" ry="36" fill="url(#honey-drip-r)" opacity="0.55"/>
-        <rect x="45" y="720" width="18" height="50" rx="9" fill="url(#honey-drip-r)" opacity="0.48"/>
-        <ellipse cx="32" cy="878" rx="15" ry="28" fill="url(#honey-drip-r)" opacity="0.42"/>
-        <rect x="25" y="855" width="14" height="38" rx="7" fill="url(#honey-drip-r)" opacity="0.38"/>
-      </svg>
-      </div>
-      <div class="login-shell__content">
-    <div class="login-hero">
-      <div class="login-logo" aria-hidden="true">
-        <svg class="login-logo__bee" viewBox="0 0 32 32" aria-hidden="true">
-          <path d="M7 13 C3 9 3 5 9 7 C11 8 12 11 11 14" fill="rgba(255,248,230,0.7)" stroke="rgba(255,255,255,0.35)" stroke-width="0.6"/>
-          <path d="M25 13 C29 9 29 5 23 7 C21 8 20 11 21 14" fill="rgba(255,248,230,0.7)" stroke="rgba(255,255,255,0.35)" stroke-width="0.6"/>
-          <ellipse cx="16" cy="18.5" rx="5.8" ry="7.8" fill="#f5c542"/>
-          <path d="M10.8 15.2 H21.2" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
-          <path d="M10.4 18.6 H21.6" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
-          <path d="M10.8 22 H21.2" stroke="#1a1408" stroke-width="2" stroke-linecap="round"/>
-          <circle cx="16" cy="9.8" r="4.6" fill="#1a1408"/>
-          <circle cx="14.2" cy="9.2" r="1.1" fill="#fff8e8"/>
-          <circle cx="17.8" cy="9.2" r="1.1" fill="#fff8e8"/>
-          <circle cx="14.5" cy="9.2" r="0.45" fill="#1a1408"/>
-          <circle cx="18.1" cy="9.2" r="0.45" fill="#1a1408"/>
-          <path d="M13.2 6.2 Q11.2 2.8 10.2 1.2" stroke="#1a1408" stroke-width="1.1" fill="none" stroke-linecap="round"/>
-          <path d="M18.8 6.2 Q20.8 2.8 21.8 1.2" stroke="#1a1408" stroke-width="1.1" fill="none" stroke-linecap="round"/>
-          <circle cx="10.2" cy="1.2" r="1" fill="#f0b429"/>
-          <circle cx="21.8" cy="1.2" r="1" fill="#f0b429"/>
-        </svg>
-        <span class="login-logo__mark">MB</span>
-      </div>
-      <h1>Minibee Viewer</h1>
-      <p class="login-sub">Run the Minibee application</p>
-      <p class="login-credit">This viewer runs inside the Minibee desktop app, not a plain browser.</p>
-    </div>
-    <div class="require-http-panel">
-      <p class="require-http-step">Launch Minibee from the project folder:</p>
-      <p class="require-http-cmd"><code>npm run tauri dev</code></p>
-      <p class="require-http-alt">Or run the built <code>Minibee-Viewer</code> executable.</p>
-    </div>
-      </div>
-    </div>
-  </section>
-
   <div id="app" class="app">
 
     <!-- Login screen -->
@@ -223,7 +127,6 @@
         <button type="button" class="btn btn--ghost btn--block" id="login-forget" hidden>Forget saved login &amp; MFA token</button>
       </form>
       <p class="login-footnote">Use your SL username (e.g. bobsmith12) or legacy First Last.<br>Display names do not work here.</p>
-      <p id="bridge-status" class="login-footnote"></p>
         </div>
       </div>
     </section>
@@ -1247,6 +1150,7 @@
           <div class="settings-tabs" role="tablist" aria-label="Settings sections">
             <button type="button" class="settings-tab settings-tab--active" data-settings-tab="prefs" role="tab" aria-selected="true" aria-controls="settings-pane-prefs">Settings</button>
             <button type="button" class="settings-tab" data-settings-tab="about" role="tab" aria-selected="false" aria-controls="settings-pane-about">About Minibee</button>
+            <button type="button" class="settings-tab" data-settings-tab="packages" role="tab" aria-selected="false" aria-controls="settings-pane-packages">Packages</button>
             <button type="button" class="settings-tab" data-settings-tab="help" role="tab" aria-selected="false" aria-controls="settings-pane-help">Help</button>
             <button type="button" class="settings-tab" data-settings-tab="readme" role="tab" aria-selected="false" aria-controls="settings-pane-readme">README</button>
             <button type="button" class="settings-tab" data-settings-tab="license" role="tab" aria-selected="false" aria-controls="settings-pane-license">License</button>
@@ -1310,6 +1214,11 @@
               <p id="about-disclaimer" class="about-disclaimer"></p>
               <p id="about-dedication" class="about-dedication"></p>
             </div>
+          </div>
+
+          <div id="settings-pane-packages" class="settings-pane" role="tabpanel" aria-label="Packages" hidden>
+            <p id="settings-packages-note" class="settings-note"></p>
+            <div id="settings-packages" class="packages-list" tabindex="0">Loading...</div>
           </div>
 
           <div id="settings-pane-help" class="settings-pane" role="tabpanel" aria-label="Help" hidden>
