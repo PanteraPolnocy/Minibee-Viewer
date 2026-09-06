@@ -23,7 +23,7 @@ base64 = "0.23"
 md-5 = "0.11"
 # Sealing the remembered MFA hash under the account password (bridge/mfa.rs).
 # Already in the dependency graph through reqwest/rustls, so nothing new to fetch.
-sha2 = "0.10"
+sha2 = "0.11"
 quick-xml = "0.42"
 roxmltree = "0.21"
 regex = "1"
