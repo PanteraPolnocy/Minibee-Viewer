@@ -427,15 +427,16 @@ const BeeSettingsUI = (function () {
         row.className = 'log-manager__row';
         const name = document.createElement('span');
         name.className = 'log-manager__name';
-        // Older avatar logs can carry a bare UUID as their filename (written
-        // before the name resolved); show the person instead when the name
-        // cache knows them, and ask it to find out when it doesn't yet.
+        // An avatar log can carry a bare UUID as its filename (written before
+        // the name resolved); show the username instead when the name cache
+        // knows it - files are by username, so the list reads the same way -
+        // and ask it to find out when it doesn't yet.
         let display = l.name;
         const isUuidName = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(l.name);
         if (isUuidName && typeof BeeTransport !== 'undefined') {
           if (kind === 'avatars') {
             const info = BeeTransport.getCachedNameInfo ? BeeTransport.getCachedNameInfo(l.name) : null;
-            const resolved = info && (info.displayName || info.label || info.userName);
+            const resolved = info && (info.userName || info.label || info.displayName);
             if (resolved) {
               display = resolved;
             } else if (BeeTransport.queueNameResolve && BeeState.gridOnline()) {

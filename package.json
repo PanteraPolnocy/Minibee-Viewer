@@ -1,7 +1,7 @@
 {
   "name": "minibee-viewer",
   "private": true,
-  "version": "0.13.1",
+  "version": "0.13.2",
   "type": "module",
   "scripts": {
     "assetscompress": "node scripts/assetscompress.mjs",

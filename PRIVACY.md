@@ -42,7 +42,7 @@ Your password is **not** sent anywhere except the login server you picked.
 | Data | When |
 |------|------|
 | Username, grid, "remember me" | If you turn on remember me (in `settings.json` in the app's data folder) |
-| MFA "remember device" | If you opt in (same `settings.json`) |
+| MFA "remember device" | If you opt in (same `settings.json`, encrypted with your account password - unreadable without it; it is unlocked with the password you type at login) |
 | Preferences (theme, radar, etc.) | As you change settings (same `settings.json`) |
 | Auto-reconnect login details | In memory only while connected or reconnecting - **never on disk**; cleared on logout |
 | IM chat logs (plain text files in the app's data folder, one folder per account) | Only if you say yes - asked once at first login, off by default, separate people/groups switches in Bee -> Settings; delete the files any time (Bee -> About shows where and how much) |

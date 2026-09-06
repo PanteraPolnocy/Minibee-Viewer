@@ -229,8 +229,14 @@ const BeeApp = (function () {
       BeeState.addImMessage(data.sessionId, data.message, data.participant, data.session);
     });
 
+    // Session (group / conference) chats only: a private thread is keyed by the
+    // two agent ids and is opened by its messages, never by a session event.
+    function isSessionChatType(type) {
+      return type === 'group' || type === 'conference';
+    }
+
     BeeTransport.on('im-session-open', function (data) {
-      if (!data || !data.sessionId) return;
+      if (!data || !data.sessionId || !isSessionChatType(data.type)) return;
       BeeState.ensureKeyedSession(data.sessionId, { type: data.type, title: data.title });
     });
 
@@ -239,11 +245,19 @@ const BeeApp = (function () {
     // ChatterBoxSessionStartReply).
     BeeTransport.on('im-session-remap', function (data) {
       if (!data || !data.tempId || !data.sessionId) return;
+      // A private thread keeps its id (a P2P call's start reply names the same
+      // session); only a conference we opened under a temp id gets rebound.
+      const opened = BeeState.get().imSessions[data.tempId];
+      if (opened && !isSessionChatType(opened.type)) return;
       if (data.success !== false) BeeState.remapImSession(data.tempId, data.sessionId);
     });
 
     BeeTransport.on('im-roster', function (data) {
-      if (!data || !data.sessionId) return;
+      if (!data || !data.sessionId || !isSessionChatType(data.type)) return;
+      // The sim also lists the two of you for a private thread; that must not
+      // retype the person's tab into a conference.
+      const existing = BeeState.get().imSessions[data.sessionId];
+      if (existing && !isSessionChatType(existing.type)) return;
       BeeState.ensureKeyedSession(data.sessionId, { type: data.type, title: data.title });
       if (data.title) BeeState.renameSession(data.sessionId, data.title);
       if (data.type) BeeState.setSessionType(data.sessionId, data.type);

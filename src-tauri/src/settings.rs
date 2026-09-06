@@ -17,7 +17,7 @@ fn store_path(app: &tauri::AppHandle) -> Option<PathBuf> {
 }
 
 /// Read the store, tolerating a missing or unreadable file: the frontend
-/// treats an empty object as "use defaults / migrate from webview storage".
+/// treats an empty object as "use defaults".
 pub fn read_store(path: &Path) -> Value {
     let Ok(text) = std::fs::read_to_string(path) else {
         return json!({});

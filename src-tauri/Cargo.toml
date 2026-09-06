@@ -21,6 +21,9 @@ tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt-multi-
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip"] }
 base64 = "0.23"
 md-5 = "0.11"
+# Sealing the remembered MFA hash under the account password (bridge/mfa.rs).
+# Already in the dependency graph through reqwest/rustls, so nothing new to fetch.
+sha2 = "0.10"
 quick-xml = "0.42"
 roxmltree = "0.21"
 regex = "1"
@@ -55,6 +58,11 @@ criterion = { version = "0.8", features = ["html_reports"] }
 [[bench]]
 name = "hot_paths"
 harness = false
+
+# The MFA record KDF runs 200k HMAC rounds per login; unoptimised that takes
+# seconds in dev builds (and their tests), optimised a fraction of one.
+[profile.dev.package.sha2]
+opt-level = 3
 
 [profile.release]
 opt-level = 3

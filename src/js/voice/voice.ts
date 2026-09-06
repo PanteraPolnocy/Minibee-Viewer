@@ -877,43 +877,57 @@ const BeeVoice = (function () {
     }
   }
 
-  // A person-to-person call: "start p2p voice" on the existing IM session id
-  // (no conference is created - the IM tab stays exactly what it was). The
-  // channel arrives asynchronously as a voice-call-ready event.
-  let pendingP2P = null; // { sessionId, title, timer }
+  // A person-to-person call rides the person's own IM session (no conference
+  // is created - the tab stays exactly what it was). The sim only knows that
+  // session once "start p2p voice" has run, so: start it, wait for the
+  // ChatterBoxSessionStartReply saying it exists, then "call" it like any
+  // other session. The call request is what makes the sim ring the other side
+  // (a ChatterBoxInvitation carrying the channel); the start alone rings nobody.
+  let pendingP2P = null; // { sessionId, settle }
+
+  // Resolves 'started' | 'failed' | 'timeout' once the sim answers the start.
+  function awaitSessionStart(sessionId, ms) {
+    return new Promise(function (resolve) {
+      const me = { sessionId: sessionId, settle: settle };
+      const timer = setTimeout(function () { settle('timeout'); }, ms);
+      function settle(outcome) {
+        clearTimeout(timer);
+        if (pendingP2P === me) pendingP2P = null;
+        resolve(outcome);
+      }
+      pendingP2P = me;
+    });
+  }
 
   async function startP2PCall(sessionId, peerId, title) {
     if (callSession) {
       BeeUtils.showToast('Already in a voice call.', 'warning');
       return;
     }
-    if (!BeeState.gridOnline() || !window.RTCPeerConnection) return;
     if (pendingP2P) {
-      clearTimeout(pendingP2P.timer);
-      pendingP2P = null;
+      BeeUtils.showToast('A call is already being set up.', 'warning');
+      return;
     }
+    if (!BeeState.gridOnline() || !window.RTCPeerConnection) return;
     const key = String(sessionId).toLowerCase();
-    pendingP2P = {
-      sessionId: key,
-      title: title,
-      timer: setTimeout(function () {
-        if (pendingP2P && pendingP2P.sessionId === key) {
-          pendingP2P = null;
-          vlog('call: p2p setup timed out');
-          BeeUtils.showToast('The call could not be set up in time.', 'error');
-        }
-      }, 20000)
-    };
+    // Listen before asking: the reply rides the event queue and can land
+    // before the request's own response does.
+    const started = awaitSessionStart(key, 5000);
     try {
       await BeeBridge.invoke('sl_voice_call_p2p', { sessionId: sessionId, peerId: peerId });
-      BeeUtils.showToast('Calling ' + (title || '...') + '...', 'info');
     } catch (err) {
-      if (pendingP2P && pendingP2P.sessionId === key) {
-        clearTimeout(pendingP2P.timer);
-        pendingP2P = null;
-      }
+      if (pendingP2P && pendingP2P.sessionId === key) pendingP2P.settle('failed');
       BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not be started.', 'error');
+      return;
     }
+    BeeUtils.showToast('Calling ' + (title || '...') + '...', 'info');
+    const outcome = await started;
+    if (outcome === 'failed') {
+      BeeUtils.showToast('The call could not be started.', 'error');
+      return;
+    }
+    if (outcome === 'timeout') vlog('call: no start reply for the p2p session; calling anyway');
+    await startCall(sessionId, title, '', true);
   }
 
   async function answerCall(invite) {
@@ -1294,18 +1308,13 @@ const BeeVoice = (function () {
     BeeTransport.on('region', function () {
       if (desired && state !== 'off') scheduleReconnect('');
     });
-    // The sim answered our "start p2p voice" with the ad-hoc channel.
-    BeeTransport.on('voice-call-ready', function (data) {
-      if (!data || !data.sessionId || !pendingP2P) return;
-      if (pendingP2P.sessionId !== String(data.sessionId).toLowerCase()) return;
-      const p = pendingP2P;
-      clearTimeout(p.timer);
-      pendingP2P = null;
-      void joinCallChannel(
-        data.sessionId, p.title,
-        String(data.channelUri || ''), String(data.credentials || ''),
-        data.sessionId, true
-      );
+    // The sim confirmed a session we asked it to start; a P2P call waits on
+    // this before requesting the call itself.
+    BeeTransport.on('im-session-started', function (data) {
+      if (!data || !pendingP2P) return;
+      const ids = [data.sessionId, data.tempId].map(function (id) { return String(id || '').toLowerCase(); });
+      if (ids.indexOf(pendingP2P.sessionId) === -1) return;
+      pendingP2P.settle(data.success === false ? 'failed' : 'started');
     });
     // The core learned a neighbour region's voice endpoints (or the set changed).
     BeeTransport.on('voice-neighbours', function (payload) {

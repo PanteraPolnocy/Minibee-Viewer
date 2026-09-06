@@ -14,6 +14,7 @@ pub mod inventory;
 pub mod landmarks;
 pub mod login;
 pub mod map;
+pub mod mfa;
 pub mod netmeter;
 pub mod notecards;
 pub mod objects;

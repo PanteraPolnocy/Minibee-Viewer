@@ -33,14 +33,14 @@ const BeeSLBridge = (function () {
   // These events are forwarded to the BeeTransport bus untouched.
   const PASSTHROUGH = [
     'connected', 'disconnected', 'session-lost', 'caps-status', 'region', 'position', 'parcel',
-    'chat', 'event', 'im', 'im-typing', 'im-roster', 'im-session-force-close', 'im-session-remap',
+    'chat', 'event', 'im', 'im-typing', 'im-roster', 'im-session-force-close', 'im-session-remap', 'im-session-started',
     'money-balance', 'radar-update', 'map-blocks', 'map-agents', 'stats',
     'teleport-started', 'teleport-progress', 'teleport-finish', 'teleport-failed',
     'teleport-offer', 'teleport-request', 'teleport-accepted', 'teleport-declined',
     'sit-state', 'object-properties', 'pay-price', 'mute-list', 'region-restart',
     'net-rate', 'covenant', 'covenant-text', 'parcel-access', 'parcel-object-owners',
     'script-source', 'script-created', 'notecard-source', 'notecard-created',
-    'voice-neighbours', 'voice-call-invite', 'voice-call-ready', 'close-requested'
+    'voice-neighbours', 'voice-call-invite', 'close-requested'
   ];
 
   // Registers every backend listener. The returned Promise doesn't resolve
@@ -199,28 +199,28 @@ const BeeSLBridge = (function () {
 
   // --- login (Rust owns the parsing/orchestration; this is just the challenge loop) ---
 
+  // The MFA "remember this device" record, one settings key per account. What
+  // is stored is opaque: the grid's hash sealed by the core under the account
+  // password (bridge/mfa.rs). This side never sees the hash itself.
   function mfaKey(credentials) {
     // "First Last", "first.last" and "first_last" are the same account, and a
     // lone name implies the "Resident" surname - normalize so the remembered
-    // hash is found no matter which spelling was typed this time.
+    // record is found no matter which spelling was typed this time.
     let user = String(credentials.username || '').trim().toLowerCase().replace(/[\s._]+/g, '.');
     user = user.replace(/\.resident$/, '');
     return 'minibee-mfa-' + (credentials.grid || 'agni') + '-' + user;
   }
-  function legacyMfaKey(credentials) {
-    return 'minibee-mfa-' + (credentials.grid || 'agni') + '-' + String(credentials.username || '').trim().toLowerCase();
+  function loadMfaRecord(credentials) {
+    const record = BeeUtils.storageGet(mfaKey(credentials), '');
+    return typeof record === 'string' ? record : '';
   }
-  function loadMfaHash(credentials) {
-    return BeeUtils.storageGet(mfaKey(credentials), '') ||
-      BeeUtils.storageGet(legacyMfaKey(credentials), '') || '';
+  function saveMfaRecord(key, sealed, remember) {
+    if (remember && sealed) BeeUtils.storageSet(key, sealed);
+    else BeeUtils.storageRemove(key);
   }
-  function saveMfaHash(credentials, hash, remember) {
-    if (remember && hash) BeeUtils.storageSet(mfaKey(credentials), hash);
-    else BeeUtils.storageRemove(mfaKey(credentials));
-    if (legacyMfaKey(credentials) !== mfaKey(credentials)) {
-      BeeUtils.storageRemove(legacyMfaKey(credentials));
-    }
-  }
+  // The key a successful login remembered its record under, so a reconnect
+  // (which has no credentials on this side) can keep the record fresh.
+  let rememberedMfaKey = '';
 
   const GRID_NAMES = { agni: 'Second Life', aditi: 'Second Life Beta', local: 'OpenSim Local' };
 
@@ -233,24 +233,31 @@ const BeeSLBridge = (function () {
     }
     if (!started) { await bindEvents(); started = true; }
 
+    const storageKey = mfaKey(credentials);
+    // The sealed record rides along with the password that opens it. A wrong
+    // password opens nothing, so no hash goes out and the grid's own verdict
+    // stands; a right one skips the code prompt in a single round-trip.
     const session = {
-      token: '', agreeToTos: false, readCritical: false,
-      mfaHash: loadMfaHash(credentials), rememberMfa: undefined
+      token: '', agreeToTos: false, readCritical: false, mfaHash: '',
+      storedMfa: loadMfaRecord(credentials), rememberMfa: undefined
     };
     let resp = null;
     for (let attempt = 0; attempt < 12; attempt++) {
       resp = await invoke('bridge_login', { payload: {
         loginUrl: credentials.loginUrl || '', username: credentials.username, password: credentials.password,
         grid: credentials.grid || 'agni', start: credentials.start || 'last',
-        token: session.token, mfaHash: session.mfaHash,
+        token: session.token, mfaHash: session.mfaHash, mfaSealed: session.storedMfa,
         agreeToTos: session.agreeToTos, readCritical: session.readCritical
       } });
       const c = resp.classified || {};
       if (c.ok) {
-        const rawMfa = resp.login && resp.login.mfa_hash;
-        if (rawMfa) {
-          const remember = session.rememberMfa !== undefined ? session.rememberMfa : !!session.mfaHash;
-          saveMfaHash(credentials, rawMfa, remember);
+        rememberedMfaKey = '';
+        if (resp.mfaSealed) {
+          // A fresh code decides by its checkbox; a login that rode the
+          // remembered record keeps remembering (the grid may have rotated it).
+          const remember = session.rememberMfa !== undefined ? session.rememberMfa : !!resp.mfaStoredUsed;
+          saveMfaRecord(storageKey, resp.mfaSealed, remember);
+          if (remember) rememberedMfaKey = storageKey;
         }
         break;
       }
@@ -264,14 +271,22 @@ const BeeSLBridge = (function () {
       }
       if (c.type === 'error') {
         // A rejected token is the only failure that condemns the submitted MFA
-        // state. A plain bad-password ('key') must NOT wipe the remembered
-        // hash, or every typo re-arms the MFA challenge for days.
+        // state. A plain bad-password ('key') must NOT touch the remembered
+        // record, or every typo re-arms the MFA challenge for days.
         if (session.token) {
           session.token = '';
           session.mfaHash = '';
           throw new Error('Authenticator code rejected. Generate a new code and try again.');
         }
         throw new Error(c.message || 'Login failed.');
+      }
+      if (c.type === 'mfa' && session.storedMfa) {
+        // The password was right (a wrong one fails as 'key' before this) and
+        // the grid still wants a code, so the remembered record is stale: it
+        // either did not open (sealed under an old password) or has expired
+        // grid-side. Drop it; a fresh one is sealed once the code is accepted.
+        session.storedMfa = '';
+        BeeUtils.storageRemove(storageKey);
       }
       const onChallenge = credentials.onChallenge;
       if (!onChallenge) throw new Error('Login requires user interaction (TOS/MFA).');
@@ -346,6 +361,9 @@ const BeeSLBridge = (function () {
     if (!resp || !resp.classified || !resp.classified.ok || !resp.parsed) {
       throw new Error('Reconnect failed.');
     }
+    // The core seals the replayed login's hash too, so a remembered record
+    // stays current if the grid rotated it.
+    if (resp.mfaSealed && rememberedMfaKey) saveMfaRecord(rememberedMfaKey, resp.mfaSealed, true);
     return finishSession(resp, lastGrid || 'agni');
   }
 
@@ -491,7 +509,8 @@ const BeeSLBridge = (function () {
   }
   function leaveImSession(sessionId) {
     const session = (typeof BeeState !== 'undefined' && BeeState.get().imSessions) ? BeeState.get().imSessions[sessionId] : null;
-    if (!session || session.type === 'p2p') return; // P2P has no server-side session, so there's nothing to leave
+    // P2P (untyped) has no server-side session, so there's nothing to leave.
+    if (!session || !session.type || session.type === 'p2p') return;
     invoke('sl_chat_session_decline', { sessionId: sessionId }).catch(function () {});
   }
 

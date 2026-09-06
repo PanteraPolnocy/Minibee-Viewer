@@ -1011,6 +1011,25 @@ fn xor_session_id(a: &str, b: &str) -> String {
     format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
 }
 
+/// Whether a ChatterBox session id is a private (person-to-person) thread rather
+/// than a group or conference. A P2P id is our agent id XOR the other party's, so
+/// it is recognised when one of the agents the sim names in the event XORs back
+/// to it - or, failing that, when the id XORs to someone we already know by name
+/// (the sim can list only ourselves in a first delta). The grid started sending
+/// AgentListUpdates for private threads with the WebRTC voice rollout, and
+/// labelling those "conference" turned every IM tab into one.
+fn is_p2p_session<'a>(state: &SessionState, session_id: &str, agents: impl IntoIterator<Item = &'a str>) -> bool {
+    if state.agent_id.is_empty() || session_id.is_empty() {
+        return false;
+    }
+    let matches_peer = |peer: &str| !same_uuid(peer, &state.agent_id) && same_uuid(&xor_session_id(&state.agent_id, peer), session_id);
+    if agents.into_iter().any(matches_peer) {
+        return true;
+    }
+    let peer = xor_session_id(&state.agent_id, session_id);
+    !same_uuid(&peer, &state.agent_id) && state.knows_name(&peer)
+}
+
 /// Strip a trailing SLURL line (maps.secondlife.com / slurl) off a lure message.
 fn strip_slurl(text: &str) -> String {
     let mut out = text;
@@ -3802,7 +3821,14 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             state.cache_name(&from_id, &from_name);
             let display = state.cached_name(&from_id).unwrap_or(&from_name).to_string();
             actions.push(Action::ResolveNames(vec![from_id.clone()]));
-            actions.push(Action::AcceptChatSession { session_id: session_id.clone() });
+
+            // A private thread (a P2P call's invitation rides one) is not a
+            // session to join: no accept, and its text lands in the person's
+            // own IM tab like any other P2P message would.
+            let p2p = is_p2p_session(state, &session_id, [from_id.as_str()]);
+            if !p2p {
+                actions.push(Action::AcceptChatSession { session_id: session_id.clone() });
+            }
 
             // Group vs conference is decided by session-id membership.
             let stype = if state.groups.contains(&session_id.to_lowercase()) { "group" } else { "conference" };
@@ -3814,15 +3840,18 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                 let udp_echo = state.take_im(&format!("udp\0{base}"));
                 let eq_replay = state.is_duplicate_im(&format!("eq\0{base}"));
                 if !udp_echo && !eq_replay {
-                    actions.push(Action::emit(
-                        "im",
-                        json!({
-                            "sessionId": session_id,
-                            "participant": { "id": from_id, "name": display, "online": true },
-                            "session": { "id": session_id, "type": stype, "title": "" },
-                            "message": { "imId": session_id, "fromId": from_id, "fromName": display, "text": text, "outgoing": false },
-                        }),
-                    ));
+                    let mut payload = json!({
+                        "sessionId": session_id,
+                        "participant": { "id": from_id, "name": display, "online": true },
+                        "message": { "imId": session_id, "fromId": from_id, "fromName": display, "text": text, "outgoing": false },
+                    });
+                    if !from_name.trim().is_empty() {
+                        payload["participant"]["userName"] = json!(from_name);
+                    }
+                    if !p2p {
+                        payload["session"] = json!({ "id": session_id, "type": stype, "title": "" });
+                    }
+                    actions.push(Action::emit("im", payload));
                 }
             }
         }
@@ -3838,40 +3867,29 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             }
         }
 
-        // The reply to a conference we started: the sim assigns its own session id,
-        // distinct from the client temp id the UI opened the tab under. Tell the UI
-        // to rebind that tab so the roster and messages, which arrive under the real
-        // id, land in it instead of in a duplicate or empty tab.
+        // The reply to a session we asked the sim to start (a conference, or a
+        // private thread's "start p2p voice" ahead of a call). A conference gets
+        // the sim's own session id, distinct from the client temp id the UI
+        // opened the tab under, so the UI rebinds that tab and the roster and
+        // messages, which arrive under the real id, land in it. A P2P start
+        // keeps its id; the reply only says the session now exists sim-side,
+        // which a call on it needs (see voice.ts startP2PCall).
         "ChatterBoxSessionStartReply" => {
             let temp = str_field(body, &["temp_session_id", "tempSessionId"]);
             let sid = str_field(body, &["session_id", "sessionId"]);
             let success = body.get("success").and_then(|v| v.as_bool()).unwrap_or(!sid.is_empty());
+            let real = if sid.is_empty() { temp.clone() } else { sid };
             if !temp.is_empty() {
                 actions.push(Action::emit(
                     "im-session-remap",
-                    json!({
-                        "tempId": temp,
-                        "sessionId": if sid.is_empty() { temp.clone() } else { sid.clone() },
-                        "success": success,
-                    }),
+                    json!({ "tempId": temp, "sessionId": real, "success": success }),
                 ));
             }
-            // A voice session we asked for ("start p2p voice", or a call on a
-            // conference) answers here: the ad-hoc channel's uri+credentials
-            // ride the reply's session info.
-            if let Some(vci) = body.get("info").and_then(|i| i.get("voice_channel_info")) {
-                let uri = vci.get("channel_uri").and_then(|v| v.as_str()).unwrap_or("");
-                if !uri.is_empty() {
-                    let call_sid = if sid.is_empty() { temp } else { sid };
-                    actions.push(Action::emit(
-                        "voice-call-ready",
-                        json!({
-                            "sessionId": call_sid,
-                            "channelUri": uri,
-                            "credentials": vci.get("channel_credentials").and_then(|v| v.as_str()).unwrap_or(""),
-                        }),
-                    ));
-                }
+            if !real.is_empty() {
+                actions.push(Action::emit(
+                    "im-session-started",
+                    json!({ "sessionId": real, "tempId": temp, "success": success }),
+                ));
             }
         }
         "ChatterBoxSessionAgentListUpdates" => {
@@ -3927,6 +3945,24 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                     roster.participants.iter().map(|(k, (m, u))| (k.clone(), *m, *u)).collect();
                 (snap, roster.self_moderator)
             };
+            // A private thread has no roster to show: the agents named (the ones
+            // still in, and the ones this delta removed) give it away. Keep no
+            // state for it, and tell the UI nothing - the tab is the person's.
+            let named: Vec<&str> = snapshot
+                .iter()
+                .map(|(aid, _, _)| aid.as_str())
+                .chain(
+                    body.get("agent_updates")
+                        .or_else(|| body.get("updates"))
+                        .and_then(|u| u.as_object())
+                        .into_iter()
+                        .flat_map(|u| u.keys().map(String::as_str)),
+                )
+                .collect();
+            if !state.groups.contains(&sid.to_lowercase()) && is_p2p_session(state, &sid, named) {
+                state.im_rosters.remove(&sid);
+                return actions;
+            }
             let mut participants = Vec::new();
             let mut resolve = Vec::new();
             for (aid, is_mod, muted) in &snapshot {
@@ -4418,6 +4454,9 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     }
 
     let session_im_id = if !im_id.is_empty() && !same_uuid(&im_id, ZERO) { im_id.clone() } else { String::new() };
+    // A session-flavoured IM whose id is really our private thread with the
+    // sender (id = us XOR them) is a P2P line, not a conference.
+    let is_session = is_session && (from_group || !is_p2p_session(state, &session_im_id, [from_id.as_str()]));
     if is_session && !session_im_id.is_empty() {
         // A session line can arrive over both transports (the EventQueue's
         // ChatterBoxInvitation carries the first message, UDP the rest), so only
@@ -4431,7 +4470,13 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         state.note_im(&format!("udp\0{base}"));
     }
 
+    // The packet names the sender by legacy name; the display label may differ.
+    // Both ride along, so the UI can show one and file the log under the other.
+    // (The key is only set when known: the UI merges it over what it has.)
     let mut participant = json!({ "id": &from_id, "name": &display });
+    if !from_name.trim().is_empty() {
+        participant["userName"] = json!(&from_name);
+    }
     if offline == 0 {
         participant["online"] = json!(true);
     }
@@ -5237,10 +5282,21 @@ mod tests {
         let a = route(&mut st, &pkt);
         let p = emit_of(&a, "im").expect("im");
         assert_eq!(p["participant"]["id"], OTHER);
+        // The packet's legacy name travels as the username even when the label
+        // shown is a display name (the chat log is filed under the former).
+        assert_eq!(p["participant"]["userName"], "Ruth Resident");
         assert_eq!(p["message"]["text"], "hello");
         assert_eq!(p["message"]["outgoing"], false);
         assert_eq!(p["sessionId"], xor_session_id(ME, OTHER));
         assert!(p.get("session").is_none());
+
+        // A display name in the cache changes the label, not the username.
+        let mut st = me_state();
+        st.set_name(OTHER, "Pantera Polnocy");
+        let a = route(&mut st, &im_packet(0, OTHER, ME, false, "00000000-0000-0000-0000-000000000000", "hi", ""));
+        let p = emit_of(&a, "im").expect("im");
+        assert_eq!(p["participant"]["name"], "Pantera Polnocy");
+        assert_eq!(p["participant"]["userName"], "Ruth Resident");
     }
 
     #[test]
@@ -5580,6 +5636,119 @@ mod tests {
         // A duplicate within the window is suppressed.
         let a2 = route_eq(&mut st, "ChatterBoxInvitation", &body);
         assert!(emit_of(&a2, "im").is_none());
+    }
+
+    // Our private thread with OTHER: the P2P session id is the XOR of the two agent ids.
+    const P2P_WITH_OTHER: &str = "33333333-3333-3333-3333-333333333333";
+
+    #[test]
+    fn eq_chatterbox_invitation_for_private_thread_is_a_p2p_im() {
+        let mut st = me_state();
+        let body = json!({
+            "voice": { "channel_uri": "sip:adhoc@example", "invitation_type": 2 },
+            "session_id": P2P_WITH_OTHER, "from_id": OTHER,
+            "instantmessage": { "message_params": {
+                "from_id": OTHER, "id": P2P_WITH_OTHER, "from_name": "Ruth Resident", "message": "pick up",
+            } }
+        });
+        let a = route_eq(&mut st, "ChatterBoxInvitation", &body);
+        let p = emit_of(&a, "im").expect("im");
+        assert_eq!(p["sessionId"], P2P_WITH_OTHER);
+        assert!(p.get("session").is_none(), "a private thread carries no session block");
+        assert_eq!(p["participant"]["id"], OTHER);
+        assert!(
+            !a.iter().any(|x| matches!(x, Action::AcceptChatSession { .. })),
+            "nothing to join on a private thread"
+        );
+        assert!(emit_of(&a, "voice-call-invite").is_some(), "the ring still goes out");
+    }
+
+    #[test]
+    fn eq_roster_for_private_thread_is_not_a_conference() {
+        let mut st = me_state();
+        let a = route_eq(&mut st, "ChatterBoxSessionAgentListUpdates", &json!({
+            "session_id": P2P_WITH_OTHER,
+            "agent_updates": {
+                ME: { "transition": "ENTER", "info": {} },
+                OTHER: { "transition": "ENTER", "info": {} },
+            }
+        }));
+        assert!(emit_of(&a, "im-roster").is_none(), "no roster event for a private thread");
+        assert!(!st.im_rosters.contains_key(P2P_WITH_OTHER), "no roster state kept for it either");
+
+        // The peer leaving still names them, so the LEAVE is recognised too.
+        let a = route_eq(&mut st, "ChatterBoxSessionAgentListUpdates", &json!({
+            "session_id": P2P_WITH_OTHER,
+            "agent_updates": { OTHER: { "transition": "LEAVE" } }
+        }));
+        assert!(emit_of(&a, "im-roster").is_none());
+
+        // A delta naming only ourselves: the id still XORs to someone we know.
+        let mut st = me_state();
+        st.cache_name(OTHER, "Ruth Resident");
+        let a = route_eq(&mut st, "ChatterBoxSessionAgentListUpdates", &json!({
+            "session_id": P2P_WITH_OTHER,
+            "agent_updates": { ME: { "transition": "ENTER", "info": {} } }
+        }));
+        assert!(emit_of(&a, "im-roster").is_none());
+    }
+
+    #[test]
+    fn eq_session_start_reply_announces_the_session() {
+        // "start p2p voice": the sim keeps the id we named and only confirms it.
+        let mut st = me_state();
+        let a = route_eq(&mut st, "ChatterBoxSessionStartReply", &json!({
+            "temp_session_id": P2P_WITH_OTHER, "session_id": P2P_WITH_OTHER, "success": true,
+        }));
+        let s = emit_of(&a, "im-session-started").expect("start announced");
+        assert_eq!(s["sessionId"], P2P_WITH_OTHER);
+        assert_eq!(s["success"], true);
+        assert!(emit_of(&a, "voice-call-ready").is_none(), "no channel rides the start reply");
+
+        // A conference start: the sim's id replaces the client temp id, and both
+        // the rebind and the announcement carry the real one.
+        let a = route_eq(&mut st, "ChatterBoxSessionStartReply", &json!({
+            "temp_session_id": "77777777-7777-7777-7777-777777777777",
+            "session_id": "cccccccc-0000-0000-0000-000000000003", "success": true,
+        }));
+        let r = emit_of(&a, "im-session-remap").expect("rebind");
+        assert_eq!(r["tempId"], "77777777-7777-7777-7777-777777777777");
+        assert_eq!(r["sessionId"], "cccccccc-0000-0000-0000-000000000003");
+        let s = emit_of(&a, "im-session-started").expect("start announced");
+        assert_eq!(s["sessionId"], "cccccccc-0000-0000-0000-000000000003");
+        assert_eq!(s["tempId"], "77777777-7777-7777-7777-777777777777");
+
+        // A refused start still answers, so the caller can stop waiting.
+        let a = route_eq(&mut st, "ChatterBoxSessionStartReply", &json!({
+            "temp_session_id": P2P_WITH_OTHER, "success": false, "error": "generic",
+        }));
+        let s = emit_of(&a, "im-session-started").expect("failure announced");
+        assert_eq!(s["sessionId"], P2P_WITH_OTHER);
+        assert_eq!(s["success"], false);
+    }
+
+    #[test]
+    fn eq_roster_for_two_person_conference_is_still_a_conference() {
+        let mut st = me_state();
+        let a = route_eq(&mut st, "ChatterBoxSessionAgentListUpdates", &json!({
+            "session_id": "cccccccc-0000-0000-0000-000000000003",
+            "agent_updates": {
+                ME: { "transition": "ENTER", "info": {} },
+                OTHER: { "transition": "ENTER", "info": {} },
+            }
+        }));
+        let r = emit_of(&a, "im-roster").expect("a real conference still gets its roster");
+        assert_eq!(r["type"], "conference");
+        assert_eq!(r["participants"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn udp_session_im_on_private_thread_id_stays_p2p() {
+        let mut st = me_state();
+        let a = route(&mut st, &im_packet(17, OTHER, ME, false, P2P_WITH_OTHER, "hello there", ""));
+        let p = emit_of(&a, "im").expect("im");
+        assert_eq!(p["sessionId"], P2P_WITH_OTHER);
+        assert!(p.get("session").is_none());
     }
 
     #[test]

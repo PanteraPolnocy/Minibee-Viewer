@@ -1,8 +1,8 @@
 /**
  * Optional IM transcripts on disk. Off by default: the first login asks once,
  * the answer is remembered, and people/groups have separate switches in
- * Bee -> Settings. When on, private IMs land in avatars/<name>.txt and group
- * or conference lines in groups/<title>.txt, next to the app's other data
+ * Bee -> Settings. When on, private IMs land in avatars/<username>.txt and
+ * group or conference lines in groups/<title>.txt, next to the app's other data
  * (never the OS cache). Writing is fire-and-forget; a failed write must never
  * break chat.
  */
@@ -21,19 +21,76 @@ const BeeChatLogs = (function () {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || ''));
   }
 
-  // The file should carry a person's name, not a UUID. Right after login the
-  // session participant can still be unresolved; the name cache usually knows
-  // better by the time a message lands.
-  function avatarLogName(participant) {
-    if (!participant) return 'Unknown';
-    let name = String(participant.userName || participant.legacyName || participant.name || '');
-    if (!name || looksUuid(name)) {
-      const info = typeof BeeTransport.getCachedNameInfo === 'function'
-        ? BeeTransport.getCachedNameInfo(participant.id)
-        : null;
-      name = (info && (info.userName || info.label || info.displayName)) || name;
+  // A person's file is named by username - "alice.wonder", "panterapolnocy" -
+  // never by display name: that is a label they chose to be seen as, it
+  // changes, and it need not be unique. One spelling only, or the same person
+  // ends up with several files: SL's own username form (lowercase, dot-joined,
+  // no "Resident" surname) folds "Alice Wonder", "alice.wonder" and
+  // "Bob Resident" into one name each.
+  function canonicalUserName(name) {
+    const user = String(name || '').trim().toLowerCase().replace(/\s+/g, '.');
+    return user.replace(/\.resident$/, '');
+  }
+
+  // The username on record for a participant, or '' while nobody knows it.
+  // GetDisplayNames (the name cache) is authoritative; the legacy name the IM
+  // packet itself carried (participant.userName) covers the moment before the
+  // lookup lands. participant.name is never used: it is the display label.
+  function knownUserName(participant) {
+    const info = typeof BeeTransport.getCachedNameInfo === 'function'
+      ? BeeTransport.getCachedNameInfo(participant.id)
+      : null;
+    const cached = info ? String(info.userName || '').trim() : '';
+    if (cached && !looksUuid(cached)) return canonicalUserName(cached);
+    const own = String(participant.userName || participant.legacyName || '').trim();
+    const isLabel = !!(info && info.displayName && own.toLowerCase() === String(info.displayName).toLowerCase());
+    if (own && !looksUuid(own) && !isLabel) return canonicalUserName(own);
+    return '';
+  }
+
+  // Lines for a person whose username nobody knows yet (a first contact whose
+  // name lookup is still in flight) wait for it rather than land in a file
+  // named after something else. Past a generous wait the UUID names the file;
+  // the log manager shows the person behind it once the name is known.
+  const waiting = new Map(); // agent id -> { participant, lines, timer }
+  const WAIT_FOR_NAME_MS = 30000;
+
+  function appendLines(name, lines) {
+    lines.reduce(function (prev, line) {
+      return prev.then(function () { return BeeTransport.chatLogAppend('avatars', name, line); });
+    }, Promise.resolve()).catch(function () {});
+  }
+
+  function flushWaiting(id, giveUp) {
+    const entry = waiting.get(id);
+    if (!entry) return;
+    const name = knownUserName(entry.participant) || (giveUp ? id : '');
+    if (!name) return;
+    clearTimeout(entry.timer);
+    waiting.delete(id);
+    appendLines(name, entry.lines);
+  }
+
+  function logAvatarLine(participant, line) {
+    if (!participant) return;
+    const name = knownUserName(participant);
+    if (name) {
+      appendLines(name, [line]);
+      return;
     }
-    return name && !looksUuid(name) ? name : String(participant.id || 'Unknown');
+    const id = String(participant.id || '').toLowerCase();
+    if (!looksUuid(id)) return;
+    let entry = waiting.get(id);
+    if (!entry) {
+      entry = {
+        participant: participant,
+        lines: [],
+        timer: setTimeout(function () { flushWaiting(id, true); }, WAIT_FOR_NAME_MS)
+      };
+      waiting.set(id, entry);
+      if (typeof BeeTransport.queueNameResolve === 'function') BeeTransport.queueNameResolve(id);
+    }
+    entry.lines.push(line);
   }
 
   // A group file must never be named by the placeholder title ("Group chat")
@@ -58,13 +115,13 @@ const BeeChatLogs = (function () {
     const grouplike = session.type === 'group' || session.type === 'conference';
     // People and groups have their own switches.
     if (!BeeSettings.get(grouplike ? 'chatLogsGroups' : 'chatLogsAvatars')) return;
-    const kind = grouplike ? 'groups' : 'avatars';
-    const target = grouplike
-      ? groupLogName(session)
-      : avatarLogName(session.participant);
     const who = String(msg.fromName || (msg.outgoing ? 'Me' : 'Unknown'));
     const line = '[' + stamp(msg.timestamp) + '] ' + who + ': ' + text;
-    BeeTransport.chatLogAppend(kind, target, line).catch(function () {});
+    if (grouplike) {
+      BeeTransport.chatLogAppend('groups', groupLogName(session), line).catch(function () {});
+    } else {
+      logAvatarLine(session.participant, line);
+    }
   }
 
   // One-time question, asked on the first login this install sees. The
@@ -108,6 +165,16 @@ const BeeChatLogs = (function () {
     BeeState.on('change', function (partial) {
       if (partial && partial.connected === true) void maybeAsk();
     });
+    // A name lookup landed: file whatever was waiting on it.
+    BeeTransport.on('names-updated', function () {
+      Array.from(waiting.keys()).forEach(function (id) { flushWaiting(id, false); });
+    });
+    // The session is going away; nothing waiting can be lost with it.
+    function flushAll() {
+      Array.from(waiting.keys()).forEach(function (id) { flushWaiting(id, true); });
+    }
+    BeeTransport.on('disconnected', flushAll);
+    BeeState.on('reset', flushAll);
   }
 
   return { init: init };

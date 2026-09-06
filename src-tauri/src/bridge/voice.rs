@@ -221,9 +221,9 @@ pub async fn sl_voice_provision(
 }
 
 /// Ask the sim to set up a voice call on a chat session (group, conference,
-/// or a conference standing in for a P2P call) - ChatSessionRequest method
-/// "call". The answer's voice_credentials carry the ad-hoc channel and its
-/// key, which sl_voice_call_provision then joins.
+/// or a private thread's P2P session) - ChatSessionRequest method "call".
+/// The answer's voice_credentials carry the ad-hoc channel and its key, which
+/// sl_voice_call_provision then joins; the sim invites the other members.
 #[tauri::command]
 pub async fn sl_voice_call_request(state: State<'_, Arc<AppState>>, session_id: String) -> Cmd {
     let session = state.active().ok_or("No active session")?;
@@ -258,11 +258,12 @@ pub async fn sl_voice_call_request(state: State<'_, Arc<AppState>>, session_id: 
     }))
 }
 
-/// Start a person-to-person voice call - ChatSessionRequest method
-/// "start p2p voice" on the existing P2P session id, with the other party as
-/// params. No conference is created; the ad-hoc channel's uri+credentials
-/// arrive asynchronously in ChatterBoxSessionStartReply (the
-/// `voice-call-ready` event).
+/// Open a person-to-person session sim-side - ChatSessionRequest method
+/// "start p2p voice" on the P2P session id, with the other party as params.
+/// No conference is created and nobody is rung: this only makes the session
+/// exist (the sim confirms with ChatterBoxSessionStartReply), so that the
+/// "call" request that follows (sl_voice_call_request) has something to call.
+/// That call is what hands us the channel and rings the other side.
 #[tauri::command]
 pub async fn sl_voice_call_p2p(
     state: State<'_, Arc<AppState>>,

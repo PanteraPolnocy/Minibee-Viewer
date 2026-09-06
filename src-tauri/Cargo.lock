@@ -2497,7 +2497,7 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "minibee-viewer"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "base64 0.23.1",
  "criterion",
@@ -2512,6 +2512,7 @@ dependencies = [
  "roxmltree",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "tauri",
  "tauri-build",

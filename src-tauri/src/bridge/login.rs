@@ -419,12 +419,14 @@ pub fn parse_login_response(xml: &str) -> Result<Map<String, Value>, String> {
     Ok(result)
 }
 
+/// The login response fields the UI gets to see. `mfa_hash` is deliberately not
+/// among them: the UI only ever receives it sealed (see `login`).
 fn trim_login_for_client(login: &Map<String, Value>) -> Value {
     const KEYS: &[&str] = &[
         "login", "reason", "status", "message", "message_id", "agent_id", "first_name",
         "last_name", "session_id", "secure_session_id", "circuit_code", "sim_ip", "sim_port",
         "seed_capability", "buddy-list", "region_x", "region_y", "sim_name", "look_at",
-        "home_info", "home", "start_location", "mfa_hash", "agent_access",
+        "home_info", "home", "start_location", "agent_access",
         // Inventory skeleton: we need it to resolve folders (e.g. Landmarks). Nothing secret.
         "inventory-root", "inventory-skeleton", "inventory-lib-root", "inventory-lib-owner",
         "inventory-skel-lib",
@@ -863,6 +865,44 @@ mod tests {
         );
         assert!(obj.contains_key("seed_capability_raw"));
     }
+
+    #[test]
+    fn trim_login_withholds_the_plaintext_mfa_hash() {
+        let mut m = Map::new();
+        m.insert("login".into(), json!(true));
+        m.insert("mfa_hash".into(), json!("device-token"));
+        let out = trim_login_for_client(&m);
+        assert!(out.get("mfa_hash").is_none(), "the UI only ever gets the hash sealed");
+    }
+
+    #[tokio::test]
+    async fn stored_mfa_opens_with_the_password_and_is_never_forwarded() {
+        let sealed = crate::bridge::mfa::seal("hunter2", "device-token").unwrap();
+
+        // Right password: the hash lands in mfaHash and the record itself goes.
+        let mut good = json!({ "password": "hunter2", "mfaSealed": sealed, "mfaHash": "" });
+        assert!(unseal_stored_mfa(&mut good).await);
+        assert_eq!(good["mfaHash"], "device-token");
+        assert!(good.get("mfaSealed").is_none());
+
+        // A password the record was not sealed under (a typo, or changed since)
+        // opens nothing: no hash goes out, and the record still goes.
+        let mut wrong = json!({ "password": "changed", "mfaSealed": sealed });
+        assert!(!unseal_stored_mfa(&mut wrong).await);
+        assert!(wrong.get("mfaHash").is_none() && wrong.get("mfaSealed").is_none());
+
+        // No record, or nothing to open it with: a plain login.
+        let mut bare = json!({ "password": "hunter2" });
+        assert!(!unseal_stored_mfa(&mut bare).await);
+        let mut no_password = json!({ "password": "", "mfaSealed": sealed });
+        assert!(!unseal_stored_mfa(&mut no_password).await);
+
+        // Sealing for the client needs both halves; the result opens with the password.
+        assert!(seal_mfa_for_client("hunter2", "").await.is_null());
+        assert!(seal_mfa_for_client("", "device-token").await.is_null());
+        let back = seal_mfa_for_client("hunter2", "device-token").await;
+        assert_eq!(crate::bridge::mfa::open("hunter2", back.as_str().unwrap()).as_deref(), Some("device-token"));
+    }
 }
 
 const LOGIN_OPTIONS: &[&str] = &[
@@ -949,7 +989,54 @@ fn assemble_login_body(state: &AppState, cred: &Value) -> Value {
     body
 }
 
-pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, String> {
+/// Unseal the remembered MFA record (`mfaSealed`) into `mfaHash` with the
+/// password being submitted. The record is authenticated, so a password it was
+/// not sealed under opens to nothing and no hash is sent - the grid then answers
+/// exactly as it would with no record at all (a key error, or an MFA challenge).
+/// The record never travels further than this - not into the login body, not
+/// into the reconnect stash. Returns whether a hash was recovered.
+async fn unseal_stored_mfa(credentials: &mut Value) -> bool {
+    let sealed = gs(credentials, "mfaSealed");
+    let password = gs(credentials, "password");
+    if let Some(m) = credentials.as_object_mut() {
+        m.remove("mfaSealed");
+    }
+    if sealed.is_empty() || password.is_empty() {
+        return false;
+    }
+    // The KDF is deliberately slow; keep it off the async workers.
+    let opened = tokio::task::spawn_blocking(move || crate::bridge::mfa::open(&password, &sealed))
+        .await
+        .ok()
+        .flatten();
+    match (opened, credentials.as_object_mut()) {
+        (Some(hash), Some(m)) => {
+            m.insert("mfaHash".into(), json!(hash));
+            true
+        }
+        _ => {
+            crate::dlog!("login: the stored MFA record did not open with this password; logging in without it");
+            false
+        }
+    }
+}
+
+/// Seal a fresh `mfa_hash` from the grid under the password it was earned with,
+/// for the UI to keep on disk. Nothing to seal (no hash, or an account-type login
+/// with no password) gives `Value::Null`.
+async fn seal_mfa_for_client(password: &str, mfa_hash: &str) -> Value {
+    if password.is_empty() || mfa_hash.is_empty() {
+        return Value::Null;
+    }
+    let (password, hash) = (password.to_string(), mfa_hash.to_string());
+    match tokio::task::spawn_blocking(move || crate::bridge::mfa::seal(&password, &hash)).await {
+        Ok(Some(sealed)) => Value::String(sealed),
+        _ => Value::Null,
+    }
+}
+
+pub async fn login(state: Arc<AppState>, mut credentials: Value) -> Result<Value, String> {
+    let stored_mfa_used = unseal_stored_mfa(&mut credentials).await;
     let body = assemble_login_body(&state, &credentials);
     let url = body.get("url").and_then(|u| u.as_str()).ok_or("url required")?.to_string();
     let xml = build_login_xml(&body);
@@ -1043,13 +1130,23 @@ pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, St
         json!({ "ok": false })
     };
 
+    // The grid's "remember this device" hash goes back to the UI sealed under
+    // the password only; the plaintext stays in the core (reconnect stash).
+    let mfa_sealed = if login_ok {
+        seal_mfa_for_client(&gs(&credentials, "password"), &map_str(&parsed, "mfa_hash")).await
+    } else {
+        Value::Null
+    };
+
     crate::dlog!(
-        "login ok={} seedCaps ok={} keys={} status={} err={}",
+        "login ok={} seedCaps ok={} keys={} status={} err={} mfa stored={} sealed={}",
         login_ok,
         seed_caps.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
         seed_caps.get("capKeys").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
         seed_caps.get("status").and_then(|v| v.as_u64()).unwrap_or(0),
-        seed_caps.get("error").and_then(|v| v.as_str()).unwrap_or("")
+        seed_caps.get("error").and_then(|v| v.as_str()).unwrap_or(""),
+        stored_mfa_used,
+        !mfa_sealed.is_null()
     );
 
     Ok(json!({
@@ -1058,5 +1155,7 @@ pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, St
         "parsed": if login_ok { normalize_login(&parsed) } else { Value::Null },
         "circuit": Value::Null,
         "seedCaps": seed_caps,
+        "mfaSealed": mfa_sealed,
+        "mfaStoredUsed": stored_mfa_used,
     }))
 }

@@ -368,9 +368,18 @@ const BeeState = (function () {
     return true;
   }
 
+  // A private thread has no type (see ensureImSession) and never becomes a
+  // session chat; only conference -> group, once a session id turns out to be
+  // a joined group, is a legitimate change.
+  function isPrivateSession(session) {
+    return !!session && (!session.type || session.type === 'p2p');
+  }
+
   function setSessionType(sessionId, type) {
     const session = state.imSessions[sessionId];
     if (!session || !type || session.type === type) return false;
+    if (isPrivateSession(session)) return false;
+    if (type !== 'group' && type !== 'conference') return false;
     if (session.type === 'group' && type === 'conference') return false;
     session.type = type;
     emit('im-sessions-updated');
