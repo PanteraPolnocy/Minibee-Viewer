@@ -24,6 +24,9 @@ md-5 = "0.11"
 # Sealing the remembered MFA hash under the account password (bridge/mfa.rs).
 # Already in the dependency graph through reqwest/rustls, so nothing new to fetch.
 sha2 = "0.11"
+# The OS random source for each MFA record's salt. Already in the graph (uuid,
+# tempfile) at this version on every target, so nothing new to fetch either.
+getrandom = "0.4"
 quick-xml = "0.42"
 roxmltree = "0.21"
 regex = "1"

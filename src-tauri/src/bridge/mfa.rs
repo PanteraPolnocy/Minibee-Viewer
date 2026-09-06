@@ -14,10 +14,6 @@
 //! wrong password, a stale format, or a tampered record fails the tag check
 //! and opens to nothing - the caller then just asks for a code again.
 
-use std::collections::hash_map::RandomState;
-use std::hash::{BuildHasher, Hasher};
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use sha2::{Digest, Sha256};
@@ -117,31 +113,22 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// A salt unique to this record. std's RandomState draws its keys from the OS
-/// RNG and steps them per instance; several draws hashed together with the
-/// clock and pid make repeats vanishingly unlikely, which is all a KDF salt
-/// has to guarantee.
-fn fresh_salt() -> [u8; SALT_LEN] {
-    let mut h = Sha256::new();
-    for _ in 0..4 {
-        h.update(RandomState::new().build_hasher().finish().to_ne_bytes());
-    }
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    h.update(nanos.to_ne_bytes());
-    h.update(std::process::id().to_ne_bytes());
-    let digest = h.finalize();
-    let mut salt = [0u8; SALT_LEN];
-    salt.copy_from_slice(&digest[..SALT_LEN]);
-    salt
+/// A salt unique to this record, straight from the OS random source. `None`
+/// if that source fails, which no caller should paper over with a weaker one.
+fn fresh_salt() -> Option<[u8; SALT_LEN]> {
+    let mut salt: [u8; SALT_LEN] = Default::default();
+    getrandom::fill(&mut salt).ok()?;
+    Some(salt)
 }
 
 /// Seal `hash` under `password`. Empty inputs have nothing to protect and
-/// yield `None`.
+/// yield `None`; so does an unavailable random source (the record is then
+/// simply not remembered, and the next login asks for a code).
 pub fn seal(password: &str, hash: &str) -> Option<String> {
     if password.is_empty() || hash.is_empty() {
         return None;
     }
-    let salt = fresh_salt();
+    let salt = fresh_salt()?;
     let (enc, mac) = derive_keys(password, &salt);
     let mut body = hash.as_bytes().to_vec();
     apply_keystream(&enc, &salt, &mut body);
@@ -254,6 +241,14 @@ mod tests {
     fn seal_needs_something_to_protect() {
         assert_eq!(seal("", "hash"), None);
         assert_eq!(seal("pw", ""), None);
+    }
+
+    #[test]
+    fn salts_come_from_the_os_and_differ() {
+        let a = fresh_salt().expect("os random source");
+        let b = fresh_salt().expect("os random source");
+        assert_ne!(a, [0u8; SALT_LEN]);
+        assert_ne!(a, b);
     }
 
     #[test]
