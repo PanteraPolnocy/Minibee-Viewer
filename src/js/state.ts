@@ -229,11 +229,14 @@ const BeeState = (function () {
     return true;
   }
 
+  // Unread means "not on screen": the open thread only absorbs a message while
+  // the IM tab is actually showing it. From any other tab it counts like the
+  // rest, and BeeIm.activate spends the count the moment the tab comes back.
   function shouldCountImUnread(sessionId, msg) {
     if (!isImUnread(msg)) return false;
     const session = state.imSessions[sessionId];
     if (!session || session.muted) return false;
-    if (state.activeImSession === sessionId) return false;
+    if (state.activeTab === 'im' && state.activeImSession === sessionId) return false;
     return true;
   }
 

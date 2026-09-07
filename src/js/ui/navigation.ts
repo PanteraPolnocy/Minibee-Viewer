@@ -168,8 +168,9 @@ const BeeNavigation = (function () {
       unreadEvents?: number; unreadRadar?: number; landUpdated?: boolean;
     } = { activeTab: tab };
     if (tab === 'chat') patch.unreadChat = 0;
-    // IM unread is per conversation: opening the tab shows the dots, only
-    // opening a conversation (openSession) clears that conversation's count.
+    // IM unread is per conversation: opening the tab shows the dots and only
+    // clears the thread that is on screen (BeeIm.activate); the others keep
+    // theirs until opened.
     if (tab === 'events') patch.unreadEvents = 0;
     if (tab === 'radar') patch.unreadRadar = 0;
     if (tab === 'land') patch.landUpdated = false;

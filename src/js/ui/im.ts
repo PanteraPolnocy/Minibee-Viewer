@@ -734,8 +734,11 @@ const BeeIm = (function () {
   }
 
   function activate() {
-    renderSessions();
     const active = BeeState.get().activeImSession;
+    // The open thread is on screen again: whatever it collected while another
+    // tab was showing is read now.
+    if (active) BeeState.markImSessionRead(active);
+    renderSessions();
     syncImLayout();
     if (active) renderThread(active);
   }
