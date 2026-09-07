@@ -150,20 +150,51 @@ const BeeState = (function () {
     emit('event', msg);
   }
 
+  // The IM badge is the sum of what the conversation rows show - derived from
+  // them, never kept as a running tally of its own. A tally drifts as soon as
+  // any path zeroes or drops a conversation's count without adjusting it too,
+  // and then no amount of closing brings the badge down. syncImUnread folds
+  // the current sum into a pending 'change' partial; recountImUnread emits it.
+  function imUnreadTotal() {
+    return Object.keys(state.imSessions).reduce(function (n, id) {
+      return n + (state.imSessions[id].unread || 0);
+    }, 0);
+  }
+
+  function syncImUnread(partial) {
+    const total = imUnreadTotal();
+    if (total !== state.unreadIm) {
+      state.unreadIm = total;
+      partial.unreadIm = total;
+    }
+    return partial;
+  }
+
+  function recountImUnread() {
+    const partial = syncImUnread({});
+    if (Object.keys(partial).length) emit('change', partial);
+    return state.unreadIm;
+  }
+
+  // The conversation is on screen: its count is spent.
+  function markImSessionRead(sessionId) {
+    const session = state.imSessions[sessionId];
+    if (!session || !session.unread) return false;
+    session.unread = 0;
+    recountImUnread();
+    return true;
+  }
+
   function closeImSession(sessionId) {
     const session = state.imSessions[sessionId];
     if (!session) return false;
-    const unread = session.unread || 0;
     delete state.imSessions[sessionId];
     const partial: { activeImSession?: string | null; unreadIm?: number } = {};
     if (state.activeImSession === sessionId) {
       partial.activeImSession = null;
       state.activeImSession = null;
     }
-    if (unread > 0) {
-      partial.unreadIm = Math.max(0, state.unreadIm - unread);
-      state.unreadIm = partial.unreadIm;
-    }
+    syncImUnread(partial);
     emit('im-session-closed', sessionId);
     if (Object.keys(partial).length) {
       emit('change', partial);
@@ -178,7 +209,6 @@ const BeeState = (function () {
       return closeImSession(sessionId);
     }
     if (session.dismissed) return false;
-    const unread = session.unread || 0;
     session.dismissed = true;
     session.unread = 0;
     if (session.typing) {
@@ -190,10 +220,7 @@ const BeeState = (function () {
       partial.activeImSession = null;
       state.activeImSession = null;
     }
-    if (unread > 0) {
-      partial.unreadIm = Math.max(0, state.unreadIm - unread);
-      state.unreadIm = partial.unreadIm;
-    }
+    syncImUnread(partial);
     emit('im-session-dismissed', sessionId);
     emit('im-sessions-updated');
     if (Object.keys(partial).length) {
@@ -293,13 +320,15 @@ const BeeState = (function () {
   function remapImSession(oldId, newId) {
     if (!oldId || !newId || oldId === newId) return;
     const session = state.imSessions[oldId];
-    const partial: { activeImSession?: string | null } = {};
+    const partial: { activeImSession?: string | null; unreadIm?: number } = {};
     if (session) {
       const target = state.imSessions[newId];
       if (target) {
         // A session under the real id already exists (the roster arrived first),
-        // so fold the temp session's messages into it and drop the temp.
+        // so fold the temp session's messages (and their unread) into it and
+        // drop the temp.
         target.messages = (session.messages || []).concat(target.messages || []);
+        target.unread = (target.unread || 0) + (session.unread || 0);
         delete state.imSessions[oldId];
       } else {
         session.id = newId;
@@ -312,6 +341,7 @@ const BeeState = (function () {
       state.activeImSession = newId;
       partial.activeImSession = newId;
     }
+    syncImUnread(partial);
     if (Object.keys(partial).length) patch(partial);
     emit('im-sessions-updated');
   }
@@ -348,9 +378,8 @@ const BeeState = (function () {
     if (!!session.muted === next) return next;
     session.muted = next;
     if (next && session.unread) {
-      state.unreadIm = Math.max(0, state.unreadIm - session.unread);
       session.unread = 0;
-      emit('change', { unreadIm: state.unreadIm });
+      recountImUnread();
     }
     emit('im-sessions-updated');
     return next;
@@ -427,8 +456,7 @@ const BeeState = (function () {
     session.updatedAt = msg.timestamp;
     if (shouldCountImUnread(resolvedId, msg)) {
       session.unread = (session.unread || 0) + 1;
-      state.unreadIm += 1;
-      emit('change', { unreadIm: state.unreadIm });
+      recountImUnread();
     }
     emit('im', { sessionId: resolvedId, message: msg });
   }
@@ -534,6 +562,8 @@ const BeeState = (function () {
     addImMessage: addImMessage,
     closeImSession: closeImSession,
     dismissImSession: dismissImSession,
+    markImSessionRead: markImSessionRead,
+    recountImUnread: recountImUnread,
     ensureImSession: ensureImSession,
     ensureKeyedSession: ensureKeyedSession,
     remapImSession: remapImSession,

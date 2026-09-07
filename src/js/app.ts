@@ -149,7 +149,10 @@ const BeeApp = (function () {
       });
 
       BeeMap.onConnected(payload);
-      BeeState.patch({ unreadChat: 0, unreadIm: 0, unreadEvents: 0 });
+      BeeState.patch({ unreadChat: 0, unreadEvents: 0 });
+      // A fresh login has no conversations (reset cleared them); a reconnect
+      // keeps its tabs, and the badge must agree with the counts they show.
+      BeeState.recountImUnread();
       // Grab the current parcel up front so the top-bar parcel line resolves
       // without waiting for the user to open the Land tab.
       if (typeof BeeTransport.refreshParcel === 'function') BeeTransport.refreshParcel();

@@ -603,12 +603,8 @@ const BeeIm = (function () {
 
     refreshSessionPresence(session);
 
-    const prevUnread = session.unread || 0;
-    session.unread = 0;
-    BeeState.patch({
-      activeImSession: sessionId,
-      unreadIm: Math.max(0, BeeState.get().unreadIm - prevUnread)
-    });
+    BeeState.markImSessionRead(sessionId);
+    BeeState.patch({ activeImSession: sessionId });
 
     syncImLayout();
     renderSessions();
