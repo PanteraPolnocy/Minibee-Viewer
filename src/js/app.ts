@@ -566,6 +566,7 @@ const BeeApp = (function () {
       BeeSessionLost.init();
       BeeCapsBanner.init();
       if (typeof BeeParcelMusic !== 'undefined') BeeParcelMusic.init();
+      if (typeof BeeAndroidBridge !== 'undefined') BeeAndroidBridge.init();
       if (typeof MinibeeVersion !== 'undefined' && MinibeeVersion.load) {
         MinibeeVersion.load().catch(function () {});
       }

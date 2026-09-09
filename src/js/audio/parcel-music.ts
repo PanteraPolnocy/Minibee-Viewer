@@ -24,6 +24,13 @@ const BeeParcelMusic = (function () {
     now?: HTMLElement | null;
   } = {};
 
+  // Anyone mirroring the player state (the Android notification does) hears
+  // about every change through here.
+  const changeListeners = [];
+  function notifyChange() {
+    changeListeners.forEach(function (fn) { try { fn(); } catch (_e) { /* listener's problem */ } });
+  }
+
   function setNow(text) {
     const t = text || '';
     if (els.now) els.now.textContent = t;
@@ -47,6 +54,8 @@ const BeeParcelMusic = (function () {
     // CSS (svg[hidden]) reacts to.
     if (els.iconOn) els.iconOn.toggleAttribute('hidden', !enabled);
     if (els.iconOff) els.iconOff.toggleAttribute('hidden', enabled);
+    // Every state change (url, enabled, playing) passes through here.
+    notifyChange();
   }
 
   // Turn a MediaError into something a human (and a bug report) can act on.
@@ -312,6 +321,8 @@ const BeeParcelMusic = (function () {
     setVolume: setVolume,
     toggle: toggle,
     stop: stop,
-    nowPlaying: function () { return playing ? currentUrl : ''; }
+    nowPlaying: function () { return playing ? currentUrl : ''; },
+    state: function () { return { url: currentUrl, enabled: enabled, playing: playing }; },
+    onChange: function (fn) { if (typeof fn === 'function') changeListeners.push(fn); }
   };
 })();

@@ -24,3 +24,10 @@
 # (Play Console: "class repackaging"; default from AGP 9.1). Classes pinned by
 # keep rules (Tauri/wry consumer rules, @JavascriptInterface) keep their names.
 -repackageclasses
+
+# The page reaches the keep-alive notification through this bridge
+# (webView.addJavascriptInterface); the default @JavascriptInterface keep rule
+# covers the methods, this pins them explicitly against optimizer changes.
+-keepclassmembers class com.pantera.minibee_viewer.MainActivity$NotificationBridge {
+    public *;
+}

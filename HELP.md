@@ -65,6 +65,8 @@ In the **Google Play edition** you can't buy L$ at all - Google Play requires vi
 
 **Settings on disk** - preferences, the remembered username/grid, and MFA "remember device" tokens live in `settings.json` in the same data folder, so they survive a webview data wipe and are shared by every viewer window. The MFA token is stored **encrypted with your account password** - it is unlocked with the password you type at login and opens to nothing under any other, so the file on its own is no use to anyone, and changing your password simply means entering an authenticator code once more. Running **more than one viewer at once** (say, two accounts) works; they share that settings file, and each account's chat logs land in its own folder.
 
+**On Android** - a permanent notification keeps the connection alive for the whole run (Android would otherwise freeze the app in the background and the sim would drop the session). It is more than a tile: it shows the unread-IM count with the newest message when expanded, and carries buttons to play/stop parcel music and mute/unmute the microphone in voice - all without opening the app. It disappears when the viewer is really closed. Sessions parked in the background for over six straight hours may still be paused by Android; opening the viewer starts a fresh allowance.
+
 **Events** - script menus, permission requests, payments, teleport offers, LoadURL prompts. **Nothing answers by itself.**
 
 Links in chat and IM open the map, profiles, or your browser. Unfamiliar websites ask first.

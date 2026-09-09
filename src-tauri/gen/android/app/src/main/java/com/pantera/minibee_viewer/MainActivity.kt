@@ -1,9 +1,11 @@
 package com.pantera.minibee_viewer
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
@@ -11,15 +13,36 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import java.lang.ref.WeakReference
+import org.json.JSONObject
 
 class MainActivity : TauriActivity() {
   // The window insets as a CSS-variable assignment, kept so a late-loading
   // page can still receive them (see the retries in onWebViewCreate).
   private var safeAreaJs: String = ""
+  private var webViewRef: WebView? = null
+
+  companion object {
+    // The live activity, reachable from ConnectionService so notification
+    // buttons can call into the page. Weak: the service must never keep a
+    // finished activity alive.
+    @Volatile private var current: WeakReference<MainActivity>? = null
+
+    fun runJs(code: String) {
+      val activity = current?.get() ?: return
+      activity.runOnUiThread {
+        try {
+          activity.webViewRef?.evaluateJavascript(code, null)
+        } catch (_: Exception) {
+        }
+      }
+    }
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    current = WeakReference(this)
     requestNotificationPermission()
     startKeepAlive()
   }
@@ -40,6 +63,11 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    webViewRef = webView
+    // Lets the page feed the keep-alive notification (unread IMs, music and
+    // voice state). Only the bundled app ever loads in this WebView, and the
+    // interface accepts nothing but display state, so the exposure is minimal.
+    webView.addJavascriptInterface(NotificationBridge(applicationContext), "MinibeeAndroid")
     // Parcel music streams are nearly always plain http:// Shoutcast/Icecast,
     // while the app itself is served over https - mixed content to Android.
     //
@@ -98,6 +126,8 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onDestroy() {
+    if (current?.get() === this) current = null
+    webViewRef = null
     // Closed for real (finish), not a system-initiated teardown: take the
     // keep-alive and its notification down with the viewer. ConnectionService's
     // onTaskRemoved covers the swipe-away-from-recents path.
@@ -108,6 +138,27 @@ class MainActivity : TauriActivity() {
       }
     }
     super.onDestroy()
+  }
+
+  // The page's side of the notification: android-bridge.ts pushes a small JSON
+  // state blob here whenever music, voice or unread IMs change. Runs on a
+  // WebView worker thread - only writes plain fields and re-posts.
+  private class NotificationBridge(private val context: Context) {
+    @JavascriptInterface
+    fun updateState(json: String) {
+      try {
+        val state = JSONObject(json)
+        ConnectionService.musicAvailable = state.optBoolean("musicAvailable")
+        ConnectionService.musicPlaying = state.optBoolean("musicPlaying")
+        ConnectionService.voiceConnected = state.optBoolean("voiceConnected")
+        ConnectionService.voiceMuted = state.optBoolean("voiceMuted", true)
+        ConnectionService.unreadIms = state.optInt("unreadIms").coerceIn(0, 9999)
+        ConnectionService.lastMessage = state.optString("lastMessage").take(200)
+      } catch (_: Exception) {
+        return
+      }
+      ConnectionService.refresh(context)
+    }
   }
 
   private fun requestNotificationPermission() {

@@ -39,6 +39,12 @@ interface Window {
   /** Present only inside the Tauri webview; absent in a plain browser. */
   __TAURI__?: TauriGlobal;
 
+  /**
+   * Injected by the Android shell (addJavascriptInterface in MainActivity) so
+   * the page can feed the keep-alive notification; absent everywhere else.
+   */
+  MinibeeAndroid?: { updateState(json: string): void };
+
   // Reached through `window.` where the caller treats the module as optional
   // (load order means it may legitimately not be there yet).
   BeeApp?: typeof BeeApp;
@@ -51,4 +57,5 @@ interface Window {
   BeeNotecards?: typeof BeeNotecards;
   BeeChatLogs?: typeof BeeChatLogs;
   BeeVoice?: typeof BeeVoice;
+  BeeAndroidBridge?: typeof BeeAndroidBridge;
 }

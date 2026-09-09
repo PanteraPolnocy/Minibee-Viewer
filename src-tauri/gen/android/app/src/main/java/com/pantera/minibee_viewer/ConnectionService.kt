@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.IBinder
 
@@ -17,6 +18,12 @@ import android.os.IBinder
  * Android freezes or kills a backgrounded process, and the sim disconnects an
  * idle circuit after ~a minute of no AgentUpdate/ping; a foreground service is
  * the one sanctioned way to opt out of that.
+ *
+ * The notification is also the viewer's face while backgrounded: it shows the
+ * unread-IM count (and the newest message when expanded) and carries buttons
+ * for parcel music and the microphone. The page reports that state through the
+ * MinibeeAndroid interface (see MainActivity); button taps land back in the
+ * page as BeeAndroidBridge.action(...) calls.
  *
  * Started from MainActivity.onCreate and re-asserted on resume/pause; stopped
  * when the activity actually finishes or the task is swiped away.
@@ -34,6 +41,7 @@ class ConnectionService : Service() {
     override fun onCreate() {
         super.onCreate()
         ensureChannel()
+        running = true
         try {
             promote()
         } catch (_: Exception) {
@@ -43,7 +51,20 @@ class ConnectionService : Service() {
         }
     }
 
+    override fun onDestroy() {
+        running = false
+        super.onDestroy()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_MUSIC -> MainActivity.runJs(
+                "window.BeeAndroidBridge && BeeAndroidBridge.action('music');"
+            )
+            ACTION_VOICE -> MainActivity.runJs(
+                "window.BeeAndroidBridge && BeeAndroidBridge.action('voice');"
+            )
+        }
         // Every startForegroundService() call must be answered; re-promoting an
         // already-foreground service just refreshes the notification.
         try {
@@ -73,7 +94,7 @@ class ConnectionService : Service() {
     }
 
     private fun promote() {
-        val notification = buildNotification()
+        val notification = build(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             // dataSync keeps the SL circuit alive; mediaPlayback lets voice
             // and parcel music keep sounding while backgrounded.
@@ -103,30 +124,95 @@ class ConnectionService : Service() {
         }
     }
 
-    private fun buildNotification(): Notification {
-        val tap = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
-        )
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
-        return builder
-            .setContentTitle("Minibee-Viewer")
-            .setContentText("Staying connected to Second Life")
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentIntent(tap)
-            .setOngoing(true)
-            .build()
-    }
-
     companion object {
         private const val CHANNEL_ID = "minibee_connection"
         private const val NOTIFICATION_ID = 1001
+        private const val ACTION_MUSIC = "com.pantera.minibee_viewer.MUSIC_TOGGLE"
+        private const val ACTION_VOICE = "com.pantera.minibee_viewer.VOICE_TOGGLE"
+
+        @Volatile private var running = false
+
+        // What the page last reported (through MinibeeAndroid.updateState);
+        // this is display state only, drawn into the notification.
+        @Volatile var musicAvailable = false
+        @Volatile var musicPlaying = false
+        @Volatile var voiceConnected = false
+        @Volatile var voiceMuted = true
+        @Volatile var unreadIms = 0
+        @Volatile var lastMessage = ""
+
+        // Repaint the notification with the current state. A no-op unless the
+        // service is up - notify() on a dead foreground service would plant a
+        // stray, unowned notification.
+        fun refresh(context: Context) {
+            if (!running) return
+            try {
+                val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                mgr.notify(NOTIFICATION_ID, build(context))
+            } catch (_: Exception) {
+            }
+        }
+
+        private fun servicePending(context: Context, action: String, requestCode: Int): PendingIntent {
+            val intent = Intent(context, ConnectionService::class.java).setAction(action)
+            return PendingIntent.getService(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+        }
+
+        private fun build(context: Context): Notification {
+            val tap = PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(context, CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(context)
+            }
+            val text = when {
+                unreadIms == 1 -> "1 unread IM"
+                unreadIms > 1 -> "$unreadIms unread IMs"
+                else -> "Staying connected to Second Life"
+            }
+            builder
+                .setContentTitle("Minibee-Viewer")
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.stat_notify_sync)
+                .setContentIntent(tap)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+            if (unreadIms > 0 && lastMessage.isNotEmpty()) {
+                builder.setStyle(Notification.BigTextStyle().bigText(lastMessage))
+            }
+            if (musicAvailable) {
+                builder.addAction(
+                    Notification.Action.Builder(
+                        Icon.createWithResource(
+                            context,
+                            if (musicPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+                        ),
+                        if (musicPlaying) "Stop music" else "Play music",
+                        servicePending(context, ACTION_MUSIC, 1)
+                    ).build()
+                )
+            }
+            if (voiceConnected) {
+                builder.addAction(
+                    Notification.Action.Builder(
+                        Icon.createWithResource(context, android.R.drawable.ic_btn_speak_now),
+                        if (voiceMuted) "Unmute mic" else "Mute mic",
+                        servicePending(context, ACTION_VOICE, 2)
+                    ).build()
+                )
+            }
+            return builder.build()
+        }
     }
 }
