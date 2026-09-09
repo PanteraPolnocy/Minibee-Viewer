@@ -617,6 +617,9 @@ const BeeSLBridge = (function () {
     // Logs are split per account; the backend refuses appends without one.
     return invoke('chat_log_append', { agent: agentId, kind: kind, name: name, line: line });
   }
+  function chatLogTail(kind, name, lines) {
+    return invoke('chat_log_tail', { agent: agentId, kind: kind, name: name, lines: lines });
+  }
   function chatLogUsage() { return invoke('chat_log_usage'); }
 
   // --- scripts ---
@@ -843,7 +846,7 @@ const BeeSLBridge = (function () {
     lslLanguage: lslLanguage, formatLsl: formatLsl,
     listNotecards: listNotecards, requestNotecardSource: requestNotecardSource,
     saveNotecard: saveNotecard, createNotecard: createNotecard,
-    chatLogAppend: chatLogAppend, chatLogUsage: chatLogUsage,
+    chatLogAppend: chatLogAppend, chatLogTail: chatLogTail, chatLogUsage: chatLogUsage,
     sendTeleportOffer: sendTeleportOffer, sendTeleportRequest: sendTeleportRequest,
     acceptTeleportOffer: acceptTeleportOffer, declineTeleportOffer: declineTeleportOffer,
     acceptTeleportRequest: acceptTeleportRequest, declineTeleportRequest: declineTeleportRequest,

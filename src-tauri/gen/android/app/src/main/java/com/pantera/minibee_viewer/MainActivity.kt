@@ -21,6 +21,21 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     requestNotificationPermission()
+    startKeepAlive()
+  }
+
+  // The keep-alive service (and its permanent notification) runs for the whole
+  // life of the viewer, not just while backgrounded. Starting it only from
+  // onPause raced the onResume stopService: the service could be stopped before
+  // it ever promoted itself, and the system killed the app with
+  // ForegroundServiceDidNotStartInTimeException. Starting from the foreground
+  // is always permitted, and there is no stop to race against anymore.
+  private fun startKeepAlive() {
+    try {
+      ContextCompat.startForegroundService(this, Intent(this, ConnectionService::class.java))
+    } catch (_: Exception) {
+      // Some OEMs restrict this; the app then just behaves as a plain app.
+    }
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -70,23 +85,29 @@ class MainActivity : TauriActivity() {
 
   override fun onPause() {
     super.onPause()
-    // Leaving the foreground: keep the process (and the native SL circuit) alive
-    // so a quick app switch doesn't drop the session back to the login screen.
-    try {
-      ContextCompat.startForegroundService(this, Intent(this, ConnectionService::class.java))
-    } catch (_: Exception) {
-      // Some OEMs restrict starting a foreground service from the background;
-      // nothing else to do - the app behaves as before on those devices.
-    }
+    // Leaving the foreground is still inside the grace window where starting a
+    // foreground service is allowed; re-assert in case it died while we were up.
+    startKeepAlive()
   }
 
   override fun onResume() {
     super.onResume()
-    // Back in the foreground: the WebView is driving again, drop the keep-alive.
-    try {
-      stopService(Intent(this, ConnectionService::class.java))
-    } catch (_: Exception) {
+    // Also revives the service after a system kill or an Android 15 dataSync
+    // timeout - a fresh start gets a fresh background allowance.
+    startKeepAlive()
+  }
+
+  override fun onDestroy() {
+    // Closed for real (finish), not a system-initiated teardown: take the
+    // keep-alive and its notification down with the viewer. ConnectionService's
+    // onTaskRemoved covers the swipe-away-from-recents path.
+    if (isFinishing) {
+      try {
+        stopService(Intent(this, ConnectionService::class.java))
+      } catch (_: Exception) {
+      }
     }
+    super.onDestroy()
   }
 
   private fun requestNotificationPermission() {

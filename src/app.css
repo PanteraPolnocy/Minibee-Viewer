@@ -1195,6 +1195,38 @@ button.bee-menu__value--action:disabled {
   letter-spacing: 0.04em;
 }
 
+.msg--history {
+  align-self: stretch;
+  max-width: 100%;
+  padding: 1px 12px;
+  background: transparent;
+}
+
+.msg--history .msg__body {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.im-history-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 10px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+.im-history-divider::before,
+.im-history-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
 .msg--motd .msg__body {
   font-size: 0.85rem;
   line-height: 1.5;

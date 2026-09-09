@@ -332,6 +332,7 @@ const BeeState = (function () {
         // drop the temp.
         target.messages = (session.messages || []).concat(target.messages || []);
         target.unread = (target.unread || 0) + (session.unread || 0);
+        target.historyLoaded = !!(target.historyLoaded || session.historyLoaded);
         delete state.imSessions[oldId];
       } else {
         session.id = newId;
@@ -464,6 +465,21 @@ const BeeState = (function () {
     emit('im', { sessionId: resolvedId, message: msg });
   }
 
+  // Lines read back from the on-disk log slide in above the live transcript
+  // when a conversation opens. Once per session: the flag stops a remap or a
+  // slow second read from doubling them. History never touches unread counts,
+  // previews or timestamps - it is context, not news.
+  function addImHistory(sessionId, msgs) {
+    const session = state.imSessions[sessionId];
+    if (!session || session.historyLoaded) return false;
+    session.historyLoaded = true;
+    if (!Array.isArray(msgs) || !msgs.length) return false;
+    session.messages = msgs.concat(session.messages);
+    trimTranscript(session.messages);
+    emit('im-history', { sessionId: sessionId });
+    return true;
+  }
+
   function looksLikeUuid(value) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ''));
   }
@@ -563,6 +579,7 @@ const BeeState = (function () {
     patchEventMessage: patchEventMessage,
     patchMessage: patchMessage,
     addImMessage: addImMessage,
+    addImHistory: addImHistory,
     closeImSession: closeImSession,
     dismissImSession: dismissImSession,
     markImSessionRead: markImSessionRead,
