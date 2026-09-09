@@ -432,6 +432,8 @@ export function buildDownloadBlock(release) {
 
   lines.push(
     '',
+    `_Built for Minibee Viewer ${version}. Windows builds are unsigned and will stay that way (SmartScreen may warn - use **More info -> Run anyway**). Android APK requires sideloading or your own distribution channel. The \`.aab\` is the **Google Play edition**: to comply with Play's virtual-currency billing policy it cannot buy L$ in-app (spending your balance works normally, and the sideload APK keeps the full Buy L$ flow)._`,
+    '',
     '<details>',
     '<summary>How to verify a download</summary>',
     '',
@@ -448,10 +450,6 @@ export function buildDownloadBlock(release) {
     'On macOS, `shasum -a 256 path/to/installer` works too. Abbreviated checksums in the table are the middle-truncated form of the full GitHub release digest.',
     '',
     '</details>',
-    '',
-    `_Built for Minibee Viewer ${version}. Windows builds are unsigned and will stay that way (SmartScreen may warn - use More info -> Run anyway). Android APK requires sideloading or your own distribution channel._`,
-    '',
-    `_The \`.aab\` is the **Google Play edition**: to comply with Play's virtual-currency billing policy it cannot buy L$ in-app (spending your balance works normally, and the sideload APK keeps the full Buy L$ flow)._`,
     '',
     DOWNLOAD_END,
   );
