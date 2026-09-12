@@ -124,6 +124,70 @@ const BeeChatLogs = (function () {
     }
   }
 
+  // When a conversation opens (by hand or by an incoming message), the last
+  // few lines of its log file come back as on-screen history, so a new message
+  // lands with its context instead of alone. Read-only and independent of the
+  // logging switches: history shows whenever a file exists.
+  const HISTORY_LINES = 10;
+  const historyTried = new Set<string>();
+  const historyWaiting = new Map<string, any>(); // agent id -> { session, timer }
+  const HISTORY_NAME_WAIT_MS = 10000;
+
+  function fetchHistory(session, kind, name) {
+    if (typeof BeeTransport.chatLogTail !== 'function') return;
+    BeeTransport.chatLogTail(kind, name, HISTORY_LINES).then(function (res) {
+      const lines = res && Array.isArray(res.lines) ? res.lines : [];
+      if (!lines.length) return;
+      const msgs = lines.map(function (line, i) {
+        return { id: 'history:' + session.id + ':' + i, text: String(line), history: true };
+      });
+      BeeState.addImHistory(session.id, msgs);
+    }).catch(function () {});
+  }
+
+  function loadHistory(session) {
+    if (!session || !session.id || session.historyLoaded || historyTried.has(session.id)) return;
+    if (session.type === 'group' || session.type === 'conference') {
+      historyTried.add(session.id);
+      fetchHistory(session, 'groups', groupLogName(session));
+      return;
+    }
+    const participant = session.participant;
+    if (!participant || participant.isSession) return;
+    const name = knownUserName(participant);
+    if (name) {
+      historyTried.add(session.id);
+      fetchHistory(session, 'avatars', name);
+      return;
+    }
+    // Username still resolving: wait for it like the writer does, then fall
+    // back to the UUID-named file the writer would also have used.
+    const id = String(participant.id || '').toLowerCase();
+    if (!looksUuid(id) || historyWaiting.has(id)) return;
+    historyTried.add(session.id);
+    historyWaiting.set(id, {
+      session: session,
+      timer: setTimeout(function () { flushHistoryWaiting(id, true); }, HISTORY_NAME_WAIT_MS)
+    });
+    if (typeof BeeTransport.queueNameResolve === 'function') BeeTransport.queueNameResolve(id);
+  }
+
+  function flushHistoryWaiting(id, giveUp) {
+    const entry = historyWaiting.get(id);
+    if (!entry) return;
+    const name = knownUserName(entry.session.participant) || (giveUp ? id : '');
+    if (!name) return;
+    clearTimeout(entry.timer);
+    historyWaiting.delete(id);
+    fetchHistory(entry.session, 'avatars', name);
+  }
+
+  function resetHistory() {
+    historyWaiting.forEach(function (entry) { clearTimeout(entry.timer); });
+    historyWaiting.clear();
+    historyTried.clear();
+  }
+
   // One-time question, asked on the first login this install sees. The
   // answer only sets the preference; Bee -> Settings changes it any time.
   async function maybeAsk() {
@@ -162,16 +226,19 @@ const BeeChatLogs = (function () {
   function init() {
     BeeState.on('im', logIm);
     BeeState.on('chat', logChat);
+    BeeState.on('im-session-new', loadHistory);
     BeeState.on('change', function (partial) {
       if (partial && partial.connected === true) void maybeAsk();
     });
-    // A name lookup landed: file whatever was waiting on it.
+    // A name lookup landed: file whatever was waiting on it, both ways.
     BeeTransport.on('names-updated', function () {
       Array.from(waiting.keys()).forEach(function (id) { flushWaiting(id, false); });
+      Array.from(historyWaiting.keys()).forEach(function (id) { flushHistoryWaiting(id, false); });
     });
     // The session is going away; nothing waiting can be lost with it.
     function flushAll() {
       Array.from(waiting.keys()).forEach(function (id) { flushWaiting(id, true); });
+      resetHistory();
     }
     BeeTransport.on('disconnected', flushAll);
     BeeState.on('reset', flushAll);

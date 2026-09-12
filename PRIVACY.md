@@ -73,6 +73,8 @@ No Second Life account data is sent with the update check. Android has no automa
 
 Same login and on-device storage behaviour as desktop. APK on GitHub Releases today; Google Play planned - this policy will be updated when that ships.
 
+While the viewer runs, a persistent notification keeps the connection alive; it can show the number of unread IMs and, expanded, the newest message's sender and text. That preview lives only in the device's own notification shade (your lock-screen notification settings govern what shows when locked) and is never sent anywhere.
+
 ---
 
 ## Open source

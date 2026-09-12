@@ -396,6 +396,11 @@ const BeeTransport = (function () {
     return adapter.chatLogAppend(kind, name, line);
   }
 
+  function chatLogTail(kind, name, lines) {
+    if (!adapter || !adapter.chatLogTail) return Promise.resolve(null);
+    return adapter.chatLogTail(kind, name, lines);
+  }
+
   function chatLogUsage() {
     if (!adapter || !adapter.chatLogUsage) return Promise.reject(new Error('Logs not available'));
     return adapter.chatLogUsage();
@@ -540,6 +545,7 @@ const BeeTransport = (function () {
     saveNotecard: saveNotecard,
     createNotecard: createNotecard,
     chatLogAppend: chatLogAppend,
+    chatLogTail: chatLogTail,
     chatLogUsage: chatLogUsage,
     cancelTeleport: cancelTeleport,
     isTeleportInProgress: isTeleportInProgress,

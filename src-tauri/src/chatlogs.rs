@@ -5,7 +5,7 @@
 //! plain-text file per conversation. Logs written before accounts were
 //! separated stay readable (and deletable) in the shared `logs/` folder.
 
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -99,9 +99,9 @@ fn kind_dir(base: &Path, segment: &str, kind: &str) -> Option<PathBuf> {
     Some(logs_root(base, segment).join(kind))
 }
 
-fn log_file(base: &Path, segment: &str, kind: &str, name: &str) -> Option<PathBuf> {
+/// Where one conversation's log lives, without touching the filesystem.
+fn log_path(base: &Path, segment: &str, kind: &str, name: &str) -> Option<PathBuf> {
     let dir = kind_dir(base, segment, kind)?;
-    std::fs::create_dir_all(&dir).ok()?;
     let file = format!("{}.txt", sanitize_log_name(name));
     let path = dir.join(&file);
     // The sanitizer guarantees a single plain component; keep that invariant
@@ -109,6 +109,12 @@ fn log_file(base: &Path, segment: &str, kind: &str, name: &str) -> Option<PathBu
     if Path::new(&file).components().count() != 1 || !path.starts_with(&dir) {
         return None;
     }
+    Some(path)
+}
+
+fn log_file(base: &Path, segment: &str, kind: &str, name: &str) -> Option<PathBuf> {
+    let path = log_path(base, segment, kind, name)?;
+    std::fs::create_dir_all(path.parent()?).ok()?;
     Some(path)
 }
 
@@ -140,6 +146,40 @@ pub fn append_line(base: &Path, agent: &str, kind: &str, name: &str, line: &str)
     // line always equals one message.
     let flat: String = line.chars().map(|c| if c == '\n' || c == '\r' { '¦' } else { c }).collect();
     writeln!(file, "{flat}").map_err(|e| format!("Could not write the log file: {e}"))
+}
+
+/// Reading the last few lines only needs the end of the file; this is far more
+/// than ten chat lines ever take.
+const TAIL_CHUNK_BYTES: u64 = 64 * 1024;
+
+/// The last `max` lines of one conversation's log, oldest first. Falls back to
+/// the shared pre-account folder so history written by older builds still
+/// shows. A missing file is an empty history, not an error, and nothing is
+/// created on the way.
+pub fn read_tail(base: &Path, agent: &str, kind: &str, name: &str, max: usize) -> Result<Vec<String>, String> {
+    let segment = canonical_uuid(agent).ok_or("Bad log account")?;
+    let Some(path) = [segment.as_str(), ""]
+        .iter()
+        .filter_map(|seg| log_path(base, seg, kind, name))
+        .find(|p| p.is_file())
+    else {
+        return Ok(Vec::new());
+    };
+    let err = |e: std::io::Error| format!("Could not read the log file: {e}");
+    let mut file = std::fs::File::open(&path).map_err(err)?;
+    let len = file.metadata().map_err(err)?.len();
+    let start = len.saturating_sub(TAIL_CHUNK_BYTES);
+    file.seek(SeekFrom::Start(start)).map_err(err)?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).map_err(err)?;
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    // A mid-file start point can land inside a line; the fragment goes.
+    if start > 0 && !lines.is_empty() {
+        lines.remove(0);
+    }
+    let skip = lines.len().saturating_sub(max);
+    Ok(lines[skip..].iter().map(|s| s.to_string()).collect())
 }
 
 /// Every log file: (account segment, kind, file stem, bytes). The shared
@@ -220,6 +260,16 @@ pub fn chat_log_append(app: tauri::AppHandle, agent: String, kind: String, name:
     let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
     append_line(&base, &agent, &kind, &name, &line)?;
     Ok(json!({ "ok": true }))
+}
+
+/// The last few lines of a conversation's log, shown as history when the
+/// conversation opens. An absent file just means no history.
+#[tauri::command]
+pub fn chat_log_tail(app: tauri::AppHandle, agent: String, kind: String, name: String, lines: Option<usize>) -> Cmd {
+    let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
+    let max = lines.unwrap_or(10).clamp(1, 100);
+    let rows = read_tail(&base, &agent, &kind, &name, max)?;
+    Ok(json!({ "ok": true, "lines": rows }))
 }
 
 /// The log files on disk, for the log manager. An empty `agent` marks files
@@ -329,6 +379,36 @@ mod tests {
         assert!(delete_logs(&base, AGENT, "..", None).is_err());
         assert!(delete_logs(&base, "not-an-account", "avatars", None).is_err());
         assert_eq!(usage(&base).1, 0);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn tail_returns_the_last_lines_oldest_first() {
+        let base = std::env::temp_dir().join(format!("minibee-logtail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        for i in 1..=15 {
+            append_line(&base, AGENT, "avatars", "Some One", &format!("[t] line {i}")).unwrap();
+        }
+        let tail = read_tail(&base, AGENT, "avatars", "Some One", 10).unwrap();
+        assert_eq!(tail.len(), 10);
+        assert_eq!(tail[0], "[t] line 6");
+        assert_eq!(tail[9], "[t] line 15");
+        // A conversation without a file has no history, quietly, and reading
+        // never plants directories.
+        assert!(read_tail(&base, AGENT, "avatars", "Nobody", 10).unwrap().is_empty());
+        assert!(read_tail(&base, AGENT, "groups", "No Such Group", 10).unwrap().is_empty());
+        assert!(!base.join(AGENT).join("logs").join("groups").exists());
+        // History written by an older build in the shared folder still shows.
+        let legacy_dir = base.join("logs").join("avatars");
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        std::fs::write(legacy_dir.join("Old Friend.txt"), "[old] hello\n[old] again\n").unwrap();
+        assert_eq!(
+            read_tail(&base, AGENT, "avatars", "Old Friend", 10).unwrap(),
+            vec!["[old] hello", "[old] again"],
+        );
+        // Reads carry the same account and kind checks as writes.
+        assert!(read_tail(&base, "", "avatars", "x", 5).is_err());
+        assert!(read_tail(&base, AGENT, "..", "x", 5).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&base);
     }
 

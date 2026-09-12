@@ -194,6 +194,17 @@ const BeeIm = (function () {
   }
 
   function renderImMessage(msg) {
+    // A line read back from the chat log: shown verbatim (it carries its own
+    // timestamp and name), visibly dimmer than the live conversation.
+    if (msg.history) {
+      const row = document.createElement('div');
+      row.className = 'msg msg--history';
+      const text = document.createElement('p');
+      text.className = 'msg__body';
+      text.textContent = String(msg.text || '');
+      row.appendChild(text);
+      return row;
+    }
     const el = document.createElement('div');
     el.className = 'msg ' + (msg.outgoing ? 'msg--outgoing' : 'msg--incoming');
 
@@ -292,8 +303,20 @@ const BeeIm = (function () {
     list.innerHTML = '';
     const session = BeeState.get().imSessions[sessionId];
     if (!session) return;
-    session.messages.forEach(function (msg) {
+    // History always sits as one block at the top; a divider under its last
+    // line marks where the live conversation begins.
+    let lastHistory = -1;
+    session.messages.forEach(function (msg, i) {
+      if (msg && msg.history) lastHistory = i;
+    });
+    session.messages.forEach(function (msg, i) {
       list.appendChild(renderImMessage(msg));
+      if (i === lastHistory) {
+        const divider = document.createElement('div');
+        divider.className = 'im-history-divider';
+        divider.textContent = 'From your chat log';
+        list.appendChild(divider);
+      }
     });
     list.scrollTop = list.scrollHeight;
     updateThreadHeader(session);
@@ -1117,6 +1140,15 @@ const BeeIm = (function () {
       if (active && BeeNavigation.isTabActive('im')) {
         const session = BeeState.get().imSessions[active];
         if (session) updateThreadHeader(session);
+      }
+    });
+    BeeState.on('im-history', function (data) {
+      if (!data || !data.sessionId) return;
+      // The log tail arrives just after the thread first paints; a rebuild here
+      // is safe - the reader is at the bottom of a freshly opened conversation.
+      if (BeeNavigation.isTabActive('im') &&
+          BeeState.get().activeImSession === data.sessionId) {
+        renderThread(data.sessionId);
       }
     });
     BeeState.on('im', function (data) {
