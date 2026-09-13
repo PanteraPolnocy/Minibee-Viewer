@@ -15,6 +15,11 @@ const BeeProfile = (function () {
     { id: 'more', label: 'More' },
     { id: 'notes', label: 'Notes' }
   ];
+  const GROUP_TABS = [
+    { id: 'group', label: 'Group' },
+    { id: 'notices', label: 'Notices' }
+  ];
+  const CLIP_GLYPH = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/></svg>';
 
   const NOTES_FEEDBACK_MS = 2800;
   const NOTES_SAVE_TIMEOUT_MS = 5000;
@@ -770,6 +775,28 @@ const BeeProfile = (function () {
       '<div class="profile-tab-panels">' + body + '</div>';
   }
 
+  // The tab strip both profiles share: a click swaps the active button and
+  // panel, remembers the choice on `current` (so a rebuild keeps it), and
+  // tells the caller which tab opened - the group profile fetches its notices
+  // on demand that way.
+  function bindProfileTabs(root, onSwitch?) {
+    root.querySelectorAll('.profile-tab').forEach(function (tabBtn) {
+      tabBtn.addEventListener('click', function () {
+        const tabId = tabBtn.getAttribute('data-profile-tab');
+        if (!tabId || !current) return;
+        current.tab = tabId;
+        root.querySelectorAll('.profile-tab').forEach(function (node) {
+          node.classList.toggle('profile-tab--active', node.getAttribute('data-profile-tab') === tabId);
+        });
+        root.querySelectorAll('.profile-tab-panel').forEach(function (panel) {
+          panel.classList.toggle('profile-tab-panel--active',
+            panel.getAttribute('data-profile-panel') === tabId);
+        });
+        if (typeof onSwitch === 'function') onSwitch(tabId);
+      });
+    });
+  }
+
   function bindSplitList(container, rows, kind, profile) {
     if (!container || !rows || !rows.length || !profile) return;
     const split = container.querySelector('.profile-split');
@@ -986,21 +1013,7 @@ const BeeProfile = (function () {
       });
     }
     bindNotesSave(profile, root);
-
-    root.querySelectorAll('.profile-tab').forEach(function (tabBtn) {
-      tabBtn.addEventListener('click', function () {
-        const tabId = tabBtn.getAttribute('data-profile-tab');
-        if (!tabId || !current) return;
-        current.tab = tabId;
-        root.querySelectorAll('.profile-tab').forEach(function (node) {
-          node.classList.toggle('profile-tab--active', node.getAttribute('data-profile-tab') === tabId);
-        });
-        root.querySelectorAll('.profile-tab-panel').forEach(function (panel) {
-          panel.classList.toggle('profile-tab-panel--active',
-            panel.getAttribute('data-profile-panel') === tabId);
-        });
-      });
-    });
+    bindProfileTabs(root);
 
     bindSplitList(root.querySelector('[data-profile-panel="places"]'), profile.picks || [], 'pick', profile);
     bindSplitList(root.querySelector('[data-profile-panel="classifieds"]'), profile.classifieds || [], 'classified', profile);
@@ -1422,6 +1435,262 @@ const BeeProfile = (function () {
       '</div>';
   }
 
+  // --- group notices (the group profile's Notices tab) ---
+
+  function formatNoticeDate(ts) {
+    const n = Number(ts) || 0;
+    if (!n) return '';
+    const d = new Date(n);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function renderNoticeRow(notice) {
+    const id = BeeProfiles.normId(notice.id);
+    const active = !!(current && current.selectedNoticeId === id);
+    const meta = [notice.fromName, formatNoticeDate(notice.timestamp)].filter(Boolean).join(' · ');
+    return '<button type="button" class="group-notices__item' + (active ? ' group-notices__item--active' : '') +
+      '" data-notice-id="' + BeeUtils.escapeHtml(id) + '">' +
+      '<span class="group-notices__subject">' + BeeUtils.escapeHtml(notice.subject || '(no subject)') + '</span>' +
+      (notice.hasAttachment
+        ? '<span class="group-notices__clip" title="Has an attachment">' + CLIP_GLYPH + '</span>'
+        : '<span></span>') +
+      '<span class="group-notices__meta">' + BeeUtils.escapeHtml(meta) + '</span>' +
+      '</button>';
+  }
+
+  function renderGroupNoticesPane(profile) {
+    if (!profileShowsAsMember(profile)) {
+      return '<div class="profile-pane profile-pane--notices">' +
+        '<p class="profile-section__empty">Join this group to read its notices.</p></div>';
+    }
+    const cache = typeof BeeProfiles.getGroupNotices === 'function'
+      ? BeeProfiles.getGroupNotices(profile.groupId) : null;
+    const offline = typeof BeeState !== 'undefined' && !BeeState.gridOnline();
+    let list;
+    if (!cache) {
+      list = '<p class="profile-section__empty">' +
+        (offline ? 'Notices are not available offline.' : 'Loading notices...') + '</p>';
+    } else if (!cache.notices.length) {
+      list = '<p class="profile-section__empty">No notices yet.</p>';
+    } else {
+      list = '<div class="group-notices__list">' + cache.notices.map(renderNoticeRow).join('') + '</div>';
+    }
+    const count = cache ? cache.notices.length : 0;
+    return '<div class="profile-pane profile-pane--notices">' +
+      '<div class="group-notices__head">' +
+      '<span>' + (cache ? count + (count === 1 ? ' notice' : ' notices') : '') + '</span>' +
+      '<button type="button" class="profile-link" data-notices-refresh' + (offline ? ' disabled' : '') +
+        '>Refresh</button>' +
+      '</div>' +
+      list +
+      '<div class="group-notices__detail" data-notice-detail hidden></div>' +
+      '</div>';
+  }
+
+  function renderGroupTabs(profile) {
+    const activeTab = current && current.tab === 'notices' ? 'notices' : 'group';
+    if (current) current.tab = activeTab;
+    const nav = GROUP_TABS.map(function (tab) {
+      const active = tab.id === activeTab ? ' profile-tab--active' : '';
+      return '<button type="button" class="profile-tab' + active + '" data-profile-tab="' +
+        tab.id + '">' + BeeUtils.escapeHtml(tab.label) + '</button>';
+    }).join('');
+    // patchGroupTitles looks for .profile-main-panel, so the Group tab keeps
+    // that wrapper (the CSS zeroes its padding inside a tab panel).
+    return '<nav class="profile-tabs" aria-label="Group sections">' + nav + '</nav>' +
+      '<div class="profile-tab-panels">' +
+      '<div class="profile-tab-panel' + (activeTab === 'group' ? ' profile-tab-panel--active' : '') +
+        '" data-profile-panel="group"><div class="profile-main-panel">' + renderGroupTab(profile) + '</div></div>' +
+      '<div class="profile-tab-panel' + (activeTab === 'notices' ? ' profile-tab-panel--active' : '') +
+        '" data-profile-panel="notices">' + renderGroupNoticesPane(profile) + '</div>' +
+      '</div>';
+  }
+
+  function noticesPane() {
+    const content = el('profile-content');
+    return content ? content.querySelector<HTMLElement>('[data-profile-panel="notices"]') : null;
+  }
+
+  function currentGroupProfile() {
+    if (!current || current.type !== 'group') return null;
+    const cached = BeeProfiles.getGroupProfile(current.id);
+    return enrichGroupProfile(Object.assign({}, cached || { groupId: current.id }));
+  }
+
+  // Ask for the list once per opened group; Refresh asks again explicitly and
+  // drops the cached rows first so the pane shows exactly what comes back.
+  function ensureGroupNotices(profile, force?) {
+    if (!current || current.type !== 'group' || !profile || !profile.groupId) return;
+    if (!profileShowsAsMember(profile)) return;
+    if (typeof BeeProfiles.fetchGroupNotices !== 'function') return;
+    if (typeof BeeState !== 'undefined' && !BeeState.gridOnline()) return;
+    const groupId = BeeProfiles.normId(profile.groupId);
+    if (!force && current.noticesRequested === groupId) return;
+    current.noticesRequested = groupId;
+    if (force) current.selectedNoticeId = '';
+    BeeProfiles.fetchGroupNotices(groupId, { force: !!force }).catch(function () {});
+    if (force) patchGroupNotices();
+  }
+
+  function noticeDetailBox(pane): HTMLElement | null {
+    return pane ? (pane.querySelector('[data-notice-detail]') as HTMLElement | null) : null;
+  }
+
+  function showNoticeMessage(pane, text) {
+    const box = noticeDetailBox(pane);
+    if (!box) return;
+    box.hidden = false;
+    box.innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'profile-section__empty';
+    p.textContent = text;
+    box.appendChild(p);
+  }
+
+  function paintNoticeDetail(pane, detail, profile) {
+    const box = noticeDetailBox(pane);
+    if (!box || !detail) return;
+    box.hidden = false;
+    box.innerHTML = '';
+
+    const heading = document.createElement('h4');
+    heading.className = 'group-notices__detail-subject';
+    heading.textContent = detail.subject || '(no subject)';
+    box.appendChild(heading);
+
+    // The IM carrying the notice has no date; the list row does.
+    const cache = profile && typeof BeeProfiles.getGroupNotices === 'function'
+      ? BeeProfiles.getGroupNotices(profile.groupId) : null;
+    const row = cache ? cache.notices.find(function (n) {
+      return BeeProfiles.normId(n.id) === BeeProfiles.normId(detail.noticeId);
+    }) : null;
+    const from = detail.fromName || (row && row.fromName) || '';
+    const meta = document.createElement('p');
+    meta.className = 'group-notices__detail-meta';
+    meta.textContent = [from ? 'From ' + from : '', row ? formatNoticeDate(row.timestamp) : '']
+      .filter(Boolean).join(' · ');
+    box.appendChild(meta);
+
+    const body = document.createElement('p');
+    body.className = 'group-notices__body';
+    if (detail.text) BeeSlurl.appendLinkified(body, detail.text, { breaks: true });
+    else body.textContent = '(no message)';
+    box.appendChild(body);
+    BeeSlurl.bindLinks(body);
+
+    if (!detail.attachment) return;
+    const att = document.createElement('p');
+    att.className = 'group-notice__attachment';
+    att.textContent = 'Attachment: ';
+    const strong = document.createElement('strong');
+    strong.textContent = detail.attachment.itemName || 'item';
+    att.appendChild(strong);
+    box.appendChild(att);
+
+    if (detail.attachmentResponse) {
+      const done = document.createElement('p');
+      done.className = 'script-dialog__response';
+      done.textContent = 'You chose: ' + detail.attachmentResponse;
+      box.appendChild(done);
+      return;
+    }
+    const actions = document.createElement('div');
+    actions.className = 'group-notices__actions';
+    const keep = document.createElement('button');
+    keep.type = 'button';
+    keep.className = 'btn btn--primary btn--sm';
+    keep.textContent = 'Keep';
+    const discard = document.createElement('button');
+    discard.type = 'button';
+    discard.className = 'btn btn--secondary btn--sm';
+    discard.textContent = 'Discard';
+    // Same reply as the Events card: dialog 33/34 to the group, under the
+    // notice's id as the transaction.
+    const respond = function (accept) {
+      keep.disabled = true;
+      discard.disabled = true;
+      BeeBridge.invoke('sl_inventory_offer_respond', {
+        fromId: detail.attachment.fromId,
+        transactionId: detail.attachment.transactionId,
+        accept: accept,
+        fromTask: false,
+        kind: 'group-notice'
+      }).then(function () {
+        BeeProfiles.markGroupNoticeAttachment(detail.noticeId, accept ? 'Kept' : 'Discarded');
+        BeeUtils.showToast(accept ? 'Attachment kept.' : 'Attachment discarded.', 'success');
+      }).catch(function () {
+        keep.disabled = false;
+        discard.disabled = false;
+        BeeUtils.showToast('Could not answer the attachment offer.', 'warning');
+      });
+    };
+    keep.addEventListener('click', function () { respond(true); });
+    discard.addEventListener('click', function () { respond(false); });
+    actions.appendChild(keep);
+    actions.appendChild(discard);
+    box.appendChild(actions);
+  }
+
+  function selectNotice(noticeId, profile) {
+    const id = BeeProfiles.normId(noticeId);
+    if (!id || !current || current.type !== 'group') return;
+    current.selectedNoticeId = id;
+    const pane = noticesPane();
+    if (!pane) return;
+    pane.querySelectorAll<HTMLElement>('[data-notice-id]').forEach(function (btn) {
+      btn.classList.toggle('group-notices__item--active', btn.getAttribute('data-notice-id') === id);
+    });
+    const detail = BeeProfiles.getGroupNoticeDetail(id);
+    if (detail) {
+      paintNoticeDetail(pane, detail, profile);
+      return;
+    }
+    if (typeof BeeState !== 'undefined' && !BeeState.gridOnline()) {
+      showNoticeMessage(pane, 'Notices are not available offline.');
+      return;
+    }
+    showNoticeMessage(pane, 'Loading notice...');
+    // The reply repaints through the group-notice-detail change; only the
+    // timeout needs handling here.
+    BeeProfiles.fetchGroupNotice(id).then(function (got) {
+      if (!got && current && current.type === 'group' && current.selectedNoticeId === id) {
+        showNoticeMessage(noticesPane(), 'The group server did not answer - try again.');
+      }
+    }).catch(function () {});
+  }
+
+  function bindGroupNotices(root, profile) {
+    const pane = root ? (root.querySelector('[data-profile-panel="notices"]') as HTMLElement | null) : null;
+    if (!pane) return;
+    const refresh = pane.querySelector('[data-notices-refresh]');
+    if (refresh) {
+      refresh.addEventListener('click', function () { ensureGroupNotices(profile, true); });
+    }
+    pane.querySelectorAll('[data-notice-id]').forEach(function (btn: HTMLElement) {
+      btn.addEventListener('click', function () { selectNotice(btn.getAttribute('data-notice-id'), profile); });
+    });
+    // A rebuild (titles arriving, say) keeps the notice that was open.
+    if (current && current.selectedNoticeId) {
+      const detail = BeeProfiles.getGroupNoticeDetail(current.selectedNoticeId);
+      if (detail) paintNoticeDetail(pane, detail, profile);
+    }
+  }
+
+  // Repaint only the Notices pane - a list reply must not rebuild the Group
+  // tab (and lose the title picker's state) with it.
+  function patchGroupNotices() {
+    const pane = noticesPane();
+    const profile = currentGroupProfile();
+    if (!pane || !profile) return false;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = renderGroupNoticesPane(profile);
+    pane.innerHTML = '';
+    while (wrap.firstChild) pane.appendChild(wrap.firstChild);
+    bindGroupNotices(el('profile-content'), profile);
+    return true;
+  }
+
   function bindGroupContent(profile, root) {
     if (!root) return;
     const title = profile.name || 'Group';
@@ -1446,6 +1715,11 @@ const BeeProfile = (function () {
       });
     });
     bindGroupTitleSave(profile, root);
+    bindProfileTabs(root, function (tabId) {
+      if (tabId === 'notices') ensureGroupNotices(profile);
+    });
+    bindGroupNotices(root, profile);
+    if (current && current.tab === 'notices') ensureGroupNotices(profile);
   }
 
   function bindGroupTitleSave(profile, root) {
@@ -1789,7 +2063,7 @@ const BeeProfile = (function () {
     updateGroupHeader(enriched);
     queueGroupNames(enriched);
     queueGroupTitles(enriched);
-    content.innerHTML = '<div class="profile-main-panel">' + renderGroupTab(enriched) + '</div>';
+    content.innerHTML = renderGroupTabs(enriched);
     bindGroupContent(enriched, content);
     renderGroupActions(enriched);
     setLoading(false);
@@ -1959,12 +2233,16 @@ const BeeProfile = (function () {
     if (BeeProfiles.isZero(id)) return;
     if (!dialog) return;
     const nameHint = (options && options.group) || null;
+    const keepTab = current && current.type === 'group' && current.id === id ? current.tab : 'group';
     current = {
       type: 'group',
       id: id,
+      tab: keepTab,
       nameHint: nameHint,
       isMemberHint: !!(options && options.isMember),
-      titlesRequested: ''
+      titlesRequested: '',
+      noticesRequested: '',
+      selectedNoticeId: ''
     };
     lastGroupViewKey = '';
     setLoading(true);
@@ -2060,6 +2338,16 @@ const BeeProfile = (function () {
       if (current.type === 'group' && evt.kind === 'group-titles' && evt.id === current.id) {
         const profile = BeeProfiles.getGroupProfile(current.id);
         if (profile && patchGroupTitles(profile)) return;
+        return;
+      }
+      if (current.type === 'group' && evt.kind === 'group-notices' && evt.id === current.id) {
+        patchGroupNotices();
+        return;
+      }
+      if (current.type === 'group' && evt.kind === 'group-notice-detail' &&
+          evt.id === current.selectedNoticeId) {
+        const detail = BeeProfiles.getGroupNoticeDetail(evt.id);
+        if (detail) paintNoticeDetail(noticesPane(), detail, currentGroupProfile());
         return;
       }
       if (current.type === 'group' && evt.kind === 'active-group') {

@@ -102,6 +102,13 @@ const BeeNotecards = (function () {
     if (save) save.disabled = false;
   }
 
+  // Offer a notecard to another resident through the shared recipient picker.
+  // Notecards are inventory asset type 7.
+  function sendToResident(row) {
+    if (!row || !row.itemId || typeof BeeGive === 'undefined') return;
+    BeeGive.open({ itemId: row.itemId, assetType: 7, name: row.name || 'Notecard' });
+  }
+
   function setEditorOpen(open) {
     const panel = el('panel-notecards');
     if (panel) panel.classList.toggle('panel--scripts--editor-open', open);
@@ -209,7 +216,7 @@ const BeeNotecards = (function () {
     }
     const seq = ++openSeq;
     current = { itemId: row.itemId, assetId: row.assetId, creatorId: row.creatorId || '', lastOwnerId: row.lastOwnerId || '', name: row.name, savedText: '', dirty: false, hasEmbeds: false };
-    ['notecard-rename', 'notecard-copy-ids'].forEach(function (id) {
+    ['notecard-rename', 'notecard-copy-ids', 'notecard-send'].forEach(function (id) {
       const btn = el(id);
       if (btn) btn.hidden = false;
     });
@@ -307,7 +314,7 @@ const BeeNotecards = (function () {
       createWaiter.reject(new Error('Session ended'));
       createWaiter = null;
     }
-    ['notecard-rename', 'notecard-copy-ids'].forEach(function (id) {
+    ['notecard-rename', 'notecard-copy-ids', 'notecard-send'].forEach(function (id) {
       const btn = el(id);
       if (btn) btn.hidden = true;
     });
@@ -342,6 +349,7 @@ const BeeNotecards = (function () {
           !/^0+(-0+)*$/.test(String(row.creatorId || '').replace(/-/g, ''));
         return [
           { label: 'Open notecard', action: function () { void open(row); } },
+          { label: 'Send to a resident...', action: function () { sendToResident(row); } },
           {
             label: 'Creator profile',
             disabled: !creatorKnown,
@@ -360,6 +368,8 @@ const BeeNotecards = (function () {
     if (newBtn) newBtn.addEventListener('click', function () { void createNew(); });
     const renameBtn = el('notecard-rename');
     if (renameBtn) renameBtn.addEventListener('click', function () { void renameCurrent(); });
+    const sendBtn = el('notecard-send');
+    if (sendBtn) sendBtn.addEventListener('click', function () { if (current) sendToResident(current); });
     const copyBtn = el('notecard-copy-ids');
     if (copyBtn) {
       copyBtn.addEventListener('click', function (e) {

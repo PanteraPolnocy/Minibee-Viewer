@@ -340,6 +340,10 @@
         <div id="panel-im" class="panel" data-panel="im" role="tabpanel" aria-label="Instant messages" hidden>
           <div class="im-layout">
             <div class="im-sessions-pane">
+              <div class="im-subtabs" role="tablist" aria-label="Conversation kinds">
+                <button type="button" class="im-subtab im-subtab--active" data-im-sub="residents" role="tab" aria-selected="true">Residents<span class="im-subtab__badge" hidden></span></button>
+                <button type="button" class="im-subtab" data-im-sub="sessions" role="tab" aria-selected="false">Groups &amp; Conferences<span class="im-subtab__badge" hidden></span></button>
+              </div>
               <div class="im-sessions__toolbar">
                 <button type="button" id="im-new-conference" class="im-new-btn" title="Start a group conference chat">
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
@@ -960,6 +964,9 @@
                 <button type="button" id="script-copy-ids" class="icon-btn script-editor__tool" title="UUIDs and creator" aria-label="UUIDs and creator" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
                 </button>
+                <button type="button" id="script-send" class="icon-btn script-editor__tool" title="Send to a resident" aria-label="Send this script to a resident" hidden>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                </button>
                 <button type="button" id="script-rename" class="icon-btn script-editor__rename" title="Rename script" aria-label="Rename script" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
                 </button>
@@ -1026,6 +1033,9 @@
                 </div>
                 <button type="button" id="notecard-copy-ids" class="icon-btn script-editor__tool" title="UUIDs and creator" aria-label="UUIDs and creator" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                </button>
+                <button type="button" id="notecard-send" class="icon-btn script-editor__tool" title="Send to a resident" aria-label="Send this notecard to a resident" hidden>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                 </button>
                 <button type="button" id="notecard-rename" class="icon-btn script-editor__rename" title="Rename notecard" aria-label="Rename notecard" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
@@ -1526,6 +1536,27 @@
       </form>
     </dialog>
 
+    <dialog id="give-dialog" class="pay-dialog conference-dialog give-dialog">
+      <form id="give-form" method="dialog">
+        <h2 class="pay-dialog__title">Send to a resident</h2>
+        <p id="give-item-name" class="pay-dialog__target"></p>
+        <div class="give-sources" role="tablist" aria-label="Where to pick the recipient from">
+          <button type="button" class="search-kind give-source search-kind--active" data-give-source="friends" role="tab" aria-selected="true">Friends</button>
+          <button type="button" class="search-kind give-source" data-give-source="nearby" role="tab" aria-selected="false">Nearby</button>
+          <button type="button" class="search-kind give-source" data-give-source="search" role="tab" aria-selected="false">Search</button>
+        </div>
+        <label class="field">
+          <span id="give-filter-label">Filter</span>
+          <input type="text" id="give-filter" maxlength="63" autocomplete="off" placeholder="Filter by name or username">
+        </label>
+        <div id="give-picker" class="conference-picker give-picker" role="radiogroup" aria-label="Choose a recipient"></div>
+        <div class="pay-dialog__actions">
+          <button type="button" class="btn btn--ghost" id="give-cancel">Cancel</button>
+          <button type="submit" class="btn btn--primary" id="give-submit" disabled>Send</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="objects-detail" class="objects-dialog">
       <div id="objects-detail-body" class="objects-dialog__body"></div>
     </dialog>
@@ -1562,6 +1593,7 @@
   <script src="js/ui/land.js"></script>
   <script src="js/ui/scripts.js"></script>
   <script src="js/ui/notecards.js"></script>
+  <script src="js/ui/give.js"></script>
   <script src="js/chat-logs.js"></script>
   <script src="js/voice/voice.js"></script>
   <script src="js/ui/destinations.js"></script>

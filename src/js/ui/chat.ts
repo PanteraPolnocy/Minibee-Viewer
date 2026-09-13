@@ -858,6 +858,7 @@ const BeeChat = (function () {
         if (seg.kind === 'slurl') {
           a.className = 'slurl-link';
           a.setAttribute('data-slurl', String(seg.url || ''));
+          BeeSlurl.markAppLink(a, seg);
         } else {
           a.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
           a.setAttribute('data-url', String(seg.url || ''));
@@ -938,6 +939,7 @@ const BeeChat = (function () {
           link.className = 'slurl-link';
           link.setAttribute('title', String(seg.url || ''));
           link.setAttribute('data-slurl', String(seg.url || ''));
+          BeeSlurl.markAppLink(link, seg);
         } else {
           link.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
           link.setAttribute('title', String(seg.url || ''));
@@ -1006,6 +1008,7 @@ const BeeChat = (function () {
         link.className = 'slurl-link';
         link.setAttribute('title', String(seg.url || ''));
         link.setAttribute('data-slurl', String(seg.url || ''));
+        BeeSlurl.markAppLink(link, seg);
       } else {
         link.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
         link.setAttribute('title', String(seg.url || ''));
@@ -1136,6 +1139,20 @@ const BeeChat = (function () {
       const list = document.getElementById('chat-messages');
       if (list) list.innerHTML = '';
     });
+
+    // A mention renders as "Resident profile" until the name arrives; the
+    // moment it does, every such link on the page (chat, IM, events) is
+    // relabelled in place. Group links do the same as group names resolve.
+    if (typeof BeeSlurl.refreshAppLinks === 'function') {
+      const refreshLinks = function () { BeeSlurl.refreshAppLinks(document); };
+      BeeTransport.on('names-updated', refreshLinks);
+      BeeTransport.on('group-names', refreshLinks);
+      if (typeof BeeProfiles !== 'undefined' && BeeProfiles.onChange) {
+        BeeProfiles.onChange(function (evt) {
+          if (evt && (evt.kind === 'group' || evt.kind === 'membership')) refreshLinks();
+        });
+      }
+    }
   }
 
   return {

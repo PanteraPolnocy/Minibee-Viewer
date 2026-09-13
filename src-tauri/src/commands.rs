@@ -696,6 +696,58 @@ pub async fn sl_inventory_offer_respond(
     Ok(json!({ "ok": true, "sent": true }))
 }
 
+/// The binary bucket of an inventory offer: the asset type (one byte) followed
+/// by the item's raw UUID - the layout `LLGiveInventory` packs.
+fn inventory_offer_bucket(asset_type: i64, item_id: &str) -> Vec<u8> {
+    let mut bucket = vec![asset_type.clamp(0, 255) as u8];
+    bucket.extend(uuid_bytes(item_id));
+    bucket
+}
+
+/// Offer one of our inventory items to another resident (IM_INVENTORY_OFFERED,
+/// dialog 4) - the same message the full viewer sends when you drag an item
+/// onto someone. The text is the item's name and the IM id is a fresh
+/// transaction id; the recipient's accept (5) or decline (6) comes back under
+/// it and lands in chat as a system line.
+#[tauri::command]
+pub async fn sl_inventory_give(
+    state: State<'_, Arc<AppState>>,
+    to_id: String,
+    item_id: String,
+    asset_type: i64,
+    name: String,
+) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    let to = to_id.trim().to_ascii_lowercase();
+    if to.is_empty() || to == ZERO_UUID {
+        return Err("No recipient".into());
+    }
+    if to == agent.to_ascii_lowercase() {
+        return Err("You cannot offer an item to yourself".into());
+    }
+    let item = item_id.trim().to_ascii_lowercase();
+    if !crate::bridge::inventory::is_uuid(&item) || crate::bridge::inventory::is_zero_uuid(&item) {
+        return Err("No item".into());
+    }
+    let tx = crate::bridge::circuit::gen_id();
+    s.send_encoded(
+        "ImprovedInstantMessage",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "MessageBlock": [{
+                "FromGroup": false, "ToAgentID": to, "ParentEstateID": 0, "RegionID": ZERO_UUID,
+                "Position": [0.0, 0.0, 0.0], "Offline": 0, "Dialog": 4,
+                "ID": tx, "Timestamp": 0, "FromAgentName": vstr(""),
+                "Message": vstr(name.trim()),
+                "BinaryBucket": json!(B64.encode(inventory_offer_bucket(asset_type, &item))),
+            }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true, "sent": true, "transactionId": tx }))
+}
+
 #[tauri::command]
 pub async fn sl_send_typing(state: State<'_, Arc<AppState>>, to_id: String, typing: bool) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
@@ -1034,6 +1086,47 @@ pub async fn sl_group_request_titles(state: State<'_, Arc<AppState>>, group_id: 
     s.send_encoded(
         "GroupTitlesRequest",
         &json!({ "AgentData": [{ "AgentID": agent, "SessionID": sess, "GroupID": group_id, "RequestID": crate::bridge::circuit::gen_id() }] }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Ask the group server for a group's past notices. The list arrives as one
+/// or more GroupNoticesListReply packets, each surfaced as `group-notices`;
+/// the frontend merges them by notice id.
+#[tauri::command]
+pub async fn sl_group_notices_request(state: State<'_, Arc<AppState>>, group_id: String) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if group_id.is_empty() || group_id == ZERO_UUID {
+        return Err("No group".into());
+    }
+    s.send_encoded(
+        "GroupNoticesListRequest",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "Data": [{ "GroupID": group_id }],
+        }),
+        true,
+    )
+    .await;
+    Ok(json!({ "ok": true }))
+}
+
+/// Ask for one notice's full text (and its attachment offer). The reply is an
+/// IM with dialog 37 (IM_GROUP_NOTICE_REQUESTED), surfaced as `group-notice-detail`.
+#[tauri::command]
+pub async fn sl_group_notice_request(state: State<'_, Arc<AppState>>, notice_id: String) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    if notice_id.is_empty() || notice_id == ZERO_UUID {
+        return Err("No notice".into());
+    }
+    s.send_encoded(
+        "GroupNoticeRequest",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "Data": [{ "GroupNoticeID": notice_id }],
+        }),
         true,
     )
     .await;
@@ -2552,6 +2645,18 @@ mod tests {
         let node = all["node"].as_array().unwrap();
         assert!(node.iter().any(|p| p["name"] == "typescript"));
         assert!(!all["templateVersion"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn inventory_offer_bucket_is_type_then_uuid() {
+        let b = inventory_offer_bucket(10, "aa000000-0000-0000-0000-000000000001");
+        assert_eq!(b.len(), 17);
+        assert_eq!(b[0], 10); // LSL text
+        assert_eq!(b[1], 0xAA);
+        assert_eq!(b[16], 0x01);
+        // Out-of-range types clamp into a byte instead of wrapping.
+        assert_eq!(inventory_offer_bucket(300, "aa000000-0000-0000-0000-000000000001")[0], 255);
+        assert_eq!(inventory_offer_bucket(-5, "aa000000-0000-0000-0000-000000000001")[0], 0);
     }
 
     #[test]

@@ -235,3 +235,90 @@ test('appendLinkified: empty and nullish text add nothing', () => {
   assert.equal(BeeSlurl.appendLinkified(fakeDocument().createElement('p'), null).childNodes.length, 0);
   assert.equal(BeeSlurl.appendLinkified(fakeDocument().createElement('p'), undefined).childNodes.length, 0);
 });
+
+// --- profile links (chat mentions) ------------------------------------------
+//
+// A mention arrives as secondlife:///app/agent/<id>/about. Without a name cache
+// it reads "Resident profile"; with one, the person's name - and either way the
+// anchor remembers whose it is, so the name can be filled in later.
+
+const KNOWN = '11223344-5566-7788-99aa-bbccddeeff00';
+const UNKNOWN = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const MENTION = 'secondlife:///app/agent/' + KNOWN + '/about';
+const UNKNOWN_MENTION = 'secondlife:///app/agent/' + UNKNOWN + '/mention';
+
+function namedSlurl() {
+  const queued = [];
+  const names = new Map([[KNOWN, { displayName: 'Pantera', label: 'pantera.polnocy', userName: 'pantera.polnocy' }]]);
+  const BeeTransport = {
+    getCachedNameInfo: (id) => names.get(String(id).toLowerCase()) || null,
+    queueNameResolve: (ids) => { queued.push(...ids); },
+  };
+  const mod = loadBeeModule('js/core/sl-slurl.ts', 'BeeSlurl', { window: {}, document: fakeDocument(), BeeTransport });
+  return { mod, queued, names };
+}
+
+test('scanLinks: an agent link without a name cache keeps the placeholder', () => {
+  const link = BeeSlurl.scanLinks('hey ' + MENTION + ' hi').find((s) => s.type === 'link');
+  assert.equal(link.label, 'Resident profile');
+  assert.equal(link.agentId, KNOWN);
+  assert.equal(link.kind, 'slurl');
+});
+
+test('scanLinks: a cached name labels the mention with the person', () => {
+  const { mod, queued } = namedSlurl();
+  const link = mod.scanLinks('(L+ 81669 f*) ' + MENTION + ' I am getting that popup, yes.').find((s) => s.type === 'link');
+  assert.equal(link.label, 'Pantera');
+  assert.equal(link.agentId, KNOWN);
+  assert.deepEqual(queued, [], 'a known name needs no lookup');
+});
+
+test('scanLinks: an unknown agent queues one lookup and keeps the placeholder', () => {
+  const { mod, queued } = namedSlurl();
+  const first = mod.scanLinks(UNKNOWN_MENTION).find((s) => s.type === 'link');
+  assert.equal(first.label, 'Resident profile');
+  assert.equal(first.agentId, UNKNOWN);
+  mod.scanLinks(UNKNOWN_MENTION); // a repaint must not ask again right away
+  assert.deepEqual(queued, [UNKNOWN]);
+});
+
+test('scanLinks: a bracketed label wins over the resolved name', () => {
+  const { mod } = namedSlurl();
+  const link = mod.scanLinks('[' + MENTION + ' Boss]').find((s) => s.type === 'link');
+  assert.equal(link.label, 'Boss');
+  assert.equal(link.agentId, KNOWN);
+});
+
+test('scanLinks: group links carry the group id', () => {
+  const link = BeeSlurl.scanLinks('secondlife:///app/group/' + KNOWN + '/about').find((s) => s.type === 'link');
+  assert.equal(link.label, 'Group profile');
+  assert.equal(link.groupId, KNOWN);
+  assert.equal(link.agentId, undefined);
+});
+
+test('appendLinkified and linkify: the anchor carries data-agent-link', () => {
+  const p = BeeSlurl.appendLinkified(fakeDocument().createElement('p'), MENTION);
+  const a = linkNodes(p)[0];
+  assert.equal(a.getAttribute('data-agent-link'), KNOWN);
+  assert.equal(a.getAttribute('data-slurl'), MENTION);
+  const html = BeeSlurl.linkify(MENTION, esc);
+  assert.ok(html.includes('data-agent-link="' + KNOWN + '"'));
+});
+
+test('refreshAppLinks: fills a placeholder once the name is cached, leaves labels alone', () => {
+  const { mod, names } = namedSlurl();
+  const p = mod.appendLinkified(fakeDocument().createElement('p'),
+    UNKNOWN_MENTION + ' and [' + UNKNOWN_MENTION + ' Boss]');
+  const anchors = linkNodes(p);
+  assert.equal(anchors[0].textContent, 'Resident profile');
+  assert.equal(anchors[1].textContent, 'Boss');
+  // Nothing known yet: the placeholder stays.
+  const root = { querySelectorAll: (sel) => (sel.includes('agent') ? anchors : []) };
+  mod.refreshAppLinks(root);
+  assert.equal(anchors[0].textContent, 'Resident profile');
+  // The name arrives (names-updated): only the placeholder changes.
+  names.set(UNKNOWN, { displayName: '', label: 'ruth.resident', userName: 'ruth.resident' });
+  mod.refreshAppLinks(root);
+  assert.equal(anchors[0].textContent, 'ruth.resident');
+  assert.equal(anchors[1].textContent, 'Boss');
+});

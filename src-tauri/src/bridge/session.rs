@@ -2446,6 +2446,36 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             ));
         }
 
+        // A page of a group's past notices, for the group profile's Notices
+        // tab. The group server may answer one request with several pages
+        // (the UI merges them by id), and says "no notices" with a single
+        // all-zero NoticeID row, which is dropped here.
+        "GroupNoticesListReply" => {
+            let group_id = inst_str(block0(decoded, "AgentData").unwrap_or(&Value::Null), "GroupID");
+            if is_zero_uuid(&group_id) {
+                return actions;
+            }
+            let notices: Vec<Value> = block_instances(decoded, "Data")
+                .iter()
+                .filter(|d| !is_zero_uuid(&inst_str(d, "NoticeID")))
+                .map(|d| {
+                    json!({
+                        "id": inst_str(d, "NoticeID").to_ascii_lowercase(),
+                        // Seconds on the wire; the frontend works in milliseconds.
+                        "timestamp": inst_i64(d, "Timestamp") * 1000,
+                        "fromName": inst_text(d, "FromName"),
+                        "subject": inst_text(d, "Subject"),
+                        "hasAttachment": truthy(d.get("HasAttachment")),
+                        "assetType": inst_i64(d, "AssetType"),
+                    })
+                })
+                .collect();
+            actions.push(Action::emit(
+                "group-notices",
+                json!({ "groupId": group_id.to_ascii_lowercase(), "notices": notices }),
+            ));
+        }
+
         // Results of joining or leaving a group.
         "JoinGroupReply" | "LeaveGroupReply" => {
             let g = block0(decoded, "GroupData").cloned().unwrap_or(Value::Null);
@@ -4330,6 +4360,26 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 return actions; // the group itself is blocked
             }
             let (subject, body) = split_notice_text(&text);
+            // A notice we asked for by id (37 answers GroupNoticeRequest) is
+            // read in the group profile's Notices tab, not pushed as an Events
+            // card - and it skips the replay guard below, which would otherwise
+            // swallow a re-read of a notice that also arrived live.
+            if dialog == 37 {
+                actions.push(Action::ResolveNames(vec![from_id.clone()]));
+                let mut payload = json!({
+                    "noticeId": im_id.to_ascii_lowercase(),
+                    "groupId": &group_id, "groupName": group_name_of(state, &group_id),
+                    "fromId": &from_id, "fromName": &display,
+                    "subject": subject, "text": body, "hasAttachment": has_attachment,
+                });
+                if has_attachment {
+                    payload["attachment"] = json!({
+                        "itemName": item_name, "fromId": &group_id, "transactionId": &im_id,
+                    });
+                }
+                actions.push(Action::emit("group-notice-detail", payload));
+                return actions;
+            }
             // Notices can replay (online + offline delivery); one card is enough.
             if state.is_duplicate_im(&format!("group-notice\0{im_id}\0{text}")) {
                 return actions;
@@ -5442,7 +5492,7 @@ mod tests {
             "blocks": {
                 "AgentData": [{ "AgentID": OTHER, "SessionID": "s" }],
                 "MessageBlock": [{
-                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 37,
+                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 32,
                     "ID": "44444444-4444-4444-4444-444444444444", "Timestamp": 0,
                     "FromAgentName": B64.encode(b"Pantera\0"),
                     "Message": B64.encode(b"Just a note\0"),
@@ -5455,6 +5505,84 @@ mod tests {
         assert_eq!(e["subject"], "");
         assert_eq!(e["text"], "Just a note");
         assert!(e.get("prompt").is_none(), "no attachment, no Keep/Discard buttons");
+    }
+
+    #[test]
+    fn requested_group_notice_is_a_detail_not_an_event_card() {
+        let mut st = me_state();
+        let notice = "55555555-5555-5555-5555-555555555555";
+        let mut bucket = vec![1u8, 6u8];
+        bucket.extend_from_slice(&[0xAA; 16]);
+        bucket.extend_from_slice(b"Free Hat\0");
+        let pkt = json!({
+            "name": "ImprovedInstantMessage",
+            "blocks": {
+                "AgentData": [{ "AgentID": OTHER, "SessionID": "s" }],
+                "MessageBlock": [{
+                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": 37,
+                    "ID": notice, "Timestamp": 0,
+                    "FromAgentName": B64.encode(b"Pantera\0"),
+                    "Message": B64.encode(b"Meeting|Bring snacks.\0"),
+                    "BinaryBucket": B64.encode(&bucket),
+                }]
+            }
+        });
+        let a = route(&mut st, &pkt);
+        assert!(emit_of(&a, "event").is_none(), "a re-read notice must not add an Events card");
+        assert!(emit_of(&a, "im").is_none());
+        let d = emit_of(&a, "group-notice-detail").expect("group-notice-detail");
+        assert_eq!(d["noticeId"], notice);
+        assert_eq!(d["subject"], "Meeting");
+        assert_eq!(d["text"], "Bring snacks.");
+        assert_eq!(d["fromName"], "Pantera");
+        assert_eq!(d["groupId"], "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        assert_eq!(d["hasAttachment"], true);
+        assert_eq!(d["attachment"]["itemName"], "Free Hat");
+        assert_eq!(d["attachment"]["transactionId"], notice);
+        assert_eq!(d["attachment"]["fromId"], "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        // Reading the same notice twice works: the replay guard is for live
+        // deliveries, not for something the user asked to see again.
+        let again = route(&mut st, &pkt);
+        assert!(emit_of(&again, "group-notice-detail").is_some(), "a second read must answer too");
+    }
+
+    #[test]
+    fn group_notices_list_reply_emits_rows_and_drops_the_dummy() {
+        let mut st = me_state();
+        let group = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        let a = route(&mut st, &json!({
+            "name": "GroupNoticesListReply",
+            "blocks": {
+                "AgentData": [{ "AgentID": ME, "GroupID": group }],
+                "Data": [
+                    { "NoticeID": "11111111-1111-1111-1111-111111111111", "Timestamp": 1700000000, "FromName": B64.encode(b"Pantera Polnocy\0"), "Subject": B64.encode(b"Meeting\0"), "HasAttachment": true, "AssetType": 6 },
+                    { "NoticeID": "22222222-2222-2222-2222-222222222222", "Timestamp": 1700000100, "FromName": B64.encode(b"Ruth Resident\0"), "Subject": B64.encode(b"\0"), "HasAttachment": false, "AssetType": 0 },
+                ]
+            }
+        }));
+        let n = emit_of(&a, "group-notices").expect("group-notices");
+        assert_eq!(n["groupId"], group);
+        let rows = n["notices"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["id"], "11111111-1111-1111-1111-111111111111");
+        assert_eq!(rows[0]["timestamp"], 1700000000000i64);
+        assert_eq!(rows[0]["fromName"], "Pantera Polnocy");
+        assert_eq!(rows[0]["subject"], "Meeting");
+        assert_eq!(rows[0]["hasAttachment"], true);
+        assert_eq!(rows[0]["assetType"], 6);
+        assert_eq!(rows[1]["subject"], "");
+        assert_eq!(rows[1]["hasAttachment"], false);
+
+        // "No notices" is one all-zero row: an empty list, not a phantom notice.
+        let empty = route(&mut st, &json!({
+            "name": "GroupNoticesListReply",
+            "blocks": {
+                "AgentData": [{ "AgentID": ME, "GroupID": group }],
+                "Data": [{ "NoticeID": "00000000-0000-0000-0000-000000000000", "Timestamp": 0, "FromName": B64.encode(b"\0"), "Subject": B64.encode(b"\0"), "HasAttachment": false, "AssetType": 0 }]
+            }
+        }));
+        let n = emit_of(&empty, "group-notices").expect("group-notices");
+        assert_eq!(n["notices"].as_array().unwrap().len(), 0);
     }
 
     #[test]

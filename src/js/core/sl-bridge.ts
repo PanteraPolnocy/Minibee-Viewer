@@ -482,6 +482,18 @@ const BeeSLBridge = (function () {
     return sent('sl_pay', { destId: destId, amount: Math.trunc(amount), description: description || '' });
   }
 
+  // --- inventory ---
+
+  // IM_INVENTORY_OFFERED to another resident; the core builds the bucket.
+  function giveInventory(destId, item) {
+    return sent('sl_inventory_give', {
+      toId: destId,
+      itemId: (item && item.itemId) || '',
+      assetType: Math.trunc(Number(item && item.assetType) || 0),
+      name: (item && item.name) || ''
+    });
+  }
+
   // --- chat sessions (conference / group) ---
 
   function openGroupChat(groupId, groupName) {
@@ -826,7 +838,8 @@ const BeeSLBridge = (function () {
     acceptFriendship: acceptFriendship, declineFriendship: declineFriendship,
     openGroupChat: openGroupChat, startConference: startConference, inviteToSession: inviteToSession,
     moderateSessionText: moderateSessionText, leaveImSession: leaveImSession,
-    payResident: payResident, updateParcel: updateParcel, refreshParcel: refreshParcel,
+    payResident: payResident, giveInventory: giveInventory,
+    updateParcel: updateParcel, refreshParcel: refreshParcel,
     fetchParcelInfo: fetchParcelInfo, remoteParcel: remoteParcel,
     AL_ACCESS: AL_ACCESS, AL_BAN: AL_BAN,
     AL_ALLOW_EXPERIENCE: AL_ALLOW_EXPERIENCE, AL_BLOCK_EXPERIENCE: AL_BLOCK_EXPERIENCE,

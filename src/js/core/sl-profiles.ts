@@ -15,6 +15,8 @@ const BeeProfiles = (function () {
   const groupProfiles = new Map();  // id -> group profile
   const groupNames = new Map();     // id -> { name, insigniaId }
   const groupTitlesMap = new Map(); // id -> { titles, complete }
+  const groupNotices = new Map();   // group id -> { notices: [...], complete }
+  const noticeDetails = new Map();  // notice id -> the full notice (group-notice-detail)
   const membership = new Map();      // self group id -> { id, name, insigniaId }
   const pickDetails = new Map();     // pick id -> detail
   const classifiedDetails = new Map(); // classified id -> detail
@@ -230,6 +232,33 @@ const BeeProfiles = (function () {
       emitChange('group-titles', id);
       resolveWaiters('titles:' + id, groupTitlesMap.get(id));
     });
+    BeeBridge.listen('minibee-viewer://group-notices', function (p) {
+      if (!p || isZero(p.groupId)) return;
+      const id = normId(p.groupId);
+      // One request can be answered in several packets (and a re-request
+      // echoes the same rows), so merge by notice id instead of replacing.
+      const cur = groupNotices.get(id) || { notices: [] };
+      const byId = new Map();
+      cur.notices.forEach(function (n) { if (n && n.id) byId.set(normId(n.id), n); });
+      (p.notices || []).forEach(function (n) { if (n && n.id) byId.set(normId(n.id), n); });
+      const merged = Array.from(byId.values()).sort(function (a, b) {
+        return (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0);
+      });
+      groupNotices.set(id, { notices: merged, complete: true, updatedAt: Date.now() });
+      emitChange('group-notices', id);
+      resolveWaiters('notices:' + id, groupNotices.get(id));
+    });
+    BeeBridge.listen('minibee-viewer://group-notice-detail', function (p) {
+      if (!p || isZero(p.noticeId)) return;
+      const id = normId(p.noticeId);
+      // A re-read keeps the Keep/Discard answer already given for its attachment.
+      const prev = noticeDetails.get(id);
+      const next = Object.assign({}, p);
+      if (prev && prev.attachmentResponse) next.attachmentResponse = prev.attachmentResponse;
+      noticeDetails.set(id, next);
+      emitChange('group-notice-detail', id);
+      resolveWaiters('notice:' + id, next);
+    });
     BeeBridge.listen('minibee-viewer://group-membership', function (p) {
       membership.clear();
       (p && p.groups || []).forEach(function (g) {
@@ -257,6 +286,18 @@ const BeeProfiles = (function () {
   function getGroupName(id) { const g = groupNames.get(normId(id)); return g ? g.name : ''; }
   function getGroupInsigniaId(id) { const g = groupNames.get(normId(id)); return g ? (g.insigniaId || '') : ''; }
   function getGroupTitles(id) { return groupTitlesMap.get(normId(id)) || null; }
+  function getGroupNotices(id) { return groupNotices.get(normId(id)) || null; }
+  function getGroupNoticeDetail(noticeId) { return noticeDetails.get(normId(noticeId)) || null; }
+  // Remember how the user answered a notice attachment ('Kept' / 'Discarded'),
+  // so a repaint - or a re-read of the notice - doesn't offer the buttons again.
+  function markGroupNoticeAttachment(noticeId, response) {
+    const key = normId(noticeId);
+    const cur = noticeDetails.get(key);
+    if (!cur) return false;
+    cur.attachmentResponse = String(response || '');
+    emitChange('group-notice-detail', key);
+    return true;
+  }
   function hasGroupTitlesCache(id) { return groupTitlesMap.has(normId(id)); }
   function isGroupTitlesFetchSettled(id) { const t = groupTitlesMap.get(normId(id)); return !!(t && t.complete); }
   function getImageId(agentId) { const p = profiles.get(normId(agentId)); return (p && p.imageId) || ''; }
@@ -351,6 +392,22 @@ const BeeProfiles = (function () {
     invoke('sl_group_request_titles', { groupId: key });
     return waitFor('titles:' + key, 12000, function () { return getGroupTitles(key); });
   }
+  // The group's past notices (members only - the group server answers others
+  // with nothing). `force` drops the cached list first, so a refresh shows
+  // exactly what the server sends back.
+  function fetchGroupNotices(id, options?) {
+    const key = normId(id);
+    if (isZero(key)) return Promise.resolve(null);
+    if (options && options.force) groupNotices.delete(key);
+    invoke('sl_group_notices_request', { groupId: key });
+    return waitFor('notices:' + key, 12000, function () { return getGroupNotices(key); });
+  }
+  function fetchGroupNotice(noticeId) {
+    const key = normId(noticeId);
+    if (isZero(key)) return Promise.resolve(null);
+    invoke('sl_group_notice_request', { noticeId: key });
+    return waitFor('notice:' + key, 12000, function () { return getGroupNoticeDetail(key); });
+  }
   function fetchPickInfo(avatarId, pickId) {
     const pk = normId(pickId || avatarId);
     if (isZero(pk)) return Promise.resolve(null);
@@ -403,6 +460,9 @@ const BeeProfiles = (function () {
     getAvatarProfile: getAvatarProfile, getGroupProfile: getGroupProfile,
     getGroupName: getGroupName, getGroupInsigniaId: getGroupInsigniaId,
     getGroupTitles: getGroupTitles, hasGroupTitlesCache: hasGroupTitlesCache,
+    getGroupNotices: getGroupNotices, getGroupNoticeDetail: getGroupNoticeDetail,
+    markGroupNoticeAttachment: markGroupNoticeAttachment,
+    fetchGroupNotices: fetchGroupNotices, fetchGroupNotice: fetchGroupNotice,
     isGroupTitlesFetchSettled: isGroupTitlesFetchSettled, getImageId: getImageId,
     getPickDetail: getPickDetail, getClassifiedDetail: getClassifiedDetail,
     getActiveGroupId: getActiveGroupId, getActiveGroupInfo: getActiveGroupInfo,

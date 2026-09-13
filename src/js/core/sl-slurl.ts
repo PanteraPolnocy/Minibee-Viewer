@@ -56,10 +56,57 @@ const BeeSlurl = (function () {
     return url.slice(0, end);
   }
 
+  // Profile links (secondlife:///app/agent/<id>/about, the form a chat
+  // mention takes) read as the person's name when the transport already has
+  // it. Until then they say "Resident profile" and the id is queued for a
+  // lookup - at most once a minute per id, since every repaint asks again -
+  // so refreshAppLinks() can fill the name in when names-updated fires.
+  const AGENT_PLACEHOLDER = 'Resident profile';
+  const GROUP_PLACEHOLDER = 'Group profile';
+  const LINK_RESOLVE_RETRY_MS = 60000;
+  const linkResolveAsked = new Map();
+
+  function shouldAskFor(key) {
+    const now = Date.now();
+    const last = linkResolveAsked.get(key) || 0;
+    if (now - last < LINK_RESOLVE_RETRY_MS) return false;
+    linkResolveAsked.set(key, now);
+    return true;
+  }
+
+  function agentLinkName(id) {
+    if (!id || typeof BeeTransport === 'undefined') return '';
+    const info = typeof BeeTransport.getCachedNameInfo === 'function'
+      ? BeeTransport.getCachedNameInfo(id) : null;
+    const name = info ? String(info.displayName || info.label || info.userName || '').trim() : '';
+    if (name) return name;
+    if (typeof BeeTransport.queueNameResolve === 'function' && shouldAskFor('a:' + id)) {
+      BeeTransport.queueNameResolve([id]);
+    }
+    return '';
+  }
+
+  function groupLinkName(id) {
+    if (!id) return '';
+    let name = '';
+    if (typeof BeeProfiles !== 'undefined' && typeof BeeProfiles.getGroupName === 'function') {
+      name = String(BeeProfiles.getGroupName(id) || '').trim();
+    }
+    if (!name && typeof BeeTransport !== 'undefined' && typeof BeeTransport.getGroupName === 'function') {
+      name = String(BeeTransport.getGroupName(id) || '').trim();
+    }
+    if (name) return name;
+    if (typeof BeeTransport !== 'undefined' && typeof BeeTransport.queueGroupNameResolve === 'function' &&
+        shouldAskFor('g:' + id)) {
+      BeeTransport.queueGroupNameResolve([id]);
+    }
+    return '';
+  }
+
   function slurlLabel(url) {
     const parsed = parse(url);
-    if (parsed && parsed.type === 'app-agent') return 'Resident profile';
-    if (parsed && parsed.type === 'app-group') return 'Group profile';
+    if (parsed && parsed.type === 'app-agent') return agentLinkName(parsed.id) || AGENT_PLACEHOLDER;
+    if (parsed && parsed.type === 'app-group') return groupLinkName(parsed.id) || GROUP_PLACEHOLDER;
     if (parsed && parsed.regionName) {
       if (parsed.x !== undefined && parsed.y !== undefined) {
         const z = parsed.z !== undefined ? parsed.z : 25;
@@ -305,8 +352,16 @@ const BeeSlurl = (function () {
         trusted = false;
       }
       const label = raw.label || (raw.kind === 'slurl' ? slurlLabel(raw.url) : raw.url);
-      segments.push({ type: 'link', url: raw.url, label: label, trusted: trusted,
-        kind: raw.kind, bracketed: raw.bracketed });
+      const seg: any = { type: 'link', url: raw.url, label: label, trusted: trusted,
+        kind: raw.kind, bracketed: raw.bracketed };
+      // Profile links remember whose they are, so the rendered anchor can be
+      // relabelled once the name resolves (and so a menu knows the id).
+      if (raw.kind === 'slurl') {
+        const parsed = parse(raw.url);
+        if (parsed && parsed.type === 'app-agent') seg.agentId = parsed.id;
+        else if (parsed && parsed.type === 'app-group') seg.groupId = parsed.id;
+      }
+      segments.push(seg);
       cursor = raw.end;
     }
     if (cursor < src.length) segments.push({ type: 'text', text: src.slice(cursor) });
@@ -326,7 +381,10 @@ const BeeSlurl = (function () {
       const attr = function (v) { return esc(String(v)).replace(/"/g, '&quot;'); };
       if (seg.kind === 'slurl') {
         html += '<a href="#" class="slurl-link" title="' + attr(seg.url) +
-          '" data-slurl="' + attr(seg.url) + '">' + esc(seg.label) + '</a>';
+          '" data-slurl="' + attr(seg.url) + '"' +
+          (seg.agentId ? ' data-agent-link="' + attr(seg.agentId) + '"' : '') +
+          (seg.groupId ? ' data-group-link="' + attr(seg.groupId) + '"' : '') +
+          '>' + esc(seg.label) + '</a>';
       } else {
         html += '<a href="#" class="chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external') +
           '" title="' + attr(seg.url) + '" data-url="' + attr(seg.url) +
@@ -360,6 +418,7 @@ const BeeSlurl = (function () {
       if (seg.kind === 'slurl') {
         a.className = 'slurl-link';
         a.setAttribute('data-slurl', String(seg.url || ''));
+        markAppLink(a, seg);
       } else {
         a.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
         a.setAttribute('data-url', String(seg.url || ''));
@@ -370,6 +429,33 @@ const BeeSlurl = (function () {
       parent.appendChild(a);
     }
     return parent;
+  }
+
+  // Stamp a rendered profile link with the agent/group id its segment carries.
+  // Every renderer that builds its own anchors from scanLinks() calls this.
+  function markAppLink(anchor, seg) {
+    if (!anchor || !seg) return anchor;
+    if (seg.agentId) anchor.setAttribute('data-agent-link', String(seg.agentId));
+    if (seg.groupId) anchor.setAttribute('data-group-link', String(seg.groupId));
+    return anchor;
+  }
+
+  // Fill in the names of profile links that were rendered before the name
+  // arrived. Only the placeholders change: a bracketed label, or a name that
+  // already resolved, is left alone.
+  function refreshAppLinks(root) {
+    const scope = root || (typeof document !== 'undefined' ? document : null);
+    if (!scope || typeof scope.querySelectorAll !== 'function') return;
+    scope.querySelectorAll('a[data-agent-link]').forEach(function (a) {
+      if (a.textContent !== AGENT_PLACEHOLDER) return;
+      const name = agentLinkName(a.getAttribute('data-agent-link'));
+      if (name) a.textContent = name;
+    });
+    scope.querySelectorAll('a[data-group-link]').forEach(function (a) {
+      if (a.textContent !== GROUP_PLACEHOLDER) return;
+      const name = groupLinkName(a.getAttribute('data-group-link'));
+      if (name) a.textContent = name;
+    });
   }
 
   function openExternalUrl(url) {
@@ -487,6 +573,8 @@ const BeeSlurl = (function () {
     linkify: linkify,
     scanLinks: scanLinks,
     appendLinkified: appendLinkified,
+    markAppLink: markAppLink,
+    refreshAppLinks: refreshAppLinks,
     bindLinks: bindLinks,
     openExternalUrl: openExternalUrl,
     openExternalUrlPrompted: openExternalUrlPrompted,

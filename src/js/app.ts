@@ -552,6 +552,7 @@ const BeeApp = (function () {
       BeeLand.init();
       BeeScripts.init();
       BeeNotecards.init();
+      // BeeGive binds lazily on first open; nothing to init.
       BeeChatLogs.init();
       BeeVoice.init();
       BeeDestinations.init();

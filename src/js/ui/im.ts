@@ -40,6 +40,36 @@ const BeeIm = (function () {
     return !!session && (session.type === 'group' || session.type === 'conference');
   }
 
+  // The conversation list is split in two: private threads ("residents") and
+  // group chats plus conferences ("sessions"). Each half's tab carries the
+  // sum of its rows' unread counts, so a group message never hides behind the
+  // private list and vice versa.
+  let sessionFilter = 'residents';
+
+  function sessionCategory(session) {
+    return isSessionChat(session) ? 'sessions' : 'residents';
+  }
+
+  function setSessionFilter(category, rerender?) {
+    sessionFilter = category === 'sessions' ? 'sessions' : 'residents';
+    document.querySelectorAll<HTMLElement>('.im-subtab').forEach(function (btn) {
+      const active = btn.dataset.imSub === sessionFilter;
+      btn.classList.toggle('im-subtab--active', active);
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    if (rerender !== false) renderSessions();
+  }
+
+  function updateSubtabBadges(counts) {
+    document.querySelectorAll<HTMLElement>('.im-subtab').forEach(function (btn) {
+      const badge = btn.querySelector<HTMLElement>('.im-subtab__badge');
+      if (!badge) return;
+      const n = (counts && counts[btn.dataset.imSub]) || 0;
+      badge.textContent = n > 99 ? '99+' : String(n);
+      badge.hidden = n === 0;
+    });
+  }
+
   function renderSession(session) {
     const row = document.createElement('div');
     row.className = 'im-session';
@@ -177,10 +207,30 @@ const BeeIm = (function () {
     if (!container) return;
     container.innerHTML = '';
 
-    const sessions = (Object.values(BeeState.get().imSessions) as any[]).filter(function (session) {
+    const all = (Object.values(BeeState.get().imSessions) as any[]).filter(function (session) {
       return !session.dismissed;
     });
+    // Both tabs' unread sums come from every row, not just the visible half.
+    const counts = { residents: 0, sessions: 0 };
+    all.forEach(function (session) {
+      counts[sessionCategory(session)] += session.unread || 0;
+    });
+    updateSubtabBadges(counts);
+
+    const sessions = all.filter(function (session) {
+      return sessionCategory(session) === sessionFilter;
+    });
     sessions.sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+
+    if (!sessions.length) {
+      const empty = document.createElement('div');
+      empty.className = 'im-sessions__empty';
+      empty.textContent = sessionFilter === 'sessions'
+        ? 'No group chats or conferences open.'
+        : 'No conversations yet.';
+      container.appendChild(empty);
+      return;
+    }
 
     sessions.forEach(function (session) {
       // Resolve presence inline here, without emitting - refreshImSessionPresence
@@ -245,6 +295,7 @@ const BeeIm = (function () {
         a.className = 'slurl-link';
         a.setAttribute('title', String(seg.url || ''));
         a.setAttribute('data-slurl', String(seg.url || ''));
+        BeeSlurl.markAppLink(a, seg);
       } else {
         a.className = 'chat-link chat-link--' + (seg.trusted ? 'trusted' : 'external');
         a.setAttribute('title', String(seg.url || ''));
@@ -628,6 +679,10 @@ const BeeIm = (function () {
 
     BeeState.markImSessionRead(sessionId);
     BeeState.patch({ activeImSession: sessionId });
+
+    // Opening a conversation from elsewhere (People, Radar, a group profile)
+    // shows the tab that lists it, so the highlighted row is actually visible.
+    if (sessionCategory(session) !== sessionFilter) setSessionFilter(sessionCategory(session), false);
 
     syncImLayout();
     renderSessions();
@@ -1026,6 +1081,11 @@ const BeeIm = (function () {
         if (tab) BeeNavigation.switchTab(tab);
       });
     });
+    document.querySelectorAll<HTMLElement>('.im-subtab').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        setSessionFilter(btn.dataset.imSub);
+      });
+    });
     (document.getElementById('im-profile') as HTMLButtonElement).addEventListener('click', function () {
       const participant = getActiveParticipant();
       if (!participant || !participant.id) return;
@@ -1236,6 +1296,7 @@ const BeeIm = (function () {
       meTyping = { sessionId: null, active: false, lastSent: 0, timer: null };
       document.getElementById('im-sessions').innerHTML = '';
       document.getElementById('im-messages').innerHTML = '';
+      updateSubtabBadges(null);
       const typingBar = document.getElementById('im-typing');
       if (typingBar) typingBar.hidden = true;
       syncImLayout();

@@ -55,7 +55,7 @@ In the **Google Play edition** you can't buy L$ at all - Google Play requires vi
 
 **Chat** - local conversation and system lines.
 
-**IM** - one-to-one (with typing indicator), group chat, and conferences. Start a conference from IM or invite more people into an open one. Group moderators can mute participants in **group** chats; conferences don't get that.
+**IM** - one-to-one (with typing indicator), group chat, and conferences. The conversation list has two tabs - **Residents** and **Groups & Conferences** - and each carries its own unread count, so a busy group never buries a private message. Start a conference from IM or invite more people into an open one. Group moderators can mute participants in **group** chats; conferences don't get that. A resident mentioned in chat or IM (a profile link) shows up by name once it resolves; click the name for the profile.
 
 **Voice (experimental)** - on by default: logging in joins nearby (spatial) voice **listening only**, so you hear people around you and the microphone stays untouched. The top-bar mic button shows the state - tap to go live (this is when the microphone permission is asked), tap again to mute, right-click (long-press) to leave voice for the session. A volume slider sits next to the button while connected (on a phone, use **Bee -> Settings -> Voice -> Volume**, like parcel music); **Microphone volume** in the same settings section adjusts how loud you are to others (up to 200%), and the **Microphone** / **Output device** pickers choose your hardware (device names appear after the first unmute). Near a region border, voice reaches across it - people standing within earshot on the next region are heard too. On the **Radar**, people in voice carry a small mic that lights up while they speak; the row's menu can mute someone just for you or set their personal volume.
 
@@ -85,7 +85,7 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Report abuse** - from a profile: pick a category, write a short summary and details, send. The report goes to the grid's moderation team; the person reported is not notified.
 
-**Groups** - charter, insignia, join/leave, activate, set active title, open group chat.
+**Groups** - charter, insignia, join/leave, activate, set active title, open group chat. The **Notices** tab lists the group's past notices (members only); pick one to read it, and keep or discard its attachment right there.
 
 ---
 
@@ -101,9 +101,9 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Guide** - featured destinations; teleport from a card.
 
-**Scripts** - your inventory's Scripts folder as a small LSL editor: pick a script (or **+** for a new one), read or edit it with line numbers, syntax highlighting and autocomplete - both the grid's built-ins and this script's own variables and functions - then **Save**: the sim compiles it and any compiler errors are listed, click one to jump to that line. While the caret sits inside a call, the function's signature shows under the editor. **Find** (the magnifier or Ctrl+F) searches the source; type `:123` there to jump to a line. **Ctrl+Z / Ctrl+Y** undo and redo, including Tab indents, completions and formatting. The lines button re-indents the whole script; the pencil renames; the copy button opens a small menu with the creator's and last owner's profiles and the item / creator / last-owner UUIDs; the Mono checkbox picks the runtime target. On a phone, the list and the editor are separate screens.
+**Scripts** - your inventory's Scripts folder as a small LSL editor: pick a script (or **+** for a new one), read or edit it with line numbers, syntax highlighting and autocomplete - both the grid's built-ins and this script's own variables and functions - then **Save**: the sim compiles it and any compiler errors are listed, click one to jump to that line. While the caret sits inside a call, the function's signature shows under the editor. **Find** (the magnifier or Ctrl+F) searches the source; type `:123` there to jump to a line. **Ctrl+Z / Ctrl+Y** undo and redo, including Tab indents, completions and formatting. The lines button re-indents the whole script; the pencil renames; the copy button opens a small menu with the creator's and last owner's profiles and the item / creator / last-owner UUIDs; the paper-plane button (or **Send to a resident...** in a script's right-click menu) offers the script to someone picked from your friends, the radar, or a people search - they get the usual accept/decline offer; the Mono checkbox picks the runtime target. On a phone, the list and the editor are separate screens.
 
-**Notes** - the same idea for your Notecards folder: pick a notecard (or **+** for a new one), read or edit the text, **Save** (Ctrl+S works). A notecard that carries embedded inventory items warns before saving, because a save from Minibee keeps only the text. The pencil renames and the copy button has the same creator/UUID menu as scripts.
+**Notes** - the same idea for your Notecards folder: pick a notecard (or **+** for a new one), read or edit the text, **Save** (Ctrl+S works). A notecard that carries embedded inventory items warns before saving, because a save from Minibee keeps only the text. The pencil renames, the copy button has the same creator/UUID menu as scripts, and the paper-plane button sends the notecard to another resident.
 
 ---
 

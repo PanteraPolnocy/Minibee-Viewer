@@ -1577,6 +1577,67 @@ button.bee-menu__value--action:disabled {
   -webkit-overflow-scrolling: touch;
 }
 
+.im-sessions__empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Residents / Groups & Conferences split above the conversation list. Each
+   tab's badge is the sum of its rows' unread counts. */
+.im-subtabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-deep);
+  flex-shrink: 0;
+}
+
+.im-subtab {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 6px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.im-subtab--active {
+  color: var(--accent);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.im-subtab__badge {
+  background: var(--accent);
+  color: var(--bg-deep, #000);
+  border-radius: 999px;
+  min-width: 18px;
+  padding: 1px 5px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.im-subtab__badge[hidden] { display: none; }
+
 .im-thread__body {
   flex: 1;
   display: flex;
@@ -1808,6 +1869,35 @@ button.bee-menu__value--action:disabled {
   text-align: center;
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+/* "Send to a resident" picker (scripts and notecards). */
+.give-sources {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 2px 0 10px;
+}
+
+.give-picker__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.give-picker__name {
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.give-picker__sub {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .field-with-action {
@@ -4967,6 +5057,109 @@ button.status-chip--balance:disabled {
 .profile-main-panel,
 .profile-tab-panel {
   padding: 12px 16px 16px;
+}
+
+/* The group profile nests its main panel inside a tab panel; pad once. */
+.profile-tab-panel > .profile-main-panel { padding: 0; }
+
+/* Group profile: the Notices tab. */
+.group-notices__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.group-notices__list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 260px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.group-notices__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  align-items: center;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.group-notices__item:last-child { border-bottom: none; }
+
+.group-notices__item:hover,
+.group-notices__item--active { background: var(--bg-elevated); }
+
+.group-notices__item--active .group-notices__subject { color: var(--accent); }
+
+.group-notices__subject {
+  font-weight: 600;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-notices__clip {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.group-notices__meta {
+  grid-column: 1 / -1;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-notices__detail {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.group-notices__detail[hidden] { display: none; }
+
+.group-notices__detail-subject {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.group-notices__detail-meta {
+  margin: 0 0 10px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.group-notices__body {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.group-notices__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
 }
 
 .profile-dialog__actions[hidden] {

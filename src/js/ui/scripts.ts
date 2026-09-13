@@ -710,6 +710,13 @@ const BeeScripts = (function () {
     menu.style.top = Math.max(0, Math.min(rect.bottom + 4, window.innerHeight - mrect.height - 8)) + 'px';
   }
 
+  // Offer a script to another resident through the shared recipient picker.
+  // LSL text is inventory asset type 10.
+  function sendToResident(row) {
+    if (!row || !row.itemId || typeof BeeGive === 'undefined') return;
+    BeeGive.open({ itemId: row.itemId, assetType: 10, name: row.name || 'Script' });
+  }
+
   function setEditorOpen(open) {
     const panel = el('panel-scripts');
     if (panel) panel.classList.toggle('panel--scripts--editor-open', open);
@@ -844,7 +851,7 @@ const BeeScripts = (function () {
     const seq = ++openSeq;
     current = { itemId: row.itemId, assetId: row.assetId, creatorId: row.creatorId || '', lastOwnerId: row.lastOwnerId || '', name: row.name, savedText: '', dirty: false };
     clearUndo();
-    ['script-rename', 'script-find-open', 'script-format', 'script-copy-ids'].forEach(function (id) {
+    ['script-rename', 'script-find-open', 'script-format', 'script-copy-ids', 'script-send'].forEach(function (id) {
       const btn = el(id);
       if (btn) btn.hidden = false;
     });
@@ -942,7 +949,7 @@ const BeeScripts = (function () {
       createWaiter.reject(new Error('Session ended'));
       createWaiter = null;
     }
-    ['script-rename', 'script-find-open', 'script-format', 'script-copy-ids'].forEach(function (id) {
+    ['script-rename', 'script-find-open', 'script-format', 'script-copy-ids', 'script-send'].forEach(function (id) {
       const btn = el(id);
       if (btn) btn.hidden = true;
     });
@@ -986,6 +993,7 @@ const BeeScripts = (function () {
           !/^0+(-0+)*$/.test(String(row.creatorId || '').replace(/-/g, ''));
         return [
           { label: 'Open script', action: function () { void open(row); } },
+          { label: 'Send to a resident...', action: function () { sendToResident(row); } },
           {
             label: 'Creator profile',
             disabled: !creatorKnown,
@@ -1004,6 +1012,8 @@ const BeeScripts = (function () {
     if (newBtn) newBtn.addEventListener('click', function () { void createNew(); });
     const renameBtn = el('script-rename');
     if (renameBtn) renameBtn.addEventListener('click', function () { void renameCurrent(); });
+    const sendBtn = el('script-send');
+    if (sendBtn) sendBtn.addEventListener('click', function () { if (current) sendToResident(current); });
 
     const findOpenBtn = el('script-find-open');
     if (findOpenBtn) findOpenBtn.addEventListener('click', openFind);

@@ -209,6 +209,14 @@ const BeeTransport = (function () {
     return adapter.payResident(destId, amount, description);
   }
 
+  // Offer one of our inventory items ({ itemId, assetType, name }) to a resident.
+  function giveInventory(destId, item) {
+    if (!adapter || !adapter.giveInventory) {
+      return Promise.resolve({ sent: false });
+    }
+    return adapter.giveInventory(destId, item);
+  }
+
   function searchDirectory(kind, query, start) {
     if (!adapter || !adapter.searchDirectory) {
       return Promise.resolve({ rows: [], hasMore: false, nextStart: 0, statusText: '' });
@@ -509,6 +517,7 @@ const BeeTransport = (function () {
     saveGroupTitle: saveGroupTitle,
     saveAvatarNotes: saveAvatarNotes,
     payResident: payResident,
+    giveInventory: giveInventory,
     searchDirectory: searchDirectory,
     updateParcel: updateParcel,
     refreshParcel: refreshParcel,
