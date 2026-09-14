@@ -51,8 +51,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.13.3
-        CFBundleVersion: "0.13.3"
+        CFBundleShortVersionString: 0.13.4
+        CFBundleVersion: "0.13.4"
     entitlements:
       path: minibee-viewer_iOS/minibee-viewer_iOS.entitlements
     scheme:
