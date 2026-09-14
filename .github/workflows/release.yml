@@ -372,6 +372,7 @@ jobs:
     needs: update-release-notes
     if: github.event_name == 'release' && github.event.release.prerelease == false
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Publish to WinGet
         uses: vedantmgoyal9/winget-releaser@main
