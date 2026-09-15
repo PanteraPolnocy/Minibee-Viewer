@@ -14,6 +14,14 @@ const requests = [];
 const BeeProfiles = loadBeeModule('js/core/sl-profiles.ts', 'BeeProfiles', {
   window: {},
   document: undefined,
+  // The module arms long timers (fetch timeouts, in-flight guards). Real ones,
+  // but unref'd, so a test file does not sit around for 30s after its last
+  // assertion waiting for them to fire.
+  setTimeout: (fn, ms) => {
+    const t = globalThis.setTimeout(fn, ms);
+    if (t && typeof t.unref === 'function') t.unref();
+    return t;
+  },
   // Mirrors BeeUtils.normUuid exactly - a looser stub would let the id guard in
   // normId() look stricter here than it really is.
   BeeUtils: { normUuid: (id) => String(id || '').toLowerCase().replace(/[{}]/g, '').trim() },
@@ -222,4 +230,80 @@ test('queueAvatarThumb: a properties reply with no picture is still an answer', 
   BeeProfiles.queueAvatarThumb(id);
   assert.equal(asked.length, 0);
   requests.pop();
+});
+
+// --- a notice reply is matched to the read that asked for it ----------------
+//
+// GroupNoticeRequest is answered with an IM whose id should be the notice's.
+// The reference viewer never checks that id - it shows whatever notice the
+// group server sends back - so a reply under an unexpected (or null) id is
+// filed under the oldest pending read rather than left unclaimed while the
+// Notices tab waits until it gives up.
+
+test('notice detail: an exact id match resolves that read', async () => {
+  const notice = '31313131-3434-5656-7878-909090909090';
+  const p = BeeProfiles.fetchGroupNotice(notice);
+  emit('group-notice-detail', { noticeId: notice, subject: 'Meeting', text: 'Bring snacks.' });
+  const got = await p;
+  assert.equal(got.subject, 'Meeting');
+  assert.equal(got.noticeId, notice);
+  assert.equal(BeeProfiles.getGroupNoticeDetail(notice).text, 'Bring snacks.');
+});
+
+test('notice detail: an exact match wins over the pending order', async () => {
+  const first = '32323232-3434-5656-7878-909090909090';
+  const second = '33333333-3434-5656-7878-909090909090';
+  const p1 = BeeProfiles.fetchGroupNotice(first);
+  const p2 = BeeProfiles.fetchGroupNotice(second);
+  emit('group-notice-detail', { noticeId: second, subject: 'Second' });
+  emit('group-notice-detail', { noticeId: first, subject: 'First' });
+  assert.equal((await p1).subject, 'First');
+  assert.equal((await p2).subject, 'Second');
+});
+
+test('notice detail: a reply under an unexpected id is filed under the oldest pending read', async () => {
+  const asked = '34343434-3434-5656-7878-909090909090';
+  const wire = '35353535-3434-5656-7878-909090909090';
+  const p = BeeProfiles.fetchGroupNotice(asked);
+  emit('group-notice-detail', {
+    noticeId: wire, subject: 'Party', text: 'Saturday',
+    attachment: { itemName: 'Hat', transactionId: wire }
+  });
+  const got = await p;
+  assert.equal(got.subject, 'Party');
+  assert.equal(got.noticeId, asked, 'the detail is keyed by the notice that was asked for');
+  assert.equal(got.attachment.transactionId, wire, 'the wire id still drives the attachment reply');
+  assert.equal(BeeProfiles.getGroupNoticeDetail(asked).subject, 'Party');
+  assert.equal(BeeProfiles.getGroupNoticeDetail(wire), null, 'nothing is left under the stray id');
+});
+
+test('notice detail: replies under the null id answer pending reads in order', async () => {
+  const first = '36363636-3434-5656-7878-909090909090';
+  const second = '37373737-3434-5656-7878-909090909090';
+  const p1 = BeeProfiles.fetchGroupNotice(first);
+  const p2 = BeeProfiles.fetchGroupNotice(second);
+  emit('group-notice-detail', { noticeId: ZERO, subject: 'One' });
+  emit('group-notice-detail', { noticeId: ZERO, subject: 'Two' });
+  assert.equal((await p1).subject, 'One');
+  assert.equal((await p2).subject, 'Two');
+});
+
+test('notice detail: with nothing pending, a reply is kept under its own id', () => {
+  const wire = '38383838-3434-5656-7878-909090909090';
+  emit('group-notice-detail', { noticeId: wire, subject: 'Late' });
+  assert.equal(BeeProfiles.getGroupNoticeDetail(wire).subject, 'Late');
+  // ...and one with no usable id at all is dropped rather than cached under ''.
+  emit('group-notice-detail', { noticeId: ZERO, subject: 'Nobody asked' });
+  assert.equal(BeeProfiles.getGroupNoticeDetail(ZERO), null);
+});
+
+test('notice detail: a re-read keeps the attachment answer already given', async () => {
+  const notice = '39393939-3434-5656-7878-909090909090';
+  const p = BeeProfiles.fetchGroupNotice(notice);
+  emit('group-notice-detail', { noticeId: notice, subject: 'Gift', attachment: { itemName: 'Hat' } });
+  await p;
+  assert.equal(BeeProfiles.markGroupNoticeAttachment(notice, 'Kept'), true);
+  const again = BeeProfiles.fetchGroupNotice(notice);
+  emit('group-notice-detail', { noticeId: notice, subject: 'Gift', attachment: { itemName: 'Hat' } });
+  assert.equal((await again).attachmentResponse, 'Kept');
 });

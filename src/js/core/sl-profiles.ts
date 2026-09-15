@@ -24,6 +24,7 @@ const BeeProfiles = (function () {
   const waiters = new Map();         // key -> [resolve...]
   const pendingThumbs = new Set();   // avatar ids with an in-flight properties request
   const pendingGroups = new Set();   // group ids with an in-flight profile request
+  const pendingNoticeReads: string[] = []; // notice ids asked for, oldest first
   let active = { id: '', name: '', title: '' };
   let attached = false;
 
@@ -249,11 +250,22 @@ const BeeProfiles = (function () {
       resolveWaiters('notices:' + id, groupNotices.get(id));
     });
     BeeBridge.listen('minibee-viewer://group-notice-detail', function (p) {
-      if (!p || isZero(p.noticeId)) return;
-      const id = normId(p.noticeId);
+      if (!p) return;
+      // The answer to a GroupNoticeRequest is an IM whose id should be the
+      // notice's. The reference viewer never checks that - it shows whatever
+      // notice comes back - so an id that matches none of our pending reads
+      // is filed under the oldest one instead of being left unclaimed while
+      // the Notices tab waits for a reply that, as far as it knows, never came.
+      const wireId = normId(p.noticeId);
+      let id = wireId;
+      if ((isZero(id) || pendingNoticeReads.indexOf(id) < 0) && pendingNoticeReads.length) {
+        id = pendingNoticeReads[0];
+      }
+      if (isZero(id)) return;
+      forgetNoticeRead(id);
       // A re-read keeps the Keep/Discard answer already given for its attachment.
       const prev = noticeDetails.get(id);
-      const next = Object.assign({}, p);
+      const next = Object.assign({}, p, { noticeId: id });
       if (prev && prev.attachmentResponse) next.attachmentResponse = prev.attachmentResponse;
       noticeDetails.set(id, next);
       emitChange('group-notice-detail', id);
@@ -402,11 +414,20 @@ const BeeProfiles = (function () {
     invoke('sl_group_notices_request', { groupId: key });
     return waitFor('notices:' + key, 12000, function () { return getGroupNotices(key); });
   }
+  function forgetNoticeRead(key) {
+    const at = pendingNoticeReads.indexOf(key);
+    if (at >= 0) pendingNoticeReads.splice(at, 1);
+  }
   function fetchGroupNotice(noticeId) {
     const key = normId(noticeId);
     if (isZero(key)) return Promise.resolve(null);
+    if (pendingNoticeReads.indexOf(key) < 0) pendingNoticeReads.push(key);
     invoke('sl_group_notice_request', { noticeId: key });
-    return waitFor('notice:' + key, 12000, function () { return getGroupNoticeDetail(key); });
+    return waitFor('notice:' + key, 12000, function () { return getGroupNoticeDetail(key); })
+      .then(function (detail) {
+        forgetNoticeRead(key); // a reply claims it earlier; this covers the timeout
+        return detail;
+      });
   }
   function fetchPickInfo(avatarId, pickId) {
     const pk = normId(pickId || avatarId);

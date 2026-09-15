@@ -4276,7 +4276,17 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     let bucket = inst_text(&msg, "BinaryBucket");
     const ZERO: &str = "00000000-0000-0000-0000-000000000000";
 
-    if from_id.is_empty() || same_uuid(&from_id, &state.agent_id) {
+    if from_id.is_empty() {
+        return actions;
+    }
+    // A group notice (32 live, 37 answering our GroupNoticeRequest) carries
+    // the group - or, on some grids, the notice's author, who may well be us -
+    // in AgentID. It is never an echo of something we sent, so it skips the
+    // self filter every other IM gets; the reference viewer never drops a
+    // notice over its sender either. Without this, re-reading a notice we
+    // posted ourselves timed out with "the group server did not answer".
+    let is_group_notice = matches!(dialog, 32 | 37);
+    if !is_group_notice && same_uuid(&from_id, &state.agent_id) {
         return actions;
     }
     let is_session = from_group || dialog == 15 || dialog == 16 || dialog == 17;
@@ -4298,8 +4308,26 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         return actions;
     }
 
-    state.cache_name(&from_id, &from_name);
-    let display = state.cached_name(&from_id).unwrap_or(&from_name).to_string();
+    // A notice's bucket is read before the name cache: its group id tells
+    // whether AgentID is the group (the usual case) or the author. Filing the
+    // author's name under the group's id would mislabel the group, and make
+    // every later notice from it look like it came from the first author seen.
+    let notice_bucket = if is_group_notice {
+        Some(parse_group_notice_bucket(&inst_bytes(&msg, "BinaryBucket")))
+    } else {
+        None
+    };
+    let notice_from_group = notice_bucket
+        .as_ref()
+        .is_some_and(|(_, group, _)| is_zero_uuid(group) || same_uuid(group, &from_id));
+    if !notice_from_group {
+        state.cache_name(&from_id, &from_name);
+    }
+    let display = if notice_from_group {
+        from_name.clone()
+    } else {
+        state.cached_name(&from_id).unwrap_or(&from_name).to_string()
+    };
 
     // Typing pings, for non-session IMs.
     if (dialog == 41 || dialog == 42) && !is_session {
@@ -4346,12 +4374,12 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         // the binary bucket. It gets an Events-tab card of its own instead of
         // drowning in group chat.
         32 | 37 => {
-            let raw_bucket = inst_bytes(&msg, "BinaryBucket");
-            let (has_attachment, bucket_group, item_name) = parse_group_notice_bucket(&raw_bucket);
-            // The sender rides in the AgentData/FromAgentName fields; the group
-            // is named by the bucket (fall back to the from id, which some
-            // grids set to the group).
-            let group_id = if is_zero_uuid(&bucket_group) || bucket_group.is_empty() {
+            let (has_attachment, bucket_group, item_name) = notice_bucket.unwrap_or_default();
+            // The sender's name rides in FromAgentName; the group is named by
+            // the bucket (fall back to the from id, which most grids set to
+            // the group). Only an AgentID that is not the group is an avatar
+            // worth a name lookup.
+            let group_id = if is_zero_uuid(&bucket_group) {
                 from_id.clone()
             } else {
                 bucket_group
@@ -4365,7 +4393,9 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             // card - and it skips the replay guard below, which would otherwise
             // swallow a re-read of a notice that also arrived live.
             if dialog == 37 {
-                actions.push(Action::ResolveNames(vec![from_id.clone()]));
+                if !notice_from_group {
+                    actions.push(Action::ResolveNames(vec![from_id.clone()]));
+                }
                 let mut payload = json!({
                     "noticeId": im_id.to_ascii_lowercase(),
                     "groupId": &group_id, "groupName": group_name_of(state, &group_id),
@@ -4384,7 +4414,9 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if state.is_duplicate_im(&format!("group-notice\0{im_id}\0{text}")) {
                 return actions;
             }
-            actions.push(Action::ResolveNames(vec![from_id.clone()]));
+            if !notice_from_group {
+                actions.push(Action::ResolveNames(vec![from_id.clone()]));
+            }
             let mut payload = json!({
                 "kind": "group-notice",
                 "fromId": &from_id, "fromName": &display,
@@ -5544,6 +5576,75 @@ mod tests {
         // deliveries, not for something the user asked to see again.
         let again = route(&mut st, &pkt);
         assert!(emit_of(&again, "group-notice-detail").is_some(), "a second read must answer too");
+    }
+
+    fn notice_packet(dialog: i64, agent_id: &str, notice: &str, from_name: &str) -> Value {
+        let mut bucket = vec![0u8, 0u8];
+        bucket.extend_from_slice(&[0xAA; 16]);
+        json!({
+            "name": "ImprovedInstantMessage",
+            "blocks": {
+                "AgentData": [{ "AgentID": agent_id, "SessionID": "s" }],
+                "MessageBlock": [{
+                    "FromGroup": true, "ToAgentID": ME, "Offline": 0, "Dialog": dialog,
+                    "ID": notice, "Timestamp": 0,
+                    "FromAgentName": B64.encode(format!("{from_name}\0").as_bytes()),
+                    "Message": B64.encode(b"Meeting|Bring snacks.\0"),
+                    "BinaryBucket": B64.encode(&bucket),
+                }]
+            }
+        })
+    }
+
+    #[test]
+    fn requested_group_notice_authored_by_us_is_still_answered() {
+        // Some grids put the notice's author in AgentID. A notice we posted
+        // ourselves must not fall to the "ignore IMs from ourselves" filter -
+        // that left the Notices tab waiting until it gave up.
+        let mut st = me_state();
+        let notice = "55555555-5555-5555-5555-555555555555";
+        let a = route(&mut st, &notice_packet(37, ME, notice, "Pantera"));
+        let d = emit_of(&a, "group-notice-detail").expect("group-notice-detail");
+        assert_eq!(d["noticeId"], notice);
+        assert_eq!(d["subject"], "Meeting");
+        assert_eq!(d["fromName"], "Pantera");
+        assert_eq!(d["groupId"], "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    }
+
+    #[test]
+    fn live_group_notice_authored_by_us_is_still_a_card() {
+        let mut st = me_state();
+        let a = route(&mut st, &notice_packet(32, ME, "66666666-6666-6666-6666-666666666666", "Pantera"));
+        let e = emit_of(&a, "event").expect("group-notice event");
+        assert_eq!(e["kind"], "group-notice");
+        assert_eq!(e["fromName"], "Pantera");
+    }
+
+    #[test]
+    fn group_notice_sender_is_the_wire_name_when_agent_id_is_the_group() {
+        // The usual shape: AgentID is the group itself. The author's name
+        // must neither be cached under the group's id nor looked up as an
+        // avatar, and a name already cached for that id must not replace the
+        // author shown on the notice.
+        let group = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        let mut st = me_state();
+        let a = route(&mut st, &notice_packet(37, group, "77777777-7777-7777-7777-777777777777", "Pantera"));
+        let d = emit_of(&a, "group-notice-detail").expect("group-notice-detail");
+        assert_eq!(d["fromName"], "Pantera");
+        assert_eq!(st.cached_name(group), None, "the author's name must not be filed under the group");
+        assert!(
+            !a.iter().any(|x| matches!(x, Action::ResolveNames(ids) if ids.iter().any(|i| i == group))),
+            "a group id is not an avatar to resolve"
+        );
+
+        // With something already cached under the group's id, the notice still
+        // names its author, not the cached label.
+        let mut st = me_state();
+        st.set_name(group, "Bee Keepers");
+        let a = route(&mut st, &notice_packet(32, group, "88888888-8888-8888-8888-888888888888", "Ruth Resident"));
+        let e = emit_of(&a, "event").expect("group-notice event");
+        assert_eq!(e["fromName"], "Ruth Resident");
+        assert_eq!(st.cached_name(group), Some("Bee Keepers"));
     }
 
     #[test]

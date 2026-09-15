@@ -100,8 +100,8 @@ const BeeLandmarks = (function () {
   function setDetails(place, slurl) {
     const placeEl = el('landmark-place');
     const slurlEl = el('landmark-slurl');
-    if (placeEl) placeEl.textContent = place || '—';
-    if (slurlEl) slurlEl.textContent = slurl || '—';
+    if (placeEl) placeEl.textContent = place || '-';
+    if (slurlEl) slurlEl.textContent = slurl || '-';
   }
 
   // Where the landmark points: its asset gives region id + position, the

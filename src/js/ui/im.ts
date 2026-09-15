@@ -109,8 +109,11 @@ const BeeIm = (function () {
     } else if (sessionChat) {
       avatarNode = '<div class="' + avatarClass + '">' + GROUP_GLYPH + countBadge + '</div>';
     } else {
+      // A conversation list is short, so each resident's picture is worth a
+      // properties request - otherwise the row kept its initials until their
+      // profile happened to be opened.
       avatarNode = '<div class="' + avatarClass + '" data-agent-id="' + BeeUtils.escapeHtml((p && p.id) || '') +
-        '" data-resolve-image="0" data-label="' + BeeUtils.escapeHtml(names.title) + '"' +
+        '" data-resolve-image="1" data-label="' + BeeUtils.escapeHtml(names.title) + '"' +
         (online ? ' data-online="1"' : '') + '></div>';
     }
     const mutedGlyph = session.muted

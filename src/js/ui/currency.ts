@@ -64,8 +64,8 @@ const BeeCurrency = (function () {
     if (balanceEl) balanceEl.textContent = BeeUtils.formatLindenBalance(balance);
     const est = el('buy-currency-estimate');
     if (est) {
-      est.textContent = !amount ? '—'
-        : haveQuote ? (quote.estimate || '—')
+      est.textContent = !amount ? '-'
+        : haveQuote ? (quote.estimate || '-')
           : 'Estimating...';
     }
     const total = el('buy-currency-total');

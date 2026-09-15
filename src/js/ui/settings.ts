@@ -25,7 +25,7 @@ const BeeSettingsUI = (function () {
   const GROUPS = [
     { section: 'Appearance', items: [
       { key: 'theme', label: 'Theme', kind: 'select',
-        options: [['dark', 'Dark'], ['light', 'Light']] }
+        options: [['dark', 'Dark'], ['light', 'Light'], ['system', 'System (follow device)']] }
     ] },
     { section: 'Connection', items: [
       { key: 'autoReconnect', label: 'Auto-reconnect after disconnect', kind: 'toggle' }

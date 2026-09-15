@@ -5,6 +5,10 @@ const BeeAvatarThumb = (function () {
   'use strict';
 
   const GROUP_GLYPH = 'G';
+  // Every thumbnail a profile event may have to repaint: the ones this module
+  // creates, plus the list-row avatars other surfaces mark up themselves.
+  const THUMB_SELECTOR = '[data-agent-id].avatar-thumb, .entity-item__avatar[data-agent-id], ' +
+    '.im-session__avatar[data-agent-id]';
 
   function fallbackLabel(agentId, options) {
     const opts = options || {};
@@ -145,7 +149,7 @@ const BeeAvatarThumb = (function () {
 
   function refreshAll(root) {
     const scope = root || document;
-    scope.querySelectorAll('[data-agent-id].avatar-thumb, .entity-item__avatar[data-agent-id]').forEach(function (el) {
+    scope.querySelectorAll(THUMB_SELECTOR).forEach(function (el) {
       refreshElement(el);
     });
   }
@@ -156,7 +160,7 @@ const BeeAvatarThumb = (function () {
   function refreshFor(id) {
     const key = BeeProfiles.normId(id || '');
     if (!key) return;
-    document.querySelectorAll<HTMLElement>('[data-agent-id].avatar-thumb, .entity-item__avatar[data-agent-id]').forEach(function (el) {
+    document.querySelectorAll<HTMLElement>(THUMB_SELECTOR).forEach(function (el) {
       if (BeeProfiles.normId(el.dataset.agentId) === key) refreshElement(el);
     });
   }

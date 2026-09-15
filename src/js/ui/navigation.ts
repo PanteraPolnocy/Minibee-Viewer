@@ -371,7 +371,7 @@ const BeeNavigation = (function () {
     const regionEl = document.getElementById('location-menu-region');
     if (!parcelEl && !regionEl) return;
     const s = BeeState.get();
-    if (parcelEl) parcelEl.textContent = formatParcelLine(s) || '—';
+    if (parcelEl) parcelEl.textContent = formatParcelLine(s) || '-';
     if (regionEl) {
       regionEl.textContent = s.sessionLost ? 'Disconnected' : (s.region ? s.region.name : 'Offline');
     }

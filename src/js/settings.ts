@@ -43,7 +43,9 @@ const BeeSettings = (function () {
     objectsRange: { type: 'number', default: 32 },
     objectsIncludeAttachments: { type: 'boolean', default: false },
     objectsIncludePhysical: { type: 'boolean', default: true },
-    theme: { type: 'string', default: 'dark' }
+    // 'system' follows the device's light/dark preference (and tracks changes
+    // to it); the other two are fixed.
+    theme: { type: 'string', default: 'dark', choices: ['dark', 'light', 'system'] }
   };
 
   const OBJECTS_RANGE_CHOICES = [16, 32, 48, 64, 96, 128, 256, 384];
@@ -76,6 +78,7 @@ const BeeSettings = (function () {
       return v;
     }
     const s = String(raw == null ? '' : raw).trim();
+    if (spec.choices && spec.choices.indexOf(s) < 0) return spec.default;
     return s || spec.default;
   }
 
@@ -104,8 +107,47 @@ const BeeSettings = (function () {
     if (Object.keys(patch).length) BeeState.patch(patch);
   }
 
+  // The device's own preference, as the 'system' theme reads it. Absent
+  // matchMedia (or a query that throws) counts as dark, the viewer's default.
+  function systemMediaQuery() {
+    try {
+      return (typeof window !== 'undefined' && typeof window.matchMedia === 'function')
+        ? window.matchMedia('(prefers-color-scheme: dark)')
+        : null;
+    } catch (_e) { return null; }
+  }
+
+  function systemPrefersDark() {
+    const mq = systemMediaQuery();
+    return mq ? !!mq.matches : true;
+  }
+
+  /** The theme actually painted: 'dark' or 'light', with 'system' resolved. */
+  function effectiveTheme(theme) {
+    if (theme === 'light') return 'light';
+    if (theme === 'system') return systemPrefersDark() ? 'dark' : 'light';
+    return 'dark';
+  }
+
+  // While the theme is 'system', a flip of the device preference repaints at
+  // once; the listener is attached the first time it is needed and stays.
+  let systemWatchArmed = false;
+  function watchSystemTheme() {
+    if (systemWatchArmed) return;
+    const mq = systemMediaQuery();
+    if (!mq) return;
+    const onFlip = function () {
+      if (values.theme === 'system') applyTheme('system');
+    };
+    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onFlip);
+    else if (typeof mq.addListener === 'function') mq.addListener(onFlip);
+    else return;
+    systemWatchArmed = true;
+  }
+
   function applyTheme(theme) {
-    const value = theme === 'light' ? 'light' : 'dark';
+    if (theme === 'system') watchSystemTheme();
+    const value = effectiveTheme(theme);
     document.documentElement.setAttribute('data-theme', value);
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', value === 'light' ? '#faf7f2' : '#16120c');
@@ -164,8 +206,11 @@ const BeeSettings = (function () {
     set: set,
     onChange: onChange,
     applyTheme: applyTheme,
+    effectiveTheme: function () { return effectiveTheme(get('theme')); },
+    // The top-bar button flips whatever is on screen, so from 'system' it
+    // lands on the explicit opposite of the device's current preference.
     toggleTheme: function () {
-      set('theme', get('theme') === 'light' ? 'dark' : 'light');
+      set('theme', effectiveTheme(get('theme')) === 'light' ? 'dark' : 'light');
     },
     SCHEMA: SCHEMA
   };
