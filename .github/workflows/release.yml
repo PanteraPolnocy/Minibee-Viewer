@@ -367,15 +367,15 @@ jobs:
           RELEASE_ID: ${{ github.event.release.id }}
         run: node scripts/update-release-notes.mjs --release-id "${RELEASE_ID}"
 
-#  publish-winget:
-#    name: Publish to WinGet
-#    needs: update-release-notes
-#    if: github.event_name == 'release' && github.event.release.prerelease == false
-#    runs-on: ubuntu-latest
-#    permissions: {}
-#    steps:
-#      - name: Publish to WinGet
-#        uses: vedantmgoyal9/winget-releaser@main
-#        with:
-#          identifier: Minibee.Viewer
-#          token: ${{ secrets.WINGET_TOKEN }}
+  publish-winget:
+    name: Publish to WinGet
+    needs: update-release-notes
+    if: github.event_name == 'release' && github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Publish to WinGet
+        uses: vedantmgoyal9/winget-releaser@main
+        with:
+          identifier: Minibee.Viewer
+          token: ${{ secrets.WINGET_TOKEN }}
