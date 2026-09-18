@@ -15,26 +15,24 @@ use tauri::State;
 use crate::bridge::login::{member_int, member_string, parse_login_response, xmlrpc_call};
 use crate::bridge::proxy;
 use crate::bridge::state::AppState;
-use crate::bridge::util::{trim_quotes, truthy};
+use crate::bridge::util::truthy;
 
 #[derive(Debug, Clone, Default)]
 pub struct CurrencyContext {
     pub agent_id: String,
     pub secure_session_id: String,
-    /// Helper base URL ("https://.../helpers/"); empty when the grid has none,
-    /// in which case buying is unavailable.
+    /// Helper base URL ("https://.../helpers/") of the grid logged into.
     pub helper_uri: String,
     /// Whether this session is on a Linden grid (agni/aditi).
     pub linden_grid: bool,
 }
 
-/// The per-grid currency helper. Linden grids have fixed helpers; other grids
-/// name theirs in the login reply or go without.
-pub fn helper_uri_for(grid: &str, login_helper: &str) -> String {
+/// The per-grid currency helper. Both Linden grids have fixed helpers, and
+/// nothing the login reply says can point buying elsewhere.
+pub fn helper_uri_for(grid: &str, _login_helper: &str) -> String {
     match grid {
-        "agni" | "" => "https://secondlife.com/helpers/".into(),
         "aditi" => "https://secondlife.aditi.lindenlab.com/helpers/".into(),
-        _ => trim_quotes(login_helper),
+        _ => "https://secondlife.com/helpers/".into(),
     }
 }
 
@@ -67,9 +65,8 @@ fn base_members(state: &AppState, ctx: &CurrencyContext, amount: i64) -> String 
 
 async fn call(state: &AppState, url: &str, method: &str, members: &str) -> Result<Map<String, Value>, String> {
     let xml = xmlrpc_call(method, members);
-    // Same trust class as the login endpoint: the helper is the user's own grid
-    // (possibly a LAN OpenSim), so no private-host guard, but the pin still stops
-    // DNS rebinding on public hosts.
+    // Same trust class as the login endpoint: the helper is the grid's own, so
+    // no private-host guard, but the pin still stops DNS rebinding.
     let pin = proxy::resolve_public_pin(url).await;
     let ex = proxy::exchange(&state.ua, "POST", url, &xml, "text/xml", &[], pin, Duration::from_secs(60), false)
         .await
@@ -194,13 +191,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn helper_uri_is_fixed_for_linden_grids_and_login_supplied_elsewhere() {
+    fn helper_uri_is_fixed_per_linden_grid() {
         assert_eq!(helper_uri_for("agni", ""), "https://secondlife.com/helpers/");
         assert_eq!(helper_uri_for("agni", "https://evil.example/"), "https://secondlife.com/helpers/");
         assert_eq!(helper_uri_for("aditi", ""), "https://secondlife.aditi.lindenlab.com/helpers/");
-        assert_eq!(helper_uri_for("local", "\"http://127.0.0.1:9000/\""), "http://127.0.0.1:9000/");
-        assert_eq!(helper_uri_for("local", "'http://10.0.0.5/economy/'"), "http://10.0.0.5/economy/");
-        assert_eq!(helper_uri_for("local", ""), "");
+        assert_eq!(helper_uri_for("aditi", "'http://10.0.0.5/economy/'"), "https://secondlife.aditi.lindenlab.com/helpers/");
+        // An unknown or empty grid id is the main grid.
+        assert_eq!(helper_uri_for("", "\"http://127.0.0.1:9000/\""), "https://secondlife.com/helpers/");
     }
 
     #[test]

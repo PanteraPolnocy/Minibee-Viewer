@@ -43,12 +43,7 @@ fn md5_hex(input: &str) -> String {
 }
 
 fn sl_login_passwd(p: &Value) -> String {
-    let plain = gs(p, "passwd");
-    if gs(p, "auth_type") == "account" {
-        plain
-    } else {
-        format!("$1${}", md5_hex(&plain))
-    }
+    format!("$1${}", md5_hex(&gs(p, "passwd")))
 }
 
 pub(crate) fn member_string(name: &str, value: &str) -> String {
@@ -777,12 +772,6 @@ mod tests {
     }
 
     #[test]
-    fn account_auth_type_sends_plain_password() {
-        let p = json!({ "passwd": "secrettoken", "auth_type": "account" });
-        assert_eq!(sl_login_passwd(&p), "secrettoken");
-    }
-
-    #[test]
     fn password_not_trimmed() {
         // Leading and trailing spaces are part of the password; trimming them would
         // hash something other than what the user actually set.
@@ -913,10 +902,11 @@ const LOGIN_OPTIONS: &[&str] = &[
     "global-textures", "max-agent-groups", "voice-config", "tutorial_setting",
 ];
 
+/// Minibee talks to Second Life only: the beta grid by name, the main grid
+/// for anything else.
 fn grid_login_url(grid: &str) -> &'static str {
     match grid {
         "aditi" => "https://login.aditi.lindenlab.com/cgi-bin/login.cgi",
-        "local" => "http://127.0.0.1:9000/",
         _ => "https://login.agni.lindenlab.com/cgi-bin/login.cgi",
     }
 }
@@ -945,13 +935,7 @@ fn assemble_login_body(state: &AppState, cred: &Value) -> Value {
         let u = cs("loginUrl");
         if u.is_empty() { grid_login_url(&grid).to_string() } else { u }
     };
-    let raw_username = cs("username");
-    let (first, last) = parse_username(&raw_username);
-    // On a non-Linden (OpenSim) grid, a single-word username means an account-type
-    // login: we send username + cleartext secret rather than first/last + hashed pass.
-    let is_linden = grid.is_empty() || grid == "agni" || grid == "aditi";
-    let account_login =
-        !is_linden && !raw_username.trim().is_empty() && !raw_username.trim().contains([' ', '.', '_']);
+    let (first, last) = parse_username(&cs("username"));
     let channel = state.version.get("channel").and_then(|v| v.as_str().map(str::to_owned))
         .unwrap_or_else(|| crate::bridge::state::viewer_channel("Minibee-Viewer"));
     let version = state.version.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0");
@@ -979,13 +963,8 @@ fn assemble_login_body(state: &AppState, cred: &Value) -> Value {
         "mfa_hash": cs("mfaHash"),
         "options": LOGIN_OPTIONS,
     });
-    if account_login {
-        body["auth_type"] = json!("account");
-        body["username"] = json!(raw_username.trim());
-    } else {
-        body["first"] = json!(first);
-        body["last"] = json!(last);
-    }
+    body["first"] = json!(first);
+    body["last"] = json!(last);
     body
 }
 
@@ -1056,8 +1035,8 @@ pub async fn login(state: Arc<AppState>, mut credentials: Value) -> Result<Value
         &[],
         pin,
         Duration::from_secs(90),
-        // The login endpoint is the user's own grid choice (possibly a loopback/LAN
-        // OpenSim), so allow it. The redirect hops are still guarded.
+        // The login endpoint is the grid's own login server; the redirect hops
+        // are still guarded.
         false,
     )
     .await
@@ -1106,7 +1085,7 @@ pub async fn login(state: Arc<AppState>, mut credentials: Value) -> Result<Value
             agent_id: trim_quotes(&map_str(&parsed, "agent_id")),
             secure_session_id: trim_quotes(&map_str(&parsed, "secure_session_id")),
             helper_uri: crate::bridge::currency::helper_uri_for(grid, &map_str(&parsed, "helper_uri")),
-            linden_grid: grid.is_empty() || grid == "agni" || grid == "aditi",
+            linden_grid: true, // Second Life only - Agni or Aditi
         });
     }
 

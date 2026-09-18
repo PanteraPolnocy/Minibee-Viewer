@@ -8,7 +8,8 @@ const BeeLogin = (function () {
   const STORAGE_KEY = 'minibee-credentials';
   // MFA tokens live one key per account, matched by this prefix.
   const MFA_KEY_PATTERNS = [/^minibee-mfa-/i];
-  const GRID_OPTIONS = ['agni', 'aditi', 'local'];
+  // Second Life only: the main grid and the beta grid.
+  const GRID_OPTIONS = ['agni', 'aditi'];
 
   function defaultGrid() {
     const grid = document.getElementById('login-grid') as HTMLSelectElement;

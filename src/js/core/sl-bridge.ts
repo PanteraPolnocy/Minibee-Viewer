@@ -222,7 +222,7 @@ const BeeSLBridge = (function () {
   // (which has no credentials on this side) can keep the record fresh.
   let rememberedMfaKey = '';
 
-  const GRID_NAMES = { agni: 'Second Life', aditi: 'Second Life Beta', local: 'OpenSim Local' };
+  const GRID_NAMES = { agni: 'Second Life', aditi: 'Second Life Beta' };
 
   async function login(credentials) {
     try {

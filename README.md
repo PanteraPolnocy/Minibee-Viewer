@@ -75,15 +75,13 @@ Minibee is, and will remain, **completely free to use**. There are no payments, 
 
 ## How Minibee connects
 
-Minibee speaks Linden Lab's documented viewer protocol to Second Life and compatible OpenSim grids. It does not impersonate the official viewer or another third-party client.
+Minibee speaks Linden Lab's documented viewer protocol to Second Life (the main grid, Agni, and the beta grid, Aditi). It does not impersonate the official viewer or another third-party client.
 
 **At login**, the grid sees a channel of `Minibee-Viewer Release` (installers from Releases) or `Minibee-Viewer Test` (local debug builds only), plus a four-part version number from `Cargo.toml` - build `0` when you compile yourself, a CI build id on automated releases. The login screen and **Bee -> About** show the same channel and version.
 
 **Your machine, honestly:** platform fields are the real OS, not hardcoded. Device identifiers the protocol asks for (`mac`, `id0`, and the rest) use the same rules as other viewers in the family - not masked or faked.
 
 **Credentials:** passwords are never saved to disk. Auto-reconnect keeps them in obfuscated memory only until you log out.
-
-**OpenSim:** on grids other than Agni or Aditi, a single-word username can log in the OpenSim way when the grid expects that.
 
 Any future departure from standard protocol behaviour will be documented here before release.
 
