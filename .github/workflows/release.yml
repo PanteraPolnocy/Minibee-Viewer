@@ -313,8 +313,9 @@ jobs:
       # account's JSON key, invited under Play Console -> Users and permissions
       # with release rights) and always for prereleases. The app's very first
       # bundle has to be uploaded by hand in the Play Console; afterwards every
-      # stable release lands on the alpha track, ready to promote. While the
-      # Play listing is still a draft, change `status` to `draft`.
+      # stable release goes straight to the production track (the app has
+      # production access), a prerelease never reaches Play. To stage a release
+      # instead, switch `tracks` to `alpha` and promote it in the Console.
       - name: Check for Play upload credentials
         id: play
         if: github.event_name == 'release'
@@ -332,14 +333,14 @@ jobs:
           RELEASE_BODY: ${{ github.event.release.body }}
         run: node scripts/play-whatsnew.mjs
 
-      - name: Upload AAB to Google Play (alpha track)
+      - name: Upload AAB to Google Play (production track)
         if: github.event_name == 'release' && github.event.release.prerelease == false && steps.play.outputs.enabled == 'true'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.pantera.minibee_viewer
           releaseFiles: ${{ env.AAB_PATH }}
-          tracks: alpha
+          tracks: production
           status: completed
           releaseName: ${{ github.event.release.name || github.event.release.tag_name }}
           whatsNewDirectory: play-whatsnew
