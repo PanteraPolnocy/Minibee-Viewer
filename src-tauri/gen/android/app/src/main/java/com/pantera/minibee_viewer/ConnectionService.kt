@@ -7,10 +7,15 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 
 /**
  * Holds the process - and with it the native Second Life circuit - together
@@ -34,6 +39,19 @@ import android.os.IBinder
  * window where a quick stopService() (or a freeze of the just-backgrounded
  * process) beat it, and the system killed the app with
  * ForegroundServiceDidNotStartInTimeException.
+ *
+ * Microphone: since Android 11 a backgrounded app may keep capturing audio
+ * only through a foreground service of type microphone, so voice would go
+ * silent the moment the viewer left the screen. The type is not declared
+ * statically on every promotion, though: it would need RECORD_AUDIO to be
+ * granted at each startForeground() (a SecurityException otherwise), and on
+ * API 34+ a microphone-type promotion made while the app is in the background
+ * throws ForegroundServiceStartNotAllowedException (while-in-use rule). So
+ * promote() adds the type only when voice is connected, RECORD_AUDIO is
+ * granted, and either the app is in the foreground or the service is already
+ * running with the type (keeping it is always allowed); refresh() re-promotes
+ * when the page's voice state flips that decision, and any refusal falls back
+ * to the previous type set instead of crashing.
  */
 class ConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -42,6 +60,7 @@ class ConnectionService : Service() {
         super.onCreate()
         ensureChannel()
         running = true
+        instance = this
         try {
             promote()
         } catch (_: Exception) {
@@ -53,6 +72,8 @@ class ConnectionService : Service() {
 
     override fun onDestroy() {
         running = false
+        if (instance === this) instance = null
+        promotedTypes = 0
         super.onDestroy()
     }
 
@@ -95,17 +116,71 @@ class ConnectionService : Service() {
 
     private fun promote() {
         val notification = build(this)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // dataSync keeps the SL circuit alive; mediaPlayback lets voice
-            // and parcel music keep sounding while backgrounded.
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
-        } else {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            // No per-call types before API 29 (the manifest attribute is
+            // ignored there too).
             startForeground(NOTIFICATION_ID, notification)
+            return
         }
+        // dataSync keeps the SL circuit alive; mediaPlayback lets voice and
+        // parcel music keep sounding while backgrounded. Explicit on every
+        // API 29+ call, so the manifest's microphone entry never gets pulled
+        // in implicitly (the two-argument form would use the whole declared set).
+        val types = if (wantMicrophoneType()) BASE_TYPES or MICROPHONE_TYPE else BASE_TYPES
+        try {
+            startForeground(NOTIFICATION_ID, notification, types)
+            promotedTypes = types
+        } catch (e: Exception) {
+            // A refused microphone type (SecurityException, or the API 34
+            // ForegroundServiceStartNotAllowedException for a background
+            // while-in-use promotion) must never take the whole service down:
+            // fall back to the set held before, minus anything this call was
+            // dropping. Only a failure of the base set itself reaches the
+            // caller, which stops the service as before.
+            val fallback = if (promotedTypes != 0) promotedTypes and types else BASE_TYPES
+            if (fallback == types) throw e
+            startForeground(NOTIFICATION_ID, notification, fallback)
+            promotedTypes = fallback
+        }
+    }
+
+    // Whether this promotion may carry the microphone type. Main thread only
+    // (reads the process lifecycle).
+    private fun wantMicrophoneType(): Boolean {
+        // The constant itself exists from API 30.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        if (!voiceConnected) return false
+        val granted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) return false
+        // Already promoted with it: keeping a while-in-use type through the
+        // background is allowed, only adding one is not.
+        if (promotedTypes and MICROPHONE_TYPE != 0) return true
+        // Adding it needs the app in the foreground (a started activity); API
+        // 34 throws otherwise, and API 30-33 would grant the type but deny the
+        // capture. Left out for now, the next promote() from onResume ->
+        // startKeepAlive -> onStartCommand picks it up.
+        return ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    }
+
+    // The page's voice state changed: add or drop the microphone type when the
+    // decision flips (startForeground repaints too), otherwise just repaint
+    // the notification - directly, not through refresh(), which would post
+    // back here for as long as voice is on without the type (permission not
+    // granted, app in the background). Main thread.
+    private fun syncTypes() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && promotedTypes != 0) {
+            val types = if (wantMicrophoneType()) BASE_TYPES or MICROPHONE_TYPE else BASE_TYPES
+            if (types != promotedTypes) {
+                try {
+                    promote()
+                } catch (_: Exception) {
+                    // The earlier promotion still stands; nothing to undo.
+                }
+                return
+            }
+        }
+        repaint(this)
     }
 
     private fun ensureChannel() {
@@ -130,7 +205,20 @@ class ConnectionService : Service() {
         private const val ACTION_MUSIC = "com.pantera.minibee_viewer.MUSIC_TOGGLE"
         private const val ACTION_VOICE = "com.pantera.minibee_viewer.VOICE_TOGGLE"
 
+        private const val BASE_TYPES =
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+        // Compile-time constant (inlined), so naming it below API 30 is safe;
+        // wantMicrophoneType() never lets it through there.
+        private const val MICROPHONE_TYPE = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+
         @Volatile private var running = false
+        // The live service, for refresh() to re-promote through. Cleared in
+        // onDestroy so a dead instance is never called.
+        @Volatile private var instance: ConnectionService? = null
+        // The type set of the last successful startForeground() on API 29+
+        // (0 before the first one): tells whether the microphone type is
+        // currently held, and is the fallback when a re-promotion is refused.
+        @Volatile private var promotedTypes = 0
 
         // What the page last reported (through MinibeeAndroid.updateState);
         // this is display state only, drawn into the notification.
@@ -146,6 +234,20 @@ class ConnectionService : Service() {
         // stray, unowned notification.
         fun refresh(context: Context) {
             if (!running) return
+            // Voice came or went relative to the promoted types: the service
+            // decides about the microphone type on the main thread (this runs
+            // on a WebView worker thread) and repaints from there.
+            val svc = instance
+            if (svc != null && promotedTypes != 0 &&
+                voiceConnected != (promotedTypes and MICROPHONE_TYPE != 0)
+            ) {
+                Handler(Looper.getMainLooper()).post { if (running) svc.syncTypes() }
+                return
+            }
+            repaint(context)
+        }
+
+        private fun repaint(context: Context) {
             try {
                 val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 mgr.notify(NOTIFICATION_ID, build(context))

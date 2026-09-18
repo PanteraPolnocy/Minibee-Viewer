@@ -59,6 +59,26 @@ test('parse: bare region name', () => {
   assert.equal(p.regionName, 'Da Boom');
 });
 
+// A malformed percent-escape in a link anyone can type into chat used to
+// throw out of parse() and abort the whole transcript render.
+test('parse: a bad percent-escape keeps the segment as written instead of throwing', () => {
+  assert.doesNotThrow(() => BeeSlurl.parse('secondlife://%'));
+  const latin1 = BeeSlurl.parse('secondlife://Caf%E9/128/128/25');
+  assert.equal(latin1.type, 'slurl');
+  assert.equal(latin1.regionName, 'Caf%E9');
+  assert.equal(latin1.x, 128);
+  const bare = BeeSlurl.parse('Caf%E9/1/2/3');
+  assert.equal(bare.regionName, 'Caf%E9');
+  // Valid escapes still decode.
+  assert.equal(BeeSlurl.parse('secondlife://Foo%20Bar/1/2').regionName, 'Foo Bar');
+});
+
+test('scanLinks: a line with a malformed SLURL still yields segments', () => {
+  const segs = BeeSlurl.scanLinks('meet at secondlife://% now');
+  assert.ok(Array.isArray(segs) && segs.length >= 1);
+  assert.equal(segs.map((s) => s.text || s.label).join('').length > 0, true);
+});
+
 test('parse: app agent SLURL is a profile link, not a region', () => {
   const p = BeeSlurl.parse('secondlife:///app/agent/11223344-5566-7788-99aa-bbccddeeff00/about');
   assert.equal(p.type, 'app-agent');

@@ -699,6 +699,13 @@ const BeeInteract = (function () {
     const p = props || detailProps[obj.id] || {};
     const extra = detailExtra[obj.id] || {};
     const pos = obj.position || {};
+    // The custom Pay amount is typed into a row inside this container, and
+    // repaints land while the user types (properties, pay price, names). An
+    // open row for this same object is lifted out before the rebuild and put
+    // back afterwards - its value, its listeners and its focus intact.
+    const oldRow = host.querySelector<HTMLElement>('#objects-pay-row');
+    const keepRow = oldRow && !oldRow.hidden && oldRow.dataset.objId === obj.id ? oldRow : null;
+    const keepFocus = !!(keepRow && document.activeElement && keepRow.contains(document.activeElement));
     host.innerHTML =
       '<div class="objects-detail__head">' +
         '<h4 class="profile-split__title">' + BeeUtils.escapeHtml(p.name || obj.name || '(unnamed)') + '</h4>' +
@@ -741,12 +748,21 @@ const BeeInteract = (function () {
               : 'Pay...') + '</button>'
           : '') +
       '</div>' +
-      '<div class="interact-actions" id="objects-pay-row" hidden>' +
+      '<div class="interact-actions" id="objects-pay-row" data-obj-id="' + BeeUtils.escapeHtml(obj.id) + '" hidden>' +
         '<input type="number" id="objects-pay-amount" class="settings-control__select" ' +
           'min="1" step="1" placeholder="L$ amount" inputmode="numeric">' +
         '<button type="button" class="btn btn--primary btn--sm" id="objects-pay-send">Pay</button>' +
       '</div>' +
       (props && extra.ok ? '' : '<p class="settings-note">Still gathering details...</p>');
+
+    if (keepRow) {
+      const freshRow = document.getElementById('objects-pay-row');
+      if (freshRow) freshRow.replaceWith(keepRow);
+      if (keepFocus) {
+        const amount = document.getElementById('objects-pay-amount') as HTMLInputElement | null;
+        if (amount) amount.focus();
+      }
+    }
 
     const close = document.getElementById('objects-detail-close');
     if (close) close.addEventListener('click', closeDetails);
@@ -764,7 +780,8 @@ const BeeInteract = (function () {
         }
       });
     });
-    const paySend = document.getElementById('objects-pay-send');
+    // A kept row still has its Pay listener; binding again would pay twice.
+    const paySend = keepRow ? null : document.getElementById('objects-pay-send');
     if (paySend) {
       paySend.addEventListener('click', function () {
         const input = document.getElementById('objects-pay-amount') as HTMLInputElement | null;

@@ -53,6 +53,7 @@ const BeeSLBridge = (function () {
     PASSTHROUGH.forEach(function (name) {
       pending.push(BeeBridge.listen('minibee-viewer://' + name, function (payload) {
         if (name === 'connected') seedFromConnected(payload);
+        if (name === 'disconnected') forgetAccount();
         BeeTransport.emit(name, payload);
       }));
     });
@@ -132,6 +133,11 @@ const BeeSLBridge = (function () {
         });
       }
     }
+    // The roster belongs to this account: start it from the login reply, not
+    // on top of a previous account's friends (a second login in the same run
+    // used to inherit them, so offers to them were refused as "already friends").
+    buddies.clear();
+    buddyOnline.clear();
     buddyRoster = (payload.buddies || []).slice();
     buddyRoster.forEach(function (b) {
       if (b && b.id) {
@@ -139,6 +145,15 @@ const BeeSLBridge = (function () {
         buddyOnline.set(normId(b.id), !!b.online);
       }
     });
+  }
+
+  // Everything that describes the account that just logged out. Avatar and
+  // group names are not account-specific and stay cached.
+  function forgetAccount() {
+    agentId = '';
+    buddies.clear();
+    buddyOnline.clear();
+    buddyRoster = [];
   }
 
   // Apply a presence change from OnlineNotification/OfflineNotification and push

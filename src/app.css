@@ -1421,6 +1421,17 @@ button.bee-menu__value--action:disabled {
   color: #140818;
 }
 
+.script-dialog__badge--group {
+  background: #f0b429;
+  color: #1a1408;
+}
+
+/* The inviter's own note under a group invitation. */
+.script-dialog__body--quote {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .interactive-prompt__url,
 .interactive-prompt__location {
   margin: 0.35rem 0 0;
@@ -5635,6 +5646,9 @@ button.status-chip--balance:disabled {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* A profile URL that is not a web address: shown, not linked. */
+.profile-field__value { word-break: break-all; }
 
 .profile-field--uuid .profile-uuid {
   font-size: 0.78rem;

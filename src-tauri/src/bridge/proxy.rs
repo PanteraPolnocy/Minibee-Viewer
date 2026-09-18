@@ -167,6 +167,43 @@ pub struct ExchangeResult {
     pub redirect_count: u32,
 }
 
+/// Ceiling on a response body. A login reply carrying a big inventory
+/// skeleton runs to several MB, so this is generous, but nothing legitimate
+/// comes anywhere near it - and without a cap a misbehaving or hostile server
+/// could have us buffer without bound.
+pub(crate) const MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Whether a declared Content-Length fits under the cap (none declared: fine,
+/// the streamed check below still applies).
+fn declared_length_ok(content_length: Option<u64>, cap: u64) -> bool {
+    content_length.map_or(true, |len| len <= cap)
+}
+
+/// Whether appending `chunk` bytes to `so_far` stays under the cap.
+fn chunk_fits(so_far: usize, chunk: usize, cap: u64) -> bool {
+    (so_far as u64).saturating_add(chunk as u64) <= cap
+}
+
+/// Read the whole body, but stop (with an error) past `cap` bytes. The
+/// Content-Length precheck catches the honest case up front; the streamed
+/// count catches chunked/compressed replies that declare nothing.
+async fn read_body_capped(mut resp: reqwest::Response, cap: u64) -> Result<Vec<u8>, String> {
+    let declared = resp.content_length();
+    if !declared_length_ok(declared, cap) {
+        return Err(format!("Response too large ({} bytes, limit {cap})", declared.unwrap_or(0)));
+    }
+    // Preallocate from the declared size, but never let a header alone make
+    // us reserve tens of MB for a body that may never come.
+    let mut out = Vec::with_capacity(declared.unwrap_or(0).min(1 << 20) as usize);
+    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+        if !chunk_fits(out.len(), chunk.len(), cap) {
+            return Err(format!("Response too large (over {cap} bytes)"));
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
 fn is_simhost(host: &str) -> bool {
     let h = host.to_ascii_lowercase();
     // Has to be a genuine Linden simhost, not just anything that starts with
@@ -344,7 +381,7 @@ pub async fn exchange(
             }
         }
 
-        let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+        let bytes = read_body_capped(resp, MAX_RESPONSE_BYTES).await?;
         crate::bridge::netmeter::note_in(bytes.len());
         if has_body {
             crate::bridge::netmeter::note_out(payload.len());
@@ -428,6 +465,18 @@ mod tests {
     fn blocks_non_http_schemes() {
         assert!(egress_block_reason("file:///etc/passwd").is_some());
         assert!(egress_block_reason("ftp://example.com/x").is_some());
+    }
+
+    #[test]
+    fn response_cap_checks_declared_length_and_streamed_total() {
+        // A skeleton-sized login reply fits; an absurd declaration does not.
+        assert!(declared_length_ok(Some(8 * 1024 * 1024), MAX_RESPONSE_BYTES));
+        assert!(declared_length_ok(None, MAX_RESPONSE_BYTES));
+        assert!(!declared_length_ok(Some(MAX_RESPONSE_BYTES + 1), MAX_RESPONSE_BYTES));
+        // The streamed count trips exactly past the cap, and never overflows.
+        assert!(chunk_fits(0, 100, 100));
+        assert!(!chunk_fits(1, 100, 100));
+        assert!(!chunk_fits(usize::MAX, usize::MAX, MAX_RESPONSE_BYTES));
     }
 
     #[test]

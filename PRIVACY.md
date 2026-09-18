@@ -1,6 +1,6 @@
 # Minibee Viewer - Privacy Policy
 
-Last updated: 2026-07-27
+Last updated: 2026-09-18
 
 Minibee Viewer ("Minibee") is developed by **Pantera Polnocy**. It is **not** provided by Linden Lab.
 
@@ -28,7 +28,7 @@ Also in the app: **Bee -> Privacy**.
 | Username and password | To log you in |
 | Viewer name and version | So the grid knows which client you use (`Minibee-Viewer Release` or `Test`) |
 | Operating system info | Standard login fields |
-| Device identifiers | Same kind as other viewers use for MFA "remember this device" and login security - **not hidden or faked** |
+| Device identifiers | Same kind as other viewers use for MFA "remember this device" and login security - **not hidden or faked**. On desktop they are derived from the machine (hardware UUID, disk or volume serial, network adapter address); on Android from a random id Minibee generates once and keeps in its data folder (a hardware serial only when the system exposes one). Sent hashed |
 | MFA and terms-of-service flags | Normal login flow |
 
 After login, traffic to simulators and Linden services is governed by [Linden Lab's privacy policy](https://www.lindenlab.com/privacy).
@@ -46,7 +46,8 @@ Your password is **not** sent anywhere except the login server you picked.
 | Preferences (theme, radar, etc.) | As you change settings (same `settings.json`) |
 | Auto-reconnect login details | In memory only while connected or reconnecting - **never on disk**; cleared on logout |
 | IM chat logs (plain text files in the app's data folder, one folder per account) | Only if you say yes - asked once at first login, off by default, separate people/groups switches in Bee -> Settings; delete the files any time (Bee -> About shows where and how much) |
-| Diagnostic log file | Only if you start with `--enablelogfiles` (off by default) |
+| Diagnostic log file | Desktop only, off by default: only if you start Minibee with `--enablelogfiles` or with `MINIBEE_ENABLE_LOGFILES=1` in the environment. Written to a Minibee folder in the system temp directory; old files are removed after 3 days. Android has no way to turn it on |
+| Android device id | A random id created on first login and kept in the app's data folder (see "Device identifiers" above); removed with the app's data |
 
 ---
 
@@ -71,9 +72,11 @@ No Second Life account data is sent with the update check. Android has no automa
 
 ## Android
 
-Same login and on-device storage behaviour as desktop. APK on GitHub Releases today; Google Play planned - this policy will be updated when that ships.
+Same login and on-device storage behaviour as desktop. Distributed on Google Play and, as an APK, on GitHub Releases. The Google Play edition has no in-app L$ purchase (Play policy); everything else is the same app.
 
-While the viewer runs, a persistent notification keeps the connection alive; it can show the number of unread IMs and, expanded, the newest message's sender and text. That preview lives only in the device's own notification shade (your lock-screen notification settings govern what shows when locked) and is never sent anywhere.
+While the viewer runs, a persistent notification keeps the connection alive; it can show the number of unread IMs and, expanded, the newest message's sender and text. That preview lives only in the device's own notification shade (your lock-screen notification settings govern what shows when locked) and is never sent anywhere. While voice is connected and you have granted the microphone permission, the same connection service is marked as using the microphone so voice keeps working when the app is in the background; the marking is dropped when voice disconnects.
+
+Android's Auto Backup is turned off for Minibee: its data folder (`settings.json`, chat logs if enabled, the device id, the web view's storage) is not included in Google backups or device-to-device transfers. Uninstalling removes it.
 
 ---
 

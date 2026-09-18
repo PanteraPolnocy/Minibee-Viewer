@@ -21,6 +21,10 @@ pub const PCODE_AVATAR: u8 = 47;
 /// that is truly full gets anywhere near it.
 const MAX_OBJECTS: usize = 100000;
 
+/// Longest parent chain any walk will follow. A real linkset is at most 32
+/// deep; anything longer is a cycle left behind by a recycled local id.
+const PARENT_CHAIN_CAP: usize = 33;
+
 /// One tracked object, kept deliberately small: a busy region can mean thousands of
 /// these, and they live for as long as you're in the region.
 ///
@@ -581,16 +585,26 @@ impl ObjectTable {
 
     /// Region position for an avatar or seat used as an attachment / sit anchor.
     fn anchor_region_pos(&self, local_id: u32) -> Option<[f32; 3]> {
-        let row = self.rows.get(&local_id)?;
-        if row.parent_id == 0 {
-            return Some(row.pos);
+        self.summed_parent_chain_pos(local_id)
+    }
+
+    /// Sum a row's stored position with every ancestor's up to a parent-less
+    /// root. Bounded like `root_local_id`: the sim recycles local ids, so a
+    /// stale parent link can close a cycle (A -> B -> A), and an unbounded
+    /// walk there overflowed the stack and took the whole app down. Past the
+    /// cap there is no root to anchor to, so the position is unknown.
+    fn summed_parent_chain_pos(&self, local_id: u32) -> Option<[f32; 3]> {
+        let mut sum = [0.0f32; 3];
+        let mut id = local_id;
+        for _ in 0..PARENT_CHAIN_CAP {
+            let row = self.rows.get(&id)?;
+            sum = [sum[0] + row.pos[0], sum[1] + row.pos[1], sum[2] + row.pos[2]];
+            if row.parent_id == 0 {
+                return Some(sum);
+            }
+            id = row.parent_id;
         }
-        let parent_pos = self.anchor_region_pos(row.parent_id)?;
-        Some([
-            parent_pos[0] + row.pos[0],
-            parent_pos[1] + row.pos[1],
-            parent_pos[2] + row.pos[2],
-        ])
+        None
     }
 
     /// Walk parent-relative offsets from an already-resolved root position.
@@ -867,16 +881,7 @@ impl ObjectTable {
     /// World position for sit-offset math: parent chain summed with raw stored
     /// positions, without skybox linkset heuristics (a seat at altitude is real).
     pub fn sit_anchor_pos(&self, local_id: u32) -> Option<[f32; 3]> {
-        let row = self.rows.get(&local_id)?;
-        if row.parent_id == 0 {
-            return Some(row.pos);
-        }
-        let parent = self.sit_anchor_pos(row.parent_id)?;
-        Some([
-            parent[0] + row.pos[0],
-            parent[1] + row.pos[1],
-            parent[2] + row.pos[2],
-        ])
+        self.summed_parent_chain_pos(local_id)
     }
 
     /// Region position of the agent's own avatar row, if we have one.
@@ -970,7 +975,7 @@ impl ObjectTable {
     /// Stops at avatars so attachments and sit targets are not folded into furniture linksets.
     pub fn root_local_id(&self, local_id: u32) -> u32 {
         let mut id = local_id;
-        for _ in 0..33 {
+        for _ in 0..PARENT_CHAIN_CAP {
             let Some(row) = self.rows.get(&id) else {
                 return local_id;
             };
@@ -2218,6 +2223,28 @@ mod tests {
         let mut blob = compressed_blob(7, [1.0, 2.0, 3.0], 0xcd, 0, 0);
         blob[21 + 6] = CLICK_ACTION_SIT;
         assert_eq!(decode_compressed(&blob).unwrap().0.click_action, CLICK_ACTION_SIT);
+    }
+
+    // Local ids are recycled by the sim, so a stale parent link can close a
+    // cycle. The position walks used to recurse on parent_id with no cap and
+    // overflowed the stack - an abort of the whole app, not a caught panic.
+    #[test]
+    fn parent_cycle_yields_no_position_instead_of_overflowing() {
+        let mut t = ObjectTable::default();
+        t.upsert(ObjectRow { local_id: 1, parent_id: 2, pos: [1.0, 0.0, 0.0], ..Default::default() });
+        t.upsert(ObjectRow { local_id: 2, parent_id: 1, pos: [0.0, 1.0, 0.0], ..Default::default() });
+        assert_eq!(t.sit_anchor_pos(1), None);
+        assert_eq!(t.anchor_region_pos(2), None);
+        assert_eq!(t.region_pos(1), None);
+        // Marking one of them an attachment routes through the anchor walk too.
+        t.rows.get_mut(&1).unwrap().attachment_state = 5;
+        assert_eq!(t.region_pos(1), None);
+        assert_eq!(t.region_pos(2), None);
+        // A well-formed chain still sums its offsets up to the root.
+        t.upsert(ObjectRow { local_id: 10, parent_id: 0, pos: [10.0, 20.0, 30.0], ..Default::default() });
+        t.upsert(ObjectRow { local_id: 11, parent_id: 10, pos: [1.0, 2.0, 3.0], ..Default::default() });
+        assert_eq!(t.sit_anchor_pos(11), Some([11.0, 22.0, 33.0]));
+        assert_eq!(t.anchor_region_pos(11), Some([11.0, 22.0, 33.0]));
     }
 
     #[test]

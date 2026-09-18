@@ -72,5 +72,10 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
-strip = true
+# "debuginfo", not `true`: the latter also drops the symbol table, and the
+# Android cdylib is what Gradle's debugSymbolLevel = "SYMBOL_TABLE" reads to
+# build native-debug-symbols.zip for Play's crash symbolication - stripped
+# fully, that zip comes out empty. Desktop binaries keep their symbol names
+# too (a little larger, no debug info).
+strip = "debuginfo"
 

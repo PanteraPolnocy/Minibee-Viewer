@@ -87,12 +87,6 @@ const BeeBuddies = (function () {
       showContextMenu(e, buddy);
     });
 
-    li.addEventListener('contextmenu', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      showContextMenu(e, buddy);
-    });
-
     return li;
   }
 
@@ -171,10 +165,13 @@ const BeeBuddies = (function () {
       menu.appendChild(btn);
     });
 
-    const x = Math.min(e.clientX, window.innerWidth - 200);
-    const y = Math.min(e.clientY, window.innerHeight - 160);
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
+    // Measure the real menu, then clamp it fully on-screen: eight rows are
+    // taller than the old fixed allowance, and as the row's primary tap
+    // action it usually opens near the bottom edge of a phone screen, where
+    // "Teleport request" and "Remove friend" ended up unreachable.
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = Math.max(0, Math.min(e.clientX, window.innerWidth - rect.width - 8)) + 'px';
+    menu.style.top = Math.max(0, Math.min(e.clientY, window.innerHeight - rect.height - 8)) + 'px';
   }
 
   function render() {

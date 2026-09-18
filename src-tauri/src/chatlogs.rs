@@ -251,9 +251,13 @@ pub fn usage(base: &Path) -> (u64, u64) {
     (bytes, files)
 }
 
+// The commands below are `async` so Tauri runs them on its thread pool: they
+// touch the filesystem, and a synchronous command would do that on the main
+// (UI) thread. The JS caller sees the same result either way.
+
 /// Append one line to a conversation's log file.
 #[tauri::command]
-pub fn chat_log_append(app: tauri::AppHandle, agent: String, kind: String, name: String, line: String) -> Cmd {
+pub async fn chat_log_append(app: tauri::AppHandle, agent: String, kind: String, name: String, line: String) -> Cmd {
     if line.len() > MAX_LINE_BYTES {
         return Err("Log line too long".into());
     }
@@ -265,7 +269,7 @@ pub fn chat_log_append(app: tauri::AppHandle, agent: String, kind: String, name:
 /// The last few lines of a conversation's log, shown as history when the
 /// conversation opens. An absent file just means no history.
 #[tauri::command]
-pub fn chat_log_tail(app: tauri::AppHandle, agent: String, kind: String, name: String, lines: Option<usize>) -> Cmd {
+pub async fn chat_log_tail(app: tauri::AppHandle, agent: String, kind: String, name: String, lines: Option<usize>) -> Cmd {
     let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
     let max = lines.unwrap_or(10).clamp(1, 100);
     let rows = read_tail(&base, &agent, &kind, &name, max)?;
@@ -275,7 +279,7 @@ pub fn chat_log_tail(app: tauri::AppHandle, agent: String, kind: String, name: S
 /// The log files on disk, for the log manager. An empty `agent` marks files
 /// from before logs were split per account.
 #[tauri::command]
-pub fn chat_log_list(app: tauri::AppHandle) -> Cmd {
+pub async fn chat_log_list(app: tauri::AppHandle) -> Cmd {
     let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
     let rows: Vec<Value> = list_logs(&base)
         .into_iter()
@@ -287,7 +291,7 @@ pub fn chat_log_list(app: tauri::AppHandle) -> Cmd {
 /// Delete one log file, or a whole kind (name omitted). Called only from the
 /// log manager, behind its own confirmation.
 #[tauri::command]
-pub fn chat_log_delete(app: tauri::AppHandle, agent: String, kind: String, name: Option<String>) -> Cmd {
+pub async fn chat_log_delete(app: tauri::AppHandle, agent: String, kind: String, name: Option<String>) -> Cmd {
     let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
     let deleted = delete_logs(&base, &agent, &kind, name.as_deref())?;
     Ok(json!({ "ok": true, "deleted": deleted }))
@@ -295,7 +299,7 @@ pub fn chat_log_delete(app: tauri::AppHandle, agent: String, kind: String, name:
 
 /// How much disk the chat logs take, and where they live.
 #[tauri::command]
-pub fn chat_log_usage(app: tauri::AppHandle) -> Cmd {
+pub async fn chat_log_usage(app: tauri::AppHandle) -> Cmd {
     let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
     let (bytes, files) = usage(&base);
     Ok(json!({

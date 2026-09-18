@@ -48,8 +48,10 @@ pub async fn bridge_version(state: State<'_, Arc<AppState>>) -> Cmd {
 /// tauri.conf.json (baked in with `include_str!`) plus Cargo package info, so
 /// author/contact/catchphrase all share a single source of truth. Read lazily:
 /// the frontend only invokes it the first time the About subtab is opened.
+/// Async so the sysinfo/os_info probing runs on Tauri's thread pool, not the
+/// main (UI) thread.
 #[tauri::command]
-pub fn app_about() -> Cmd {
+pub async fn app_about() -> Cmd {
     let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap_or(Value::Null);
     let bundle = conf.get("bundle").cloned().unwrap_or(Value::Null);
     let field = |v: &Value, key: &str| v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -224,8 +226,9 @@ pub fn app_packages() -> Cmd {
 }
 
 /// Current system and Minibee memory (bytes) for the About tab's periodic refresh.
+/// Async for the same reason as `app_about`: the process scan is not free.
 #[tauri::command]
-pub fn app_memory() -> Cmd {
+pub async fn app_memory() -> Cmd {
     let (total, used, proc) = mem_snapshot();
     Ok(json!({ "total": total, "used": used, "process": proc }))
 }
@@ -333,14 +336,11 @@ pub async fn bridge_login(state: State<'_, Arc<AppState>>, payload: Value) -> Cm
 /// Auto-reconnect: replay the last successful login from the credentials the
 /// core cached (obfuscated) at login time. It returns the same shape as
 /// bridge_login, so the frontend reuses its normal session-start path. Errors
-/// if nothing is cached (e.g. the user never logged in, or logged out).
+/// if nothing is cached (e.g. the user never logged in, or logged out), or if
+/// the user logged out while the replay was in flight.
 #[tauri::command]
 pub async fn bridge_relogin(state: State<'_, Arc<AppState>>) -> Cmd {
-    let creds = state
-        .creds
-        .reveal()
-        .ok_or_else(|| "No stored session to reconnect".to_string())?;
-    login::login(state.inner().clone(), creds).await
+    login::relogin(state.inner().clone()).await
 }
 
 fn is_eventqueue_poll(payload: &str) -> bool {
@@ -542,6 +542,34 @@ fn vstr(s: &str) -> Value {
     json!(B64.encode(format!("{s}\0").as_bytes()))
 }
 
+/// A trimmed, lowercased, non-null UUID, or an error naming what was missing.
+fn require_uuid(raw: &str, what: &str) -> Result<String, String> {
+    let id = raw.trim().to_ascii_lowercase();
+    if !crate::bridge::inventory::is_uuid(&id) || crate::bridge::inventory::is_zero_uuid(&id) {
+        return Err(format!("No {what}"));
+    }
+    Ok(id)
+}
+
+/// An L$ amount the wire can carry. MoneyData.Amount and the parcel prices are
+/// S32 fields (Firestorm caps them the same way), and the encoder truncates
+/// with `as i32`, so anything past i32::MAX would silently become a different
+/// number. `min` is 1 for a payment and 0 for a price that may mean "not for sale".
+fn linden_amount(amount: i64, min: i64) -> Result<i64, String> {
+    if amount < min || amount > i32::MAX as i64 {
+        return Err(format!("L$ amount must be between {min} and {}", i32::MAX));
+    }
+    Ok(amount)
+}
+
+/// Take every circuit out of the shared state, so no command and no late emit
+/// can reach them, and hand them back for the caller to close.
+fn detach_all_sessions(state: &AppState) -> Vec<Arc<circuit::Session>> {
+    let old: Vec<Arc<circuit::Session>> = state.sessions.lock().unwrap().drain().map(|(_, s)| s).collect();
+    *state.active_session.lock().unwrap() = None;
+    old
+}
+
 /// The active engine circuit together with its (agent_id, session_uuid).
 pub(crate) fn active_ids(
     state: &AppState,
@@ -649,11 +677,68 @@ fn offer_response_dialog(group_notice: bool, task: bool, accept: bool) -> i64 {
     }
 }
 
+/// Whether declining this offer leaves a copy behind that we have to file in
+/// Trash ourselves. Only a resident's offer (IM_INVENTORY_OFFERED) works that
+/// way: the server copies the item into our inventory before we see the
+/// prompt. An object's offer and a group notice's attachment only get copied
+/// on accept.
+fn decline_leaves_a_copy(group_notice: bool, task: bool, accept: bool) -> bool {
+    !accept && !task && !group_notice
+}
+
+/// Move an inventory object into `folder_id` over the AIS cap: a PATCH of
+/// `parent_id`, the same call `sl_script_rename` makes for `name`. The offer
+/// prompt does not say whether the thing offered is an item or a folder, so
+/// an item PATCH that 404s is retried as a category.
+async fn inventory_move(
+    state: &AppState,
+    session: &circuit::Session,
+    object_id: &str,
+    folder_id: &str,
+) -> Result<(), String> {
+    let cap = session.cap("InventoryAPIv3").ok_or("Inventory update capability unavailable")?;
+    let body = format!(
+        "<?xml version=\"1.0\"?><llsd><map><key>parent_id</key><uuid>{folder_id}</uuid></map></llsd>"
+    );
+    let agent_session = session.agent_ids().map(|(_, s)| s).unwrap_or_default();
+    let headers: Vec<(String, String)> = if agent_session.is_empty() {
+        Vec::new()
+    } else {
+        vec![("X-SecondLife-Session-ID".to_string(), agent_session)]
+    };
+    let base = cap.trim_end_matches('/');
+    for kind in ["item", "category"] {
+        let url = format!("{base}/{kind}/{object_id}");
+        let (pin, _) = proxy::simhost_pin(&url, "").await;
+        let ex = proxy::exchange(
+            &state.ua,
+            "PATCH",
+            &url,
+            &body,
+            "application/llsd+xml",
+            &headers,
+            pin,
+            Duration::from_secs(30),
+            true,
+        )
+        .await?;
+        if (200..300).contains(&ex.status) {
+            return Ok(());
+        }
+        if ex.status != 404 {
+            return Err(format!("HTTP {} body={:.200}", ex.status, ex.body));
+        }
+    }
+    Err("HTTP 404 as item and as category".into())
+}
+
 /// Answer an inventory offer (from a resident, an object's script, or a group
 /// notice's attachment). The reply is an ImprovedInstantMessage back to the
 /// offerer - for group notices, to the group id. Accepting an object's or a
 /// notice's item must name the folder to file it into (the binary bucket
-/// carries its raw UUID); we use the inventory root from login.
+/// carries its raw UUID); we use the inventory root from login. Declining a
+/// resident's offer also files the copy the server already made into Trash
+/// (see `decline_leaves_a_copy`), when the prompt told us the item id.
 #[tauri::command]
 pub async fn sl_inventory_offer_respond(
     state: State<'_, Arc<AppState>>,
@@ -662,6 +747,7 @@ pub async fn sl_inventory_offer_respond(
     accept: bool,
     from_task: Option<bool>,
     kind: Option<String>,
+    item_id: Option<String>,
 ) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if from_id.is_empty() || from_id == ZERO_UUID {
@@ -688,6 +774,64 @@ pub async fn sl_inventory_offer_respond(
                 "Position": [0.0, 0.0, 0.0], "Offline": 0, "Dialog": dialog,
                 "ID": transaction_id, "Timestamp": 0, "FromAgentName": vstr(""),
                 "Message": vstr(""), "BinaryBucket": bucket,
+            }],
+        }),
+        true,
+    )
+    .await;
+    // Firestorm's LLDiscardAgentOffer: the declined copy goes to Trash on our
+    // side, since the server never takes it back. Best effort, off the
+    // command's own path - the decline has gone out, and a failed move must
+    // not turn into a failed decline. Unknown Trash folder or item: skip.
+    if decline_leaves_a_copy(group_notice, task, accept) {
+        let trash = state.inv_trash.lock().unwrap().clone();
+        let item = item_id.as_deref().and_then(|raw| require_uuid(raw, "item").ok());
+        if let (Some(item), Ok(trash)) = (item, require_uuid(&trash, "trash folder")) {
+            let state = state.inner().clone();
+            let session = s.clone();
+            tokio::spawn(async move {
+                match inventory_move(&state, &session, &item, &trash).await {
+                    Ok(()) => crate::dlog!("inventory: declined offer {item} moved to Trash"),
+                    Err(e) => crate::dlog!("inventory: could not move declined offer {item} to Trash: {e}"),
+                }
+            });
+        }
+    }
+    Ok(json!({ "ok": true, "sent": true }))
+}
+
+/// IM_GROUP_INVITATION_ACCEPT (35) or IM_GROUP_INVITATION_DECLINE (36).
+fn group_invitation_dialog(accept: bool) -> i64 {
+    if accept { 35 } else { 36 }
+}
+
+/// Answer a group invitation. Mirrors Firestorm's `send_join_group_response`
+/// (llviewermessage.cpp): an ImprovedInstantMessage to the GROUP id carrying
+/// the invitation's transaction id, with the literal strings "name" and
+/// "message" in FromAgentName/Message, the empty (single NUL) binary bucket,
+/// IM_ONLINE, and our position - the sim keys entirely off the dialog and the
+/// transaction id.
+#[tauri::command]
+pub async fn sl_group_invitation_respond(
+    state: State<'_, Arc<AppState>>,
+    group_id: String,
+    transaction_id: String,
+    accept: bool,
+) -> Cmd {
+    let (s, agent, sess) = active_ids(&state)?;
+    let group = require_uuid(&group_id, "group")?;
+    let tx = require_uuid(&transaction_id, "invitation")?;
+    let pos = s.agent_position();
+    s.send_encoded(
+        "ImprovedInstantMessage",
+        &json!({
+            "AgentData": [{ "AgentID": agent, "SessionID": sess }],
+            "MessageBlock": [{
+                "FromGroup": false, "ToAgentID": group, "ParentEstateID": 0, "RegionID": ZERO_UUID,
+                "Position": [pos[0], pos[1], pos[2]], "Offline": 0,
+                "Dialog": group_invitation_dialog(accept),
+                "ID": tx, "Timestamp": 0, "FromAgentName": vstr("name"),
+                "Message": vstr("message"), "BinaryBucket": vstr(""),
             }],
         }),
         true,
@@ -1136,9 +1280,7 @@ pub async fn sl_group_notice_request(state: State<'_, Arc<AppState>>, notice_id:
 #[tauri::command]
 pub async fn sl_pay(state: State<'_, Arc<AppState>>, dest_id: String, amount: i64, description: Option<String>) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
-    if amount < 1 {
-        return Err("amount must be >= 1".into());
-    }
+    let amount = linden_amount(amount, 1)?;
     s.send_encoded(
         "MoneyTransferRequest",
         &json!({
@@ -1551,11 +1693,9 @@ pub async fn sl_object_pay(
     if object_id.is_empty() || object_id == ZERO_UUID {
         return Err("No object".into());
     }
-    // Zero amount is rejected; pay the absolute value.
-    let amount = amount.abs();
-    if amount < 1 {
-        return Err("amount must be >= 1".into());
-    }
+    // Zero amount is rejected; pay the absolute value (i64::MIN has none, and
+    // is out of range anyway).
+    let amount = linden_amount(amount.checked_abs().unwrap_or(i64::MAX), 1)?;
     crate::dlog!("paying object {} L${}", object_id, amount);
     s.send_encoded(
         "MoneyTransferRequest",
@@ -2157,6 +2297,12 @@ pub async fn sl_request_parcel_object_owners(state: State<'_, Arc<AppState>>, lo
     if local_id <= 0 {
         return Err("No parcel selected".into());
     }
+    // Same staleness guard as the other parcel commands: a LocalID from a
+    // parcel we have since walked off would list another parcel's owners.
+    match s.parcel_snapshot() {
+        Some(snap) if snap.local_id == local_id => {}
+        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+    }
     s.send_encoded(
         "ParcelObjectOwnersRequest",
         &json!({
@@ -2217,6 +2363,12 @@ pub async fn sl_parcel_set_autoreturn(state: State<'_, Arc<AppState>>, local_id:
     let (s, agent, sess) = active_ids(&state)?;
     if local_id <= 0 {
         return Err("No parcel selected".into());
+    }
+    // Autoreturn is a write: never apply it to whichever parcel now owns a
+    // LocalID the form captured somewhere else.
+    match s.parcel_snapshot() {
+        Some(snap) if snap.local_id == local_id => {}
+        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
     }
     s.send_encoded(
         "ParcelSetOtherCleanTime",
@@ -2358,18 +2510,43 @@ pub async fn sl_reply_script_dialog(
     Ok(json!({ "ok": true }))
 }
 
+/// How long a logout keeps the circuit up for the sim's LogoutReply before
+/// tearing it down regardless. Firestorm allows a few seconds as well; inside
+/// this window the reliable LogoutRequest still gets its resend if the first
+/// datagram was lost.
+const LOGOUT_GRACE: Duration = Duration::from_secs(3);
+
+/// Log out: send LogoutRequest, then close the circuit. The circuit leaves the
+/// shared state at once (no command or late emit can reach it) and the UI is
+/// told `disconnected` right away, exactly as the routed LogoutReply used to
+/// do a moment later - the login screen appears as before, and the close guard
+/// is released even on a sim that never answers. The socket and tasks go away
+/// as soon as the reply lands, or after LOGOUT_GRACE at the latest.
 #[tauri::command]
-pub async fn sl_logout(state: State<'_, Arc<AppState>>) -> Cmd {
-    // On an explicit logout, drop the cached reconnect credentials.
+pub async fn sl_logout(app: AppHandle, state: State<'_, Arc<AppState>>) -> Cmd {
+    // On an explicit logout, drop the cached reconnect credentials, and make
+    // sure a reconnect whose HTTP login is still in flight cannot restore them.
     state.creds.clear();
     *state.currency.lock().unwrap() = None;
+    state.logout_gen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let (s, agent, sess) = active_ids(&state)?;
+    for other in detach_all_sessions(&state) {
+        if !Arc::ptr_eq(&other, &s) {
+            other.close();
+        }
+    }
     s.send_encoded(
         "LogoutRequest",
         &json!({ "AgentData": [{ "AgentID": agent, "SessionID": sess }] }),
         true,
     )
     .await;
+    let _ = app.emit("minibee-viewer://disconnected", json!({}));
+    tokio::spawn(async move {
+        let acked = s.wait_logout_ack(LOGOUT_GRACE).await;
+        crate::dlog!("logout: closing circuit (LogoutReply {})", if acked { "received" } else { "not received" });
+        s.close();
+    });
     Ok(json!({ "ok": true }))
 }
 
@@ -2742,6 +2919,55 @@ mod tests {
     }
 
     #[test]
+    fn linden_amounts_stay_inside_s32() {
+        // Payments start at 1, prices at 0; both stop at what an S32 can hold.
+        assert_eq!(linden_amount(1, 1), Ok(1));
+        assert_eq!(linden_amount(i32::MAX as i64, 1), Ok(i32::MAX as i64));
+        assert!(linden_amount(0, 1).is_err());
+        assert!(linden_amount(-5, 1).is_err());
+        assert_eq!(linden_amount(0, 0), Ok(0));
+        assert!(linden_amount(-1, 0).is_err());
+        // One past S32: the codec's `as i32` would have made this L$-2147483648.
+        assert!(linden_amount(i32::MAX as i64 + 1, 1).is_err());
+        assert!(linden_amount(i32::MAX as i64 + 1, 0).is_err());
+        assert!(linden_amount(i64::MAX, 1).is_err());
+        // The object-pay path takes the absolute value first; i64::MIN has none.
+        assert!(linden_amount(i64::MIN.checked_abs().unwrap_or(i64::MAX), 1).is_err());
+        assert_eq!(linden_amount((-25i64).checked_abs().unwrap_or(i64::MAX), 1), Ok(25));
+    }
+
+    #[test]
+    fn require_uuid_normalizes_and_rejects_null() {
+        assert_eq!(
+            require_uuid("  AA000000-0000-0000-0000-000000000001 ", "group"),
+            Ok("aa000000-0000-0000-0000-000000000001".to_string())
+        );
+        assert_eq!(require_uuid("", "group"), Err("No group".to_string()));
+        assert_eq!(require_uuid(ZERO_UUID, "invitation"), Err("No invitation".to_string()));
+        assert!(require_uuid("not-a-uuid", "item").is_err());
+    }
+
+    #[test]
+    fn group_invitation_dialogs() {
+        assert_eq!(group_invitation_dialog(true), 35); // IM_GROUP_INVITATION_ACCEPT
+        assert_eq!(group_invitation_dialog(false), 36); // IM_GROUP_INVITATION_DECLINE
+        // Firestorm's send_join_group_response literals, NUL-terminated like every Variable string.
+        assert_eq!(vstr("name"), json!(B64.encode(b"name\0")));
+        assert_eq!(vstr("message"), json!(B64.encode(b"message\0")));
+        assert_eq!(vstr(""), json!(B64.encode(b"\0"))); // EMPTY_BINARY_BUCKET, size 1
+    }
+
+    #[test]
+    fn only_a_declined_resident_offer_leaves_a_copy_to_trash() {
+        assert!(decline_leaves_a_copy(false, false, false));
+        // Accepting files the item where it belongs; nothing to trash.
+        assert!(!decline_leaves_a_copy(false, false, true));
+        // Object offers and group-notice attachments are only copied on accept.
+        assert!(!decline_leaves_a_copy(false, true, false));
+        assert!(!decline_leaves_a_copy(true, false, false));
+    }
+
+    #[test]
     fn parcel_region_guard_blocks_only_known_mismatches() {
         // Same region (case-insensitive) or unknown on either side: allowed.
         assert!(!parcel_region_mismatch("", ""));
@@ -2831,6 +3057,9 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
     // and clear every flag (build/scripts/fly/search/... ) - genuine data loss.
     let baseline = parcel.get("parcelFlags").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     let folded_flags = crate::bridge::session::fold_parcel_flags(baseline, &parcel);
+    // Both prices ride S32 fields; 0 is a legitimate "not for sale" / "no pass".
+    let sale_price = linden_amount(gi("salePrice"), 0).map_err(|e| format!("Sale price: {e}"))?;
+    let pass_price = linden_amount(gi("passPrice"), 0).map_err(|e| format!("Pass price: {e}"))?;
     // Landing point: round-trip the EXACT UserLocation/UserLookAt vectors the
     // sim gave us (the parcel event carries them since 0.9.0). The old path
     // rebuilt them from the rounded display values (whole metres, whole
@@ -2889,11 +3118,11 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
             "ParcelData": [{
                 "LocalID": gi("localId"), "Flags": 0x01,
                 "ParcelFlags": folded_flags,
-                "SalePrice": gi("salePrice"),
+                "SalePrice": sale_price,
                 "Name": vstr(&g("name")), "Desc": vstr(&g("desc")),
                 "MusicURL": vstr(&g("musicUrl")), "MediaURL": vstr(&g("mediaUrl")),
                 "MediaID": uuid_or_zero("mediaId"), "MediaAutoScale": gi("mediaAutoScale"),
-                "GroupID": uuid_or_zero("groupId"), "PassPrice": gi("passPrice"),
+                "GroupID": uuid_or_zero("groupId"), "PassPrice": pass_price,
                 "PassHours": parcel.get("passHours").and_then(|v| v.as_f64()).unwrap_or(0.0),
                 "Category": gi("category"), "AuthBuyerID": uuid_or_zero("authBuyerId"),
                 "SnapshotID": uuid_or_zero("snapshotId"),
@@ -2950,6 +3179,18 @@ pub async fn sl_start_session(app: AppHandle, state: State<'_, Arc<AppState>>, p
         })
         .unwrap_or_default();
 
+    // Whatever circuit ran before - the session a relogin or auto-reconnect is
+    // replacing - is finished with. Close it before opening the new one, so
+    // its socket, listener and tasks go away instead of piling up, and its
+    // watchdog cannot report "connection lost" into the new session ~100 s on.
+    let old = detach_all_sessions(&state);
+    if !old.is_empty() {
+        crate::dlog!("session start: closing {} previous circuit(s)", old.len());
+    }
+    for s in old {
+        s.close();
+    }
+
     let (id, session, local_port) = circuit::open(
         app.clone(),
         state.registry.clone(),
@@ -2982,14 +3223,13 @@ pub async fn sl_start_session(app: AppHandle, state: State<'_, Arc<AppState>>, p
         if eq_url.is_empty() { "MISSING" } else { "starting" }
     );
     if !eq_url.is_empty() {
-        let handle = crate::bridge::eventqueue::spawn(
+        crate::bridge::eventqueue::start(
             app.clone(),
             session.clone(),
             state.ua.clone(),
             eq_url,
             session_uuid.clone(),
         );
-        session.set_eq_task(handle);
     }
 
     if let Some(connected) = params.get("connected") {

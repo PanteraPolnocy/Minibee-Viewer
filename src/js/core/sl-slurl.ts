@@ -213,6 +213,19 @@ const BeeSlurl = (function () {
     return h.toString();
   }
 
+  // A region segment as typed by whoever wrote the link: "%20" and "+" are
+  // spaces, but a stray "%" or a Latin-1 escape ("Caf%E9") makes
+  // decodeURIComponent throw, and one such link in a chat line used to abort
+  // the whole transcript render. Such a segment is kept as written instead.
+  function decodeSegment(seg) {
+    const plussed = String(seg || '').replace(/\+/g, ' ');
+    try {
+      return decodeURIComponent(plussed);
+    } catch (_e) {
+      return plussed;
+    }
+  }
+
   function decodeRegionPath(path) {
     const parts = String(path || '').split('/').filter(Boolean);
     if (!parts.length) return null;
@@ -223,7 +236,7 @@ const BeeSlurl = (function () {
     if (parts[idx] && parts[idx].toLowerCase() === 'secondlife') idx += 1;
     if (!parts[idx]) return null;
 
-    const regionName = decodeURIComponent(parts[idx].replace(/\+/g, ' '));
+    const regionName = decodeSegment(parts[idx]);
     const nums = parts.slice(idx + 1).map(function (p) { return parseInt(p, 10); });
     // Coordinates are optional - a bare region path carries none.
     const out: { regionName: string; raw: any; x?: number; y?: number; z?: number } =
@@ -262,7 +275,7 @@ const BeeSlurl = (function () {
     if (m) {
       return enrichParsed({
         type: 'region-path',
-        regionName: decodeURIComponent(m[1].replace(/\+/g, ' ')),
+        regionName: decodeSegment(m[1]),
         x: parseInt(m[2], 10),
         y: parseInt(m[3], 10),
         z: m[4] ? parseInt(m[4], 10) : 25,

@@ -654,6 +654,39 @@ const BeeScripts = (function () {
     if (save) save.disabled = false;
   }
 
+  // --- drafts ---
+  // Android may kill a backgrounded app without warning, and the unsaved text
+  // goes with it. So the edit is stashed in the settings store whenever the
+  // page leaves the screen and offered back the next time that script opens.
+  // The stash goes away on a save or when the user chooses to discard.
+
+  const DRAFT_PREFIX = 'minibee-script-draft:';
+
+  function stashDraft() {
+    const input = el<HTMLTextAreaElement>('script-input');
+    if (!current || !current.dirty || !input) return;
+    BeeUtils.storageSet(DRAFT_PREFIX + current.itemId, { itemId: current.itemId, text: input.value, ts: Date.now() });
+    // The store's own flush also runs on hide, but not necessarily after this
+    // listener - push now rather than wait for the coalescing timer.
+    if (BeeUtils.storageFlush) BeeUtils.storageFlush();
+  }
+
+  function removeDraft(itemId) {
+    if (itemId) BeeUtils.storageRemove(DRAFT_PREFIX + itemId);
+  }
+
+  // The stashed text for an item, or null when there is none or it already
+  // matches what the server holds (in which case the stash is dropped).
+  function pendingDraft(itemId, loadedText) {
+    const draft = BeeUtils.storageGet(DRAFT_PREFIX + itemId, null);
+    if (!draft || typeof draft.text !== 'string') return null;
+    if (draft.text === loadedText) {
+      removeDraft(itemId);
+      return null;
+    }
+    return draft.text;
+  }
+
   function renderDiagnostics(diags) {
     const box = el('script-diagnostics');
     if (!box) return;
@@ -887,6 +920,7 @@ const BeeScripts = (function () {
         danger: true
       });
       if (!ok) return;
+      removeDraft(current.itemId);
     }
     const seq = ++openSeq;
     current = { itemId: row.itemId, assetId: row.assetId, creatorId: row.creatorId || '', lastOwnerId: row.lastOwnerId || '', name: row.name, savedText: '', dirty: false };
@@ -917,11 +951,21 @@ const BeeScripts = (function () {
       const text = await wait;
       if (seq !== openSeq) return;
       current.savedText = text;
+      const draft = pendingDraft(row.itemId, text);
       if (input) {
         input.value = text;
         input.disabled = false;
       }
       setStatus('Saved');
+      if (draft !== null && input) {
+        // The server's text goes on the undo stack first, so Ctrl+Z shows
+        // what the restored draft replaced; the editor reads Modified, and
+        // the draft only reaches the sim when the user saves it.
+        pushUndo(true);
+        input.value = draft;
+        markDirty();
+        BeeUtils.showToast('Restored unsaved changes', 'info');
+      }
       refreshHighlight();
     } catch (err) {
       if (seq !== openSeq) return;
@@ -935,34 +979,46 @@ const BeeScripts = (function () {
     if (!current || !input || saving) return;
     const mono = el<HTMLInputElement>('script-mono');
     const text = input.value;
+    const itemId = current.itemId;
     saving = true;
     const btn = el<HTMLButtonElement>('script-save');
     if (btn) btn.disabled = true;
     setStatus('Compiling...');
     renderDiagnostics([]);
     try {
-      const res = await BeeTransport.saveScript(current.itemId, text, mono && !mono.checked ? 'lsl2' : 'mono');
+      const res = await BeeTransport.saveScript(itemId, text, mono && !mono.checked ? 'lsl2' : 'mono');
+      // The round trip takes seconds and the editor may have moved on to
+      // another script meanwhile; a late reply must not touch that one.
+      if (!current || current.itemId !== itemId) return;
       renderDiagnostics(res && res.diagnostics);
-      if (res && res.ok && res.compiled) {
+      if (res && res.ok) {
+        // The asset now holds `text` - even when the compiler rejected it,
+        // matching how the grid treats a failed compile. Anything typed
+        // during the upload is still unsaved, so dirty follows the textarea
+        // rather than the moment Save was pressed.
         current.savedText = text;
-        current.dirty = false;
-        setStatus('Saved ✓ compiled', 'ok');
-        BeeUtils.showToast('Script saved and compiled.', 'success');
-      } else if (res && res.ok) {
-        // The upload landed but the compiler rejected it; the asset holds the
-        // new (broken) source, matching how the grid treats a failed compile.
-        current.savedText = text;
-        current.dirty = false;
-        setStatus('Compile failed', 'error');
-        BeeUtils.showToast('Saved, but the script did not compile.', 'warning');
+        removeDraft(itemId);
+        current.dirty = input.value !== text;
+        if (!res.compiled) {
+          setStatus('Compile failed', 'error');
+          BeeUtils.showToast('Saved, but the script did not compile.', 'warning');
+        } else if (current.dirty) {
+          setStatus('Modified', 'dirty');
+          BeeUtils.showToast('Script saved and compiled.', 'success');
+        } else {
+          setStatus('Saved ✓ compiled', 'ok');
+          BeeUtils.showToast('Script saved and compiled.', 'success');
+        }
       } else {
         setStatus('Upload failed', 'error');
         BeeUtils.showToast('The script upload failed.', 'error');
       }
     } catch (err) {
-      setStatus('Upload failed', 'error');
       BeeUtils.showToast(BeeUtils.errText(err) || 'The script upload failed.', 'error');
-      if (btn) btn.disabled = false;
+      if (current && current.itemId === itemId) {
+        setStatus('Upload failed', 'error');
+        if (btn) btn.disabled = false;
+      }
     } finally {
       saving = false;
       if (btn && current && current.dirty) btn.disabled = false;
@@ -1219,6 +1275,12 @@ const BeeScripts = (function () {
         renderList();
       }
     });
+    // Leaving the screen is the last moment we are sure to get before the OS
+    // may kill a backgrounded app.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') stashDraft();
+    });
+    window.addEventListener('pagehide', stashDraft);
     renderList();
   }
 

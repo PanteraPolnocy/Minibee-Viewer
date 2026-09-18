@@ -53,12 +53,20 @@ const BeeProfile = (function () {
         node.removeAttribute(attr.name);
       });
       if (node.tagName.toLowerCase() === 'a') {
+        // Links become the same kind of anchor chat renders, so BeeSlurl.bindLinks
+        // routes them: SLURLs open in the viewer, web links go through the
+        // "open external link?" confirmation instead of straight to the browser.
         const href = node.getAttribute('href') || '';
-        if (!/^https?:\/\//i.test(href) && !/^secondlife:/i.test(href)) {
-          node.removeAttribute('href');
-        } else {
-          node.setAttribute('rel', 'noopener noreferrer');
-          node.setAttribute('target', '_blank');
+        node.removeAttribute('href');
+        if (/^https?:\/\//i.test(href)) {
+          node.setAttribute('href', '#');
+          node.setAttribute('class', 'chat-link chat-link--external');
+          node.setAttribute('data-url', href);
+          node.setAttribute('data-trusted', '0');
+        } else if (/^secondlife:/i.test(href)) {
+          node.setAttribute('href', '#');
+          node.setAttribute('class', 'slurl-link');
+          node.setAttribute('data-slurl', href);
         }
       }
     });
@@ -393,7 +401,25 @@ const BeeProfile = (function () {
       BeeProfiles.getActiveGroupId(),
       true
     );
-    bindAvatarContent(profile, el('profile-content'));
+    // Only the groups section was rebuilt, so only its handlers are bound
+    // again. Re-running bindAvatarContent on the whole pane stacked another
+    // listener layer on every surviving node each time the membership list
+    // arrived - a pick tap then fired N requests, the portrait opened N times.
+    bindGroupLinks(section, profile);
+    const clearActiveBtn = section.querySelector('[data-clear-active-group]');
+    if (clearActiveBtn) {
+      clearActiveBtn.addEventListener('click', function () {
+        if (typeof BeeTransport.activateGroup !== 'function') return;
+        BeeTransport.activateGroup(ZERO_UUID).then(function (result) {
+          if (result && result.sent) {
+            BeeUtils.showToast('Active group cleared.', 'success');
+            highlightActiveGroupInList();
+            return;
+          }
+          BeeUtils.showToast('Could not clear active group.', 'warning');
+        });
+      });
+    }
     return true;
   }
 
@@ -541,6 +567,7 @@ const BeeProfile = (function () {
     detailEl.innerHTML = renderItemDetail(detail, kind);
     bindDetailSnapshot(detailEl);
     bindDetailActions(detailEl, detail);
+    BeeSlurl.bindLinks(detailEl); // links in the pick / classified description
   }
 
   // Resolved parcel info (region + parcel name), keyed by parcel id and cached
@@ -690,10 +717,18 @@ const BeeProfile = (function () {
       return '<div class="profile-pane"><p class="profile-section__empty">No web profile URL.</p></div>';
     }
     const safeUrl = BeeUtils.escapeHtml(url);
+    // The URL is whatever the resident typed into their profile. Only a web
+    // address is a link, and it opens through the same external-link
+    // confirmation as a link in chat (bindLinks picks up .chat-link).
+    if (!/^https?:\/\//i.test(url)) {
+      return '<div class="profile-pane"><div class="profile-field">' +
+        '<span class="profile-field__label">Profile URL</span>' +
+        '<span class="profile-field__value">' + safeUrl + '</span></div></div>';
+    }
     return '<div class="profile-pane"><div class="profile-field">' +
       '<span class="profile-field__label">Profile URL</span>' +
-      '<a class="profile-inline-link" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer">' +
-      safeUrl + '</a></div></div>';
+      '<a class="profile-inline-link chat-link chat-link--external" href="#" data-url="' + safeUrl +
+      '" data-trusted="0">' + safeUrl + '</a></div></div>';
   }
 
   function renderPlacesTab(profile) {
@@ -803,7 +838,10 @@ const BeeProfile = (function () {
     if (!split) return;
     const detail = split.querySelector('.profile-split__detail');
 
-    function showRow(row) {
+    // `refetch` is a user's tap on the row; a rebuild of the pane (which
+    // happens for every profile reply that lands) repaints from the cache and
+    // asks the sim only for what it does not have yet.
+    function showRow(row, refetch?) {
       if (!detail || !row || !row.id) return;
       const cached = kind === 'pick'
         ? BeeProfiles.getPickDetail(row.id)
@@ -811,6 +849,7 @@ const BeeProfile = (function () {
       if (cached) {
         paintItemDetail(detail, cached, kind);
         enrichItemLocation(detail, cached, kind, row.id);
+        if (!refetch) return;
       } else {
         detail.innerHTML = '<p class="profile-section__empty">Loading...</p>';
       }
@@ -841,7 +880,7 @@ const BeeProfile = (function () {
         if (!row) return;
         if (kind === 'pick') current.selectedPickId = row.id;
         else current.selectedClassifiedId = row.id;
-        showRow(row);
+        showRow(row, true);
       });
     });
 
@@ -858,8 +897,15 @@ const BeeProfile = (function () {
       });
     }
     if (!restored && rows.length) {
+      // The first row opens by default; a real click would count as the
+      // user asking for a fresh copy, so select it without one.
       const first = split.querySelector('[data-item-index]');
-      if (first) first.click();
+      if (first) {
+        first.classList.add('profile-split__item--active');
+        if (kind === 'pick') current.selectedPickId = rows[0].id;
+        else current.selectedClassifiedId = rows[0].id;
+        showRow(rows[0]);
+      }
     }
   }
 
@@ -1017,6 +1063,8 @@ const BeeProfile = (function () {
 
     bindSplitList(root.querySelector('[data-profile-panel="places"]'), profile.picks || [], 'pick', profile);
     bindSplitList(root.querySelector('[data-profile-panel="classifieds"]'), profile.classifieds || [], 'classified', profile);
+    // Links in the about texts and the Web tab (see sanitizeProfileHtml).
+    BeeSlurl.bindLinks(root);
   }
 
   function renderAvatarActions(profile) {
@@ -1046,6 +1094,12 @@ const BeeProfile = (function () {
         const nameEl = el('pay-target-name');
         if (!payDialog) return;
         if (nameEl) nameEl.textContent = 'Pay ' + profileTitleText(profile);
+        // A fresh form: the last payment's amount must not be pre-filled for
+        // a different recipient.
+        const amountEl = el<HTMLInputElement>('pay-amount');
+        const noteEl = el<HTMLInputElement>('pay-note');
+        if (amountEl) amountEl.value = '';
+        if (noteEl) noteEl.value = '';
         payDialog.dataset.targetId = agentId;
         if (typeof payDialog.showModal === 'function') payDialog.showModal();
       });
@@ -1256,17 +1310,29 @@ const BeeProfile = (function () {
       if (cancel) cancel.addEventListener('click', function () { BeeUtils.dismissDialog(dlg); });
       const form = el<HTMLFormElement>('group-invite-form');
       if (form) {
+        // One invitation per submit: a double tap used to send two.
+        let inviting = false;
         form.addEventListener('submit', function (e) {
           e.preventDefault();
+          if (inviting) return;
           const groupId = select.value;
           const inviteeId = dlg.dataset.inviteeId;
           if (!groupId || !inviteeId) return;
+          inviting = true;
+          const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+          if (submit) submit.disabled = true;
+          const release = function () {
+            inviting = false;
+            if (submit) submit.disabled = false;
+          };
           BeeBridge.invoke('sl_group_invite', { groupId: groupId, inviteeIds: [inviteeId], roleId: null })
             .then(function () {
+              release();
               BeeUtils.showToast('Group invitation sent.', 'success');
               BeeUtils.dismissDialog(dlg);
             })
             .catch(function (err) {
+              release();
               BeeUtils.showToast('Could not send the invitation: ' + (err.message || err), 'warning');
             });
         });
@@ -1719,6 +1785,8 @@ const BeeProfile = (function () {
       if (tabId === 'notices') ensureGroupNotices(profile);
     });
     bindGroupNotices(root, profile);
+    // Links in the charter (see sanitizeProfileHtml).
+    BeeSlurl.bindLinks(root);
     if (current && current.tab === 'notices') ensureGroupNotices(profile);
   }
 

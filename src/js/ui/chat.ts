@@ -342,13 +342,56 @@ const BeeChat = (function () {
           transactionId: prompt.transactionId,
           accept: action === 'accept',
           fromTask: !!prompt.fromTask,
-          kind: fromNotice ? 'group-notice' : null
+          kind: fromNotice ? 'group-notice' : null,
+          // The grid has already copied a resident's offer into inventory; a
+          // decline has to move that item to Trash itself, so it needs the id.
+          itemId: prompt.itemId || null
         }).then(function () {
           finish(action === 'accept' ? (fromNotice ? 'Kept' : 'Accepted')
             : (fromNotice ? 'Discarded' : 'Declined'));
         }).catch(function () {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
             BeeUtils.showToast('Could not answer the inventory offer.', 'warning');
+          }
+        });
+      }
+      finish('Ignored');
+      return Promise.resolve();
+    }
+
+    if (prompt.type === 'group-invitation') {
+      if ((action === 'accept' || action === 'decline') &&
+          typeof BeeBridge !== 'undefined' && BeeBridge.invoke) {
+        const tx = String(prompt.transactionId || '');
+        // An invitation that waited offline has no transaction id to answer
+        // with over the IM path (the reference viewer needs a cap for those).
+        if (!tx || /^0+$/.test(tx.replace(/-/g, ''))) {
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+            BeeUtils.showToast('This invitation cannot be answered here - open the group profile to join.', 'warning', 6000);
+          }
+          return Promise.resolve();
+        }
+        const fee = Number(prompt.fee) || 0;
+        const groupLabel = prompt.groupName || 'this group';
+        const sure = (action === 'accept' && fee > 0 && typeof BeeUtils !== 'undefined' && BeeUtils.confirm)
+          ? BeeUtils.confirm({
+              title: 'Join group?',
+              message: 'Joining ' + groupLabel + ' costs L$ ' + fee.toLocaleString('en-US') + '.',
+              confirmLabel: 'Join'
+            })
+          : Promise.resolve(true);
+        return sure.then(function (ok) {
+          if (!ok) return;
+          return BeeBridge.invoke('sl_group_invitation_respond', {
+            groupId: prompt.groupId,
+            transactionId: tx,
+            accept: action === 'accept'
+          }).then(function () {
+            finish(action === 'accept' ? 'Joined' : 'Declined');
+          });
+        }).catch(function () {
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+            BeeUtils.showToast('Could not answer the group invitation.', 'warning');
           }
         });
       }
@@ -432,7 +475,8 @@ const BeeChat = (function () {
     }
 
     if (prompt.type === 'calling-card' || prompt.type === 'friendship-offer' ||
-        prompt.type === 'inventory-offer' || prompt.type === 'group-notice-attachment') {
+        prompt.type === 'inventory-offer' || prompt.type === 'group-notice-attachment' ||
+        prompt.type === 'group-invitation') {
       const accept = el.querySelector('.interactive-prompt__accept');
       const decline = el.querySelector('.interactive-prompt__decline');
       const ignore = el.querySelector('.interactive-prompt__ignore');
@@ -568,6 +612,42 @@ const BeeChat = (function () {
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object">' +
               BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
+          '</div>' +
+          '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
+        '</div>' +
+        body + actions +
+        '<p class="script-dialog__response"' +
+          ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+        '</p>';
+      bindInteractivePrompt(el, msg);
+      return el;
+    }
+
+    if (prompt.type === 'group-invitation') {
+      const inviter = BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone');
+      const group = BeeUtils.escapeHtml(prompt.groupName || 'a group');
+      const fee = Number(prompt.fee) || 0;
+      const note = String(prompt.message || '').trim();
+      body = '<p class="script-dialog__body"><strong>' + inviter + '</strong> has invited you to join <strong>' +
+          group + '</strong>.' +
+          (fee > 0 ? ' Joining costs <strong>L$ ' + BeeUtils.escapeHtml(fee.toLocaleString('en-US')) + '</strong>.' : '') +
+        '</p>' +
+        (note ? '<p class="script-dialog__body script-dialog__body--quote">' + BeeUtils.escapeHtml(note) + '</p>' : '');
+      actions =
+        '<div class="script-dialog__actions script-dialog__actions--buttons">' +
+          '<button type="button" class="btn btn--primary interactive-prompt__accept"' +
+            (prompt.resolved ? ' disabled' : '') + '>Join</button>' +
+          '<button type="button" class="btn btn--secondary interactive-prompt__decline"' +
+            (prompt.resolved ? ' disabled' : '') + '>Decline</button>' +
+          '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
+            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+        '</div>';
+      el.innerHTML =
+        '<div class="script-dialog__header">' +
+          '<span class="script-dialog__badge script-dialog__badge--group">Group</span>' +
+          '<div class="script-dialog__titles">' +
+            '<span class="script-dialog__object">' + group + '</span>' +
           '</div>' +
           '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
@@ -1034,7 +1114,9 @@ const BeeChat = (function () {
         nameEl.classList.add('msg__name--link');
         nameEl.title = 'View owner profile';
         nameEl.addEventListener('click', function () {
-          BeeProfile.openAvatar(msg.ownerId);
+          // A group-owned object's owner is the group (object IMs say so).
+          if (msg.ownerIsGroup && typeof BeeProfile.openGroup === 'function') BeeProfile.openGroup(msg.ownerId);
+          else BeeProfile.openAvatar(msg.ownerId);
         });
       } else if (nameEl && !isObject && speakerId) {
         nameEl.classList.add('msg__name--link');

@@ -3,7 +3,7 @@
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hasher};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 
 use md5::{Digest, Md5};
@@ -122,6 +122,15 @@ pub struct AppState {
     /// The inventory root folder id from login; accepting a task inventory
     /// offer has to name a folder to file the item into.
     pub inv_root: Mutex<String>,
+    /// The Trash folder id from the login skeleton. A resident's inventory
+    /// offer is copied into our inventory before we ever see the prompt, so a
+    /// decline has to file that copy here itself.
+    pub inv_trash: Mutex<String>,
+    /// Bumped by every explicit logout. A reconnect records the value when it
+    /// starts and, if it changed while the HTTP login was in flight, drops the
+    /// reply instead of stashing credentials and handing the UI a session the
+    /// user has just ended.
+    pub logout_gen: AtomicU64,
     /// The folders landmarks are listed from (Landmarks, Favorites), from login.
     pub landmark_folders: Mutex<Vec<String>>,
     /// The folder scripts are listed from (Scripts), from login.
@@ -310,6 +319,8 @@ impl AppState {
             close_pending: AtomicBool::new(false),
             cof_folder: Mutex::new(String::new()),
             inv_root: Mutex::new(String::new()),
+            inv_trash: Mutex::new(String::new()),
+            logout_gen: AtomicU64::new(0),
             landmark_folders: Mutex::new(Vec::new()),
             script_folders: Mutex::new(Vec::new()),
             notecard_folders: Mutex::new(Vec::new()),

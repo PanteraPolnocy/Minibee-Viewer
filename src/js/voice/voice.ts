@@ -28,6 +28,11 @@ const BeeVoice = (function () {
   let state = 'off';       // off | connecting | on
   let micMuted = true;
   let connectSeq = 0;
+  // Neighbour and call sessions number themselves separately: bumping
+  // connectSeq for them silently invalidated every callback of the primary
+  // channel (speaking indicators, drop detection) the moment a neighbour or a
+  // call came up.
+  let sideSeq = 0;
 
   let pc = null;           // RTCPeerConnection
   let dc = null;           // the SLData channel
@@ -723,7 +728,7 @@ const BeeVoice = (function () {
   }
 
   async function openNeighbour(n) {
-    const ns: any = { key: n.key, gen: ++connectSeq, pc: null, dc: null, viewerSession: '', sender: null, audioEl: null, joined: null };
+    const ns: any = { key: n.key, gen: ++sideSeq, pc: null, dc: null, viewerSession: '', sender: null, audioEl: null, joined: null };
     neighbourSessions.set(n.key, ns);
     vlog('neighbour ' + n.key + ': connecting');
     try {
@@ -956,7 +961,7 @@ const BeeVoice = (function () {
     spatialWasDesired = desired;
     desired = false;
     teardown();
-    const cs: any = { sessionId: sessionId, title: title, origin: origin || '', p2p: !!p2p, peerJoined: false, noAnswerTimer: null, gen: ++connectSeq, pc: null, dc: null, viewerSession: '', sender: null, audioEl: null, joined: null, up: false };
+    const cs: any = { sessionId: sessionId, title: title, origin: origin || '', p2p: !!p2p, peerJoined: false, noAnswerTimer: null, gen: ++sideSeq, pc: null, dc: null, viewerSession: '', sender: null, audioEl: null, joined: null, up: false };
     callSession = cs;
     emitCallState();
     vlog('call: connecting to ' + channelUri);

@@ -6,6 +6,10 @@
  * buttons come back in through action() (evaluateJavascript from the
  * connection service). Everywhere else MinibeeAndroid does not exist and this
  * module stays inert.
+ *
+ * It also answers the Android Back button: MainActivity evaluates
+ * window.MinibeeAndroidBack() before deciding what to do with the activity
+ * (see back()).
  */
 const BeeAndroidBridge = (function () {
   'use strict';
@@ -63,6 +67,51 @@ const BeeAndroidBridge = (function () {
     schedule();
   }
 
+  function isShown(el) {
+    return !!el && el.getClientRects().length > 0;
+  }
+
+  // The Back button. Closes the innermost open thing and reports 'handled';
+  // with nothing to close, 'background' while a session is live (the shell
+  // then moves the task behind, the foreground service keeps the connection)
+  // and 'exit' otherwise (the shell finishes the activity). Only reaches what
+  // the UI itself exposes: dialogs go through BeeUtils.dismissDialog, the
+  // narrow-screen IM thread and the script/notecard editors through their own
+  // visible back buttons, so the modules keep their state in step.
+  function back() {
+    try {
+      const dialogs = document.querySelectorAll<HTMLDialogElement>('dialog[open]');
+      if (dialogs.length) {
+        // The most recently opened modal is normally the last one; either
+        // way the next press closes the other. Back behaves like Escape: the
+        // dialog's own `cancel` handler runs first, so a pending confirm or
+        // prompt resolves as cancelled instead of being left hanging (which
+        // would block every later confirm behind it); a dialog without such a
+        // handler is simply dismissed.
+        const top = dialogs[dialogs.length - 1];
+        top.dispatchEvent(new Event('cancel', { cancelable: true }));
+        if (top.open) BeeUtils.dismissDialog(top);
+        return 'handled';
+      }
+      const editorBacks = ['script-back', 'notecard-back'];
+      for (let i = 0; i < editorBacks.length; i++) {
+        const btn = document.getElementById(editorBacks[i]);
+        if (isShown(btn)) {
+          btn.click();
+          return 'handled';
+        }
+      }
+      if (BeeState.get().activeImSession) {
+        const imBack = document.getElementById('im-back');
+        if (isShown(imBack)) {
+          imBack.click();
+          return 'handled';
+        }
+      }
+    } catch (_e) { /* fall through to the session verdict */ }
+    return BeeState.get().connected ? 'background' : 'exit';
+  }
+
   function trackIm(payload) {
     const msg = payload && payload.message;
     if (!msg || msg.outgoing || !msg.text) return;
@@ -115,7 +164,10 @@ const BeeAndroidBridge = (function () {
     push();
   }
 
-  return { init: init, action: action };
+  return { init: init, action: action, back: back };
 })();
 
 window.BeeAndroidBridge = BeeAndroidBridge;
+// Read by MainActivity's back handler (evaluateJavascript); the cast keeps
+// this shell-only hook out of the shared Window declarations.
+(window as any).MinibeeAndroidBack = BeeAndroidBridge.back;

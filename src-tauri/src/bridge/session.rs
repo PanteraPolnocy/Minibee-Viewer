@@ -3840,11 +3840,17 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             {
                 return actions;
             }
-            // A blocked sender must not pull us into a session: if the tab isn't
-            // already open, ignore the invitation entirely; if it is, keep the
-            // session but drop their text.
-            let muted_sender = state.is_muted_text(&from_id) || state.is_muted_text(&session_id);
-            if muted_sender && !state.im_rosters.contains_key(&session_id) {
+            // A blocked sender must not pull us into a conference: if the tab
+            // isn't already open, ignore the invitation entirely; if it is,
+            // keep the session but drop their text. A GROUP we belong to is
+            // different (STORM-1731): whoever happens to speak first opens the
+            // session, and refusing it over them would silence the whole group
+            // for everyone else - so it is joined as usual, minus their line.
+            // A blocked group itself still opens nothing.
+            let muted_session = state.is_muted_text(&session_id);
+            let muted_sender = state.is_muted_text(&from_id) || muted_session;
+            let our_group = state.groups.contains(&session_id.to_lowercase()) && !muted_session;
+            if muted_sender && !our_group && !state.im_rosters.contains_key(&session_id) {
                 return actions;
             }
             let from_name = str_field(mp, &["from_name", "fromName"]);
@@ -3866,9 +3872,12 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             if !text.is_empty() && !muted_sender {
                 // Suppress the copy UDP already delivered, and EventQueue replays
                 // of this same invitation (an unacked poll re-sends its events).
+                // A UDP echo already consumed our own record of the line, so it
+                // is not re-noted here: the next UDP copy would be a resident
+                // really repeating themselves, not an echo to swallow.
                 let base = format!("{session_id}\0{from_id}\0{text}");
                 let udp_echo = state.take_im(&format!("udp\0{base}"));
-                let eq_replay = state.is_duplicate_im(&format!("eq\0{base}"));
+                let eq_replay = !udp_echo && state.is_duplicate_im(&format!("eq\0{base}"));
                 if !udp_echo && !eq_replay {
                     let mut payload = json!({
                         "sessionId": session_id,
@@ -4052,11 +4061,14 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             // Consumed: the name must never outlive its own trip (a landmark
             // or lure arrival carries no target of its own to overwrite it).
             state.tp_target = None;
+            // The old region's objects and neighbours are gone whatever the
+            // body says about the destination: a missing RegionHandle must not
+            // leave them haunting the new region (the UDP arm clears likewise).
+            state.objects.clear();
+            state.neighbour_sims.clear();
             if let Some((gx, gy)) = llsd_region_grid(info.get("RegionHandle")) {
                 state.region_grid_x = gx;
                 state.region_grid_y = gy;
-                state.objects.clear();
-            state.neighbour_sims.clear();
                 fin["gridX"] = json!(gx);
                 fin["gridY"] = json!(gy);
                 fin["region"] = json!({ "x": gx, "y": gy, "gridX": gx, "gridY": gy });
@@ -4297,12 +4309,14 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     // Nothing unsolicited gets through from a blocked sender: messages, typing,
     // offers, invites. Replies to things WE sent (inventory 5/6, teleport 23/24,
     // friendship 39/40) still land - we asked for those. The ID field
-    // names the object for an object IM (dialog 19) and the group for session
-    // chat, so a blocked object or group is checked there.
+    // names the object for an object IM (dialog 19, or 31 for its alert form)
+    // and the group for session chat, so a blocked object or group is checked
+    // there. AgentID is the owner for an object IM and the group for a group
+    // invitation (3), so the sender check covers a blocked owner or group.
     let is_reply_dialog = matches!(dialog, 5 | 6 | 23 | 24 | 39 | 40);
     if !is_reply_dialog
         && (state.is_muted_text(&from_id)
-            || (dialog == 19 && state.is_muted(&im_id))
+            || (matches!(dialog, 19 | 31) && state.is_muted(&im_id))
             || (is_session && state.is_muted_text(&im_id)))
     {
         return actions;
@@ -4320,10 +4334,19 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     let notice_from_group = notice_bucket
         .as_ref()
         .is_some_and(|(_, group, _)| is_zero_uuid(group) || same_uuid(group, &from_id));
-    if !notice_from_group {
+    // FromAgentName is not AgentID's name for an object's IM (a task inventory
+    // offer 9, a script's message 19, its alert form 31: the OBJECT is named,
+    // the owner is AgentID) nor for a group invitation (3: the inviter is
+    // named, the group is AgentID). Filing those under the id labelled the
+    // owner with the object's name (or the group with the inviter's) for the
+    // rest of the session, so they are shown as sent and neither cached nor
+    // looked up as an avatar.
+    let object_im = matches!(dialog, 9 | 19 | 31);
+    let wire_named = notice_from_group || object_im || dialog == 3;
+    if !wire_named {
         state.cache_name(&from_id, &from_name);
     }
-    let display = if notice_from_group {
+    let display = if wire_named {
         from_name.clone()
     } else {
         state.cached_name(&from_id).unwrap_or(&from_name).to_string()
@@ -4462,7 +4485,11 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             } else {
                 format!("{display} has offered you {item_label}.")
             };
-            actions.push(Action::ResolveNames(vec![from_id.clone()]));
+            // A task offer's AgentID is the object's owner, already labelled by
+            // the object's name here: no avatar lookup for it.
+            if !from_task {
+                actions.push(Action::ResolveNames(vec![from_id.clone()]));
+            }
             actions.push(Action::emit(
                 "event",
                 json!({
@@ -4528,6 +4555,87 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             actions.push(system_chat(&format!("{display} declined your friendship offer.")));
             return actions;
         }
+        // A script's message (19) or alert (31): the object speaks, its owner
+        // is AgentID and its own id rides in the ID field (a region without
+        // that code leaves it null; the reference viewer then keys the line by
+        // owner XOR session, as any unique non-owner id will do). It is shown
+        // as object chat, the way ChatFromSimulator's object lines are - it
+        // used to fall through to the P2P path and open an IM tab with the
+        // owner, or a phantom group session for a group-owned object.
+        19 | 31 => {
+            if text.trim().is_empty() {
+                return actions;
+            }
+            let object_id = if im_id.is_empty() || same_uuid(&im_id, ZERO) {
+                xor_session_id(&from_id, &state.session_uuid)
+            } else {
+                im_id.clone()
+            };
+            actions.push(Action::emit(
+                "chat",
+                json!({
+                    "fromId": object_id,
+                    "fromName": &display,
+                    "text": &text,
+                    "type": "normal",
+                    "source": "object",
+                    "ownerId": &from_id,
+                    "ownerIsGroup": from_group,
+                    "channel": 0,
+                    "outgoing": false,
+                    // 31 is the alert form (a modal in the reference viewer);
+                    // the UI may set it apart, the payload is otherwise the same.
+                    "alert": dialog == 31,
+                }),
+            ));
+            return actions;
+        }
+        // A group invitation: the group is AgentID, the inviter is only named
+        // in FromAgentName, and the bucket is exactly [S32 big-endian
+        // membership fee][role uuid]. The accept/decline reply goes to the
+        // group with this IM's id as the transaction. Like the reference
+        // viewer (FIRE-20385) an invitation to a group we are already in is
+        // dropped: there is nothing to answer.
+        3 => {
+            let raw_bucket = inst_bytes(&msg, "BinaryBucket");
+            if raw_bucket.len() != 20 {
+                return actions; // malformed: the reference viewer drops it too
+            }
+            // A blocked group was already dropped by the sender check above.
+            if state.groups.contains(&from_id.to_lowercase()) {
+                return actions;
+            }
+            // Online and offline delivery can both carry it; one card is enough.
+            if state.is_duplicate_im(&format!("group-invite\0{im_id}")) {
+                return actions;
+            }
+            let fee = i32::from_be_bytes([raw_bucket[0], raw_bucket[1], raw_bucket[2], raw_bucket[3]]) as i64;
+            let mut role = [0u8; 16];
+            role.copy_from_slice(&raw_bucket[4..20]);
+            let role_id = crate::bridge::objects::id_string(&role);
+            let group_name = group_name_of(state, &from_id);
+            let message = if text.trim().is_empty() {
+                format!("{display} has invited you to join a group.")
+            } else {
+                text.trim().to_string()
+            };
+            actions.push(Action::emit(
+                "event",
+                json!({
+                    "kind": "interactive-prompt", "fromId": &from_id, "fromName": &display,
+                    "groupId": &from_id, "groupName": &group_name,
+                    "text": &message,
+                    "type": "group-invitation", "source": "system", "channel": 0,
+                    "prompt": {
+                        "type": "group-invitation", "groupId": &from_id, "groupName": &group_name,
+                        "fromName": &display, "transactionId": im_id.to_ascii_lowercase(),
+                        "fee": fee, "roleId": role_id, "message": &message,
+                        "resolved": false, "response": "",
+                    }
+                }),
+            ));
+            return actions;
+        }
         _ => {}
     }
 
@@ -4546,10 +4654,14 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         // is a resident really saying the same thing twice - wire resends are
         // already filtered at the circuit by sequence number.
         let base = format!("{session_im_id}\0{from_id}\0{text}");
-        if state.take_im(&format!("eq\0{base}")) {
+        let eq_first = state.take_im(&format!("eq\0{base}"));
+        // Noted even when this copy is the echo: an unacked long-poll re-sent
+        // after a connection drop replays the EventQueue copy AFTER this one,
+        // and that replay is recognised by the UDP record it finds here.
+        state.note_im(&format!("udp\0{base}"));
+        if eq_first {
             return actions;
         }
-        state.note_im(&format!("udp\0{base}"));
     }
 
     // The packet names the sender by legacy name; the display label may differ.
@@ -5071,6 +5183,117 @@ mod tests {
         let object_id = "66666666-6666-6666-6666-666666666666";
         st.muted.insert(object_id.into(), 0);
         assert!(route(&mut st, &im_packet(19, OTHER, ME, false, object_id, "spam", "")).is_empty());
+        // The alert form carries the same ids, and the same block applies.
+        assert!(route(&mut st, &im_packet(31, OTHER, ME, false, object_id, "spam", "")).is_empty());
+    }
+
+    // An object's IM names the OBJECT in FromAgentName ("Ruth Resident" in
+    // the fixture stands in for it) while AgentID is the owner. It used to be
+    // cached as the owner's name for the whole session and, for 19/31, to
+    // open an IM tab with the owner as if they had typed it.
+    #[test]
+    fn object_ims_are_object_chat_and_never_label_the_owner() {
+        let mut st = me_state();
+        let object_id = "66666666-6666-6666-6666-666666666666";
+        let a = route(&mut st, &im_packet(19, OTHER, ME, false, object_id, "Rent is due", ""));
+        assert!(emit_of(&a, "im").is_none(), "no IM tab for the owner");
+        assert!(!a.iter().any(|x| matches!(x, Action::ResolveNames(_))), "the owner is not looked up by the object's name");
+        let c = emit_of(&a, "chat").expect("object chat line");
+        assert_eq!(c["source"], "object");
+        assert_eq!(c["fromId"], object_id);
+        assert_eq!(c["fromName"], "Ruth Resident");
+        assert_eq!(c["ownerId"], OTHER);
+        assert_eq!(c["channel"], 0);
+        assert_eq!(c["alert"], false);
+        assert!(st.cached_name(OTHER).is_none(), "the object's name must not stick to the owner");
+
+        // The alert form is the same line, flagged.
+        let a = route(&mut st, &im_packet(31, OTHER, ME, false, object_id, "Low on fuel", ""));
+        let c = emit_of(&a, "chat").expect("alert line");
+        assert_eq!(c["source"], "object");
+        assert_eq!(c["alert"], true);
+        assert_eq!(c["ownerId"], OTHER);
+
+        // A group-owned object (FromGroup set) is still object chat, not a
+        // phantom group session.
+        let a = route(&mut st, &im_packet(19, OTHER, ME, true, object_id, "Group rental notice", ""));
+        assert!(emit_of(&a, "im").is_none());
+        assert_eq!(emit_of(&a, "chat").unwrap()["ownerIsGroup"], true);
+
+        // A task inventory offer keeps its card but likewise leaves the owner unnamed.
+        let a = route(&mut st, &im_packet(9, OTHER, ME, false, "33333333-3333-3333-3333-333333333333", "Blue Hat", ""));
+        let e = emit_of(&a, "event").expect("offer card");
+        assert_eq!(e["prompt"]["fromTask"], true);
+        assert!(!a.iter().any(|x| matches!(x, Action::ResolveNames(_))));
+        assert!(st.cached_name(OTHER).is_none());
+
+        // An empty object IM is nothing to show.
+        assert!(route(&mut st, &im_packet(19, OTHER, ME, false, object_id, "", "")).is_empty());
+        // A blocked owner silences their objects, alert form included.
+        st.muted.insert(OTHER.into(), 0);
+        assert!(route(&mut st, &im_packet(19, OTHER, ME, false, object_id, "spam", "")).is_empty());
+        assert!(route(&mut st, &im_packet(31, OTHER, ME, false, object_id, "spam", "")).is_empty());
+    }
+
+    fn group_invite_packet(group: &str, tx: &str, text: &str, bucket: &[u8]) -> Value {
+        let mut pkt = im_packet(3, group, ME, true, tx, text, "");
+        pkt["blocks"]["MessageBlock"][0]["BinaryBucket"] = json!(B64.encode(bucket));
+        pkt
+    }
+
+    #[test]
+    fn group_invitation_becomes_a_prompt_card() {
+        let group = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        let tx = "33333333-3333-3333-3333-333333333333";
+        // [S32 big-endian fee][role uuid]
+        let mut bucket = 500i32.to_be_bytes().to_vec();
+        bucket.extend_from_slice(&[0xAB; 16]);
+        let mut st = me_state();
+        let a = route(&mut st, &group_invite_packet(group, tx, "Come join us", &bucket));
+        assert!(emit_of(&a, "im").is_none(), "not a plain IM any more");
+        assert!(!a.iter().any(|x| matches!(x, Action::ResolveNames(_))), "the group is not an avatar to look up");
+        let e = emit_of(&a, "event").expect("invitation card");
+        assert_eq!(e["kind"], "interactive-prompt");
+        assert_eq!(e["type"], "group-invitation");
+        assert_eq!(e["source"], "system");
+        assert_eq!(e["fromId"], group);
+        assert_eq!(e["groupId"], group);
+        assert_eq!(e["fromName"], "Ruth Resident");
+        assert_eq!(e["text"], "Come join us");
+        let p = &e["prompt"];
+        assert_eq!(p["type"], "group-invitation");
+        assert_eq!(p["groupId"], group);
+        assert_eq!(p["fromName"], "Ruth Resident");
+        assert_eq!(p["transactionId"], tx);
+        assert_eq!(p["fee"], 500);
+        assert_eq!(p["roleId"], "abababab-abab-abab-abab-abababababab");
+        assert_eq!(p["message"], "Come join us");
+        assert_eq!(p["resolved"], false);
+        assert!(st.cached_name(group).is_none(), "the inviter's name must not label the group");
+
+        // Online plus offline delivery replay the same invitation: one card.
+        st.now_ms = 1500;
+        assert!(route(&mut st, &group_invite_packet(group, tx, "Come join us", &bucket)).is_empty());
+
+        // No message text gets a stock line naming the inviter.
+        let mut st = me_state();
+        let a = route(&mut st, &group_invite_packet(group, tx, "", &bucket));
+        assert_eq!(emit_of(&a, "event").unwrap()["text"], "Ruth Resident has invited you to join a group.");
+
+        // Already a member (FIRE-20385): nothing to answer.
+        let mut st = me_state();
+        st.groups.insert(group.to_string());
+        assert!(route(&mut st, &group_invite_packet(group, tx, "Come join us", &bucket)).is_empty());
+
+        // A malformed bucket is dropped, not guessed at.
+        let mut st = me_state();
+        assert!(route(&mut st, &group_invite_packet(group, tx, "Come join us", &bucket[..19])).is_empty());
+        assert!(route(&mut st, &im_packet(3, group, ME, true, tx, "Come join us", "")).is_empty());
+
+        // A blocked group invites nobody.
+        let mut st = me_state();
+        st.muted.insert(group.into(), 0);
+        assert!(route(&mut st, &group_invite_packet(group, tx, "Come join us", &bucket)).is_empty());
     }
 
     #[test]
@@ -5112,6 +5335,31 @@ mod tests {
             a.iter().any(|x| matches!(x, Action::AcceptChatSession { .. })),
             "an open session keeps its lifeline"
         );
+    }
+
+    // STORM-1731: a blocked resident speaking first in a group we belong to
+    // must not keep us out of the group session - everyone else's lines
+    // would be lost with theirs.
+    #[test]
+    fn blocked_sender_opening_our_group_session_still_enrolls_us() {
+        let mut st = me_state();
+        st.muted.insert(OTHER.into(), 0);
+        let group = "55555555-5555-5555-5555-555555555555";
+        st.groups.insert(group.to_string());
+        let body = json!({ "instantmessage": { "message_params": {
+            "from_id": OTHER, "id": group, "from_name": "Ruth", "message": "ping",
+        } } });
+        let a = route_eq(&mut st, "ChatterBoxInvitation", &body);
+        assert!(
+            a.iter().any(|x| matches!(x, Action::AcceptChatSession { session_id } if session_id == group)),
+            "the group session is joined"
+        );
+        assert!(emit_of(&a, "im").is_none(), "but the blocked sender's line is dropped");
+        // A blocked GROUP still opens nothing, member or not.
+        let mut st = me_state();
+        st.groups.insert(group.to_string());
+        st.muted.insert(group.into(), 0);
+        assert!(route_eq(&mut st, "ChatterBoxInvitation", &body).is_empty());
     }
 
     #[test]
@@ -5729,6 +5977,28 @@ mod tests {
         assert!(emit_of(&route(&mut st, &pkt), "im").is_some());
     }
 
+    // An unacked EventQueue long-poll is re-sent after a connection drop, so a
+    // line can arrive EQ -> UDP echo -> EQ replay. The UDP echo used to consume
+    // the only record of the line and the replay posted it a second time.
+    #[test]
+    fn eq_replay_after_the_udp_echo_is_still_one_line() {
+        let mut st = me_state();
+        let sid = "44444444-4444-4444-4444-444444444444";
+        let pkt = im_packet(17, OTHER, "00000000-0000-0000-0000-000000000000", true,
+            sid, "hi group", "Explorers");
+        let body = json!({ "instantmessage": { "message_params": {
+            "from_id": OTHER, "id": sid, "from_name": "Ruth Resident", "message": "hi group",
+        } } });
+        assert!(emit_of(&route_eq(&mut st, "ChatterBoxInvitation", &body), "im").is_some());
+        st.now_ms = 1500;
+        assert!(emit_of(&route(&mut st, &pkt), "im").is_none(), "UDP echo");
+        st.now_ms = 2000;
+        assert!(emit_of(&route_eq(&mut st, "ChatterBoxInvitation", &body), "im").is_none(), "EQ replay");
+        // A resident really saying it again afterwards is still a new line.
+        st.now_ms = 2500;
+        assert!(emit_of(&route(&mut st, &pkt), "im").is_some());
+    }
+
     #[test]
     fn group_session_im_has_session_descriptor() {
         let mut st = me_state();
@@ -6017,6 +6287,23 @@ mod tests {
         assert_eq!(st.sim_ip, "34.220.14.80");
         assert_eq!(st.sim_port, 13003);
         assert_eq!(emit_of(&a, "teleport-finish").unwrap()["simIp"], "34.220.14.80");
+    }
+
+    // The old region's objects were only cleared when the body carried a
+    // RegionHandle; without one they haunted the nearby list in the new region.
+    #[test]
+    fn eq_teleport_finish_without_region_handle_still_clears_the_old_region() {
+        let mut st = me_state();
+        st.objects.upsert(crate::bridge::objects::ObjectRow { local_id: 7, ..Default::default() });
+        st.neighbour_sims.insert("10.0.0.1:13000".into(), (1000, 1000));
+        let body = json!({ "Info": [{
+            "SimIP": [34, 220, 14, 80], "SimPort": 13003,
+            "SeedCapability": "https://simhost-x.agni.secondlife.io:12043/cap/abc",
+        }] });
+        let a = route_eq(&mut st, "TeleportFinish", &body);
+        assert!(emit_of(&a, "teleport-finish").is_some());
+        assert!(st.objects.is_empty(), "the old region's objects are gone");
+        assert!(st.neighbour_sims.is_empty(), "and so are its neighbours");
     }
 
     #[test]

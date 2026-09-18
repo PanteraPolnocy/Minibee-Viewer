@@ -490,7 +490,7 @@ const BeeNavigation = (function () {
 
     BeeTransport.on('disconnected', function () {
       meter.hidden = true;
-      if (menuNet) menuNet.textContent = 'â€”';
+      if (menuNet) menuNet.textContent = '-';
     });
   }
 

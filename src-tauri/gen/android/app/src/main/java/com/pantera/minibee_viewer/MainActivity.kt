@@ -5,9 +5,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.system.Os
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -40,11 +42,61 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    exportDataDir()
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     current = WeakReference(this)
     requestNotificationPermission()
     startKeepAlive()
+    installBackHandler()
+  }
+
+  // The Rust core derives the login device id (hwid.rs) without an AppHandle,
+  // so it cannot ask Tauri for the app data directory; hand it the same path
+  // Tauri's PathPlugin resolves (Context.dataDir) through the process
+  // environment, before super.onCreate loads the native library. hwid.rs can
+  // rebuild the path from /proc on its own, so a failure here is not fatal.
+  private fun exportDataDir() {
+    try {
+      Os.setenv("MINIBEE_DATA_DIR", dataDir.absolutePath, true)
+    } catch (_: Exception) {
+    }
+  }
+
+  // Back: Tauri's activity leaves it to the default, which finishes the
+  // activity on the first press while the Rust session (and the keep-alive
+  // service) live on, orphaned. Ask the page first - it closes whatever is
+  // open (a dialog, an IM thread, an editor) and otherwise says whether a
+  // session is live. Live: the task moves to the background like any
+  // messenger, the foreground service keeps the connection. Not live, or no
+  // usable answer: finish, which takes the service down (see onDestroy).
+  private fun installBackHandler() {
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        val webView = webViewRef
+        if (webView == null) {
+          finish()
+          return
+        }
+        try {
+          webView.evaluateJavascript(
+            "(window.MinibeeAndroidBack && window.MinibeeAndroidBack()) || 'default'"
+          ) { result -> onBackVerdict(result) }
+        } catch (_: Exception) {
+          finish()
+        }
+      }
+    })
+  }
+
+  private fun onBackVerdict(result: String?) {
+    // evaluateJavascript hands back a JSON value, so a string arrives quoted;
+    // anything else (null, an error) falls through to the default.
+    when (result?.trim()?.trim('"')) {
+      "handled" -> {}
+      "background" -> moveTaskToBack(true)
+      else -> finish()
+    }
   }
 
   // The keep-alive service (and its permanent notification) runs for the whole

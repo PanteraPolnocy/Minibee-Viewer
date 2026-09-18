@@ -313,15 +313,27 @@ const BeeUtils = (function () {
     dialog.style.display = prevDisplay;
   }
 
-  // Styled modal confirmation that resolves to a Promise<boolean>. Falls back
-  // to the native confirm only when the dialog element isn't available.
-  function confirmDialog(options) {
+  // One dialog element serves every confirm and prompt, so requests that
+  // overlap (a voice-call invite landing while "Remove friend?" is open, the
+  // chat-log question while the updater asks) are queued: each waits for the
+  // previous answer instead of sharing the buttons - and the answer.
+  let confirmChain: Promise<any> = Promise.resolve();
+  function queueConfirm(o) {
+    const run = confirmChain.then(function () { return confirmCore(o); });
+    confirmChain = run.then(function () {}, function () {});
+    return run;
+  }
+
+  // The dialog itself; resolves { ok, value } with the input's text captured
+  // at the moment of the answer (the element is reused right after).
+  function confirmCore(options) {
     const o = options || {};
-    return new Promise(function (resolve) {
+    return new Promise<{ ok: boolean; value: string }>(function (resolve) {
       const dialog = document.getElementById('confirm-dialog') as HTMLDialogElement | null;
       if (!dialog || typeof dialog.showModal !== 'function') {
-        resolve(typeof window !== 'undefined' && window.confirm
-          ? window.confirm(o.message || 'Are you sure?') : true);
+        const ok = typeof window !== 'undefined' && window.confirm
+          ? window.confirm(o.message || 'Are you sure?') : true;
+        resolve({ ok: ok, value: '' });
         return;
       }
       const titleEl = document.getElementById('confirm-title');
@@ -348,6 +360,7 @@ const BeeUtils = (function () {
       function done(result) {
         if (settled) return;
         settled = true;
+        const value = inputEl && withInput ? inputEl.value : '';
         if (okBtn) okBtn.removeEventListener('click', onOk);
         if (cancelBtn) {
           cancelBtn.removeEventListener('click', onCancel);
@@ -357,7 +370,7 @@ const BeeUtils = (function () {
         if (inputWrap) inputWrap.hidden = true;
         dialog.removeEventListener('cancel', onDialogCancel);
         dismissDialog(dialog);
-        resolve(result);
+        resolve({ ok: result, value: value });
       }
       function onOk() { done(true); }
       function onCancel() { done(false); }
@@ -369,24 +382,33 @@ const BeeUtils = (function () {
       if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
       if (inputEl && withInput) inputEl.addEventListener('keydown', onInputKey);
       dialog.addEventListener('cancel', onDialogCancel);
-      dialog.showModal();
+      try {
+        dialog.showModal();
+      } catch (_e) {
+        // Already open somehow (older WebViews throw): treat as cancelled
+        // rather than leaving the caller hanging.
+        done(false);
+        return;
+      }
       if (withInput && inputEl) { inputEl.focus(); inputEl.select(); }
       else if (okBtn) okBtn.focus();
     });
+  }
+
+  // Styled modal confirmation that resolves to a Promise<boolean>. Falls back
+  // to the native confirm only when the dialog element isn't available.
+  function confirmDialog(options) {
+    return queueConfirm(options || {}).then(function (r) { return r.ok; });
   }
 
   // Styled replacement for window.prompt (which mobile WebViews don't show at
   // all): resolves to the entered string, or null when cancelled.
   function promptDialog(options) {
     const o = options || {};
-    return confirmDialog({
+    return queueConfirm({
       title: o.title, message: o.message, confirmLabel: o.confirmLabel || 'OK',
       input: true, inputValue: o.value || ''
-    }).then(function (ok) {
-      if (!ok) return null;
-      const inputEl = document.getElementById('confirm-input') as HTMLInputElement | null;
-      return inputEl ? inputEl.value : '';
-    });
+    }).then(function (r) { return r.ok ? r.value : null; });
   }
 
   // Backend command rejections arrive as bare strings; JS errors carry .message.

@@ -119,6 +119,14 @@ pub async fn sl_script_source(state: State<'_, Arc<AppState>>, item_id: String, 
 /// told apart from item creations we didn't ask for.
 pub const SCRIPT_CREATE_CALLBACK: i64 = 0x4D69_4265; // "MiBe"
 
+/// A Variable text field for the wire: NUL-terminated, pre-encoded as base64.
+/// The codec decodes a plain string as base64 first, so a raw name such as
+/// "Test" or "Door" (any base64-shaped word) used to go out as three junk
+/// bytes - every text field must take this route.
+fn vstr(s: &str) -> Value {
+    json!(B64.encode(format!("{s}\0").as_bytes()))
+}
+
 /// An inventory-legal item name: trimmed, no control characters, cut to the
 /// server's 63-byte limit.
 fn clean_item_name(name: &str) -> Result<String, String> {
@@ -157,8 +165,8 @@ pub(crate) async fn create_inventory_item(
                 "Type": asset_type,
                 "InvType": asset_type,
                 "WearableType": 0,
-                "Name": name,
-                "Description": "",
+                "Name": vstr(&name),
+                "Description": vstr(""),
             }],
         }),
         true,
@@ -497,6 +505,9 @@ pub async fn sl_lsl_language(app: tauri::AppHandle, state: State<'_, Arc<AppStat
 /// or comments is touched, and multi-line strings / block-comment bodies pass
 /// through byte-for-byte, so a format can never change what the code does.
 pub fn format_lsl(src: &str) -> String {
+    // Deeper nesting than this is not real code, it is a runaway brace count;
+    // uncapped, a file of "{" lines produced gigabytes of indentation.
+    const MAX_INDENT_LEVELS: i32 = 32;
     let mut out: Vec<String> = Vec::new();
     let mut depth: i32 = 0;
     let mut in_string = false;
@@ -554,7 +565,7 @@ pub fn format_lsl(src: &str) -> String {
         if content.is_empty() {
             out.push(String::new());
         } else {
-            out.push(format!("{}{}", "    ".repeat(indent.max(0) as usize), content));
+            out.push(format!("{}{}", "    ".repeat(indent.clamp(0, MAX_INDENT_LEVELS) as usize), content));
         }
     }
     out.join("\n")
@@ -626,6 +637,26 @@ mod tests {
         assert!(out.contains("\n        } else {\n"), "got:\n{out}");
         // Idempotent: formatting twice changes nothing.
         assert_eq!(format_lsl(&out), out);
+    }
+
+    #[test]
+    fn format_caps_runaway_indentation() {
+        // 200 unmatched openers must not indent 800 spaces deep (and a whole
+        // file of them must not allocate quadratically).
+        let src = "{\n".repeat(200) + "x;";
+        let out = format_lsl(&src);
+        let last = out.lines().last().unwrap();
+        assert_eq!(last.len() - last.trim_start().len(), 32 * 4);
+        assert!(out.len() < src.len() * 200);
+    }
+
+    #[test]
+    fn new_item_name_is_a_wire_text_field() {
+        // "Test" is base64-shaped; sent raw, the codec would decode it into
+        // three junk bytes. The field must be pre-encoded with its NUL.
+        let expected = B64.encode(b"Test\0");
+        assert_eq!(vstr("Test"), json!(expected));
+        assert_eq!(B64.decode(vstr("Test").as_str().unwrap()).unwrap(), b"Test\0");
     }
 
     #[test]

@@ -166,6 +166,23 @@ const BeeIm = (function () {
     return row;
   }
 
+  // Repaint one conversation's row in place, leaving the rest of the list
+  // (and its thumbnails) alone. The row keeps its position until the next
+  // full render sorts the list again.
+  function refreshSessionRow(sessionId) {
+    const container = document.getElementById('im-sessions');
+    const session = sessionId ? BeeState.get().imSessions[sessionId] : null;
+    if (!container || !session || session.dismissed) return;
+    const old = Array.from(container.children).find(function (row: HTMLElement) {
+      return row.dataset && row.dataset.sessionId === sessionId;
+    }) as HTMLElement | undefined;
+    if (!old) return;
+    if (typeof BeeState.resolveParticipantPresence === 'function' && session.participant) {
+      session.participant = BeeState.resolveParticipantPresence(session.participant);
+    }
+    old.replaceWith(renderSession(session));
+  }
+
   function closeSession(sessionId) {
     if (!sessionId) return;
     const session = BeeState.get().imSessions[sessionId];
@@ -1168,13 +1185,25 @@ const BeeIm = (function () {
       });
     }
     if (payForm && payDialog) {
+      // One payment at a time: a second Send (or Enter, then a tap) while the
+      // first is still on the wire used to transfer the L$ twice.
+      let paying = false;
       payForm.addEventListener('submit', function (e) {
         e.preventDefault();
+        if (paying) return;
         const targetId = payDialog.dataset.targetId;
         const amount = parseInt((document.getElementById('pay-amount') as HTMLInputElement).value, 10);
         const note = (document.getElementById('pay-note') as HTMLInputElement).value.trim();
         if (!targetId || !amount || amount < 1) return;
+        const submit = document.getElementById('pay-submit') as HTMLButtonElement | null;
+        paying = true;
+        if (submit) submit.disabled = true;
+        const release = function () {
+          paying = false;
+          if (submit) submit.disabled = false;
+        };
         BeeTransport.payResident(targetId, amount, note).then(function (result) {
+          release();
           if (result && result.sent) {
             BeeUtils.showToast('Payment sent.', 'success');
             BeeUtils.dismissDialog(payDialog);
@@ -1182,6 +1211,7 @@ const BeeIm = (function () {
             BeeUtils.showToast('Payment failed.', 'warning');
           }
         }).catch(function (err) {
+          release();
           BeeUtils.showToast('Payment failed: ' + (err.message || err), 'warning');
         });
       });
@@ -1219,6 +1249,9 @@ const BeeIm = (function () {
       if (!BeeNavigation.isTabActive('im')) return;
       if (BeeState.get().activeImSession === data.sessionId) {
         appendImMessage(data.message);
+        // The open conversation's own row (preview, time) would otherwise
+        // stay stale until something else redraws the list.
+        refreshSessionRow(data.sessionId);
         return;
       }
       if (!data.message.outgoing) refreshIncomingImUi(data.sessionId);

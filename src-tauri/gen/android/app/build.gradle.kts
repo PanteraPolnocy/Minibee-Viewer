@@ -24,14 +24,17 @@ val cargoVersion: String by lazy {
     line?.substringAfter('"')?.substringBefore('"') ?: "0.0.0"
 }
 
-// Android wants a monotonically increasing integer. Derive it from the semver so
-// 0.0.0 -> 0 (min 1), 1.2.13 -> 10213 (derived from Cargo.toml at build time).
+// Android wants a monotonically increasing integer. Derive it from the semver
+// with the Tauri CLI's own formula (major*1000000 + minor*1000 + patch, the
+// value it writes to tauri.properties), so a build without that file yields
+// the same code and can never go lower than one that had it: 0.0.0 -> 0
+// (min 1), 1.2.13 -> 1002013 (derived from Cargo.toml at build time).
 val cargoVersionCode: Int by lazy {
     val parts = cargoVersion.split('.', '-')
     val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
     val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
     val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
-    ((major * 10000) + (minor * 100) + patch).coerceAtLeast(1)
+    ((major * 1000000) + (minor * 1000) + patch).coerceAtLeast(1)
 }
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")

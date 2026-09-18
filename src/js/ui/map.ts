@@ -122,10 +122,12 @@ const BeeMap = (function () {
     return BeeState.get().position || null;
   }
 
-  function setSelection(loc) {
+  // `deferRender` leaves the tiles alone for a caller that will render once
+  // itself after several updates (the teleport-finish handler).
+  function setSelection(loc, deferRender?) {
     selection = loc ? Object.assign({}, loc) : null;
     updateInfo();
-    renderTiles();
+    if (!deferRender) renderTiles();
   }
 
   function updateInfo() {
@@ -438,7 +440,7 @@ const BeeMap = (function () {
     }
   }
 
-  function syncAvatarOnMap(data) {
+  function syncAvatarOnMap(data, deferRender?) {
     const region = data && data.region
       ? normalizeRegion(data.region)
       : normalizeRegion(BeeState.get().region || {});
@@ -458,7 +460,21 @@ const BeeMap = (function () {
         centerGridX = region.x;
         centerGridY = region.y;
       }
+      if (!deferRender) renderTilesOrOverlays();
+    }
+  }
+
+  // Position ticks arrive many times a second while moving. Only a view that
+  // no longer shows the current centre (a region change, or nothing drawn
+  // yet) needs the tiles rebuilt; moving our marker is an overlay-only job.
+  function renderTilesOrOverlays() {
+    const half = Math.floor(VIEW_TILES / 2);
+    if (!lastLayout ||
+        lastLayout.startX !== centerGridX - half ||
+        lastLayout.startY !== centerGridY - half) {
       renderTiles();
+    } else {
+      refreshOverlays();
     }
   }
 
@@ -1127,7 +1143,10 @@ const BeeMap = (function () {
         resetTeleportButton();
       }
       userPanned = false; // arriving somewhere new resumes following the agent
-      syncAvatarOnMap(data);
+      // Each step below used to render on its own (up to four rebuilds for one
+      // arrival); they defer, and the single renderTiles() at the end draws
+      // the final centre and selection.
+      syncAvatarOnMap(data, true);
       if (data && data.gridX != null && data.gridY != null) {
         // Recenter on the destination region - the grid coords come decoded from
         // the teleport's RegionHandle. Without this the map lingers on the old region.
@@ -1136,7 +1155,7 @@ const BeeMap = (function () {
           regionName: data.regionName || getRegionName(data.gridX, data.gridY) ||
             ('Region ' + data.gridX + ', ' + data.gridY),
           gridX: data.gridX, gridY: data.gridY
-        });
+        }, true);
       } else if (data && data.region) {
         const region = normalizeRegion(data.region);
         if (region.x !== undefined && region.y !== undefined) {
@@ -1162,10 +1181,10 @@ const BeeMap = (function () {
             x: data.position.x,
             y: data.position.y,
             z: data.position.z !== undefined ? data.position.z : 25
-          });
-          renderTiles();
+          }, true);
         }
       }
+      renderTiles();
     });
 
     updateInfo();

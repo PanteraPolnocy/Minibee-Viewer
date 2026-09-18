@@ -59,6 +59,7 @@ const BeeLand = (function () {
   }
 
   function clearDisplay() {
+    formBaseline = null;
     const form = document.getElementById('land-form') as HTMLFormElement | null;
     if (form) form.reset();
     const snapshot = document.getElementById('land-snapshot') as HTMLImageElement | null;
@@ -201,15 +202,107 @@ const BeeLand = (function () {
     });
   }
 
+  // What the editable controls held right after the form was last filled from
+  // a parcel, keyed by control id, plus which parcel that was. A control that
+  // no longer matches has been edited by the user. Parcel patches keep arriving
+  // while the form is open (the RemoteParcelRequest reply on every tab
+  // activation, name resolutions, a staged landing point, the sim's own
+  // ParcelProperties) and each used to rewrite every control, wiping the edit.
+  let formBaseline = null; // { key, values }
+
+  function parcelKey(parcel) {
+    if (!parcel) return '';
+    return parcel.localId ? 'local:' + parcel.localId : 'id:' + BeeUtils.normUuid(parcel.parcelId || '');
+  }
+
+  function readEditable(id) {
+    const el = document.getElementById(id) as HTMLInputElement | null;
+    if (!el) return undefined;
+    return el.type === 'checkbox' ? el.checked : el.value;
+  }
+
+  // Snapshot from the DOM rather than from the parcel: a <select> given a value
+  // it has no option for reads back as '', and that is what an untouched
+  // control will compare equal to.
+  function captureBaseline(parcel) {
+    const values = {};
+    EDITABLE_IDS.forEach(function (id) { values[id] = readEditable(id); });
+    formBaseline = { key: parcelKey(parcel), values: values };
+  }
+
+  function formIsDirty() {
+    if (!formBaseline) return false;
+    return EDITABLE_IDS.some(function (id) { return readEditable(id) !== formBaseline.values[id]; });
+  }
+
+  // Fill the form from a parcel without trampling an edit in progress. The
+  // editable controls are rewritten for a different parcel, on an explicit
+  // refresh, or while nothing has been touched; the read-only and derived
+  // fields (owner, group, area, traffic, prims, permissions) follow every patch.
+  function refreshForm(parcel, force?) {
+    if (!parcel || parcel.stub) return;
+    const sameParcel = !!formBaseline && formBaseline.key === parcelKey(parcel);
+    if (force || !sameParcel || !formIsDirty()) {
+      populateForm(parcel);
+      return;
+    }
+    populateDerivedFields(parcel);
+  }
+
   function populateForm(parcel) {
     if (!parcel || parcel.stub) return;
+    populateEditableFields(parcel);
+    populateDerivedFields(parcel);
+    captureBaseline(parcel);
+  }
 
+  function populateEditableFields(parcel) {
+    setFieldValue('land-name', parcel.name || '');
+    setFieldValue('land-desc', parcel.desc || '');
+    setFieldValue('land-push', parcel.pushRestricted);
+    setFieldValue('land-fly', parcel.allowFly);
+    setFieldValue('land-build-everyone', parcel.allowBuildEveryone);
+    setFieldValue('land-build-group', parcel.allowBuildGroup);
+    setFieldValue('land-scripts-everyone', parcel.allowScriptsEveryone);
+    setFieldValue('land-scripts-group', parcel.allowScriptsGroup);
+    setFieldValue('land-safe', parcel.safeEnvironment !== false);
+    setFieldValue('land-search', parcel.showInSearch);
+    setFieldValue('land-sound-local', parcel.soundLocal);
+    // Absent means allowed, the same legacy default the core applies.
+    setFieldValue('land-av-sounds-all', parcel.anyAvSounds !== false);
+    setFieldValue('land-av-sounds-group', parcel.groupAvSounds !== false);
+    setFieldValue('land-see-avs', parcel.seeAvs !== false);
+    setFieldValue('land-voice', parcel.allowVoice !== false);
+    setFieldValue('land-voice-estate', parcel.voiceUseEstate);
+    setFieldValue('land-mature', parcel.maturePublish);
+    setFieldValue('land-category', parcel.category || 0);
+    setFieldValue('land-sell-passes', parcel.sellPasses);
+    setFieldValue('land-music', parcel.musicUrl || '');
+    setFieldValue('land-media', parcel.mediaUrl || '');
+    setFieldValue('land-pass-price', parcel.passPrice || 0);
+    setFieldValue('land-pass-hours', parcel.passHours || 0);
+    // Options / Access / Objects extras.
+    setFieldValue('land-terraform', parcel.allowTerraform);
+    setFieldValue('land-entry-all', parcel.allowObjectEntryAll);
+    setFieldValue('land-entry-group', parcel.allowObjectEntryGroup);
+    setFieldValue('land-deed-allow', parcel.allowDeedToGroup);
+    setFieldValue('land-landing-type', String(parcel.landingType || 0));
+    setFieldValue('land-autoreturn', parcel.otherCleanTime || 0);
+    // "Public access" is the inverse of the access-list flag; there is no
+    // separate public bit in the protocol.
+    setFieldValue('land-access-public', !parcel.useAccessList);
+    setFieldValue('land-access-group', parcel.useAccessGroup);
+    setFieldValue('land-deny-anon', parcel.denyAnonymous);
+    setFieldValue('land-deny-unverified', parcel.denyAgeUnverified);
+  }
+
+  // Everything the user cannot type into: identity, ownership, counts, the
+  // permission state of the controls and the summary line.
+  function populateDerivedFields(parcel) {
     const canEdit = parcelCanEdit(parcel);
     const primsUsed = parcel.primsUsed !== undefined && parcel.primsUsed !== null ? parcel.primsUsed : 0;
     const primsTotal = parcel.primsTotal || 0; // comes from the Rust parcel handler
 
-    setFieldValue('land-name', parcel.name || '');
-    setFieldValue('land-desc', parcel.desc || '');
     setFieldValue('land-uuid', parcel.parcelId || '');
     setFieldValue('land-area', parcel.area ? parcel.area + ' m\u00B2' : '');
     setFieldValue('land-traffic', parcel.dwell !== undefined && parcel.dwell !== null
@@ -242,43 +335,8 @@ const BeeLand = (function () {
     setFieldValue('land-prims-owner', parcel.ownerPrims || 0);
     setFieldValue('land-prims-group', parcel.groupPrims || 0);
     setFieldValue('land-prims-other', parcel.otherPrims || 0);
-    setFieldValue('land-push', parcel.pushRestricted);
-    setFieldValue('land-fly', parcel.allowFly);
-    setFieldValue('land-build-everyone', parcel.allowBuildEveryone);
-    setFieldValue('land-build-group', parcel.allowBuildGroup);
-    setFieldValue('land-scripts-everyone', parcel.allowScriptsEveryone);
-    setFieldValue('land-scripts-group', parcel.allowScriptsGroup);
-    setFieldValue('land-safe', parcel.safeEnvironment !== false);
-    setFieldValue('land-search', parcel.showInSearch);
-    setFieldValue('land-sound-local', parcel.soundLocal);
-    // Absent means allowed, the same legacy default the core applies.
-    setFieldValue('land-av-sounds-all', parcel.anyAvSounds !== false);
-    setFieldValue('land-av-sounds-group', parcel.groupAvSounds !== false);
-    setFieldValue('land-see-avs', parcel.seeAvs !== false);
-    setFieldValue('land-voice', parcel.allowVoice !== false);
-    setFieldValue('land-voice-estate', parcel.voiceUseEstate);
-    setFieldValue('land-mature', parcel.maturePublish);
-    setFieldValue('land-category', parcel.category || 0);
-    setFieldValue('land-sell-passes', parcel.sellPasses);
-    setFieldValue('land-music', parcel.musicUrl || '');
-    setFieldValue('land-media', parcel.mediaUrl || '');
     setFieldValue('land-media-type', parcel.mediaType || '');
     setFieldValue('land-media-desc', parcel.mediaDesc || '');
-    setFieldValue('land-pass-price', parcel.passPrice || 0);
-    setFieldValue('land-pass-hours', parcel.passHours || 0);
-    // Options / Access / Objects extras.
-    setFieldValue('land-terraform', parcel.allowTerraform);
-    setFieldValue('land-entry-all', parcel.allowObjectEntryAll);
-    setFieldValue('land-entry-group', parcel.allowObjectEntryGroup);
-    setFieldValue('land-deed-allow', parcel.allowDeedToGroup);
-    setFieldValue('land-landing-type', String(parcel.landingType || 0));
-    setFieldValue('land-autoreturn', parcel.otherCleanTime || 0);
-    // "Public access" is the inverse of the access-list flag; there is no
-    // separate public bit in the protocol.
-    setFieldValue('land-access-public', !parcel.useAccessList);
-    setFieldValue('land-access-group', parcel.useAccessGroup);
-    setFieldValue('land-deny-anon', parcel.denyAnonymous);
-    setFieldValue('land-deny-unverified', parcel.denyAgeUnverified);
     renderGeneralExtras(parcel);
     updateMoneyActions(parcel);
 
@@ -781,6 +839,9 @@ const BeeLand = (function () {
 
     try {
       await BeeTransport.updateParcel(data);
+      // What is on screen is now what the sim holds, so the form is clean: the
+      // refreshed parcel below may fill every control again.
+      captureBaseline(parcel);
       BeeUtils.showToast('Parcel updated', 'success');
       // Re-fetch the authoritative parcel data so the form and the next save's
       // baseline reflect what the sim actually stored.
@@ -799,7 +860,9 @@ const BeeLand = (function () {
 
   let lastLocalId = 0;
 
-  function applyParcel(parcel) {
+  // `force` rewrites the editable controls even over an unsaved edit - only
+  // the explicit Refresh button asks for that.
+  function applyParcel(parcel, force?) {
     if (parcelNeedsLoad(parcel)) return;
     // A different parcel invalidates the pane caches (lists, owners, env).
     if (parcel.localId && parcel.localId !== lastLocalId) {
@@ -811,7 +874,7 @@ const BeeLand = (function () {
         if (activeLandTab === 'environment') requestEnvironment(true);
       }
     }
-    populateForm(parcel);
+    refreshForm(parcel, force);
     hideLoading();
   }
 
@@ -867,7 +930,8 @@ const BeeLand = (function () {
       clearDisplay();
       showLoading();
     } else {
-      populateForm(parcel);
+      // Coming back to the tab must not discard what was typed before leaving.
+      refreshForm(parcel);
     }
 
     if (!BeeState.get().sessionLost && typeof BeeTransport.refreshParcel === 'function') {
@@ -992,6 +1056,8 @@ const BeeLand = (function () {
         if (minutes === (parcel.otherCleanTime || 0)) return;
         BeeTransport.parcelSetAutoreturn(parcel.localId, minutes).then(function () {
           BeeUtils.showToast('Autoreturn saved.', 'success');
+          // Saved on its own, so this control no longer counts as an edit.
+          if (formBaseline) formBaseline.values['land-autoreturn'] = readEditable('land-autoreturn');
           BeeState.patch({ parcel: Object.assign({}, parcel, { otherCleanTime: minutes }) });
         }).catch(function (err) {
           BeeUtils.showToast(err.message || 'Could not save autoreturn.', 'error');
@@ -1097,7 +1163,7 @@ const BeeLand = (function () {
       showLoading('Refreshing land data...');
       try {
         await BeeTransport.refreshParcel({ force: true });
-        applyParcel(BeeState.get().parcel);
+        applyParcel(BeeState.get().parcel, true);
       } finally {
         hideLoading();
       }

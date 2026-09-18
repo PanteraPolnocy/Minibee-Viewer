@@ -102,6 +102,47 @@ const BeeNotecards = (function () {
     if (save) save.disabled = false;
   }
 
+  // --- drafts ---
+  // Same scheme as the Scripts tab: Android may kill a backgrounded app, so an
+  // unsaved edit is stashed in the settings store when the page leaves the
+  // screen and offered back when that notecard opens again. Dropped on a save
+  // or when the user chooses to discard.
+
+  const DRAFT_PREFIX = 'minibee-notecard-draft:';
+
+  function stashDraft() {
+    const input = el<HTMLTextAreaElement>('notecard-input');
+    if (!current || !current.dirty || !input) return;
+    BeeUtils.storageSet(DRAFT_PREFIX + current.itemId, { itemId: current.itemId, text: input.value, ts: Date.now() });
+    // Push now: the store's own hide-time flush need not run after this one.
+    if (BeeUtils.storageFlush) BeeUtils.storageFlush();
+  }
+
+  function removeDraft(itemId) {
+    if (itemId) BeeUtils.storageRemove(DRAFT_PREFIX + itemId);
+  }
+
+  // The stashed text for an item, or null when there is none or it already
+  // matches what the server holds (in which case the stash is dropped).
+  function pendingDraft(itemId, loadedText) {
+    const draft = BeeUtils.storageGet(DRAFT_PREFIX + itemId, null);
+    if (!draft || typeof draft.text !== 'string') return null;
+    if (draft.text === loadedText) {
+      removeDraft(itemId);
+      return null;
+    }
+    return draft.text;
+  }
+
+  // Put a stashed edit back into the editor, marked as unsaved so nothing
+  // reaches the sim until the user saves it.
+  function restoreDraft(input, draft) {
+    if (draft === null || !input) return;
+    input.value = draft;
+    markDirty();
+    BeeUtils.showToast('Restored unsaved changes', 'info');
+  }
+
   // Offer a notecard to another resident through the shared recipient picker.
   // Notecards are inventory asset type 7.
   function sendToResident(row) {
@@ -213,6 +254,7 @@ const BeeNotecards = (function () {
         danger: true
       });
       if (!ok) return;
+      removeDraft(current.itemId);
     }
     const seq = ++openSeq;
     current = { itemId: row.itemId, assetId: row.assetId, creatorId: row.creatorId || '', lastOwnerId: row.lastOwnerId || '', name: row.name, savedText: '', dirty: false, hasEmbeds: false };
@@ -236,6 +278,7 @@ const BeeNotecards = (function () {
     if (isZeroId(row.assetId)) {
       if (input) input.disabled = false;
       setStatus('Saved');
+      restoreDraft(input, pendingDraft(row.itemId, ''));
       return;
     }
     try {
@@ -250,6 +293,7 @@ const BeeNotecards = (function () {
         input.disabled = false;
       }
       setStatus('Saved');
+      restoreDraft(input, pendingDraft(row.itemId, got.text));
     } catch (err) {
       if (seq !== openSeq) return;
       setStatus('Load failed', 'error');
@@ -271,25 +315,33 @@ const BeeNotecards = (function () {
       if (!ok) return;
     }
     const text = input.value;
+    const itemId = current.itemId;
     saving = true;
     const btn = el<HTMLButtonElement>('notecard-save');
     if (btn) btn.disabled = true;
     setStatus('Saving...');
     try {
-      const res = await BeeTransport.saveNotecard(current.itemId, text);
+      const res = await BeeTransport.saveNotecard(itemId, text);
+      // The round trip takes seconds and the editor may have moved on to
+      // another notecard meanwhile; a late reply must not touch that one.
+      if (!current || current.itemId !== itemId) return;
       if (res && res.ok) {
         current.savedText = text;
-        current.dirty = false;
         current.hasEmbeds = false;
         if (res.newAsset) current.assetId = res.newAsset;
-        setStatus('Saved', 'ok');
+        removeDraft(itemId);
+        // Anything typed during the upload is still unsaved, so dirty follows
+        // the textarea rather than the moment Save was pressed.
+        current.dirty = input.value !== text;
+        if (current.dirty) setStatus('Modified', 'dirty');
+        else setStatus('Saved', 'ok');
         BeeUtils.showToast('Notecard saved.', 'success');
       } else {
         setStatus('Save failed', 'error');
         BeeUtils.showToast('The notecard save failed.', 'error');
       }
     } catch (err) {
-      setStatus('Save failed', 'error');
+      if (current && current.itemId === itemId) setStatus('Save failed', 'error');
       BeeUtils.showToast(BeeUtils.errText(err) || 'The notecard save failed.', 'error');
     } finally {
       saving = false;
@@ -422,6 +474,12 @@ const BeeNotecards = (function () {
       if (BeeState.get().activeTab === 'notecards') load(false);
       else renderList();
     });
+    // Leaving the screen is the last moment we are sure to get before the OS
+    // may kill a backgrounded app.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') stashDraft();
+    });
+    window.addEventListener('pagehide', stashDraft);
     renderList();
   }
 

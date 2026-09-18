@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -55,8 +55,16 @@ pub struct Session {
     /// Agent ids we recently asked names for (lowercased id -> mono ms), so the
     /// steady radar/roster refresh can't re-request the same unresolved id.
     recent_name_reqs: Mutex<HashMap<String, u64>>,
-    /// The active EventQueue long-poll task, swapped out whenever the region changes.
-    eq_task: Mutex<Option<JoinHandle<()>>>,
+    /// The active EventQueue long-poll task, swapped out whenever the region
+    /// changes, together with what it takes to tell that queue we are done.
+    eq_task: Mutex<Option<(JoinHandle<()>, crate::bridge::eventqueue::EqPoll)>>,
+    /// Set by `close()`. The socket itself goes away once the aborted tasks
+    /// drop their handles; until then, and for any detached helper that still
+    /// holds this session, nothing more goes out on the wire.
+    closed: AtomicBool,
+    /// The sim acknowledged our LogoutRequest (the engine routed LogoutReply),
+    /// so a logout can tear the circuit down without waiting out its grace.
+    logout_acked: AtomicBool,
     /// Wall-clock ms of the last inbound datagram we accepted, feeding the liveness
     /// watchdog (a silently dead sim sends nothing at all, not even ping checks).
     last_inbound: AtomicU64,
@@ -80,6 +88,9 @@ impl Session {
     }
 
     pub async fn send_bytes(&self, bytes: &[u8]) -> usize {
+        if self.closed.load(Ordering::SeqCst) {
+            return 0;
+        }
         let addr = *self.target.lock().unwrap();
         let n = self.udp.send_to(bytes, addr).await.unwrap_or(0);
         crate::bridge::netmeter::note_out(n);
@@ -110,13 +121,59 @@ impl Session {
         self.target.lock().unwrap().ip().to_string()
     }
 
+    /// Tear the circuit down: every background task (reader, TCP listener,
+    /// resender, agent-update, net meter, watchdog) and the EventQueue poll are
+    /// aborted, the poll is told `done`, and further sends become no-ops. The UDP
+    /// socket and the TCP listener are owned by those tasks' futures, so they
+    /// close as the aborts land. Safe to call more than once.
     pub fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
         for t in self.tasks.lock().unwrap().drain(..) {
             t.abort();
         }
-        if let Some(eq) = self.eq_task.lock().unwrap().take() {
+        if let Some((eq, poll)) = self.eq_task.lock().unwrap().take() {
             eq.abort();
+            crate::bridge::eventqueue::send_done(poll);
         }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
+    }
+
+    /// Whether this circuit is still the one the UI is looking at. A session
+    /// that was logged out, replaced by a reconnect, or closed by a relogin is
+    /// taken out of the shared state first, so anything it still has to say
+    /// (a late watchdog verdict, a dying EventQueue) must not reach the UI.
+    pub fn is_live(&self, app: &AppHandle) -> bool {
+        let Some(state) = app.try_state::<Arc<crate::bridge::state::AppState>>() else {
+            return false;
+        };
+        match state.active() {
+            Some(active) => std::ptr::eq(Arc::as_ptr(&active), self),
+            None => false,
+        }
+    }
+
+    /// Emit a UI event, but only while this is the live session.
+    pub fn emit_live(&self, app: &AppHandle, event: &str, payload: Value) {
+        if !self.is_live(app) {
+            crate::dlog!("circuit: dropped '{event}' from a circuit that is no longer the live session");
+            return;
+        }
+        let _ = app.emit(&format!("minibee-viewer://{event}"), payload);
+    }
+
+    /// Wait for the sim's LogoutReply, but no longer than `max`. Returns whether it came.
+    pub async fn wait_logout_ack(&self, max: Duration) -> bool {
+        let deadline = Instant::now() + max;
+        while Instant::now() < deadline {
+            if self.logout_acked.load(Ordering::SeqCst) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        self.logout_acked.load(Ordering::SeqCst)
     }
 
     fn has_engine(&self) -> bool {
@@ -627,11 +684,13 @@ impl Session {
         }
     }
 
-    /// Install the EventQueue task, aborting whichever one was running before.
-    pub fn set_eq_task(&self, handle: JoinHandle<()>) {
-        let mut slot = self.eq_task.lock().unwrap();
-        if let Some(old) = slot.replace(handle) {
-            old.abort();
+    /// Install the EventQueue task, aborting whichever one was running before
+    /// and posting that queue its closing `done`.
+    pub fn set_eq_task(&self, handle: JoinHandle<()>, poll: crate::bridge::eventqueue::EqPoll) {
+        let old = self.eq_task.lock().unwrap().replace((handle, poll));
+        if let Some((old_task, old_poll)) = old {
+            old_task.abort();
+            crate::bridge::eventqueue::send_done(old_poll);
         }
     }
 
@@ -852,7 +911,11 @@ impl Session {
             }
             Action::Emit { event, mut payload } => {
                 stamp_event(&event, &mut payload);
-                let _ = app.emit(&format!("minibee-viewer://{event}"), payload);
+                if event == "disconnected" {
+                    // LogoutReply: the logout grace period can end now.
+                    self.logout_acked.store(true, Ordering::SeqCst);
+                }
+                self.emit_live(app, &event, payload);
             }
             Action::ResolveNames(ids) => {
                 let batch: Vec<String> = {
@@ -986,11 +1049,7 @@ impl Session {
                 .collect()
         };
         crate::dlog!("voice: neighbour {key} at ({grid_x},{grid_y}) voice-ready");
-        let _ = tauri::Emitter::emit(
-            app,
-            "minibee-viewer://voice-neighbours",
-            serde_json::json!({ "neighbours": neighbours }),
-        );
+        self.emit_live(app, "voice-neighbours", serde_json::json!({ "neighbours": neighbours }));
     }
 
     /// Re-fetch the new region's caps and restart the EventQueue against them.
@@ -1009,25 +1068,22 @@ impl Session {
                 // Cap refetch failed for the new region: the UDP circuit still
                 // works, but names/land/live updates won't. Better to warn than
                 // to fail silently.
-                crate::bridge::caps::emit_caps_status(app, None, "region-cross");
+                if self.is_live(app) {
+                    crate::bridge::caps::emit_caps_status(app, None, "region-cross");
+                }
                 return;
             }
         };
         let eq_url = caps.get("EventQueueGet").cloned().unwrap_or_default();
         // Re-evaluate against the new region's caps: clear the banner if this
         // region is healthy, raise it again if it isn't.
-        crate::bridge::caps::emit_caps_status(app, Some(&caps), "region-cross");
+        if self.is_live(app) {
+            crate::bridge::caps::emit_caps_status(app, Some(&caps), "region-cross");
+        }
         self.set_caps(caps);
         crate::bridge::caps::interest_list_360(&state, self).await;
-        if !eq_url.is_empty() {
-            let handle = crate::bridge::eventqueue::spawn(
-                app.clone(),
-                self.clone(),
-                state.ua.clone(),
-                eq_url,
-                session_uuid,
-            );
-            self.set_eq_task(handle);
+        if !eq_url.is_empty() && !self.is_closed() {
+            crate::bridge::eventqueue::start(app.clone(), self.clone(), state.ua.clone(), eq_url, session_uuid);
         }
     }
 
@@ -1132,6 +1188,31 @@ mod tests {
         let id = gen_id();
         assert_eq!(id.len(), 36);
         assert_eq!(id.as_bytes()[8], b'-');
+    }
+
+    #[test]
+    fn inbound_pin_is_the_whole_address() {
+        let target: SocketAddr = "216.82.44.10:13005".parse().unwrap();
+        assert!(inbound_allowed("216.82.44.10:13005".parse().unwrap(), target));
+        // A sibling region on the same host: same IP, another port. After a
+        // teleport that is the region we just left, and its packets must not
+        // land in the new region's state.
+        assert!(!inbound_allowed("216.82.44.10:13006".parse().unwrap(), target));
+        // Off-path entirely.
+        assert!(!inbound_allowed("10.0.0.7:13005".parse().unwrap(), target));
+    }
+
+    #[test]
+    fn retarget_moves_the_pin_with_the_region() {
+        // Before the crossing the old region is the pin; after `retarget` the
+        // new one is, and the old region's traffic is what gets dropped.
+        let old: SocketAddr = "216.82.44.10:13005".parse().unwrap();
+        let new: SocketAddr = "216.82.44.10:13006".parse().unwrap();
+        let target = Mutex::new(old);
+        assert!(inbound_allowed(old, *target.lock().unwrap()));
+        *target.lock().unwrap() = new;
+        assert!(!inbound_allowed(old, *target.lock().unwrap()));
+        assert!(inbound_allowed(new, *target.lock().unwrap()));
     }
 }
 
@@ -1257,6 +1338,8 @@ pub async fn open(
         recent_reliable: Mutex::new(VecDeque::new()),
         recent_name_reqs: Mutex::new(HashMap::new()),
         eq_task: Mutex::new(None),
+        closed: AtomicBool::new(false),
+        logout_acked: AtomicBool::new(false),
         last_inbound: AtomicU64::new(mono_ms()),
         last_seed: Mutex::new(None),
         eq_recover: AtomicU32::new(0),
@@ -1276,7 +1359,7 @@ pub async fn open(
             tasks.push(spawn_resender(session.clone()));
             tasks.push(spawn_watchdog(watchdog_app.clone(), session.clone()));
             tasks.push(spawn_agent_update(session.clone()));
-            tasks.push(spawn_net_meter(watchdog_app));
+            tasks.push(spawn_net_meter(watchdog_app, session.clone()));
         }
     }
 
@@ -1310,7 +1393,7 @@ fn spawn_agent_update(session: Arc<Session>) -> JoinHandle<()> {
 /// Emit a throttled traffic rate for the top-bar indicator: one `net-rate`
 /// event every 2s with bytes-per-second in/out since the last tick. Skips the
 /// emit entirely when nothing moved, so an idle session costs no DOM work.
-fn spawn_net_meter(app: AppHandle) -> JoinHandle<()> {
+fn spawn_net_meter(app: AppHandle, session: Arc<Session>) -> JoinHandle<()> {
     const TICK_MS: u64 = 2000;
     tokio::spawn(async move {
         let (mut last_in, mut last_out) = crate::bridge::netmeter::totals();
@@ -1331,8 +1414,9 @@ fn spawn_net_meter(app: AppHandle) -> JoinHandle<()> {
             // The label and the log-scaled bar level ship precomputed; the
             // frontend only turns them into pixels. The shape is the NetRate
             // struct, which is also what generates the frontend's type.
-            let _ = app.emit(
-                "minibee-viewer://net-rate",
+            session.emit_live(
+                &app,
+                "net-rate",
                 crate::bridge::events::payload(crate::bridge::events::NetRate {
                     in_bps,
                     out_bps,
@@ -1352,6 +1436,8 @@ fn spawn_net_meter(app: AppHandle) -> JoinHandle<()> {
 /// data, object/terse updates, or at least a periodic StartPingCheck), so if we
 /// hear nothing for the whole heartbeat window the circuit is dead - report it and
 /// stop. Catches silent network drops and OS suspend that no resend timeout would.
+/// The verdict only goes to the UI while this is still the live session: a
+/// circuit that was logged out or replaced has nothing to report.
 fn spawn_watchdog(app: AppHandle, session: Arc<Session>) -> JoinHandle<()> {
     const HEARTBEAT_TIMEOUT_MS: u64 = 100_000; // 100s silence => dead circuit
     tokio::spawn(async move {
@@ -1359,14 +1445,25 @@ fn spawn_watchdog(app: AppHandle, session: Arc<Session>) -> JoinHandle<()> {
             tokio::time::sleep(Duration::from_secs(15)).await;
             let last = session.last_inbound.load(Ordering::Relaxed);
             if mono_ms().saturating_sub(last) > HEARTBEAT_TIMEOUT_MS {
-                let _ = app.emit(
-                    "minibee-viewer://session-lost",
+                session.emit_live(
+                    &app,
+                    "session-lost",
                     json!({ "reason": "Lost connection to the region (no response)." }),
                 );
                 break;
             }
         }
     })
+}
+
+/// Whether an inbound datagram is from the sim this circuit points at. The
+/// whole address counts, not just the IP: Linden runs several regions per
+/// host on different ports, so after a teleport to a sibling region the old
+/// region's packets share the IP and differ only by port. `retarget` moves
+/// the target before the new region's first packet lands, so comparing
+/// against the current target is exactly right on both sides of a crossing.
+fn inbound_allowed(from: SocketAddr, target: SocketAddr) -> bool {
+    from == target
 }
 
 fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> JoinHandle<()> {
@@ -1380,13 +1477,14 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
                     continue;
                 }
             };
-            // Only accept datagrams from the sim this circuit currently points at.
-            // The socket is unconnected (retarget swaps the sim on region change),
-            // so without this an off-path attacker who found the ephemeral port
-            // could inject forged sim traffic. Mirrors the trusted-message TCP
-            // listener, which already pins the sender IP.
-            let pinned = session.target.lock().unwrap().ip();
-            if from.ip() != pinned {
+            // Only accept datagrams from the sim this circuit currently points at,
+            // IP and port both (see inbound_allowed). The socket is unconnected
+            // (retarget swaps the sim on region change), so without this an
+            // off-path attacker who found the ephemeral port could inject forged
+            // sim traffic, and the region we just left could keep feeding its
+            // packets into the new region's state.
+            let pinned = *session.target.lock().unwrap();
+            if !inbound_allowed(from, pinned) {
                 // Rejected traffic does NOT refresh last_inbound, so a wrong pin
                 // starves the heartbeat watchdog and surfaces as a bogus
                 // "lost connection" - the connection dot flapping yellow while
@@ -1397,8 +1495,8 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
                 if now.saturating_sub(LAST_WARN.load(Ordering::Relaxed)) > 5_000 {
                     LAST_WARN.store(now, Ordering::Relaxed);
                     crate::dlog!(
-                        "circuit: dropped {} bytes from {} - pinned to {} (off-path, or the pin is stale after a region change)",
-                        n, from.ip(), pinned
+                        "circuit: dropped {} bytes from {} - pinned to {} (off-path, or the region we just left)",
+                        n, from, pinned
                     );
                 }
                 continue;
@@ -1482,7 +1580,9 @@ fn spawn_http_listener(
                 Ok(v) => v,
                 Err(_) => continue,
             };
-            // Only the current sim (the circuit's target IP) is allowed to post trusted messages.
+            // Only the current sim (the circuit's target IP) is allowed to post
+            // trusted messages. IP only, unlike the UDP reader: a TCP client
+            // connects from an ephemeral source port, never from the sim port.
             let trusted_ip = session.target.lock().unwrap().ip();
             if peer.ip() != trusted_ip {
                 let _ = stream

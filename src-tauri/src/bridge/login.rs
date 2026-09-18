@@ -1,5 +1,6 @@
 //! The `login_to_simulator` XML-RPC call: building it, parsing the response, and fetching seed capabilities.
 
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -377,6 +378,11 @@ pub fn notecard_folder_ids(login: &Map<String, Value>) -> Vec<String> {
     if id.is_empty() { Vec::new() } else { vec![id] }
 }
 
+/// The Trash folder (FT_TRASH = 14). Empty when the skeleton lacks one.
+pub fn trash_folder_id(login: &Map<String, Value>) -> String {
+    skeleton_folder_id(login, 14)
+}
+
 /// The agent's inventory root folder id from the login reply. Empty when absent.
 pub fn inventory_root_id(login: &Map<String, Value>) -> String {
     login
@@ -394,7 +400,12 @@ pub fn parse_login_response(xml: &str) -> Result<Map<String, Value>, String> {
     if crate::codec::llsd::max_xml_nesting(xml) > MAX_XMLRPC_DEPTH as usize {
         return Err("XML-RPC response nested too deeply".to_string());
     }
-    let doc = roxmltree::Document::parse(xml).map_err(|_| "Invalid XML-RPC response".to_string())?;
+    // XML-RPC never needs a DTD, and an inline one is how entity-expansion
+    // bombs get in, so refuse to parse one at all rather than rely on the
+    // library's default staying that way.
+    let opts = roxmltree::ParsingOptions { allow_dtd: false, ..Default::default() };
+    let doc = roxmltree::Document::parse_with_options(xml, opts)
+        .map_err(|_| "Invalid XML-RPC response".to_string())?;
     let struct_node = doc
         .descendants()
         .find(|n| n.has_tag_name("struct"))
@@ -834,6 +845,42 @@ mod tests {
     }
 
     #[test]
+    fn parse_login_response_refuses_a_dtd() {
+        // XML-RPC has no use for a DTD; one in the reply is an entity bomb waiting to go off.
+        let xml = r#"<?xml version="1.0"?><!DOCTYPE lol [<!ENTITY a "aaaa">]><methodResponse><params><param><value><struct>
+            <member><name>login</name><value><string>&a;</string></value></member>
+        </struct></value></param></params></methodResponse>"#;
+        assert!(parse_login_response(xml).is_err());
+    }
+
+    #[test]
+    fn trash_folder_id_finds_the_trash() {
+        let mut login = Map::new();
+        login.insert(
+            "inventory-skeleton".into(),
+            json!([
+                { "name": "My Inventory", "folder_id": "aa000000-0000-0000-0000-000000000001", "type_default": 8 },
+                { "name": "Trash", "folder_id": "ff000000-0000-0000-0000-00000000000e", "type_default": 14 },
+            ]),
+        );
+        assert_eq!(trash_folder_id(&login), "ff000000-0000-0000-0000-00000000000e");
+        assert_eq!(trash_folder_id(&Map::new()), "", "no Trash folder means no move, not a crash");
+    }
+
+    #[test]
+    fn relogin_goes_back_to_last_and_drops_a_reply_after_logout() {
+        // The typed start location (a region, "home") is for the first login only.
+        let creds = relogin_credentials(json!({ "username": "ann.lee", "start": "uri:Natoma&128&128&25" }));
+        assert_eq!(creds["start"], "last");
+        assert_eq!(creds["username"], "ann.lee");
+        // A fresh login records no generation and is never dropped.
+        assert!(!logged_out_since(None, 5));
+        // A reconnect is dropped only if a logout happened after it started.
+        assert!(!logged_out_since(Some(3), 3));
+        assert!(logged_out_since(Some(3), 4));
+    }
+
+    #[test]
     fn trim_login_keeps_whitelist_and_normalizes_seed() {
         let mut m = Map::new();
         m.insert("login".into(), json!(true));
@@ -1014,7 +1061,43 @@ async fn seal_mfa_for_client(password: &str, mfa_hash: &str) -> Value {
     }
 }
 
-pub async fn login(state: Arc<AppState>, mut credentials: Value) -> Result<Value, String> {
+/// The stashed login, re-aimed at "last": a reconnect should put the user back
+/// where they were, not at the start location they typed at first login.
+fn relogin_credentials(mut creds: Value) -> Value {
+    if let Some(m) = creds.as_object_mut() {
+        m.insert("start".into(), json!("last"));
+    }
+    creds
+}
+
+/// True when an explicit logout happened between `started_at` (the logout
+/// generation a reconnect recorded before its HTTP login) and `now`.
+fn logged_out_since(started_at: Option<u64>, now: u64) -> bool {
+    matches!(started_at, Some(g) if g != now)
+}
+
+pub async fn login(state: Arc<AppState>, credentials: Value) -> Result<Value, String> {
+    login_with(state, credentials, None).await
+}
+
+/// Auto-reconnect: replay the login the core stashed at login time. If the user
+/// logs out while this HTTP login is still in flight, the reply is dropped -
+/// nothing is stashed and an error comes back - so the UI never starts a
+/// session the user has just ended. Errors when nothing is stashed.
+pub async fn relogin(state: Arc<AppState>) -> Result<Value, String> {
+    let generation = state.logout_gen.load(Ordering::SeqCst);
+    let creds = state
+        .creds
+        .reveal()
+        .ok_or_else(|| "No stored session to reconnect".to_string())?;
+    login_with(state, relogin_credentials(creds), Some(generation)).await
+}
+
+async fn login_with(
+    state: Arc<AppState>,
+    mut credentials: Value,
+    logout_gen_at_start: Option<u64>,
+) -> Result<Value, String> {
     let stored_mfa_used = unseal_stored_mfa(&mut credentials).await;
     let body = assemble_login_body(&state, &credentials);
     let url = body.get("url").and_then(|u| u.as_str()).ok_or("url required")?.to_string();
@@ -1049,6 +1132,14 @@ pub async fn login(state: Arc<AppState>, mut credentials: Value) -> Result<Value
     let login_ok = matches!(parsed.get("login"), Some(Value::Bool(true)))
         || matches!(parsed.get("login"), Some(Value::String(s)) if s == "true");
 
+    // A logout that landed while this reconnect was on the wire wins: the user
+    // ended the session, so this reply must not restore the credential stash
+    // or reach the UI as a session to start.
+    if login_ok && logged_out_since(logout_gen_at_start, state.logout_gen.load(Ordering::SeqCst)) {
+        crate::dlog!("relogin: logged out while the login was in flight - dropping the reply");
+        return Err("Logged out during reconnect".to_string());
+    }
+
     // Stash the login payload for auto-reconnect (SecretStore keeps it obfuscated
     // in memory). Reuse the persistent MFA hash from the response and pre-accept
     // TOS/critical so a replay can log back in without a fresh interactive
@@ -1076,6 +1167,7 @@ pub async fn login(state: Arc<AppState>, mut credentials: Value) -> Result<Value
         }
         *state.cof_folder.lock().unwrap() = cof;
         *state.inv_root.lock().unwrap() = inventory_root_id(&parsed);
+        *state.inv_trash.lock().unwrap() = trash_folder_id(&parsed);
         *state.landmark_folders.lock().unwrap() = landmark_folder_ids(&parsed);
         *state.script_folders.lock().unwrap() = script_folder_ids(&parsed);
         *state.notecard_folders.lock().unwrap() = notecard_folder_ids(&parsed);

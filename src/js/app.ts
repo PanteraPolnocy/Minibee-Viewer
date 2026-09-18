@@ -68,10 +68,13 @@ const BeeApp = (function () {
     Promise.resolve(BeeTransport.reconnect()).then(function () {
       reconnecting = false;
       // 'connected' normally cancels the loop; guard here in case it doesn't fire.
-      if (!BeeState.get().connected) scheduleReconnect(RECONNECT_INTERVAL);
+      if (!BeeState.get().connected && wasConnected) scheduleReconnect(RECONNECT_INTERVAL);
     }).catch(function () {
       reconnecting = false;
-      scheduleReconnect(RECONNECT_INTERVAL); // keep trying, there's no limit
+      // A logout while this attempt was in flight ('disconnected' clears
+      // wasConnected) ends the loop; the core also refuses to complete such a
+      // login. Otherwise keep trying, there's no limit.
+      if (wasConnected) scheduleReconnect(RECONNECT_INTERVAL);
     });
   }
 
@@ -182,6 +185,16 @@ const BeeApp = (function () {
       // Auto-reconnect if it's enabled and we actually had a session; otherwise
       // fall back to the manual session-lost overlay.
       if (wasConnected && autoReconnectEnabled()) {
+        // The retry loop only runs while the state says the session is gone
+        // (runReconnectAttempt bails on "connected and not lost"), and nothing
+        // else marks it: the core's watchdog sends this event and no
+        // 'disconnected'. Marking it dismissed keeps the offline chrome without
+        // the modal blocker while the attempts run.
+        BeeState.patch({
+          sessionLost: true,
+          sessionLostReason: String(reason || '').trim() || 'Lost connection to the region.',
+          sessionLostDismissed: true
+        });
         startReconnect();
       } else {
         BeeSessionLost.show(reason);

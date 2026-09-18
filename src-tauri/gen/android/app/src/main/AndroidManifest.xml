@@ -6,6 +6,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Voice and parcel music keep playing while backgrounded. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Since Android 11 the microphone stays open in the background only for
+         a foreground service of type microphone; API 34+ gates that type
+         behind this permission. ConnectionService adds the type only while
+         voice is connected and RECORD_AUDIO is granted. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Voice chat: the WebView's getUserMedia still needs the app permission. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -14,10 +19,19 @@
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
+    <!-- No Auto Backup: the data folder holds settings.json (the sealed MFA
+         "remember this device" record, remembered username), optional chat
+         logs and the WebView's storage. None of it should leave the device
+         through Google's backup or a device-to-device transfer. allowBackup
+         covers cloud backup; dataExtractionRules (API 31+) and
+         fullBackupContent (older) exclude every domain from both paths. -->
     <application
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.minibee_viewer"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
@@ -33,10 +47,12 @@
             </intent-filter>
         </activity>
 
+        <!-- The declared set is the ceiling; the service picks the actual types
+             per startForeground() call (microphone only while voice is on). -->
         <service
             android:name=".ConnectionService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|mediaPlayback" />
+            android:foregroundServiceType="dataSync|mediaPlayback|microphone" />
 
         <provider
           android:name="androidx.core.content.FileProvider"

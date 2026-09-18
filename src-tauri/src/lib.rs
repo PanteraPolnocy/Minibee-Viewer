@@ -137,6 +137,7 @@ pub fn run() {
             commands::sl_group_save_title,
             commands::sl_group_request_titles,
             commands::sl_group_invite,
+            commands::sl_group_invitation_respond,
             commands::sl_pay,
             commands::sl_request_balance,
             bridge::currency::sl_currency_quote,
