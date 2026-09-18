@@ -6142,19 +6142,70 @@ button.status-chip--balance:disabled {
 
 /* Caret-driven signature help: works the same for touch and mouse. */
 .script-editor__signature {
-  padding: 5px 12px;
   border-top: 1px solid var(--border);
   background: var(--bg-elevated);
-  font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;
   color: var(--text-muted);
+}
+.script-editor__signature[hidden] { display: none; }
+.script-signature__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 12px;
+}
+.script-signature__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.script-editor__signature[hidden] { display: none; }
-.script-editor__signature b { color: var(--accent); font-weight: 700; }
-.script-editor__signature .sig-name { color: var(--text); font-weight: 600; }
+.script-signature__text b { color: var(--accent); font-weight: 700; }
+.script-signature__text .sig-name { color: var(--text); font-weight: 600; }
+.script-signature__toggle {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.script-signature__toggle:hover { background: var(--bg-input); color: var(--text); }
+.script-signature__toggle svg { transition: transform 0.15s ease; }
+.script-signature__toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.script-signature__toggle[hidden] { display: none; }
+/* The description: bounded, so a long entry scrolls here instead of pushing
+   the source out of view; the current argument is picked out like it is in
+   the signature line. */
+.script-signature__doc {
+  max-height: min(30vh, 200px);
+  overflow-y: auto;
+  padding: 0 12px 8px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.script-signature__doc[hidden] { display: none; }
+.script-doc__text { margin: 0 0 6px; white-space: pre-wrap; }
+.script-doc__arg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin: 2px 0;
+  color: var(--text-muted);
+}
+.script-doc__arg code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+.script-doc__arg--current code { color: var(--accent); font-weight: 700; }
 
 .script-editor__complete {
   display: flex;

@@ -994,7 +994,15 @@
                   <pre id="script-gutter" class="script-editor__gutter" aria-hidden="true"></pre>
                   <textarea id="script-input" class="script-editor__input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="LSL source"></textarea>
                 </div>
-                <div id="script-signature" class="script-editor__signature" hidden></div>
+                <div id="script-signature" class="script-editor__signature" hidden>
+                  <div class="script-signature__row">
+                    <span id="script-signature-text" class="script-signature__text"></span>
+                    <button type="button" id="script-doc-toggle" class="script-signature__toggle" title="Show description" aria-label="Show description" aria-expanded="false" aria-controls="script-doc" hidden>
+                      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+                    </button>
+                  </div>
+                  <div id="script-doc" class="script-signature__doc" hidden></div>
+                </div>
                 <div id="script-complete" class="script-editor__complete" hidden></div>
                 <div id="script-diagnostics" class="script-editor__diagnostics" hidden></div>
               </div>

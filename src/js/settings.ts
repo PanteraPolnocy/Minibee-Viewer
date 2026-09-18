@@ -43,6 +43,9 @@ const BeeSettings = (function () {
     objectsRange: { type: 'number', default: 32 },
     objectsIncludeAttachments: { type: 'boolean', default: false },
     objectsIncludePhysical: { type: 'boolean', default: true },
+    // The script editor's description panel under the signature line: the
+    // chevron there toggles it, and the choice is kept between sessions.
+    scriptDocsExpanded: { type: 'boolean', default: true },
     // 'system' follows the device's light/dark preference (and tracks changes
     // to it); the other two are fixed.
     theme: { type: 'string', default: 'dark', choices: ['dark', 'light', 'system'] }

@@ -475,13 +475,43 @@ const BeeScripts = (function () {
     return m ? { name: m[1], argIndex: commas } : null;
   }
 
+  // Whether the description panel under the signature is open. Remembered
+  // in the settings so the choice survives a restart; the chevron flips it.
+  let docsExpandedFallback = true;
+  function docsExpanded() {
+    return (typeof BeeSettings !== 'undefined' && BeeSettings.get)
+      ? !!BeeSettings.get('scriptDocsExpanded') : docsExpandedFallback;
+  }
+  function setDocsExpanded(on) {
+    docsExpandedFallback = !!on;
+    if (typeof BeeSettings !== 'undefined' && BeeSettings.set) BeeSettings.set('scriptDocsExpanded', !!on);
+  }
+
+  // The panel's body: the grid's description of the call, then each argument
+  // with its own note, the one the caret is in picked out.
+  function docHtml(def, argIndex) {
+    const parts = [];
+    if (def.tooltip) parts.push('<p class="script-doc__text">' + BeeUtils.escapeHtml(def.tooltip) + '</p>');
+    (def.args || []).forEach(function (a, i) {
+      parts.push('<div class="script-doc__arg' + (i === argIndex ? ' script-doc__arg--current' : '') + '">' +
+        '<code>' + BeeUtils.escapeHtml(a.type + ' ' + a.name) + '</code>' +
+        (a.tooltip ? '<span>' + BeeUtils.escapeHtml(a.tooltip) + '</span>' : '') +
+        '</div>');
+    });
+    return parts.join('');
+  }
+
   function refreshSignature() {
     const bar = el('script-signature');
+    const text = el('script-signature-text');
+    const doc = el('script-doc');
+    const toggle = el('script-doc-toggle');
     const input = el<HTMLTextAreaElement>('script-input');
-    if (!bar || !input) return;
+    if (!bar || !text || !doc || !toggle || !input) return;
     const call = current && !input.disabled ? enclosingCall(input.value, input.selectionStart) : null;
     let html = '';
     let tooltip = '';
+    let body = '';
     if (call && langSets) {
       const def = langSets.functions.get(call.name) || langSets.events.get(call.name);
       if (def) {
@@ -492,14 +522,24 @@ const BeeScripts = (function () {
         html = (def.return ? BeeUtils.escapeHtml(def.return) + ' ' : '') +
           '<span class="sig-name">' + BeeUtils.escapeHtml(call.name) + '</span>(' + args.join(', ') + ')';
         tooltip = def.tooltip || '';
+        // A description is worth a panel; a bare argument list is already
+        // the signature line, so the chevron only appears when there is more.
+        if (tooltip || (def.args || []).some(function (a) { return a.tooltip; })) body = docHtml(def, call.argIndex);
       } else if (localSyms.fns.has(call.name)) {
         html = '<span class="sig-name">' + BeeUtils.escapeHtml(call.name) + '</span>(' +
           BeeUtils.escapeHtml(localSyms.fns.get(call.name).argsText) + ')';
       }
     }
     bar.hidden = !html;
-    bar.innerHTML = html;
+    text.innerHTML = html;
     bar.title = tooltip;
+    toggle.hidden = !body;
+    const open = !!body && docsExpanded();
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.title = open ? 'Hide description' : 'Show description';
+    toggle.setAttribute('aria-label', toggle.title);
+    doc.hidden = !open;
+    doc.innerHTML = open ? body : '';
   }
 
   // --- editor: completion ---
@@ -1056,6 +1096,22 @@ const BeeScripts = (function () {
     }
     const saveBtn = el('script-save');
     if (saveBtn) saveBtn.addEventListener('click', function () { void save(); });
+    const docToggle = el('script-doc-toggle');
+    if (docToggle) {
+      // mousedown, so the textarea keeps its focus and caret - the signature
+      // is caret-driven and would otherwise lose the call being described.
+      docToggle.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        setDocsExpanded(!docsExpanded());
+        refreshSignature();
+      });
+      docToggle.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        setDocsExpanded(!docsExpanded());
+        refreshSignature();
+      });
+    }
 
     const input = el<HTMLTextAreaElement>('script-input');
     if (input) {

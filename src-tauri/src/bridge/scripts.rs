@@ -300,17 +300,10 @@ pub async fn sl_script_save(
     }))
 }
 
-fn short_tooltip(attrs: &Value) -> String {
-    let mut t = attrs.get("tooltip").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    if t.len() > 400 {
-        let mut cut = 400;
-        while !t.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        t.truncate(cut);
-        t.push('\u{2026}');
-    }
-    t
+/// The grid's description of a function, event or argument, whole: the editor
+/// shows it in a scrollable panel under the signature, so nothing is cut.
+fn tooltip_text(attrs: &Value) -> String {
+    attrs.get("tooltip").and_then(|v| v.as_str()).unwrap_or("").trim().to_string()
 }
 
 /// Argument list out of the syntax file's shape: an array of one-key maps,
@@ -326,6 +319,7 @@ fn syntax_args(attrs: &Value) -> Vec<Value> {
                     Some(json!({
                         "name": name,
                         "type": info.get("type").and_then(|v| v.as_str()).unwrap_or(""),
+                        "tooltip": tooltip_text(info),
                     }))
                 })
                 .collect()
@@ -351,7 +345,7 @@ pub fn transform_syntax(doc: &Value) -> Value {
                         "name": name,
                         "return": attrs.get("return").and_then(|v| v.as_str()).unwrap_or("void"),
                         "args": syntax_args(attrs),
-                        "tooltip": short_tooltip(attrs),
+                        "tooltip": tooltip_text(attrs),
                     })
                 })
                 .collect();
@@ -364,7 +358,7 @@ pub fn transform_syntax(doc: &Value) -> Value {
             let mut rows: Vec<Value> = g
                 .iter()
                 .map(|(name, attrs)| {
-                    json!({ "name": name, "args": syntax_args(attrs), "tooltip": short_tooltip(attrs) })
+                    json!({ "name": name, "args": syntax_args(attrs), "tooltip": tooltip_text(attrs) })
                 })
                 .collect();
             rows.sort_by_cached_key(|r| r["name"].as_str().unwrap_or("").to_string());
@@ -413,7 +407,7 @@ fn fallback_language() -> Value {
 
 /// How the disk copy of the language data is laid out; bump when
 /// `transform_syntax` changes shape so stale caches are refetched.
-const SYNTAX_CACHE_VERSION: i64 = 1;
+const SYNTAX_CACHE_VERSION: i64 = 2; // 2: whole tooltips, plus per-argument ones
 const SYNTAX_CACHE_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
 
 /// The app's own data directory - not the OS cache, which the system (and
@@ -651,12 +645,13 @@ mod tests {
 
     #[test]
     fn syntax_transform_flattens_the_llsd_shape() {
+        let long = "x".repeat(700);
         let doc = json!({
             "functions": {
                 "llOwnerSay": {
                     "return": "void",
-                    "arguments": [ { "msg": { "type": "string" } } ],
-                    "tooltip": "Says msg to the owner only.",
+                    "arguments": [ { "msg": { "type": "string", "tooltip": " What to say. " } } ],
+                    "tooltip": long,
                 },
             },
             "events": { "touch_start": { "arguments": [ { "total_number": { "type": "integer" } } ] } },
@@ -668,7 +663,12 @@ mod tests {
         assert_eq!(lang["functions"][0]["name"], "llOwnerSay");
         assert_eq!(lang["functions"][0]["args"][0]["name"], "msg");
         assert_eq!(lang["functions"][0]["args"][0]["type"], "string");
+        // Descriptions travel whole (the editor's panel scrolls) and trimmed;
+        // arguments carry their own.
+        assert_eq!(lang["functions"][0]["tooltip"], long);
+        assert_eq!(lang["functions"][0]["args"][0]["tooltip"], "What to say.");
         assert_eq!(lang["events"][0]["name"], "touch_start");
+        assert_eq!(lang["events"][0]["tooltip"], "");
         assert_eq!(lang["constants"][0]["value"], "1");
         assert_eq!(lang["types"], json!(["float", "integer"]));
         assert_eq!(lang["controls"], json!(["for", "if"]));
