@@ -22,6 +22,8 @@ const CHANGELOG_END = '<!-- minibee-changelog:end -->';
 const FOOTER_BEGIN = '<!-- minibee-footer:begin -->';
 
 const PLATFORM_ORDER = ['Windows', 'macOS', 'Linux', 'Android'];
+const GOOGLE_PLAY_URL = 'https://play.google.com/store/apps/details?id=com.pantera.minibee_viewer';
+const WINGET_INSTALL = 'winget install Minibee.Viewer';
 
 const ASSET_RULES = [
   { test: (n) => n.endsWith('_setup.exe'), platform: 'Windows', label: 'Installer (.exe)', recommended: true, sort: 0 },
@@ -30,8 +32,26 @@ const ASSET_RULES = [
   { test: (n) => n.endsWith('.AppImage'), platform: 'Linux', label: 'AppImage', recommended: true, sort: 0 },
   { test: (n) => n.endsWith('.deb'), platform: 'Linux', label: 'Debian package (.deb)', sort: 1 },
   { test: (n) => n.endsWith('.rpm'), platform: 'Linux', label: 'RPM package (.rpm)', sort: 2 },
-  { test: (n) => n.endsWith('.apk'), platform: 'Android', label: 'APK (full app)', recommended: true, sort: 0 },
+  { test: (n) => n.endsWith('.apk'), platform: 'Android', label: 'APK (full app, sideload)', sort: 0 },
   { test: (n) => n.endsWith('.aab'), platform: 'Android', label: 'App Bundle (.aab, Google Play edition - no L$ buying)', sort: 1 },
+];
+
+/** Store / package-manager rows that are not GitHub release assets. */
+const EXTRA_DISTRIBUTION_ROWS = [
+  {
+    platform: 'Windows',
+    label: 'WinGet',
+    sort: -1,
+    downloadText: `\`${WINGET_INSTALL}\``,
+  },
+  {
+    platform: 'Android',
+    label: 'Google Play (Play edition - no L$ buying)',
+    recommended: true,
+    sort: -1,
+    url: GOOGLE_PLAY_URL,
+    downloadLabel: 'Install on Google Play',
+  },
 ];
 
 const FOOTER_MESSAGES = [
@@ -386,8 +406,11 @@ function stripLegacyFooter(text) {
 export function buildDownloadBlock(release) {
   const version = String(release.tag_name).replace(/^v/, '');
 
-  /** @type {Array<{ platform: string; label: string; recommended: boolean; sort: number; url: string; size: number; digest?: string }>} */
-  const rows = [];
+  /** @type {Array<{ platform: string; label: string; recommended: boolean; sort: number; url?: string; downloadLabel?: string; downloadText?: string; size?: number; digest?: string }>} */
+  const rows = EXTRA_DISTRIBUTION_ROWS.map((row) => ({
+    ...row,
+    recommended: row.recommended ?? false,
+  }));
 
   for (const asset of release.assets ?? []) {
     const info = classifyAsset(asset);
@@ -403,6 +426,7 @@ export function buildDownloadBlock(release) {
   rows.sort((a, b) => {
     const platformDelta = PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform);
     if (platformDelta !== 0) return platformDelta;
+    if (a.recommended !== b.recommended) return a.recommended ? -1 : 1;
     return a.sort - b.sort;
   });
 
@@ -423,16 +447,18 @@ export function buildDownloadBlock(release) {
   ];
 
   for (const row of rows) {
-    const packageLabel = row.recommended ? `${row.label} *(recommended)*` : row.label;
-    const fileName = row.url.split('/').pop() ?? row.label;
+    const packageLabel = row.recommended ? `**${row.label}** *(recommended)*` : row.label;
+    const downloadCell = row.downloadText
+      ? row.downloadText
+      : `[${row.downloadLabel ?? row.url?.split('/').pop() ?? row.label}](${row.url})`;
     lines.push(
-      `| ${row.platform} | ${packageLabel} | [${fileName}](${row.url}) | ${formatSize(row.size)} | ${formatDigest(row.digest)} |`,
+      `| ${row.platform} | ${packageLabel} | ${downloadCell} | ${formatSize(row.size ?? NaN)} | ${formatDigest(row.digest)} |`,
     );
   }
 
   lines.push(
     '',
-    `_Built for Minibee Viewer ${version}. Windows builds are unsigned and will stay that way (SmartScreen may warn - use **More info -> Run anyway**). Android APK requires sideloading or your own distribution channel. The \`.aab\` is the **Google Play edition**: to comply with Play's virtual-currency billing policy it cannot buy L$ in-app (spending your balance works normally, and the sideload APK keeps the full Buy L$ flow)._`,
+    `_Built for Minibee Viewer ${version}. On Windows, \`${WINGET_INSTALL}\` is available via WinGet; direct builds are unsigned and will stay that way (SmartScreen may warn - use **More info -> Run anyway**). On Android, install from **Google Play** when possible; the APK is for sideloading (full app with L$ buying). The \`.aab\` is the Play edition bundle: to comply with Play's virtual-currency billing policy it cannot buy L$ in-app (spending your balance works normally)._`,
     '',
     '<details>',
     '<summary>How to verify a download</summary>',
