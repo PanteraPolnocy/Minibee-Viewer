@@ -7,6 +7,9 @@
  * Usage:
  *   node scripts/update-release-notes.mjs --release-id 12345
  *   node scripts/update-release-notes.mjs --tag 0.0.0 --dry-run
+ *
+ * SHA-256 cells link to VirusTotal scan results (no API key required).
+ * Release uploads run by default in CI (crazy-max/ghaction-virustotal; secret VIRUSTOTAL_API_KEY).
  */
 
 import path from 'node:path';
@@ -24,6 +27,7 @@ const FOOTER_BEGIN = '<!-- minibee-footer:begin -->';
 const PLATFORM_ORDER = ['Windows', 'macOS', 'Linux', 'Android'];
 const GOOGLE_PLAY_URL = 'https://play.google.com/store/apps/details?id=com.pantera.minibee_viewer';
 const WINGET_INSTALL = 'winget install Minibee.Viewer';
+const VIRUSTOTAL_FILE_GUI = 'https://www.virustotal.com/gui/file/';
 
 const ASSET_RULES = [
   { test: (n) => n.endsWith('_setup.exe'), platform: 'Windows', label: 'Installer (.exe)', recommended: true, sort: 0 },
@@ -36,23 +40,34 @@ const ASSET_RULES = [
   { test: (n) => n.endsWith('.aab'), platform: 'Android', label: 'App Bundle (.aab, Google Play edition - no L$ buying)', sort: 1 },
 ];
 
+/**
+ * @returns {boolean} Google Play is the recommended Android install (stable + Play CI upload).
+ */
+function googlePlayRowRecommended() {
+  if (process.env.MINIBEE_GOOGLE_PLAY_RECOMMENDED === '0') return false;
+  // Default true: Minibee is on Google Play; CI sets 0 for prereleases / no Play upload.
+  return true;
+}
+
 /** Store / package-manager rows that are not GitHub release assets. */
-const EXTRA_DISTRIBUTION_ROWS = [
-  {
-    platform: 'Windows',
-    label: 'WinGet',
-    sort: -1,
-    downloadText: `\`${WINGET_INSTALL}\``,
-  },
-  {
-    platform: 'Android',
-    label: 'Google Play (Play edition - no L$ buying)',
-    recommended: true,
-    sort: -1,
-    url: GOOGLE_PLAY_URL,
-    downloadLabel: 'Install on Google Play',
-  },
-];
+function buildExtraDistributionRows() {
+  return [
+    {
+      platform: 'Windows',
+      label: 'WinGet',
+      sort: -1,
+      downloadText: `\`${WINGET_INSTALL}\``,
+    },
+    {
+      platform: 'Android',
+      label: 'Google Play (Play edition - no L$ buying)',
+      recommended: googlePlayRowRecommended(),
+      sort: -1,
+      url: GOOGLE_PLAY_URL,
+      downloadLabel: 'Install on Google Play',
+    },
+  ];
+}
 
 const FOOTER_MESSAGES = [
   (readme, license) =>
@@ -327,11 +342,21 @@ function formatSize(bytes) {
 /**
  * @param {string | undefined} digest
  */
-function formatDigest(digest) {
-  if (!digest) return '-';
+function normalizeSha256Hex(digest) {
+  if (!digest) return '';
   const hex = digest.startsWith('sha256:') ? digest.slice(7) : digest;
-  if (hex.length <= 24) return `\`${hex}\``;
-  return `\`${hex.slice(0, 12)}...${hex.slice(-12)}\``;
+  return /^[a-f0-9]{64}$/i.test(hex) ? hex.toLowerCase() : '';
+}
+
+/**
+ * @param {string | undefined} digest
+ */
+export function formatDigest(digest) {
+  const hex = normalizeSha256Hex(digest);
+  if (!hex) return '-';
+  const formatted = hex.length <= 24 ? hex : `${hex.slice(0, 12)}...${hex.slice(-12)}`;
+  const vtUrl = `${VIRUSTOTAL_FILE_GUI}${hex}`;
+  return `\`${formatted}\`<br>[VirusTotal scan](${vtUrl})`;
 }
 
 /**
@@ -407,7 +432,8 @@ export function buildDownloadBlock(release) {
   const version = String(release.tag_name).replace(/^v/, '');
 
   /** @type {Array<{ platform: string; label: string; recommended: boolean; sort: number; url?: string; downloadLabel?: string; downloadText?: string; size?: number; digest?: string }>} */
-  const rows = EXTRA_DISTRIBUTION_ROWS.map((row) => ({
+  const playRecommended = googlePlayRowRecommended();
+  const rows = buildExtraDistributionRows().map((row) => ({
     ...row,
     recommended: row.recommended ?? false,
   }));
@@ -415,8 +441,13 @@ export function buildDownloadBlock(release) {
   for (const asset of release.assets ?? []) {
     const info = classifyAsset(asset);
     if (!info) continue;
+    const recommended =
+      asset.name.endsWith('.apk')
+        ? !playRecommended
+        : (info.recommended ?? false);
     rows.push({
       ...info,
+      recommended,
       url: asset.browser_download_url,
       size: asset.size,
       digest: asset.digest,
@@ -433,9 +464,6 @@ export function buildDownloadBlock(release) {
   if (rows.length === 0) {
     throw new Error(`No user-facing release assets found on ${release.tag_name}`);
   }
-
-  const repo = process.env.GITHUB_REPOSITORY || DEFAULT_REPO;
-  const repoUrl = `https://github.com/${repo}`;
 
   const lines = [
     DOWNLOAD_BEGIN,
@@ -473,7 +501,7 @@ export function buildDownloadBlock(release) {
     'sha256sum path/to/installer',
     '```',
     '',
-    'On macOS, `shasum -a 256 path/to/installer` works too. Abbreviated checksums in the table are the middle-truncated form of the full GitHub release digest.',
+    'On macOS, `shasum -a 256 path/to/installer` works too. Abbreviated checksums are middle-truncated; use **VirusTotal scan** for multi-engine results (analysis appears after the file is indexed on [VirusTotal](https://www.virustotal.com/)).',
     '',
     '</details>',
     '',

@@ -146,6 +146,8 @@ jobs:
     if: needs.plan.outputs.run_android == 'true'
     permissions:
       contents: write
+    outputs:
+      google_play_recommended: ${{ steps.play.outputs.recommended }}
     runs-on: ubuntu-latest
     env:
       APK_PATH: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
@@ -321,7 +323,17 @@ jobs:
         if: github.event_name == 'release'
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-        run: echo "enabled=$([ -n "$SERVICE_ACCOUNT_JSON" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ -n "$SERVICE_ACCOUNT_JSON" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$SERVICE_ACCOUNT_JSON" ] && [ "${{ github.event.release.prerelease }}" != "true" ]; then
+            echo "recommended=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "recommended=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # The release event payload is a snapshot from publish time, so the name
       # and body here are the author's own notes - the changelog/downloads/footer
@@ -347,9 +359,33 @@ jobs:
           debugSymbols: ${{ steps.symbols.outputs.path }}
           mappingFile: src-tauri/gen/android/app/build/outputs/mapping/universalRelease/mapping.txt
 
+  virustotal:
+    name: VirusTotal (recommended installers + APK)
+    needs: [plan, build, build-android]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # https://github.com/marketplace/actions/virustotal-github-action
+      # Runs on every release (public API: 4 req/min). Requires repository secret VIRUSTOTAL_API_KEY.
+      # APK is scanned even when Google Play is the recommended Android install on the release page.
+      - name: Upload release assets to VirusTotal
+        uses: crazy-max/ghaction-virustotal@v5
+        with:
+          vt_api_key: ${{ secrets.VIRUSTOTAL_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          request_rate: 4
+          files: |
+            _setup\.exe$
+            \.dmg$
+            \.AppImage$
+            \.apk$
+
   update-release-notes:
     name: Patch release notes (changelog + downloads + footer)
-    needs: [plan, build, build-android]
+    # After virustotal so SHA "VirusTotal scan" links are more likely indexed when notes go live.
+    needs: [plan, build, build-android, virustotal]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
@@ -366,6 +402,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_ID: ${{ github.event.release.id }}
+          MINIBEE_GOOGLE_PLAY_RECOMMENDED: ${{ needs.build-android.outputs.google_play_recommended == 'true' && '1' || '0' }}
         run: node scripts/update-release-notes.mjs --release-id "${RELEASE_ID}"
 
   publish-winget:
