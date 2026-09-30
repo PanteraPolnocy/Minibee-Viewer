@@ -262,12 +262,128 @@ const BeeProfile = (function () {
     return ' profile-payment--none';
   }
 
-  function renderResidentKeyMeta(profile) {
+  // The Key field: the uuid as a button that opens the two-entry copy menu
+  // (see openKeyMenu) on a tap, a click or a right-click. `kind` is 'agent'
+  // or 'group', which decides the URI the menu copies.
+  function renderKeyMeta(id, kind) {
     return '<div class="profile-desc-meta profile-desc-meta--key">' +
       '<div class="profile-meta-item">' +
       '<span class="profile-meta-item__label">Key</span>' +
-      '<span class="profile-meta-item__value"><code class="profile-uuid">' +
-      BeeUtils.escapeHtml(profile.avatarId) + '</code></span></div></div>';
+      '<span class="profile-meta-item__value">' +
+      '<button type="button" class="profile-uuid profile-uuid--menu" data-key-menu="' + kind +
+      '" data-key-id="' + BeeUtils.escapeHtml(id) + '" title="Copy the key or its URI" aria-haspopup="menu">' +
+      BeeUtils.escapeHtml(id) + '</button></span></div></div>';
+  }
+
+  function renderResidentKeyMeta(profile) {
+    return renderKeyMeta(profile.avatarId, 'agent');
+  }
+
+  // --- the Key field's menu: Copy UUID / Copy URI ---------------------------
+  // It lives inside the dialog: a modal dialog makes everything outside it
+  // inert, so the page-level context menu could not be clicked from here.
+  let keyMenu = null;
+
+  function hideKeyMenu() {
+    if (keyMenu) keyMenu.hidden = true;
+  }
+
+  function ensureKeyMenu() {
+    if (keyMenu) return keyMenu;
+    if (!dialog) return null;
+    keyMenu = document.createElement('menu');
+    keyMenu.className = 'context-menu profile-key-menu';
+    keyMenu.setAttribute('role', 'menu');
+    keyMenu.hidden = true;
+    dialog.appendChild(keyMenu);
+    dialog.addEventListener('click', function (e) {
+      if (!keyMenu.hidden && !keyMenu.contains(e.target as Node)) hideKeyMenu();
+    });
+    dialog.addEventListener('close', hideKeyMenu);
+    dialog.addEventListener('scroll', hideKeyMenu, true);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') hideKeyMenu();
+    });
+    return keyMenu;
+  }
+
+  function copyValue(text, what) {
+    const done = function () { BeeUtils.showToast(what + ' copied', 'success'); };
+    const failed = function () { BeeUtils.showToast('Copy failed', 'warning'); };
+    const legacy = function () {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        (dialog || document.body).appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        if (ok) done(); else failed();
+      } catch (_e) { failed(); }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(legacy);
+      return;
+    }
+    legacy();
+  }
+
+  // Open the menu for a Key button: Copy UUID, and Copy URI - the
+  // secondlife:///app/agent/<id>/about (or app/group) form that chat and
+  // notecards turn into a profile link. Anchored to the pointer, or to the
+  // button itself for a keyboard activation.
+  function openKeyMenu(btn, e) {
+    const menu = ensureKeyMenu();
+    if (!menu) return;
+    const id = String(btn.getAttribute('data-key-id') || '').trim();
+    if (!id) return;
+    const kind = btn.getAttribute('data-key-menu') === 'group' ? 'group' : 'agent';
+    const uri = 'secondlife:///app/' + kind + '/' + id + '/about';
+    menu.innerHTML = '';
+    [
+      { label: 'Copy UUID', value: id, what: 'UUID' },
+      { label: 'Copy URI', value: uri, what: 'URI' }
+    ].forEach(function (item) {
+      const entry = document.createElement('button');
+      entry.type = 'button';
+      entry.setAttribute('role', 'menuitem');
+      entry.textContent = item.label;
+      entry.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        hideKeyMenu();
+        copyValue(item.value, item.what);
+      });
+      menu.appendChild(entry);
+    });
+    let x = e && e.clientX;
+    let y = e && e.clientY;
+    if (!x && !y) {
+      const r = btn.getBoundingClientRect();
+      x = r.left + 12;
+      y = r.bottom;
+    }
+    menu.hidden = false;
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = Math.max(0, Math.min(x, window.innerWidth - rect.width - 8)) + 'px';
+    menu.style.top = Math.max(0, Math.min(y, window.innerHeight - rect.height - 8)) + 'px';
+  }
+
+  function bindKeyMenus(root) {
+    if (!root) return;
+    root.querySelectorAll('[data-key-menu]').forEach(function (btn) {
+      const open = function (e) {
+        e.preventDefault();
+        // Stop the bubble: the dialog's own click-outside listener would
+        // close what was just opened.
+        e.stopPropagation();
+        openKeyMenu(btn, e);
+      };
+      btn.addEventListener('click', open);
+      btn.addEventListener('contextmenu', open);
+    });
   }
 
   function renderResidentSideMeta(profile) {
@@ -1064,6 +1180,8 @@ const BeeProfile = (function () {
       });
     }
 
+    bindKeyMenus(root);
+
     const flBtn = root.querySelector('#profile-fl-image-btn');
     if (flBtn && profile.flImageId && profile.flImageId !== ZERO_UUID) {
       const preview = root.querySelector('#profile-fl-image-preview');
@@ -1436,11 +1554,7 @@ const BeeProfile = (function () {
   }
 
   function renderGroupKeyMeta(profile) {
-    return '<div class="profile-desc-meta profile-desc-meta--key">' +
-      '<div class="profile-meta-item">' +
-      '<span class="profile-meta-item__label">Key</span>' +
-      '<span class="profile-meta-item__value"><code class="profile-uuid">' +
-      BeeUtils.escapeHtml(profile.groupId) + '</code></span></div></div>';
+    return renderKeyMeta(profile.groupId, 'group');
   }
 
   function renderGroupFounderField(profile) {
@@ -1815,6 +1929,7 @@ const BeeProfile = (function () {
         openAvatarFromLink(btn, profile);
       });
     });
+    bindKeyMenus(root);
     bindGroupTitleSave(profile, root);
     bindProfileTabs(root, function (tabId) {
       if (tabId === 'notices') ensureGroupNotices(profile);

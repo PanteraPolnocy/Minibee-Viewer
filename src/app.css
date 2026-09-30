@@ -5268,6 +5268,30 @@ button.status-chip--balance:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* The key as a button: tap, click or right-click opens Copy UUID / Copy URI. */
+button.profile-uuid--menu {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  word-break: break-all;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+button.profile-uuid--menu:hover,
+button.profile-uuid--menu:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  outline: none;
+}
+
+/* The menu sits inside the profile dialog (see openKeyMenu). */
+.profile-key-menu {
+  min-width: 150px;
+}
+
 .profile-field--payment .profile-payment {
   font-size: 0.86rem;
   line-height: 1.35;
