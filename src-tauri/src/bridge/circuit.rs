@@ -80,6 +80,9 @@ pub struct Session {
     /// When we last started a FINISH_ANIM reply (mono ms). The sim repeats
     /// AvatarAnimation, and one finisher at a time is plenty.
     finish_anim_at: AtomicU64,
+    /// A liveness probe after a network change is in flight (see
+    /// probe_after_network_change); a second one waits for nothing.
+    probing: AtomicBool,
 }
 
 impl Session {
@@ -93,7 +96,7 @@ impl Session {
         }
         let addr = *self.target.lock().unwrap();
         let n = self.udp.send_to(bytes, addr).await.unwrap_or(0);
-        crate::bridge::netmeter::note_out(n);
+        crate::bridge::netmeter::note_out(crate::bridge::netmeter::Lane::Udp, n);
         n
     }
 
@@ -233,11 +236,70 @@ impl Session {
             &st.session_uuid,
             st.last_pos.unwrap_or([128.0, 128.0, 25.0]),
             flags,
+            session::interest_far(),
         ))
     }
 
     pub fn agent_update_keepalive(&self) -> Option<Value> {
         self.agent_update_body(0)
+    }
+
+    /// The AgentThrottle for this circuit as the data saver currently stands
+    /// (see session::throttle_bps). None before the handshake completes.
+    pub fn agent_throttle_body(&self) -> Option<Value> {
+        let guard = self.engine.lock().unwrap();
+        let st = guard.as_ref()?;
+        if st.agent_id.is_empty() || !st.handshake_reply_sent {
+            return None;
+        }
+        Some(session::build_agent_throttle(
+            &st.agent_id,
+            &st.session_uuid,
+            st.circuit_code,
+            session::data_saver(),
+        ))
+    }
+
+    /// The device's network changed (a phone moving from wifi to mobile data).
+    /// The circuit is then bound to a source address the sim no longer knows:
+    /// nothing we send is answered and the sim's own traffic goes to the old
+    /// address, so the watchdog would only notice after its 100 s of silence.
+    /// This asks sooner. A reliable AgentUpdate has to be acked, so no inbound
+    /// datagram at all within a few seconds - twice, to ride out one lost
+    /// packet - means the circuit is dead, and the UI hears it the way the
+    /// watchdog would say it (auto-reconnect then takes over). A change that
+    /// kept the address (roaming between access points) answers and changes
+    /// nothing. One probe at a time: a flapping network must not stack them.
+    pub async fn probe_after_network_change(self: &Arc<Self>, app: AppHandle) {
+        const WAIT_MS: u64 = 3000;
+        if self.probing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let mut dead = false;
+        for _ in 0..2 {
+            let before = self.last_inbound.load(Ordering::Relaxed);
+            if let Some(body) = self.agent_update_body(0) {
+                self.send_encoded("AgentUpdate", &body, true).await;
+            }
+            tokio::time::sleep(Duration::from_millis(WAIT_MS)).await;
+            if self.is_closed() {
+                self.probing.store(false, Ordering::SeqCst);
+                return;
+            }
+            dead = self.last_inbound.load(Ordering::Relaxed) == before;
+            if !dead {
+                break;
+            }
+        }
+        self.probing.store(false, Ordering::SeqCst);
+        if dead {
+            crate::dlog!("circuit: no answer after a network change, reporting the session lost");
+            self.emit_live(
+                &app,
+                "session-lost",
+                json!({ "reason": "The network changed and the region stopped answering." }),
+            );
+        }
     }
 
     pub async fn finish_transient_anim(self: &Arc<Self>, delay_ms: u64) {
@@ -755,6 +817,24 @@ impl Session {
             }
         }
         changed
+    }
+
+    /// Radar range reports that were waiting for a name `merge_names` just
+    /// brought, as `chat` payloads for the caller to emit (see
+    /// session::radar_range_reports).
+    pub fn take_radar_lines(&self) -> Vec<Value> {
+        let mut guard = self.engine.lock().unwrap();
+        let st = match guard.as_mut() {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+        st.radar_lines_for_resolved_names(session::radar_alerts())
+            .into_iter()
+            .filter_map(|a| match a {
+                Action::Emit { event, payload } if event == "chat" => Some(payload),
+                _ => None,
+            })
+            .collect()
     }
 
     fn clear_acks(&self, ids: &[u32]) {
@@ -1345,6 +1425,7 @@ pub async fn open(
         eq_recover: AtomicU32::new(0),
         props_drain_gen: AtomicU64::new(0),
         finish_anim_at: AtomicU64::new(0),
+        probing: AtomicBool::new(false),
     });
     let session_id = now_id();
 
@@ -1391,8 +1472,9 @@ fn spawn_agent_update(session: Arc<Session>) -> JoinHandle<()> {
 }
 
 /// Emit a throttled traffic rate for the top-bar indicator: one `net-rate`
-/// event every 2s with bytes-per-second in/out since the last tick. Skips the
-/// emit entirely when nothing moved, so an idle session costs no DOM work.
+/// event every 2s with bytes-per-second in/out since the last tick, plus the
+/// running totals since launch. Skips the emit entirely when nothing moved,
+/// so an idle session costs no DOM work.
 fn spawn_net_meter(app: AppHandle, session: Arc<Session>) -> JoinHandle<()> {
     const TICK_MS: u64 = 2000;
     tokio::spawn(async move {
@@ -1426,6 +1508,9 @@ fn spawn_net_meter(app: AppHandle, session: Arc<Session>) -> JoinHandle<()> {
                         crate::bridge::netmeter::format_rate(out_bps)
                     ),
                     level: crate::bridge::netmeter::rate_level(in_bps + out_bps),
+                    in_total: now_in,
+                    out_total: now_out,
+                    totals_label: crate::bridge::netmeter::totals_label(),
                 }),
             );
         }
@@ -1502,7 +1587,7 @@ fn spawn_reader(app: AppHandle, session: Arc<Session>, session_id: String) -> Jo
                 continue;
             }
             session.last_inbound.store(mono_ms(), Ordering::Relaxed);
-            crate::bridge::netmeter::note_in(n);
+            crate::bridge::netmeter::note_in(crate::bridge::netmeter::Lane::Udp, n);
             let datagram = &buf[..n];
 
             // Drop high/medium-frequency floods before they reach IPC, but only when

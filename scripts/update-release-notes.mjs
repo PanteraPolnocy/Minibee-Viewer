@@ -484,9 +484,15 @@ export function buildDownloadBlock(release) {
     );
   }
 
+  // The Android sentence follows the recommendation: a prerelease (or a run
+  // without the Play upload) is not on Google Play, so it must not send
+  // people there.
+  const androidNote = playRecommended
+    ? 'On Android, install from **Google Play** when possible; the APK is for sideloading (full app with L$ buying).'
+    : 'On Android, this release is not on Google Play: sideload the APK (full app with L$ buying).';
   lines.push(
     '',
-    `_Built for Minibee Viewer ${version}. On Windows, \`${WINGET_INSTALL}\` is available via WinGet; direct builds are unsigned and will stay that way (SmartScreen may warn - use **More info -> Run anyway**). On Android, install from **Google Play** when possible; the APK is for sideloading (full app with L$ buying). The \`.aab\` is the Play edition bundle: to comply with Play's virtual-currency billing policy it cannot buy L$ in-app (spending your balance works normally)._`,
+    `_Built for Minibee Viewer ${version}. On Windows, \`${WINGET_INSTALL}\` is available via WinGet; direct builds are unsigned and will stay that way (SmartScreen may warn - use **More info -> Run anyway**). ${androidNote} The \`.aab\` is the Play edition bundle: to comply with Play's virtual-currency billing policy it cannot buy L$ in-app (spending your balance works normally)._`,
     '',
     '<details>',
     '<summary>How to verify a download</summary>',

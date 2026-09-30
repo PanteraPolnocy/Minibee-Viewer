@@ -382,9 +382,9 @@ pub async fn exchange(
         }
 
         let bytes = read_body_capped(resp, MAX_RESPONSE_BYTES).await?;
-        crate::bridge::netmeter::note_in(bytes.len());
+        crate::bridge::netmeter::note_in(crate::bridge::netmeter::Lane::Http, bytes.len());
         if has_body {
-            crate::bridge::netmeter::note_out(payload.len());
+            crate::bridge::netmeter::note_out(crate::bridge::netmeter::Lane::Http, payload.len());
         }
         let body = String::from_utf8_lossy(&bytes).to_string();
         return Ok(ExchangeResult {

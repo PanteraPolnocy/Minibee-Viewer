@@ -277,6 +277,13 @@ const BeeIm = (function () {
     }
     const el = document.createElement('div');
     el.className = 'msg ' + (msg.outgoing ? 'msg--outgoing' : 'msg--incoming');
+    // An emote ("/me waves", flagged by the core): the name runs straight
+    // into the action, in italics.
+    const isEmote = !!msg.emote;
+    if (isEmote) el.classList.add('msg--emote');
+    const bodyText = isEmote
+      ? String(msg.fromName || '') + String(msg.text || '').slice(3)
+      : msg.text;
 
     const meta = document.createElement('div');
     meta.className = 'msg__meta';
@@ -301,8 +308,8 @@ const BeeIm = (function () {
     body.className = 'msg__body';
 
     const segments = typeof BeeSlurl.scanLinks === 'function'
-      ? BeeSlurl.scanLinks(msg.text)
-      : [{ type: 'text', text: String(msg.text || '') }];
+      ? BeeSlurl.scanLinks(bodyText)
+      : [{ type: 'text', text: String(bodyText || '') }];
 
     segments.forEach(function (seg) {
       if (seg.type === 'text') {

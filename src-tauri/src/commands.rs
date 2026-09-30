@@ -1342,8 +1342,57 @@ async fn send_one_agent_update(
     flags: u64,
 ) {
     let pos = s.last_position().unwrap_or([128.0, 128.0, 25.0]);
-    let body = crate::bridge::session::build_agent_update(agent, sess, pos, flags);
+    let body = crate::bridge::session::build_agent_update(
+        agent,
+        sess,
+        pos,
+        flags,
+        crate::bridge::session::interest_far(),
+    );
     s.send_encoded("AgentUpdate", &body, true).await;
+}
+
+/// The data saver, as the Settings toggle sets it: a smaller interest radius
+/// and a tighter sim-side throttle (see session::throttle_bps). Told at
+/// startup and on every change, and applied to the live session at once: the
+/// next AgentUpdate keepalive carries the new radius, and a fresh
+/// AgentThrottle goes out now.
+#[tauri::command]
+pub async fn sl_set_data_saver(state: State<'_, Arc<AppState>>, enabled: bool) -> Cmd {
+    crate::bridge::session::set_data_saver(enabled);
+    let mut applied = false;
+    if let Some(s) = state.active() {
+        if let Some(body) = s.agent_throttle_body() {
+            s.send_encoded("AgentThrottle", &body, true).await;
+            applied = true;
+        }
+    }
+    crate::dlog!("data saver {} (live session told: {})", if enabled { "on" } else { "off" }, applied);
+    Ok(json!({ "ok": true, "dataSaver": enabled, "applied": applied }))
+}
+
+/// The Radar tab's proximity alerts, as the settings hold them: whether a
+/// resident newly within `range` metres is reported in nearby chat (see
+/// session::radar_range_reports). Told at startup and on every change.
+#[tauri::command]
+pub async fn sl_set_radar_alerts(enabled: bool, range: u32) -> Cmd {
+    crate::bridge::session::set_radar_alerts(enabled, range);
+    Ok(json!({ "ok": true, "enabled": enabled, "range": range.clamp(1, 1024) }))
+}
+
+/// The device's network changed (the Android shell reports a wifi/mobile
+/// switch). Probes the live circuit so a dead one is reported in seconds
+/// rather than after the watchdog's silence window; see
+/// Session::probe_after_network_change.
+#[tauri::command]
+pub async fn sl_network_changed(app: AppHandle, state: State<'_, Arc<AppState>>) -> Cmd {
+    let Some(s) = state.active() else {
+        return Ok(json!({ "ok": false, "reason": "no session" }));
+    };
+    tokio::spawn(async move {
+        s.probe_after_network_change(app).await;
+    });
+    Ok(json!({ "ok": true }))
 }
 
 /// Stand the avatar up. Harmless when we aren't sitting - the sim ignores it.

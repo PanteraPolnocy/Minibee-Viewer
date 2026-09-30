@@ -28,7 +28,15 @@ const BeeSettingsUI = (function () {
         options: [['dark', 'Dark'], ['light', 'Light'], ['system', 'System (follow device)']] }
     ] },
     { section: 'Connection', items: [
-      { key: 'autoReconnect', label: 'Auto-reconnect after disconnect', kind: 'toggle' }
+      { key: 'autoReconnect', label: 'Auto-reconnect after disconnect', kind: 'toggle' },
+      { key: 'dataSaver', label: 'Data saver (objects within 48 m only, slower object stream)', kind: 'toggle' }
+    ] },
+    { section: 'Notifications', items: [
+      { key: 'imSound', label: 'Sound for new IMs (silent while that conversation is on screen)', kind: 'toggle' },
+      { key: 'imSoundGroups', label: 'Sound for group chats too', kind: 'toggle' }
+    ] },
+    { section: 'Nearby chat', items: [
+      { key: 'chatRadarPanel', label: 'Show nearby people beside the chat (wide screens)', kind: 'toggle' }
     ] },
     { section: 'Avatar', items: [
       { key: 'autoSitAfterLogin', label: 'Sit on the ground after logging in', kind: 'toggle' }

@@ -1233,6 +1233,32 @@ button.bee-menu__value--action:disabled {
   color: var(--text);
 }
 
+/* An estate or region message: the MOTD frame in a cooler hue, so the
+   estate speaking to everyone stands apart from the grid's own notice. */
+.msg--region {
+  background: linear-gradient(180deg, rgba(100, 170, 255, 0.12) 0%, var(--bg-elevated) 100%);
+  border-color: rgba(100, 170, 255, 0.4);
+}
+
+.msg__name--region {
+  color: #64aaff;
+}
+
+:root[data-theme="light"] .msg__name--region {
+  color: #1e6fc4;
+}
+
+/* An emote ("/me waves"): the name runs into the action, in italics. */
+.msg--emote .msg__body {
+  font-style: italic;
+}
+
+/* A radar range report ("Ruth entered radar range (12 m).") - a system
+   line whose name links to the profile. */
+.msg--radar .slurl-link {
+  font-weight: 600;
+}
+
 .msg__meta {
   display: flex;
   gap: 8px;
@@ -5252,6 +5278,22 @@ button.status-chip--balance:disabled {
   font-weight: 600;
 }
 
+/* The resident's online status: green when online, muted when offline,
+   muted italics when the grid would not say. */
+.profile-status--online {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.profile-status--offline {
+  color: var(--text-muted);
+}
+
+.profile-status--unknown {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .profile-payment--on-file {
   color: var(--text);
   font-weight: 500;
@@ -6388,4 +6430,132 @@ button.status-chip--balance:disabled {
 @keyframes tp-busy-slide {
   from { margin-left: 0; }
   to { margin-left: 65%; }
+}
+
+/* ============================================================
+   Nearby chat - optional "nearby people" strip beside the
+   transcript (setting chatRadarPanel, BeeRadar.renderSidebar).
+   Wide screens only: the 900px breakpoint below is mirrored by
+   SIDEBAR_QUERY in js/ui/radar.ts.
+   ============================================================ */
+/* The transcript and the strip share one row; the row takes the height the
+   transcript alone used to have in the panel's column layout. */
+.chat-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.chat-body > .message-list {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Mirrors .im-roster, the member list beside a group chat. */
+.chat-radar {
+  width: 200px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.chat-radar[hidden] { display: none; }
+
+.chat-radar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* "3 nearby" / "3 / 5 nearby" - the same figure the Radar tab header shows. */
+.chat-radar__count {
+  background: var(--bg-input);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.chat-radar__list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0;
+}
+
+/* One row per person: name, voice glyph (when in voice), distance. Tapping
+   or right-clicking a row opens the Radar tab's action menu. */
+.chat-radar__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 10px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-radar__item:hover { background: var(--bg-surface); }
+
+.chat-radar__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The Radar tab's mic glyph, sitting between name and distance here. */
+.chat-radar__item .entity-item__voice {
+  margin-left: 0;
+  flex-shrink: 0;
+}
+
+.chat-radar__range {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* Beyond the radar range setting: still in the region, just further off. */
+.chat-radar__item--far { opacity: 0.55; }
+
+/* Proximity-alert candidates (BeeRadar.isAlertCandidate) while alerts are on. */
+.chat-radar__item--alert { color: var(--warning, #f0b429); }
+
+.chat-radar__empty {
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.chat-radar-toggle[aria-pressed="true"] { color: var(--accent); }
+
+/* Below the breakpoint the transcript keeps the whole width and the toggle
+   goes away with the strip (BeeRadar hides the aside as well). */
+@media (max-width: 899px) {
+  .chat-radar,
+  .chat-radar-toggle { display: none !important; }
 }

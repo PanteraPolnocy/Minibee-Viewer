@@ -89,7 +89,7 @@ Any future departure from standard protocol behaviour will be documented here be
 
 Open **Bee** in the nav (bee icon) for preferences and bundled docs:
 
-- **Settings** (sub-tab) - theme, radar range/alerts, buddies filter, destination feed, parcel music, auto-reconnect, optional sit-on-ground after login. Changes apply everywhere immediately.
+- **Settings** (sub-tab) - theme, radar range/alerts, buddies filter, destination feed, parcel music, auto-reconnect, data saver, IM sounds, the optional nearby-people strip beside nearby chat, optional sit-on-ground after login. Changes apply everywhere immediately.
 - **About Minibee** - version, author, support links, **Check for updates** (desktop), **Copy all** for bug reports.
 - **Help** - the full user guide ([HELP.md](HELP.md)).
 - **README** / **License** / **Privacy** - bundled project docs.
@@ -176,7 +176,7 @@ Two sub-tabs. **Friends** is the buddy list (search by name or private note, onl
 
 ## Radar
 
-Who's near you and roughly how far. Filter by name, set the range slider (avatars past it are dimmed), and optionally turn on **Alerts** for a toast when someone new wanders into range. Range and alerts also live in **Bee -> Settings**.
+Who's near you and roughly how far. Filter by name, set the range slider (avatars past it are dimmed), and optionally turn on **Alerts**: someone new wandering into range is reported as a line in nearby chat ("Ruth entered radar range (12 m)."), the name a link to their profile. Range and alerts also live in **Bee -> Settings**. On a wide screen the same list can sit beside the nearby chat (the people button by the chat box, or **Bee -> Settings**).
 
 ## Interact (nearby objects, avatar actions)
 
@@ -228,7 +228,11 @@ The three list tabs show cards - tap to expand, **Read on the web** for the full
 
 If the sim drops you, you get a **Connection lost** overlay. Dismiss it to **browse offline** - read chat/IM history and flip tabs while grid actions stay disabled. The status dot and logout button pulse gently. **Return to Login** when you're ready.
 
-**Auto-reconnect** (**Bee -> Settings**, off by default) skips the overlay and quietly logs back in with a short back-off.
+**Auto-reconnect** (**Bee -> Settings**, on by default) skips the overlay and quietly logs back in with a short back-off.
+
+A phone that switches networks (wifi to mobile data, or back) strands the sim connection: Second Life ties it to the address you logged in from, and no viewer survives that. On Android the viewer hears about the switch, probes the connection and reports it lost within seconds instead of waiting out the silence watchdog, so with auto-reconnect on you are back in about as fast as a relogin takes.
+
+**Data saver** (**Bee -> Settings**, off by default) asks the sim to describe only what lies within 48 m instead of 128 m and caps the object stream. In a busy region the per-frame updates of every moving avatar and attachment in range are most of the traffic, so this cuts mobile data hard; the cost is that objects further off are not listed and cannot be touched or sat on. **Bee** (the menu behind the top-bar bee) shows the traffic since launch, split between the sim connection and HTTP - voice and parcel music stream separately and are not counted.
 
 Your password is never written to disk - only held obfuscated in memory until logout. If every attempt fails, you get the manual overlay anyway.
 

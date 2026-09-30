@@ -12,9 +12,9 @@ const BeeSettings = (function () {
     radarAlerts: { type: 'boolean', default: true },
     buddiesOnlineOnly: { type: 'boolean', default: false },
     destFeed: { type: 'string', default: 'mobile' },
-    // Reconnect on an unexpected disconnect (off by default). The Rust core
+    // Reconnect on an unexpected disconnect (on by default). The Rust core
     // keeps the credentials (obfuscated) and replays the login when asked.
-    autoReconnect: { type: 'boolean', default: false },
+    autoReconnect: { type: 'boolean', default: true },
     // Sit on the ground a couple of seconds after logging in (off by default).
     autoSitAfterLogin: { type: 'boolean', default: false },
     // When off (the default), info/warn diagnostics aren't kept in the in-memory
@@ -46,6 +46,18 @@ const BeeSettings = (function () {
     // The script editor's description panel under the signature line: the
     // chevron there toggles it, and the choice is kept between sessions.
     scriptDocsExpanded: { type: 'boolean', default: true },
+    // Nearby chat: a slim list of the people on the radar beside the
+    // transcript, on screens wide enough to fit it. Off by default.
+    chatRadarPanel: { type: 'boolean', default: false },
+    // A short sound for an incoming IM, unless that conversation is on
+    // screen in a focused window. Group chats have their own switch, off by
+    // default: a busy group would ding all day.
+    imSound: { type: 'boolean', default: true },
+    imSoundGroups: { type: 'boolean', default: false },
+    // Data saver: the Rust core asks the sim for objects within 48 m instead
+    // of 128 m and caps the object stream, which is what eats mobile data in
+    // a busy region. Off by default; the core is told on startup and on change.
+    dataSaver: { type: 'boolean', default: false },
     // 'system' follows the device's light/dark preference (and tracks changes
     // to it); the other two are fixed.
     theme: { type: 'string', default: 'dark', choices: ['dark', 'light', 'system'] }

@@ -3,6 +3,8 @@ package com.pantera.minibee_viewer
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.Bundle
 import android.system.Os
@@ -23,6 +25,12 @@ class MainActivity : TauriActivity() {
   // page can still receive them (see the retries in onWebViewCreate).
   private var safeAreaJs: String = ""
   private var webViewRef: WebView? = null
+  // Default-network tracking (see watchNetwork): the network last reported,
+  // and whether it went away without a successor yet. Both are only touched
+  // from the callback's own thread; the callback handle is for onDestroy.
+  @Volatile private var lastNetwork: Network? = null
+  private var sawLoss = false
+  private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
   companion object {
     // The live activity, reachable from ConnectionService so notification
@@ -49,6 +57,7 @@ class MainActivity : TauriActivity() {
     requestNotificationPermission()
     startKeepAlive()
     installBackHandler()
+    watchNetwork()
   }
 
   // The Rust core derives the login device id (hwid.rs) without an AppHandle,
@@ -163,6 +172,65 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  // The sim circuit is UDP over whatever network the phone had at login; a
+  // switch (wifi <-> LTE, a VPN coming up) strands it silently, and the core
+  // would only notice through its 100 s watchdog. Track the default network
+  // and tell the page, which forwards to the core (sl_network_changed) so the
+  // circuit is probed right away. Needs ACCESS_NETWORK_STATE (manifest). The
+  // callbacks arrive on a connectivity thread; runJs hops to the UI thread.
+  private fun watchNetwork() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
+    try {
+      val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+      val callback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+          // The first callback right after registering only describes the
+          // network already in use; from then on a different Network (or one
+          // arriving after a loss) is a real change.
+          val previous = lastNetwork
+          val changed = sawLoss || (previous != null && previous != network)
+          sawLoss = false
+          lastNetwork = network
+          if (changed) runJs("window.BeeAndroidBridge && BeeAndroidBridge.networkChanged();")
+        }
+
+        override fun onLost(network: Network) {
+          if (network == lastNetwork) {
+            lastNetwork = null
+            sawLoss = true
+          }
+        }
+      }
+      cm.registerDefaultNetworkCallback(callback)
+      networkCallback = callback
+    } catch (_: Exception) {
+      // Missing permission, too many callbacks, an OEM quirk: the core's
+      // watchdog still catches a dead circuit, only later.
+    }
+  }
+
+  private fun unwatchNetwork() {
+    val callback = networkCallback ?: return
+    networkCallback = null
+    try {
+      val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+      cm.unregisterNetworkCallback(callback)
+    } catch (_: Exception) {
+    }
+  }
+
+  override fun onStart() {
+    super.onStart()
+    ConnectionService.activityVisible = true
+    // Whatever the message notification was alerting about is on screen now.
+    ConnectionService.clearImAlert(this)
+  }
+
+  override fun onStop() {
+    super.onStop()
+    ConnectionService.activityVisible = false
+  }
+
   override fun onPause() {
     super.onPause()
     // Leaving the foreground is still inside the grace window where starting a
@@ -180,6 +248,7 @@ class MainActivity : TauriActivity() {
   override fun onDestroy() {
     if (current?.get() === this) current = null
     webViewRef = null
+    unwatchNetwork()
     // Closed for real (finish), not a system-initiated teardown: take the
     // keep-alive and its notification down with the viewer. ConnectionService's
     // onTaskRemoved covers the swipe-away-from-recents path.
@@ -206,6 +275,8 @@ class MainActivity : TauriActivity() {
         ConnectionService.voiceMuted = state.optBoolean("voiceMuted", true)
         ConnectionService.unreadIms = state.optInt("unreadIms").coerceIn(0, 9999)
         ConnectionService.lastMessage = state.optString("lastMessage").take(200)
+        ConnectionService.imAlerts = state.optInt("imAlerts").coerceIn(0, 1_000_000)
+        ConnectionService.imAlertText = state.optString("imAlertText").take(200)
       } catch (_: Exception) {
         return
       }

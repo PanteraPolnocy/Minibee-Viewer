@@ -87,12 +87,9 @@ const BeeNavigation = (function () {
 
     if (!newEntries.length) return;
 
+    // Only the tab badge is kept here; the proximity alert itself is a
+    // nearby-chat line the Rust core posts (session::radar_range_reports).
     BeeState.patch({ unreadRadar: (s.unreadRadar || 0) + newEntries.length });
-    if (s.radarAlerts) {
-      newEntries.forEach(function (entry) {
-        BeeState.emit('radar-alert', entry);
-      });
-    }
   }
 
   function activateTabPanel(tab) {
@@ -462,6 +459,7 @@ const BeeNavigation = (function () {
     const meter = document.getElementById('net-meter');
     const bar = document.getElementById('net-meter-bar');
     const menuNet = document.getElementById('bee-menu-net');
+    const menuTotal = document.getElementById('bee-menu-net-total');
     if (!meter || !bar || typeof BeeTransport === 'undefined') return;
 
     // Rewriting `title` dismisses a tooltip the user is currently reading, so
@@ -483,9 +481,14 @@ const BeeNavigation = (function () {
       const hue = Math.round(120 - t * 120); // 120 green -> 0 red
       bar.style.background = 'hsl(' + hue + ', 85%, 52%)';
       const text = (rate && rate.label) || '';
-      liveTitle = 'Network: ' + text;
+      // The core also ships the totals since launch (circuit and HTTP
+      // split), formatted; they ride under the rate in the tooltip and in
+      // the bee menu, where a phone can read them.
+      const totals = (rate && rate.totalsLabel) || '';
+      liveTitle = 'Network: ' + text + (totals ? '\n' + totals : '');
       if (!hovered) meter.title = liveTitle;
       if (menuNet) menuNet.textContent = text;
+      if (menuTotal && totals) menuTotal.textContent = totals.replace(/^Since launch:\s*/, '');
     });
 
     BeeTransport.on('disconnected', function () {

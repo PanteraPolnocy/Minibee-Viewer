@@ -6,6 +6,12 @@ const BeeRadar = (function () {
 
   let filter = '';
   let renderScheduled = false;
+  let sidebarRenderScheduled = false;
+
+  // The optional "nearby people" strip beside the Nearby chat transcript
+  // (setting chatRadarPanel). Wide screens only: this is the same breakpoint
+  // app.css uses to hide .chat-radar and its composer toggle.
+  const SIDEBAR_QUERY = '(min-width: 900px)';
 
   // CoarseLocationUpdate gives us only an id per nearby avatar; the names
   // resolve asynchronously (names-updated), so prefer a resolved name when
@@ -78,6 +84,20 @@ const BeeRadar = (function () {
     return '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
   }
 
+  // A small mic glyph for people in the voice channel: green while they
+  // speak, struck out when muted for us. Null for anyone not in voice.
+  function voiceGlyph(entry) {
+    const voice = (typeof BeeVoice !== 'undefined' && BeeVoice.participantInfo)
+      ? BeeVoice.participantInfo(entry.id) : null;
+    if (!voice) return null;
+    const mic = document.createElement('span');
+    mic.className = 'entity-item__voice' +
+      (voice.muted ? ' entity-item__voice--muted' : voice.speaking ? ' entity-item__voice--speaking' : '');
+    mic.title = voice.muted ? 'Voice muted for you' : voice.speaking ? 'Speaking' : 'In voice';
+    mic.textContent = voice.muted ? '\u{1F507}' : '\u{1F3A4}';
+    return mic;
+  }
+
   function renderItem(entry, options) {
     const opts = options || {};
     const names = nameLines(entry);
@@ -120,18 +140,8 @@ const BeeRadar = (function () {
     sub.textContent = ageText + ' · ' + String(entry.range) + 'm' + status;
     body.appendChild(sub);
 
-    // A small mic glyph for people in the voice channel: green while they
-    // speak, struck out when muted for us.
-    const voice = (typeof BeeVoice !== 'undefined' && BeeVoice.participantInfo)
-      ? BeeVoice.participantInfo(entry.id) : null;
-    if (voice) {
-      const mic = document.createElement('span');
-      mic.className = 'entity-item__voice' +
-        (voice.muted ? ' entity-item__voice--muted' : voice.speaking ? ' entity-item__voice--speaking' : '');
-      mic.title = voice.muted ? 'Voice muted for you' : voice.speaking ? 'Speaking' : 'In voice';
-      mic.textContent = voice.muted ? '\u{1F507}' : '\u{1F3A4}';
-      nameEl.appendChild(mic);
-    }
+    const mic = voiceGlyph(entry);
+    if (mic) nameEl.appendChild(mic);
 
     const actions = document.createElement('div');
     actions.className = 'entity-item__actions';
@@ -288,6 +298,15 @@ const BeeRadar = (function () {
     menu.style.top = Math.max(0, Math.min(e.clientY, window.innerHeight - rect.height - 8)) + 'px';
   }
 
+  // "3 nearby", or "3 / 5 nearby" when part of the region sits beyond the
+  // range setting. Shared by the Radar tab header and the chat sidebar.
+  function countLabel(s) {
+    const totalInRegion = s.radar.length;
+    const nearby = s.radar.filter(function (e) { return e.range <= s.radarRange; }).length;
+    if (totalInRegion > nearby) return nearby + ' / ' + totalInRegion + ' nearby';
+    return nearby === 1 ? '1 nearby' : nearby + ' nearby';
+  }
+
   function render() {
     const list = document.getElementById('radar-list');
     const countEl = document.getElementById('radar-count');
@@ -332,15 +351,138 @@ const BeeRadar = (function () {
       });
     }
 
-    if (countEl) {
-      const nearby = s.radar.filter(function (e) { return e.range <= s.radarRange; }).length;
-      if (totalInRegion > nearby) {
-        countEl.textContent = nearby + ' / ' + totalInRegion + ' nearby';
-      } else {
-        countEl.textContent = nearby === 1 ? '1 nearby' : nearby + ' nearby';
-      }
-    }
+    if (countEl) countEl.textContent = countLabel(s);
     if (regionEl) regionEl.textContent = s.region ? s.region.name : '';
+  }
+
+  // --- Nearby chat sidebar --------------------------------------------------
+  // A slim, tap-for-menu version of the list above, shown beside the chat
+  // transcript while the chatRadarPanel setting is on and the window is wide
+  // enough (SIDEBAR_QUERY). Hidden, it costs nothing: every repaint trigger
+  // goes through sidebarChanged() first.
+
+  function sidebarMediaQuery() {
+    try {
+      return (typeof window !== 'undefined' && typeof window.matchMedia === 'function')
+        ? window.matchMedia(SIDEBAR_QUERY) : null;
+    } catch (_e) { return null; }
+  }
+
+  // Setting on, and the window is wide enough. Without matchMedia the CSS
+  // breakpoint alone decides, so the setting stands on its own.
+  function sidebarWanted() {
+    if (typeof BeeSettings === 'undefined' || !BeeSettings.get('chatRadarPanel')) return false;
+    const mq = sidebarMediaQuery();
+    return mq ? !!mq.matches : true;
+  }
+
+  function sidebarVisible() {
+    const aside = document.getElementById('chat-radar');
+    return !!(aside && !aside.hidden);
+  }
+
+  function scheduleSidebarRender() {
+    if (sidebarRenderScheduled) return;
+    sidebarRenderScheduled = true;
+    requestAnimationFrame(function () {
+      sidebarRenderScheduled = false;
+      renderSidebar();
+    });
+  }
+
+  // Something the sidebar shows has changed; repaint only while it is on
+  // screen (chat tab active and the strip not hidden).
+  function sidebarChanged() {
+    if (BeeNavigation.isTabActive('chat') && sidebarVisible()) scheduleSidebarRender();
+  }
+
+  // Show or hide the strip to match the setting and the window width, and
+  // mirror that on the composer's toggle button.
+  function applySidebar() {
+    const aside = document.getElementById('chat-radar');
+    const toggle = document.getElementById('chat-radar-toggle');
+    const wanted = sidebarWanted();
+    if (toggle) toggle.setAttribute('aria-pressed', wanted ? 'true' : 'false');
+    if (!aside) return;
+    aside.hidden = !wanted;
+    if (wanted) renderSidebar();
+  }
+
+  // Keyboard activation (Enter/Space on the row button) carries no pointer
+  // position; anchor the menu to the row instead of the top-left corner.
+  function menuPoint(e, row) {
+    if (e.clientX || e.clientY) return e;
+    const r = row.getBoundingClientRect();
+    return { clientX: r.left + 12, clientY: r.bottom };
+  }
+
+  function renderSidebarItem(entry, s) {
+    const names = nameLines(entry);
+    const far = entry.range > s.radarRange;
+    // Same rule as renderItem(): no alert highlight beyond the range setting.
+    const alert = !!s.radarAlerts && !far && isAlertCandidate(entry);
+
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'chat-radar__item' +
+      (far ? ' chat-radar__item--far' : '') +
+      (alert ? ' chat-radar__item--alert' : '');
+    row.dataset.id = entry.id;
+    row.title = String(names.title || '') +
+      (names.subtitle ? ' (' + names.subtitle + ')' : '') +
+      (entry.status ? ' [' + entry.status + ']' : '');
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'chat-radar__name';
+    nameEl.textContent = String(names.title || '');
+    row.appendChild(nameEl);
+
+    const mic = voiceGlyph(entry);
+    if (mic) row.appendChild(mic);
+
+    const range = document.createElement('span');
+    range.className = 'chat-radar__range';
+    range.textContent = Math.round(entry.range) + 'm';
+    row.appendChild(range);
+
+    // Tap or right-click: the same action menu the Radar tab uses. Stop the
+    // bubble so the document-level "click outside closes the menu" listener
+    // doesn't swallow what we just opened.
+    row.addEventListener('click', function (e) {
+      e.stopPropagation();
+      showContextMenu(menuPoint(e, row), entry);
+    });
+    row.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(menuPoint(e, row), entry);
+    });
+    return row;
+  }
+
+  function renderSidebar() {
+    const list = document.getElementById('chat-radar-list');
+    const countEl = document.getElementById('chat-radar-count');
+    if (!list) return;
+
+    const s = BeeState.get();
+    const entries = s.radar.slice();
+    entries.sort(function (a, b) { return a.range - b.range; });
+
+    list.innerHTML = '';
+    if (!entries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'chat-radar__empty';
+      empty.textContent = 'Nobody nearby';
+      list.appendChild(empty);
+    } else {
+      entries.forEach(function (entry) {
+        list.appendChild(renderSidebarItem(entry, s));
+      });
+    }
+    // The strip's heading already says "Nearby", so the pill is the bare
+    // figure: "3", or "3 / 5" with part of the region beyond the range setting.
+    if (countEl) countEl.textContent = countLabel(s).replace(/ nearby$/, '');
   }
 
   function init() {
@@ -348,6 +490,7 @@ const BeeRadar = (function () {
     if (typeof BeeTransport !== 'undefined') {
       BeeTransport.on('voice-participants', function () {
         if (BeeState.get().activeTab === 'radar') scheduleRender();
+        sidebarChanged();
       });
     }
     const rangeInput = document.getElementById('radar-range') as HTMLInputElement | null;
@@ -398,15 +541,19 @@ const BeeRadar = (function () {
 
     BeeState.on('change', function (partial) {
       if (partial.radar && BeeNavigation.isTabActive('radar')) scheduleRender();
+      // The sidebar also catches up when the chat tab comes back on screen.
+      if (partial.radar || partial.activeTab === 'chat') sidebarChanged();
     });
 
     BeeState.on('radar-update', function () {
       if (BeeNavigation.isTabActive('radar')) scheduleRender();
+      sidebarChanged();
     });
 
     // Repaint once names resolve, so entries show the real name rather than the UUID/"?".
     BeeTransport.on('names-updated', function () {
       if (BeeNavigation.isTabActive('radar')) scheduleRender();
+      sidebarChanged();
     });
     // Repaint when the avatar properties (age/born-on) come in.
     if (typeof BeeProfiles !== 'undefined' && BeeProfiles.onChange) {
@@ -423,13 +570,33 @@ const BeeRadar = (function () {
           if (rangeInput) rangeInput.value = String(value);
           if (rangeLabel) rangeLabel.textContent = value + 'm';
           if (BeeNavigation.isTabActive('radar')) scheduleRender();
+          sidebarChanged();
         } else if (key === 'radarAlerts') {
           if (alertInput) alertInput.checked = !!value;
           if (BeeNavigation.isTabActive('radar')) scheduleRender();
+          sidebarChanged();
+        } else if (key === 'chatRadarPanel') {
+          applySidebar();
         }
       });
     }
+
+    // The composer's people button flips the chat sidebar setting; the strip
+    // itself follows the setting and the window width from there.
+    const sidebarToggle = document.getElementById('chat-radar-toggle');
+    if (sidebarToggle && typeof BeeSettings !== 'undefined') {
+      sidebarToggle.addEventListener('click', function () {
+        BeeSettings.set('chatRadarPanel', !BeeSettings.get('chatRadarPanel'));
+      });
+    }
+    const sidebarMq = sidebarMediaQuery();
+    if (sidebarMq) {
+      const onWidthChange = function () { applySidebar(); };
+      if (typeof sidebarMq.addEventListener === 'function') sidebarMq.addEventListener('change', onWidthChange);
+      else if (typeof sidebarMq.addListener === 'function') sidebarMq.addListener(onWidthChange);
+    }
+    applySidebar();
   }
 
-  return { init: init, render: render };
+  return { init: init, render: render, renderSidebar: renderSidebar };
 })();

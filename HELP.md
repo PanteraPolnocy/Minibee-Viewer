@@ -93,7 +93,7 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Search** - three characters minimum; People, Places, or Groups.
 
-**Radar** - who's nearby; range and alerts in **Bee -> Settings** or on the Radar tab.
+**Radar** - who's nearby; range and alerts in **Bee -> Settings** or on the Radar tab. With alerts on, someone new within range is reported in nearby chat ("Ruth entered radar range (12 m).", name clickable). On a wide screen the people button by the chat box puts the same list beside the nearby chat.
 
 **Map** - pan, click, or type a region / SLURL -> **Show on map** -> **Teleport Here** or **Teleport Home**. Bad names get a toast, not a wild teleport. Progress dialog while moving. On a phone the map fills the screen; the controls slide out from the icon in the top-right corner.
 
@@ -141,7 +141,7 @@ Open **Bee** in the nav. Sub-tabs:
 
 | Sub-tab | What |
 |---------|------|
-| Settings | Theme, auto-reconnect, sit after login, radar, buddies, voice, chat logs, guide feed, parcel music |
+| Settings | Theme, auto-reconnect, data saver, IM sounds, nearby-people strip beside chat, sit after login, radar, buddies, voice, chat logs, guide feed, parcel music |
 | About | Version, updates, chat-log disk usage, **Copy all** for bug reports (includes the package list) |
 | Packages | Everything this build was compiled from: Linden Lab's message template, every Rust crate, the build tools |
 | Help | This guide |
@@ -155,7 +155,13 @@ Closing the window while logged in asks you to confirm.
 
 ## Connection trouble
 
-**Connection lost** - read history offline; grid actions pause. **Auto-reconnect** (**Bee -> Settings**, off by default) retries quietly.
+**Connection lost** - read history offline; grid actions pause. **Auto-reconnect** (**Bee -> Settings**, on by default) retries quietly.
+
+**Switched from wifi to mobile data?** The sim connection cannot follow (Second Life ties it to the address you logged in from), so the viewer reports it lost within seconds and, with auto-reconnect on, logs back in by itself.
+
+**Mobile data** - **Data saver** (**Bee -> Settings**) asks the sim for objects within 48 m only and slows the object stream; busy regions cost far less. The **Bee** menu shows the traffic since launch (voice and parcel music are not counted).
+
+**IM sounds** - a short ding for a new IM unless that conversation is on screen (**Bee -> Settings -> Notifications**; group chats have their own switch). On Android a hidden viewer alerts through a notification instead.
 
 Yellow banner about region features? Try relogging.
 

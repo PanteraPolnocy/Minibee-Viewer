@@ -2,14 +2,15 @@
  * Feeds the Android keep-alive notification. The Android shell injects a
  * MinibeeAndroid object into this WebView (see MainActivity); the viewer
  * pushes a small state summary into it whenever something the notification
- * shows changes - parcel music, voice, unread IMs - and the notification's
- * buttons come back in through action() (evaluateJavascript from the
- * connection service). Everywhere else MinibeeAndroid does not exist and this
- * module stays inert.
+ * shows changes - parcel music, voice, unread IMs, plus a running count of
+ * IMs worth an alert (the shell's message notification, for a phone that is
+ * not looking at the page) - and the notification's buttons come back in
+ * through action() (evaluateJavascript from the connection service).
+ * Everywhere else MinibeeAndroid does not exist and this module stays inert.
  *
  * It also answers the Android Back button: MainActivity evaluates
  * window.MinibeeAndroidBack() before deciding what to do with the activity
- * (see back()).
+ * (see back()), and hears about network switches through networkChanged().
  */
 const BeeAndroidBridge = (function () {
   'use strict';
@@ -18,6 +19,14 @@ const BeeAndroidBridge = (function () {
   let lastSent = '';
   const voice = { connected: false, muted: true };
   let lastMessage = '';
+  // IMs worth an alert (BeeSounds.wantsSound) since the page loaded, and the
+  // newest one as "Name: text". The shell alerts once per step of the counter
+  // while the activity is off screen. Counted apart from unreadIm, which the
+  // state does not bump for the conversation that is open - and an open
+  // conversation on a phone that just went dark is exactly where an alert is
+  // needed.
+  let imAlerts = 0;
+  let imAlertText = '';
 
   function native() {
     const n = window.MinibeeAndroid;
@@ -37,7 +46,9 @@ const BeeAndroidBridge = (function () {
       unreadIms: unread,
       // A read conversation is not news; the preview only rides along while
       // something is actually waiting.
-      lastMessage: unread > 0 ? lastMessage : ''
+      lastMessage: unread > 0 ? lastMessage : '',
+      imAlerts: imAlerts,
+      imAlertText: imAlertText
     };
   }
 
@@ -119,7 +130,23 @@ const BeeAndroidBridge = (function () {
     if (!session || session.muted) return;
     const who = String(msg.fromName || 'Someone');
     lastMessage = (who + ': ' + String(msg.text)).slice(0, 120);
+    if (typeof BeeSounds !== 'undefined' && BeeSounds.wantsSound(payload.sessionId, msg)) {
+      imAlerts += 1;
+      imAlertText = lastMessage;
+    }
     schedule();
+  }
+
+  // The shell saw the phone move to another network (wifi <-> LTE, a VPN):
+  // the UDP circuit may be stranded on the old address. Tell the core so it
+  // probes the circuit now instead of waiting for its watchdog. Called by
+  // MainActivity through evaluateJavascript.
+  function networkChanged() {
+    try {
+      if (!BeeState.get().connected) return;
+      if (typeof BeeBridge === 'undefined' || typeof BeeBridge.invoke !== 'function') return;
+      BeeBridge.invoke('sl_network_changed').catch(function () {});
+    } catch (_e) { /* best-effort; the watchdog still covers a dead circuit */ }
   }
 
   function init() {
@@ -146,6 +173,8 @@ const BeeAndroidBridge = (function () {
     BeeState.on('im', trackIm);
     BeeState.on('reset', function () {
       lastMessage = '';
+      imAlerts = 0;
+      imAlertText = '';
       voice.connected = false;
       voice.muted = true;
       schedule();
@@ -164,7 +193,7 @@ const BeeAndroidBridge = (function () {
     push();
   }
 
-  return { init: init, action: action, back: back };
+  return { init: init, action: action, back: back, networkChanged: networkChanged };
 })();
 
 window.BeeAndroidBridge = BeeAndroidBridge;

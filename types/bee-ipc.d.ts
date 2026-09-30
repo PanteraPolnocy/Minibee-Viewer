@@ -28,7 +28,22 @@ label: string,
 /**
  * Log-scaled 0..1 fill for the meter bar.
  */
-level: number, };
+level: number, 
+/**
+ * Bytes received since the viewer was launched, over the sim circuit
+ * and HTTP together (voice and parcel music are not counted: the
+ * WebView carries those itself).
+ */
+inTotal: number, 
+/**
+ * Bytes sent since launch, likewise.
+ */
+outTotal: number, 
+/**
+ * Ready-to-display totals with the circuit/HTTP split, e.g.
+ * "Since launch: ↓ 120.4 MB  ↑ 8.1 MB (circuit ↓ 110.2 MB ↑ 7.0 MB, HTTP ↓ 10.2 MB ↑ 1.1 MB)".
+ */
+totalsLabel: string, };
 
 /**
  * Whether the avatar is seated, and on what (`sit-state`).

@@ -970,12 +970,101 @@ const BeeChat = (function () {
     return el;
   }
 
+  // An estate or region message (the Rust core routes an IM addressed to
+  // everyone, and region-sourced chat, as kind 'region-message'): a framed
+  // card under the sender's name, the way the MOTD is framed, since it is
+  // the estate speaking to everyone present and not one more chat line.
+  function renderRegionMessage(msg) {
+    const el = document.createElement('div');
+    el.className = 'msg msg--motd msg--region';
+    el.dataset.id = msg.id;
+
+    const meta = document.createElement('div');
+    meta.className = 'msg__meta';
+
+    const name = document.createElement('span');
+    name.className = 'msg__name msg__name--region';
+    name.textContent = String(msg.fromName || 'Estate');
+    const senderId = String(msg.fromId || '');
+    const isAvatar = senderId && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(senderId);
+    if (isAvatar) {
+      name.setAttribute('data-agent-id', senderId);
+      name.setAttribute('data-label', String(msg.fromName || ''));
+      if (typeof BeeProfile !== 'undefined') {
+        name.classList.add('msg__name--link');
+        name.title = 'View profile';
+        name.addEventListener('click', function () {
+          BeeProfile.openAvatar(senderId);
+        });
+      }
+    }
+
+    const label = document.createElement('span');
+    label.className = 'msg__motd-label';
+    label.textContent = msg.scope === 'estate' ? 'Estate message' : 'Region message';
+
+    const time = document.createElement('span');
+    time.className = 'msg__time';
+    time.textContent = String(BeeUtils.formatTime(msg.timestamp));
+
+    meta.appendChild(name);
+    meta.appendChild(label);
+    meta.appendChild(time);
+
+    const bodyEl = document.createElement('p');
+    bodyEl.className = 'msg__body';
+    BeeSlurl.appendLinkified(bodyEl, msg.text, { breaks: true });
+
+    el.appendChild(meta);
+    el.appendChild(bodyEl);
+    BeeSlurl.bindLinks(el);
+    return el;
+  }
+
+  // A radar range report from the Rust core: a system line reading
+  // "<name> entered radar range (12 m).", the name a profile link. A report
+  // posted before the name resolved carries
+  // none; the link then starts as the placeholder BeeSlurl.refreshAppLinks
+  // relabels the moment the name lands.
+  function renderRadarLine(msg) {
+    const el = document.createElement('div');
+    el.className = 'msg msg--system msg--radar';
+    el.dataset.id = msg.id;
+    const body = document.createElement('p');
+    body.className = 'msg__body';
+    const id = String(msg.fromId || '');
+    if (id) {
+      const url = 'secondlife:///app/agent/' + id + '/about';
+      const seg = BeeSlurl.scanLinks(url).find(function (s) { return s.type === 'link'; });
+      const link = document.createElement('a');
+      link.setAttribute('href', '#');
+      link.className = 'slurl-link';
+      link.setAttribute('title', url);
+      link.setAttribute('data-slurl', url);
+      if (seg) BeeSlurl.markAppLink(link, seg);
+      else link.setAttribute('data-agent-link', id);
+      link.textContent = String(msg.fromName || '') || (seg && seg.label) || 'Resident profile';
+      body.appendChild(link);
+      body.appendChild(document.createTextNode(' '));
+    }
+    body.appendChild(document.createTextNode(String(msg.text || '')));
+    el.appendChild(body);
+    BeeSlurl.bindLinks(el);
+    return el;
+  }
+
   function renderMessage(msg) {
     if (msg.kind === 'group-notice') {
       return renderGroupNotice(msg);
     }
     if (msg.kind === 'motd') {
       return renderMotdMessage(msg);
+    }
+    if (msg.kind === 'region-message') {
+      return renderRegionMessage(msg);
+    }
+    if (msg.kind === 'radar') {
+      return renderRadarLine(msg);
     }
     if (msg.kind === 'payment' && msg.payment) {
       return renderPaymentEvent(msg);
@@ -1036,7 +1125,15 @@ const BeeChat = (function () {
 
     const isObject = msg.source === 'object';
     const nameClass = CHAT_TYPE_CLASS[volume] || (isObject ? 'msg__name--object' : '');
-    const label = volume === 'whisper' ? 'whispers' : volume === 'shout' ? 'shouts' : '';
+    // An emote ("/me waves", flagged by the core) reads as the speaker's
+    // name run straight into the action, in italics and without the
+    // "shouts"/"whispers" verb.
+    const isEmote = !!msg.emote;
+    if (isEmote) el.classList.add('msg--emote');
+    const label = isEmote ? '' : volume === 'whisper' ? 'whispers' : volume === 'shout' ? 'shouts' : '';
+    const bodyText = isEmote
+      ? String(msg.fromName || '') + String(msg.text || '').slice(3)
+      : msg.text;
     const speakerId = msg.fromId || '';
     // Give the avatar thumbnail to agents only - an object's UUID isn't an avatar.
     const meta = document.createElement('div');
@@ -1076,7 +1173,7 @@ const BeeChat = (function () {
 
     const body = document.createElement('p');
     body.className = 'msg__body';
-    const segments = BeeSlurl.scanLinks(msg.text);
+    const segments = BeeSlurl.scanLinks(bodyText);
     segments.forEach(function (seg) {
       if (seg.type === 'text') {
         body.appendChild(document.createTextNode(String(seg.text || '')));

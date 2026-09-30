@@ -307,3 +307,33 @@ test('notice detail: a re-read keeps the attachment answer already given', async
   emit('group-notice-detail', { noticeId: notice, subject: 'Gift', attachment: { itemName: 'Hat' } });
   assert.equal((await again).attachmentResponse, 'Kept');
 });
+
+test('onlineStatus: a friend follows the buddy list, anyone else the profile reply', () => {
+  // Friends: live presence, whatever the reply said.
+  assert.equal(BeeProfiles.onlineStatus({ online: false }, { isFriend: true, friendOnline: true }), 'online');
+  assert.equal(BeeProfiles.onlineStatus({ online: true }, { isFriend: true, friendOnline: false }), 'offline');
+  // Others: the cap's answer, then the UDP flag, then nothing is known.
+  assert.equal(BeeProfiles.onlineStatus({ online: true }, {}), 'online');
+  assert.equal(BeeProfiles.onlineStatus({ online: false }, {}), 'offline');
+  assert.equal(BeeProfiles.onlineStatus({ flags: { online: true } }, {}), 'online');
+  assert.equal(BeeProfiles.onlineStatus({ flags: { allowPublish: true } }, {}), 'unknown');
+  assert.equal(BeeProfiles.onlineStatus({}, undefined), 'unknown');
+  assert.equal(BeeProfiles.onlineStatus(null, null), 'unknown');
+});
+
+test('avatar-profile: the cap answer about online survives a later UDP reply', () => {
+  const id = '3a3a3a3a-3434-5656-7878-909090909090';
+  emit('avatar-profile', { avatarId: id, source: 'cap', online: false, displayName: 'Ann' });
+  assert.equal(BeeProfiles.getAvatarProfile(id).online, false);
+  // The UDP reply never says "offline" (its flag is only ever set), and it
+  // must not erase what the cap said.
+  emit('avatar-profile', { avatarId: id, source: 'udp', flags: { allowPublish: true } });
+  assert.equal(BeeProfiles.getAvatarProfile(id).online, false);
+  // A UDP flag arriving first is kept until the cap answers.
+  const other = '3b3b3b3b-3434-5656-7878-909090909090';
+  emit('avatar-profile', { avatarId: other, source: 'udp', online: true, flags: { online: true } });
+  assert.equal(BeeProfiles.getAvatarProfile(other).online, true);
+  emit('avatar-profile', { avatarId: other, source: 'cap', online: false });
+  assert.equal(BeeProfiles.getAvatarProfile(other).online, false);
+  assert.equal(BeeProfiles.onlineStatus(BeeProfiles.getAvatarProfile(other), {}), 'offline');
+});

@@ -231,6 +231,12 @@ const BeeApp = (function () {
 
     BeeTransport.on('chat', function (msg) {
       BeeState.addChatMessage(msg);
+      // An estate or region message is meant for everyone, and the chat tab
+      // may not be on screen: a toast as well as the chat line.
+      if (msg && msg.kind === 'region-message' && BeeState.get().activeTab !== 'chat') {
+        BeeUtils.showToast(String(msg.fromName || 'Estate') + ': ' +
+          String(msg.text || '').slice(0, 160), 'info', 8000);
+      }
     });
 
     BeeTransport.on('event', function (msg) {
@@ -377,48 +383,10 @@ const BeeApp = (function () {
       }
     });
 
-    // Radar alerts whose avatar name hasn't resolved yet: hold the toast until
-    // the name lands (or a short timeout), instead of announcing "?".
-    const pendingRadarAlerts = new Map(); // lowercased id -> { entry, timer }
-
-    function showRadarToast(entry) {
-      const names = BeeUtils.agentNameLines(entry);
-      const label = names.title || entry.name || entry.id || 'Someone';
-      BeeUtils.showToast('Radar: ' + label + ' (' + entry.range + 'm)', 'warning', 4500);
-    }
-
-    BeeTransport.on('names-updated', function (data) {
-      if (!pendingRadarAlerts.size) return;
-      ((data && data.names) || []).forEach(function (n) {
-        const key = n && n.id ? String(n.id).toLowerCase() : '';
-        const waiting = key && pendingRadarAlerts.get(key);
-        if (!waiting) return;
-        pendingRadarAlerts.delete(key);
-        clearTimeout(waiting.timer);
-        showRadarToast(Object.assign({}, waiting.entry, {
-          name: n.name || n.displayName || n.userName || waiting.entry.name,
-          displayName: n.displayName || '',
-          userName: n.userName || ''
-        }));
-      });
-    });
-
-    BeeState.on('radar-alert', function (entry) {
-      if (!BeeState.get().radarAlerts || !entry) return;
-      const cached = entry.name ||
-        (BeeTransport.getCachedName ? BeeTransport.getCachedName(entry.id) : '');
-      if (cached) {
-        showRadarToast(entry.name ? entry : Object.assign({}, entry, { name: cached }));
-        return;
-      }
-      const key = String(entry.id || '').toLowerCase();
-      if (!key || pendingRadarAlerts.has(key)) return;
-      const timer = setTimeout(function () {
-        pendingRadarAlerts.delete(key);
-        showRadarToast(entry);
-      }, 3000);
-      pendingRadarAlerts.set(key, { entry: entry, timer: timer });
-    });
+    // Radar proximity alerts are the Rust core's business now: it reports a
+    // resident newly within the radar range as a nearby-chat line (kind
+    // 'radar', see session::radar_range_reports) once the name is known.
+    // Nothing to toast here.
 
     // The sim sends SimStats roughly once a second; coalesce fps patches so the top bar doesn't churn.
     let lastFpsValue = null;
@@ -542,6 +510,25 @@ const BeeApp = (function () {
     BeeLogin.showScreen(false);
   }
 
+  // The data saver lives in the Rust core (the interest radius it asks the
+  // sim for, and the sim-side throttle); the core is told the setting at
+  // startup and whenever it changes, and applies it to the live session.
+  function syncDataSaver(enabled) {
+    if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke) return;
+    BeeBridge.invoke('sl_set_data_saver', { enabled: !!enabled }).catch(function () {});
+  }
+
+  // The radar's proximity alerts are reported by the Rust core as nearby
+  // chat lines; it is told the toggle and the range at startup and on every
+  // change.
+  function syncRadarAlerts() {
+    if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke || typeof BeeSettings === 'undefined') return;
+    BeeBridge.invoke('sl_set_radar_alerts', {
+      enabled: !!BeeSettings.get('radarAlerts'),
+      range: Math.max(1, Math.round(Number(BeeSettings.get('radarRange')) || 96))
+    }).catch(function () {});
+  }
+
   async function init() {
     try {
       setCloseGuard(false);
@@ -549,7 +536,15 @@ const BeeApp = (function () {
       installContextMenu();
       // The settings file has to be in memory before anything reads a setting.
       await BeeUtils.storageInit();
-      if (typeof BeeSettings !== 'undefined') BeeSettings.init();
+      if (typeof BeeSettings !== 'undefined') {
+        BeeSettings.init();
+        syncDataSaver(BeeSettings.get('dataSaver'));
+        syncRadarAlerts();
+        BeeSettings.onChange(function (key, value) {
+          if (key === 'dataSaver') syncDataSaver(value);
+          if (key === 'radarAlerts' || key === 'radarRange') syncRadarAlerts();
+        });
+      }
       bindUnloadGuard();
       bindTransport();
       BeeLogin.init();
@@ -579,6 +574,7 @@ const BeeApp = (function () {
       BeeInteract.init();
       BeeSessionLost.init();
       BeeCapsBanner.init();
+      if (typeof BeeSounds !== 'undefined') BeeSounds.init();
       if (typeof BeeParcelMusic !== 'undefined') BeeParcelMusic.init();
       if (typeof BeeAndroidBridge !== 'undefined') BeeAndroidBridge.init();
       if (typeof MinibeeVersion !== 'undefined' && MinibeeVersion.load) {

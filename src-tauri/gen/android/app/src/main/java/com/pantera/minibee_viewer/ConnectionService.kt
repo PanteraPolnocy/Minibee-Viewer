@@ -30,6 +30,13 @@ import androidx.lifecycle.ProcessLifecycleOwner
  * MinibeeAndroid interface (see MainActivity); button taps land back in the
  * page as BeeAndroidBridge.action(...) calls.
  *
+ * A second, ordinary notification (id 1002, channel "Messages") alerts about
+ * a new IM while MainActivity is not on screen - the one sound that reliably
+ * reaches a phone with the screen off, where the page's own ding may not. It
+ * does not depend on the service being up, fires once per alert-worthy IM
+ * the page counts (imAlerts, see android-bridge.ts), and comes down when the
+ * activity starts. The keep-alive notification itself never alerts.
+ *
  * Started from MainActivity.onCreate and re-asserted on resume/pause; stopped
  * when the activity actually finishes or the task is swiped away.
  *
@@ -197,11 +204,14 @@ class ConnectionService : Service() {
                 mgr.createNotificationChannel(channel)
             }
         }
+        ensureMessagesChannel(this)
     }
 
     companion object {
         private const val CHANNEL_ID = "minibee_connection"
         private const val NOTIFICATION_ID = 1001
+        private const val MESSAGES_CHANNEL_ID = "minibee_messages"
+        private const val IM_NOTIFICATION_ID = 1002
         private const val ACTION_MUSIC = "com.pantera.minibee_viewer.MUSIC_TOGGLE"
         private const val ACTION_VOICE = "com.pantera.minibee_viewer.VOICE_TOGGLE"
 
@@ -228,11 +238,24 @@ class ConnectionService : Service() {
         @Volatile var voiceMuted = true
         @Volatile var unreadIms = 0
         @Volatile var lastMessage = ""
+        // The page's running count of IMs worth an alert and the newest one
+        // as "Name: text" (android-bridge.ts); the message notification fires
+        // once per step of the counter, tracked in alertedIms.
+        @Volatile var imAlerts = 0
+        @Volatile var imAlertText = ""
+        @Volatile private var alertedIms = 0
+        // Whether MainActivity is started (between onStart and onStop): the
+        // page's own ding covers a visible viewer, the message notification a
+        // hidden one (screen off, another app in front).
+        @Volatile var activityVisible = false
 
         // Repaint the notification with the current state. A no-op unless the
         // service is up - notify() on a dead foreground service would plant a
         // stray, unowned notification.
         fun refresh(context: Context) {
+            // The message alert does not depend on the service: a refused
+            // promotion must not silence IMs.
+            maybeAlertIm(context)
             if (!running) return
             // Voice came or went relative to the promoted types: the service
             // decides about the microphone type on the main thread (this runs
@@ -255,6 +278,96 @@ class ConnectionService : Service() {
             }
         }
 
+        // A new IM the page wants a sound for (imAlerts stepped): alert through
+        // the message notification while the activity is off screen - the
+        // page's own ding covers a visible viewer. Once per step, so a repaint
+        // for any other reason (music, voice) never re-alerts. Any thread.
+        private fun maybeAlertIm(context: Context) {
+            try {
+                val count = imAlerts
+                if (count > alertedIms) {
+                    alertedIms = count
+                    if (!activityVisible && imAlertText.isNotEmpty()) {
+                        notifyIm(context, imAlertText)
+                        return
+                    }
+                } else if (count < alertedIms) {
+                    // The page started over (logout, reload): follow its count.
+                    alertedIms = count
+                }
+                // Nothing alert-worthy left on the page (a reset, a fresh
+                // session): a stale alert comes down with it. Catching up in
+                // the viewer is covered by clearImAlert from onStart.
+                if (unreadIms == 0 && imAlertText.isEmpty()) cancelIm(context)
+            } catch (_: Exception) {
+            }
+        }
+
+        private fun notifyIm(context: Context, text: String) {
+            ensureMessagesChannel(context)
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(context, MESSAGES_CHANNEL_ID)
+            } else {
+                // No channels before API 26: the sound is asked for per
+                // notification instead.
+                @Suppress("DEPRECATION")
+                Notification.Builder(context).setDefaults(Notification.DEFAULT_SOUND)
+            }
+            builder
+                .setContentTitle("New IM")
+                .setContentText(text)
+                .setStyle(Notification.BigTextStyle().bigText(text))
+                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentIntent(activityPending(context))
+                .setCategory(Notification.CATEGORY_MESSAGE)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(false)
+            val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            mgr.notify(IM_NOTIFICATION_ID, builder.build())
+        }
+
+        private fun cancelIm(context: Context) {
+            val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            mgr.cancel(IM_NOTIFICATION_ID)
+        }
+
+        // The viewer is back on screen: whatever the alert was about is in
+        // front of the user now. From MainActivity.onStart.
+        fun clearImAlert(context: Context) {
+            try {
+                cancelIm(context)
+            } catch (_: Exception) {
+            }
+        }
+
+        // The "Messages" channel: default importance, so the system's own
+        // notification sound plays (the user can retune it in the app's
+        // notification settings). Created by the service and again, cheaply,
+        // before every alert, since an alert may come before or without the
+        // service.
+        private fun ensureMessagesChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (mgr.getNotificationChannel(MESSAGES_CHANNEL_ID) != null) return
+            val channel = NotificationChannel(
+                MESSAGES_CHANNEL_ID,
+                "Messages",
+                NotificationManager.IMPORTANCE_DEFAULT
+            )
+            channel.description = "New instant messages while Minibee is not on screen."
+            channel.setShowBadge(true)
+            mgr.createNotificationChannel(channel)
+        }
+
+        // Tapping either notification brings the viewer to the front.
+        private fun activityPending(context: Context): PendingIntent =
+            PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+
         private fun servicePending(context: Context, action: String, requestCode: Int): PendingIntent {
             val intent = Intent(context, ConnectionService::class.java).setAction(action)
             return PendingIntent.getService(
@@ -266,12 +379,7 @@ class ConnectionService : Service() {
         }
 
         private fun build(context: Context): Notification {
-            val tap = PendingIntent.getActivity(
-                context,
-                0,
-                Intent(context, MainActivity::class.java),
-                PendingIntent.FLAG_IMMUTABLE
-            )
+            val tap = activityPending(context)
             val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 Notification.Builder(context, CHANNEL_ID)
             } else {

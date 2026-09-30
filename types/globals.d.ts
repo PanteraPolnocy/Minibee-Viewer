@@ -58,4 +58,5 @@ interface Window {
   BeeChatLogs?: typeof BeeChatLogs;
   BeeVoice?: typeof BeeVoice;
   BeeAndroidBridge?: typeof BeeAndroidBridge;
+  BeeSounds?: typeof BeeSounds;
 }

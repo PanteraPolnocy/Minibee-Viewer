@@ -178,10 +178,37 @@ const BeeProfile = (function () {
     }).join(' ');
   }
 
+  // Online / offline / unknown for the resident shown: a friend's status is
+  // their live presence from the buddy list, anyone else's is whatever the
+  // profile reply was allowed to say (BeeProfiles.onlineStatus).
+  function onlineStatusFor(profile) {
+    const id = profile.avatarId;
+    const isFriend = typeof BeeTransport.isBuddy === 'function' && BeeTransport.isBuddy(id);
+    const friendOnline = isFriend && typeof BeeTransport.isAgentOnline === 'function' &&
+      BeeTransport.isAgentOnline(id, profile) === true;
+    return BeeProfiles.onlineStatus(profile, { isFriend: isFriend, friendOnline: friendOnline });
+  }
+
+  function onlineStatusLabel(status) {
+    return status === 'online' ? 'Online' : status === 'offline' ? 'Offline' : 'Unknown';
+  }
+
+  // Repaint the Status field of an open resident profile in place (a friend
+  // coming or going while the dialog is up).
+  function paintOnlineStatus(profile) {
+    const node = dialog ? dialog.querySelector('[data-profile-status]') : null;
+    if (!node || !profile) return;
+    const status = onlineStatusFor(profile);
+    node.className = 'profile-status profile-status--' + status;
+    node.textContent = onlineStatusLabel(status);
+  }
+
   function profileSubtitleText(profile) {
     const parts = [];
-    if (profile.flags && profile.flags.online === true) parts.push('Online');
-    else if (profile.flags && profile.flags.online === false) parts.push('Offline');
+    if (!isSelfProfile(profile)) {
+      const status = onlineStatusFor(profile);
+      if (status !== 'unknown') parts.push(onlineStatusLabel(status));
+    }
     const level = formatCustomerTypeLabel(profile.customerType);
     if (level) parts.push('Account level: ' + level);
     return parts.join(' \u00b7 ');
@@ -245,6 +272,14 @@ const BeeProfile = (function () {
 
   function renderResidentSideMeta(profile) {
     let html = '';
+    // Somebody else's profile says whether they are online; one's own has
+    // nothing to tell.
+    if (!isSelfProfile(profile)) {
+      const status = onlineStatusFor(profile);
+      html += '<div class="profile-field"><span class="profile-field__label">Status</span>' +
+        '<span class="profile-status profile-status--' + status + '" data-profile-status>' +
+        BeeUtils.escapeHtml(onlineStatusLabel(status)) + '</span></div>';
+    }
     const born = BeeProfiles.formatBornLabel(profile.bornOn, profile.hideAge);
     if (born) {
       html += '<div class="profile-field"><span class="profile-field__label">Born</span><span>' +
@@ -2483,6 +2518,7 @@ const BeeProfile = (function () {
         if (!profile) return;
         const enriched = enrichAvatarProfile(Object.assign({}, profile));
         updateProfileHeader(enriched);
+        paintOnlineStatus(enriched);
         renderAvatarActions(enriched);
       });
     }

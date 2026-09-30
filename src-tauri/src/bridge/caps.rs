@@ -178,6 +178,11 @@ pub(crate) async fn resolve_display_names(
         .collect::<Vec<_>>()
         .join(", ");
     let changed = session.merge_names(&resolved);
+    // Radar range reports held for one of these names (see
+    // session::radar_range_reports) go out now, as chat lines.
+    for line in session.take_radar_lines() {
+        session.emit_live(app, "chat", line);
+    }
     if !changed.is_empty() {
         let changed_ids: std::collections::HashSet<String> = changed
             .iter()
@@ -819,6 +824,12 @@ pub async fn sl_fetch_agent_profile(app: AppHandle, state: State<'_, Arc<AppStat
         "displayName": if is_display_name_default(&data) { String::new() } else { cap_str(&data, &["display_name"]) },
         "source": "cap",
     });
+    // Whether the resident is online, as far as the grid lets this account
+    // know (a friend sharing their status, or anyone the grid will say it
+    // about). A reply without the key means unknown, and stays absent here.
+    if let Some(online) = data.get("online").and_then(|v| v.as_bool()) {
+        profile["online"] = json!(online);
+    }
     // Everything else is carried ONLY when the reply actually answered it.
     //
     // `cap_str` cannot tell an absent key from an empty one - both come back as

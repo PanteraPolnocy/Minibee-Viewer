@@ -13,6 +13,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt::Write;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -217,6 +218,22 @@ pub struct SessionState {
     /// their grid coordinates until EstablishAgentCommunication brings the
     /// seed capability (voice needs both halves).
     pub neighbour_sims: HashMap<String, (i64, i64)>,
+    /// Radar range reports (see `radar_range_reports`): who is within the
+    /// alert range right now (lowercased ids), whether the first sweep after
+    /// arriving has been taken (it only records who was already there), and
+    /// the newcomers whose report is waiting for their name.
+    pub radar_inside: HashSet<String>,
+    pub radar_primed: bool,
+    pub radar_pending: Vec<RadarPending>,
+}
+
+/// A resident newly within the radar's alert range whose name is still being
+/// looked up; the report goes out when it lands, or after RADAR_NAME_WAIT_MS.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct RadarPending {
+    pub id: String,
+    pub range: f64,
+    pub since_ms: u64,
 }
 
 /// A script or notecard text on its way down: which transfer, which inventory
@@ -447,12 +464,60 @@ pub fn build_agent_animation(agent: &str, sess: &str, anim_id: &str, start: bool
 
 /// How much of the region around us we ask the sim to describe, in metres.
 pub const INTEREST_FAR: f64 = 128.0;
+/// The same with the data saver on. Object updates - above all the per-frame
+/// ImprovedTerseObjectUpdate stream of every moving avatar and attachment in
+/// range - are what a busy region costs in traffic, and the sim only streams
+/// what lies within this radius; a quarter of the distance is a sixteenth of
+/// the area. Wide enough to touch, sit on and pay what is around us.
+pub const INTEREST_FAR_SAVER: f64 = 48.0;
+
+/// The Settings toggle, mirrored here for the tasks that build AgentUpdate
+/// and AgentThrottle. One live session, so a process-wide flag is enough.
+static DATA_SAVER: AtomicBool = AtomicBool::new(false);
+
+pub fn set_data_saver(on: bool) {
+    DATA_SAVER.store(on, Ordering::Relaxed);
+}
+
+pub fn data_saver() -> bool {
+    DATA_SAVER.load(Ordering::Relaxed)
+}
+
+/// The Radar tab's proximity alerts and range, mirrored here for the range
+/// reports (`radar_range_reports`): a nearby-chat line under the resident's
+/// name rather than a toast. Defaults match the settings schema (alerts on,
+/// 96 m).
+static RADAR_ALERTS: AtomicBool = AtomicBool::new(true);
+static RADAR_RANGE_M: AtomicU32 = AtomicU32::new(96);
+
+pub fn set_radar_alerts(enabled: bool, range_m: u32) {
+    RADAR_ALERTS.store(enabled, Ordering::Relaxed);
+    RADAR_RANGE_M.store(range_m.clamp(1, 1024), Ordering::Relaxed);
+}
+
+pub fn radar_alerts() -> bool {
+    RADAR_ALERTS.load(Ordering::Relaxed)
+}
+
+pub fn radar_range_m() -> f64 {
+    RADAR_RANGE_M.load(Ordering::Relaxed) as f64
+}
+
+/// The interest radius to ask the sim for right now.
+pub fn interest_far() -> f64 {
+    if data_saver() {
+        INTEREST_FAR_SAVER
+    } else {
+        INTEREST_FAR
+    }
+}
 
 /// Where to look from when we don't know yet: the middle of the region.
 const REGION_CENTRE: [f64; 3] = [128.0, 128.0, 25.0];
 
-/// Build an AgentUpdate body for the position we're standing at.
-pub fn build_agent_update(agent: &str, sess: &str, pos: [f64; 3], flags: u64) -> Value {
+/// Build an AgentUpdate body for the position we're standing at; `far` is
+/// the interest radius (see `interest_far`).
+pub fn build_agent_update(agent: &str, sess: &str, pos: [f64; 3], flags: u64, far: f64) -> Value {
     json!({
         "AgentData": [{
             "AgentID": agent, "SessionID": sess,
@@ -464,11 +529,47 @@ pub fn build_agent_update(agent: &str, sess: &str, pos: [f64; 3], flags: u64) ->
             "CameraAtAxis": [1.0, 0.0, 0.0],
             "CameraLeftAxis": [0.0, 1.0, 0.0],
             "CameraUpAxis": [0.0, 0.0, 1.0],
-            "Far": INTEREST_FAR,
+            "Far": far,
             "ControlFlags": flags,
             "Flags": 0,
         }],
     })
+}
+
+/// The per-channel bandwidth we ask the sim to hold to, in bits per second,
+/// in the wire order resend, land, wind, cloud, task, texture, asset. A
+/// viewer is expected to send AgentThrottle on every region it enters; one
+/// that never does is left to the sim's defaults. We ask for what we use:
+/// the object channel (task) at the sim's own ceiling (446 kbps) so nothing
+/// is slower than before, resend and asset at the usual 1000 kbps split, and
+/// the channels this viewer drops unread (terrain, wind and cloud LayerData,
+/// UDP textures - see circuit::IGNORED_HIGH_FREQ) at the floor the sim keeps
+/// anyway. With the data saver on, the object channel is capped at 100 kbps:
+/// a busy region then streams its updates in a trickle instead of a torrent.
+pub fn throttle_bps(saver: bool) -> [f32; 7] {
+    let task = if saver { 100_000.0 } else { 446_000.0 };
+    let asset = if saver { 100_000.0 } else { 140_000.0 };
+    [100_000.0, 10_000.0, 4_000.0, 4_000.0, task, 4_000.0, asset]
+}
+
+/// Build the AgentThrottle message for `throttle_bps`. The Throttles field is
+/// the seven rates as little-endian F32s.
+pub fn build_agent_throttle(agent: &str, sess: &str, circuit_code: u32, saver: bool) -> Value {
+    let mut bytes = Vec::with_capacity(28);
+    for rate in throttle_bps(saver) {
+        bytes.extend_from_slice(&rate.to_le_bytes());
+    }
+    json!({
+        "AgentData": [{ "AgentID": agent, "SessionID": sess, "CircuitCode": circuit_code }],
+        "Throttle": [{ "GenCounter": 0, "Throttles": B64.encode(&bytes) }],
+    })
+}
+
+/// An IRC-style emote: a line opening with "/me " or "/me'", shown as the
+/// speaker's name run straight into the rest, no colon, in italics. The text
+/// is passed through untouched (logs keep the prefix); the flag tells the UI.
+pub fn is_emote(text: &str) -> bool {
+    text.starts_with("/me ") || text.starts_with("/me'")
 }
 
 /// A chat session's live participant set, built up from delta updates.
@@ -976,6 +1077,122 @@ fn system_chat(text: &str) -> Action {
     )
 }
 
+/// Someone crossed into the radar's alert range: a system-sourced chat line
+/// under the resident's id and name ("entered radar range (12 m)."), the
+/// name a clickable profile link. An empty name is a resident whose lookup
+/// never answered; the UI shows a profile link and fills the name in itself.
+fn radar_line(id: &str, name: &str, range: f64) -> Action {
+    Action::emit(
+        "chat",
+        json!({
+            "kind": "radar", "fromId": id, "fromName": name,
+            "text": format!("entered radar range ({} m).", range.round() as i64),
+            "type": "normal", "source": "system", "ownerId": "", "channel": 0,
+            "outgoing": false, "emote": false,
+            "radar": { "event": "enter", "range": range },
+        }),
+    )
+}
+
+/// How long a newcomer's report waits for their name before going out with a
+/// profile link in its place.
+const RADAR_NAME_WAIT_MS: u64 = 3000;
+/// Someone already inside the range counts as inside until this far beyond
+/// it, so a resident idling on the boundary is not reported on every sweep.
+const RADAR_LEAVE_SLACK_M: f64 = 8.0;
+
+/// The radar range reports for one CoarseLocationUpdate sweep (`entries` as
+/// emitted in `radar-update`, ranges included). The first sweep after arriving
+/// only records who is already around; from then on each resident newly within
+/// `range_m` is reported once - as soon as their name is cached, otherwise when
+/// it resolves (`SessionState::radar_lines_for_resolved_names`) or, failing
+/// that, after RADAR_NAME_WAIT_MS with a profile link. `alerts` off keeps the
+/// bookkeeping (so switching it on later reports only real newcomers) and
+/// drops anything waiting.
+fn radar_range_reports(state: &mut SessionState, entries: &[Value], alerts: bool, range_m: f64) -> Vec<Action> {
+    let mut inside: HashSet<String> = HashSet::new();
+    let mut newcomers: Vec<(String, f64)> = Vec::new();
+    for e in entries {
+        let id = e.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        if id.is_empty() {
+            continue;
+        }
+        let key = id.to_lowercase();
+        let range = e.get("range").and_then(|v| v.as_f64()).unwrap_or(f64::MAX);
+        let was_inside = state.radar_inside.contains(&key);
+        if range <= range_m {
+            inside.insert(key);
+            if !was_inside {
+                newcomers.push((id.to_string(), range));
+            }
+        } else if was_inside && range <= range_m + RADAR_LEAVE_SLACK_M {
+            inside.insert(key);
+        }
+    }
+    state.radar_inside = inside;
+    let mut actions = Vec::new();
+    if !state.radar_primed {
+        // Whoever is here when we arrive is not news.
+        state.radar_primed = true;
+        return actions;
+    }
+    if !alerts {
+        state.radar_pending.clear();
+        return actions;
+    }
+    for (id, range) in newcomers {
+        let name = state.cached_name(&id).map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+        match name {
+            Some(name) => actions.push(radar_line(&id, &name, range)),
+            None => {
+                if !state.radar_pending.iter().any(|p| p.id.eq_ignore_ascii_case(&id)) {
+                    state.radar_pending.push(RadarPending { id, range, since_ms: state.now_ms });
+                }
+            }
+        }
+    }
+    // Names that never came: report with a profile link after the wait.
+    let now = state.now_ms;
+    let pending = std::mem::take(&mut state.radar_pending);
+    for p in pending {
+        if now.saturating_sub(p.since_ms) >= RADAR_NAME_WAIT_MS {
+            actions.push(radar_line(&p.id, "", p.range));
+        } else {
+            state.radar_pending.push(p);
+        }
+    }
+    actions
+}
+
+impl SessionState {
+    /// Range reports that were waiting for a name the cache now has (see
+    /// `radar_range_reports`); called after every batch of resolved names.
+    pub fn radar_lines_for_resolved_names(&mut self, alerts: bool) -> Vec<Action> {
+        if !alerts {
+            self.radar_pending.clear();
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let pending = std::mem::take(&mut self.radar_pending);
+        for p in pending {
+            let name = self.cached_name(&p.id).map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+            match name {
+                Some(name) => out.push(radar_line(&p.id, &name, p.range)),
+                None => self.radar_pending.push(p),
+            }
+        }
+        out
+    }
+
+    /// A new region: whoever is there when we arrive is recorded by the next
+    /// sweep, not reported, and nothing from the old region is still owed.
+    pub fn reset_radar_tracking(&mut self) {
+        self.radar_inside.clear();
+        self.radar_primed = false;
+        self.radar_pending.clear();
+    }
+}
+
 /// The region-restart warning: its own event (the UI raises a modal with a live
 /// countdown) plus a system chat line kept as the record.
 fn region_restart_warning(seconds: i64, region: &str) -> [Action; 2] {
@@ -1429,15 +1646,42 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if audible != 1 {
                 return actions;
             }
-            // EChatSourceType: 1 is agent, 2 is object, anything else is system.
+            // EChatSourceType: 1 is agent, 2 is object, 5 is the region itself
+            // (a region message), anything else is system.
             let source_type = field(decoded, "ChatData", "SourceType").and_then(|v| v.as_u64()).unwrap_or(0);
             let source = match source_type {
                 1 => "agent",
                 2 => "object",
+                5 => "region",
                 _ => "system",
             };
             let raw_name = field_text(decoded, "ChatData", "FromName").unwrap_or_default();
             let text = field_text(decoded, "ChatData", "Message").unwrap_or_default();
+            // A region message (an estate manager's "Send message to region",
+            // or any system-sourced line the sim signs with a resident's name
+            // rather than its own) is meant for everyone present. It gets its
+            // own framed card under the sender's name instead of the
+            // anonymous system line, which dropped the name.
+            let region_message = source == "region"
+                || (source == "system"
+                    && !raw_name.trim().is_empty()
+                    && !raw_name.eq_ignore_ascii_case("Second Life")
+                    && !raw_name.eq_ignore_ascii_case("System"));
+            if region_message {
+                if text.trim().is_empty() {
+                    return actions;
+                }
+                actions.push(Action::emit(
+                    "chat",
+                    json!({
+                        "kind": "region-message", "scope": "region",
+                        "fromId": source_id, "fromName": raw_name, "text": text.trim(),
+                        "type": "normal", "source": "region", "ownerId": "", "channel": 0,
+                        "outgoing": false, "emote": false,
+                    }),
+                ));
+                return actions;
+            }
             let owner_id = if source == "object" {
                 field(decoded, "ChatData", "OwnerID").and_then(|v| v.as_str()).unwrap_or("").to_string()
             } else {
@@ -1460,6 +1704,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             } else {
                 raw_name
             };
+            let emote = source != "system" && is_emote(&text);
             actions.push(Action::emit(
                 "chat",
                 json!({
@@ -1471,6 +1716,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "ownerId": owner_id,
                     "channel": 0,
                     "outgoing": is_self,
+                    "emote": emote,
                 }),
             ));
         }
@@ -1549,6 +1795,8 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if !changed.is_empty() {
                 actions.push(Action::emit("names-updated", json!({ "names": changed })));
             }
+            // A radar report held for one of these names goes out now.
+            actions.extend(state.radar_lines_for_resolved_names(radar_alerts()));
         }
 
         // The block list. The sim doesn't send it inline - it writes a file and tells us
@@ -1986,10 +2234,13 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "region": state.region_name,
                 }));
             }
+            // The range reports ride behind the list they describe.
+            let reports = radar_range_reports(state, &entries, radar_alerts(), radar_range_m());
             actions.push(Action::emit("radar-update", json!(entries)));
             if !resolve.is_empty() {
                 actions.push(Action::ResolveNames(resolve));
             }
+            actions.extend(reports);
         }
 
         // Full parcel data for the parcel the agent is standing on.
@@ -3063,6 +3314,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
             state.objects.clear();
             state.neighbour_sims.clear();
+            state.reset_radar_tracking();
             let mut fin = json!({ "url": seed, "simIp": sim_ip, "simPort": sim_port, "regionHandle": handle });
             if let Some(name) = tp_target_region_name(state) {
                 fin["regionName"] = json!(name);
@@ -3114,6 +3366,7 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
             state.objects.clear();
             state.neighbour_sims.clear();
+            state.reset_radar_tracking();
             state.last_pos = Some([px, py, pz]);
             actions.push(Action::InterestList360);
             actions.push(Action::emit(
@@ -3468,9 +3721,12 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 },
                 "source": "udp",
             });
-            // Online is tri-state, so only assert it when the bit is actually set.
+            // Online is tri-state, so only assert it when the bit is actually
+            // set: a clear bit is "offline or not ours to know". The top-level
+            // `online` is the same answer where the profile cap puts its own.
             if raw & 0x10 != 0 {
                 profile["flags"]["online"] = json!(true);
+                profile["online"] = json!(true);
             }
             actions.push(Action::emit("avatar-profile", profile));
         }
@@ -3585,6 +3841,13 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                         "AgentData": [{ "AgentID": state.agent_id, "SessionID": state.session_uuid }],
                         "RegionInfo": [{ "Flags": 6 }],
                     }),
+                    true,
+                ));
+                // Every region decides its throttles for itself, so each one
+                // is told ours as soon as it is ours (see throttle_bps).
+                actions.push(Action::send(
+                    "AgentThrottle",
+                    build_agent_throttle(&state.agent_id, &state.session_uuid, state.circuit_code, data_saver()),
                     true,
                 ));
             }
@@ -3882,7 +4145,10 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                     let mut payload = json!({
                         "sessionId": session_id,
                         "participant": { "id": from_id, "name": display, "online": true },
-                        "message": { "imId": session_id, "fromId": from_id, "fromName": display, "text": text, "outgoing": false },
+                        "message": {
+                            "imId": session_id, "fromId": from_id, "fromName": display,
+                            "text": text, "outgoing": false, "emote": is_emote(&text),
+                        },
                     });
                     if !from_name.trim().is_empty() {
                         payload["participant"]["userName"] = json!(from_name);
@@ -4066,6 +4332,7 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             // leave them haunting the new region (the UDP arm clears likewise).
             state.objects.clear();
             state.neighbour_sims.clear();
+            state.reset_radar_tracking();
             if let Some((gx, gy)) = llsd_region_grid(info.get("RegionHandle")) {
                 state.region_grid_x = gx;
                 state.region_grid_y = gy;
@@ -4111,6 +4378,7 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             }
             state.objects.clear();
             state.neighbour_sims.clear();
+            state.reset_radar_tracking();
             state.last_pos = Some([px, py, pz]);
             actions.push(Action::InterestList360);
             actions.push(Action::emit(
@@ -4343,6 +4611,14 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     // looked up as an avatar.
     let object_im = matches!(dialog, 9 | 19 | 31);
     let wire_named = notice_from_group || object_im || dialog == 3;
+    // A plain IM from nobody (AgentID null) is the grid speaking. It gets
+    // the system chat line, never an IM tab under a null resident.
+    if dialog == 0 && is_zero_uuid(&from_id) {
+        if !text.trim().is_empty() {
+            actions.push(system_chat(text.trim()));
+        }
+        return actions;
+    }
     if !wire_named {
         state.cache_name(&from_id, &from_name);
     }
@@ -4365,6 +4641,26 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     }
 
     match dialog {
+        // A plain IM addressed to nobody (ToAgentID null) is a message to
+        // everyone: an estate manager's "Message estate", which the sim fans
+        // out to every agent in the estate. It belongs in nearby chat under
+        // the sender's name, as a framed region-message line, and never
+        // opens an IM tab.
+        0 if !to_id.is_empty() && is_zero_uuid(&to_id) && !from_group => {
+            if text.trim().is_empty() {
+                return actions;
+            }
+            actions.push(Action::emit(
+                "chat",
+                json!({
+                    "kind": "region-message", "scope": "estate",
+                    "fromId": &from_id, "fromName": &display, "text": text.trim(),
+                    "type": "normal", "source": "region", "ownerId": "", "channel": 0,
+                    "outgoing": false, "emote": false,
+                }),
+            ));
+            return actions;
+        }
         24 => {
             actions.push(Action::emit("teleport-declined", json!({ "fromId": &from_id, "fromName": &display })));
             return actions;
@@ -4583,6 +4879,7 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     "ownerIsGroup": from_group,
                     "channel": 0,
                     "outgoing": false,
+                    "emote": is_emote(&text),
                     // 31 is the alert form (a modal in the reference viewer);
                     // the UI may set it apart, the payload is otherwise the same.
                     "alert": dialog == 31,
@@ -4679,7 +4976,7 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         "participant": participant,
         "message": {
             "imId": msg_im_id, "fromId": &from_id, "fromName": &display,
-            "text": &text, "outgoing": false,
+            "text": &text, "outgoing": false, "emote": is_emote(&text),
         }
     });
 
@@ -4708,7 +5005,7 @@ mod tests {
 
     #[test]
     fn agent_update_looks_from_where_we_are() {
-        let body = build_agent_update("a", "s", [42.5, 200.0, 30.0], AGENT_CONTROL_FLY);
+        let body = build_agent_update("a", "s", [42.5, 200.0, 30.0], AGENT_CONTROL_FLY, INTEREST_FAR);
         let data = &body["AgentData"][0];
         assert_eq!(data["CameraCenter"], json!([42.5, 200.0, 30.0]));
         assert_eq!(data["Far"], json!(INTEREST_FAR));
@@ -4717,6 +5014,93 @@ mod tests {
         // The axes have to be a real frame or the sim can't work out where we're facing.
         assert_eq!(data["CameraAtAxis"], json!([1.0, 0.0, 0.0]));
         assert_eq!(data["CameraUpAxis"], json!([0.0, 0.0, 1.0]));
+        // The data saver shrinks the radius the sim is asked to describe, and
+        // the body carries whatever radius it is handed.
+        assert!(INTEREST_FAR_SAVER > 0.0 && INTEREST_FAR_SAVER < INTEREST_FAR);
+        let saver = build_agent_update("a", "s", [1.0, 2.0, 3.0], 0, INTEREST_FAR_SAVER);
+        assert_eq!(saver["AgentData"][0]["Far"], json!(INTEREST_FAR_SAVER));
+    }
+
+    #[test]
+    fn agent_throttle_packs_seven_little_endian_rates() {
+        for saver in [false, true] {
+            let body = build_agent_throttle("a", "s", 4242, saver);
+            let ad = &body["AgentData"][0];
+            assert_eq!(ad["AgentID"], "a");
+            assert_eq!(ad["SessionID"], "s");
+            assert_eq!(ad["CircuitCode"], 4242);
+            let th = &body["Throttle"][0];
+            assert_eq!(th["GenCounter"], 0);
+            // The Throttles field is a Variable blob: base64 here, bytes on the wire.
+            let raw = B64.decode(th["Throttles"].as_str().unwrap()).unwrap();
+            assert_eq!(raw.len(), 28, "seven F32s");
+            let rates: Vec<f32> = raw.chunks(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+            assert_eq!(rates, throttle_bps(saver).to_vec());
+            // Every channel stays within the ceilings the sim enforces, or
+            // it would be clamped.
+            let ceilings = [150_000.0, 170_000.0, 34_000.0, 34_000.0, 446_000.0, 446_000.0, 220_000.0];
+            for (rate, ceiling) in rates.iter().zip(ceilings) {
+                assert!(*rate > 0.0 && *rate <= ceiling, "rate {rate} within {ceiling}");
+            }
+        }
+        // The data saver only tightens: the object channel (index 4) drops,
+        // nothing rises.
+        let normal = throttle_bps(false);
+        let saver = throttle_bps(true);
+        assert!(saver[4] < normal[4]);
+        for i in 0..7 {
+            assert!(saver[i] <= normal[i]);
+        }
+    }
+
+    #[test]
+    fn region_handshake_tells_the_region_our_throttle() {
+        let mut st = SessionState {
+            agent_id: "11111111-1111-1111-1111-111111111111".into(),
+            session_uuid: "22222222-2222-2222-2222-222222222222".into(),
+            circuit_code: 77,
+            ..Default::default()
+        };
+        let pkt = json!({
+            "name": "RegionHandshake",
+            "blocks": {
+                "RegionInfo": [{ "SimName": B64.encode(b"Natoma\0") }],
+                "RegionInfo2": [{ "RegionID": "33333333-3333-3333-3333-333333333333" }],
+            }
+        });
+        let actions = route(&mut st, &pkt);
+        let throttle = actions
+            .iter()
+            .find_map(|a| match a {
+                Action::Send { name, blocks, reliable } if name == "AgentThrottle" => Some((blocks, *reliable)),
+                _ => None,
+            })
+            .expect("the handshake sends AgentThrottle");
+        assert!(throttle.1, "reliable");
+        assert_eq!(throttle.0["AgentData"][0]["CircuitCode"], 77);
+        // Once per region, together with the handshake reply.
+        let again = route(&mut st, &pkt);
+        assert!(!again.iter().any(|a| matches!(a, Action::Send { name, .. } if name == "AgentThrottle")));
+    }
+
+    #[test]
+    fn emote_prefix_is_flagged_not_stripped() {
+        assert!(is_emote("/me waves"));
+        assert!(is_emote("/me's hat falls off"));
+        assert!(!is_emote("/menu please"));
+        assert!(!is_emote("me too"));
+        assert!(!is_emote(""));
+        // Nearby chat: the flag rides along, the text is untouched (logs keep the prefix).
+        let mut st = SessionState::default();
+        let a = route(&mut st, &chat_packet(1, 1, 1, "Ruth Resident", "44444444-4444-4444-4444-444444444444", "/me waves"));
+        let p = emit_of(&a, "chat").expect("chat");
+        assert_eq!(p["emote"], true);
+        assert_eq!(p["text"], "/me waves");
+        let a = route(&mut st, &chat_packet(1, 2, 1, "Ruth Resident", "44444444-4444-4444-4444-444444444444", "hello"));
+        assert_eq!(emit_of(&a, "chat").unwrap()["emote"], false);
+        // System lines are never emotes, whatever they start with.
+        let a = route(&mut st, &chat_packet(0, 1, 1, "Second Life", "00000000-0000-0000-0000-000000000000", "/me ..."));
+        assert_eq!(emit_of(&a, "chat").unwrap()["emote"], false);
     }
 
     #[test]
@@ -5530,6 +5914,139 @@ mod tests {
         assert_eq!(st.last_pos, Some([128.0, 235.0, 2099.0]));
     }
 
+    // --- radar range reports (nearby-chat alerts) ---
+
+    fn coarse_sweep(others: &[(&str, i64, i64)]) -> Value {
+        let mut locs = vec![json!({ "X": 128, "Y": 128, "Z": 6 })];
+        let mut agents = vec![json!({ "AgentID": "me" })];
+        for (id, x, y) in others {
+            locs.push(json!({ "X": x, "Y": y, "Z": 6 }));
+            agents.push(json!({ "AgentID": id }));
+        }
+        json!({
+            "name": "CoarseLocationUpdate",
+            "blocks": { "Location": locs, "Index": [{ "You": 0, "Prey": -1 }], "AgentData": agents }
+        })
+    }
+
+    fn radar_lines(actions: &[Action]) -> Vec<&Value> {
+        actions
+            .iter()
+            .filter_map(|a| match a {
+                Action::Emit { event, payload } if event == "chat" && payload["kind"] == "radar" => Some(payload),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn radar_newcomer_is_reported_in_nearby_chat_once_their_name_is_known() {
+        const ANN: &str = "aaaaaaaa-0000-0000-0000-000000000001";
+        const BOB: &str = "bbbbbbbb-0000-0000-0000-000000000002";
+        const CID: &str = "cccccccc-0000-0000-0000-000000000003";
+        let mut st = SessionState { agent_id: "me".into(), now_ms: 1000, ..Default::default() };
+        // Ann is here when we arrive: recorded, never reported.
+        let a = route(&mut st, &coarse_sweep(&[(ANN, 138, 128)]));
+        assert!(radar_lines(&a).is_empty(), "the first sweep only records");
+        assert!(st.radar_inside.contains(ANN));
+        // Bob walks in at 20 m with no name cached yet: the report waits.
+        st.now_ms = 2000;
+        let a = route(&mut st, &coarse_sweep(&[(ANN, 138, 128), (BOB, 148, 128)]));
+        assert!(radar_lines(&a).is_empty(), "no name, no line yet");
+        assert_eq!(st.radar_pending.len(), 1);
+        assert_eq!(st.radar_pending[0].id, BOB);
+        // His name resolves (a UUIDNameReply): the line goes out under it.
+        let reply = json!({
+            "name": "UUIDNameReply",
+            "blocks": { "UUIDNameBlock": [{
+                "ID": BOB, "FirstName": B64.encode(b"Bob\0"), "LastName": B64.encode(b"Builder\0"),
+            }] }
+        });
+        let a = route(&mut st, &reply);
+        let lines = radar_lines(&a);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0]["fromId"], BOB);
+        assert_eq!(lines[0]["fromName"], "Bob Builder");
+        assert_eq!(lines[0]["text"], "entered radar range (20 m).");
+        assert_eq!(lines[0]["source"], "system");
+        assert_eq!(lines[0]["radar"]["range"], 20.0);
+        assert!(st.radar_pending.is_empty());
+        // Still there on the next sweep: nothing more to say.
+        st.now_ms = 3000;
+        let a = route(&mut st, &coarse_sweep(&[(ANN, 138, 128), (BOB, 150, 128)]));
+        assert!(radar_lines(&a).is_empty());
+        // A name already cached is reported at once.
+        st.set_name(CID, "Cid Resident");
+        let a = route(&mut st, &coarse_sweep(&[(ANN, 138, 128), (BOB, 150, 128), (CID, 128, 158)]));
+        let lines = radar_lines(&a);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0]["fromName"], "Cid Resident");
+        assert_eq!(lines[0]["text"], "entered radar range (30 m).");
+    }
+
+    #[test]
+    fn radar_report_falls_back_to_a_profile_link_when_the_name_never_comes() {
+        const BOB: &str = "bbbbbbbb-0000-0000-0000-000000000002";
+        let mut st = SessionState { agent_id: "me".into(), now_ms: 1000, ..Default::default() };
+        route(&mut st, &coarse_sweep(&[])); // an empty region still primes
+        assert!(st.radar_primed);
+        st.now_ms = 2000;
+        assert!(radar_lines(&route(&mut st, &coarse_sweep(&[(BOB, 148, 128)]))).is_empty());
+        // Two seconds on, still no name: still waiting.
+        st.now_ms = 4000;
+        assert!(radar_lines(&route(&mut st, &coarse_sweep(&[(BOB, 148, 128)]))).is_empty());
+        // Past the wait the line goes out nameless; the UI links the profile.
+        st.now_ms = 5000;
+        let a = route(&mut st, &coarse_sweep(&[(BOB, 148, 128)]));
+        let lines = radar_lines(&a);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0]["fromId"], BOB);
+        assert_eq!(lines[0]["fromName"], "");
+        assert!(st.radar_pending.is_empty());
+    }
+
+    #[test]
+    fn radar_reports_honour_the_toggle_and_hold_the_range_edge() {
+        const BOB: &str = "bbbbbbbb-0000-0000-0000-000000000002";
+        const FAR: &str = "ffffffff-0000-0000-0000-000000000004";
+        let sweep = |range: f64| vec![json!({ "id": BOB, "range": range })];
+        let mut st = SessionState { now_ms: 1000, ..Default::default() };
+        st.set_name(BOB, "Bob Builder");
+        assert!(radar_range_reports(&mut st, &sweep(50.0), true, 96.0).is_empty(), "first sweep primes");
+        // Gone, then back with the alerts off: the bookkeeping continues,
+        // nothing is said.
+        assert!(radar_range_reports(&mut st, &[], true, 96.0).is_empty());
+        assert!(!st.radar_inside.contains(BOB));
+        assert!(radar_range_reports(&mut st, &sweep(50.0), false, 96.0).is_empty());
+        assert!(st.radar_inside.contains(BOB));
+        // Switched on later: Bob was already inside, so still nothing.
+        assert!(radar_range_reports(&mut st, &sweep(60.0), true, 96.0).is_empty());
+        // Idling on the boundary (96 -> 100 -> 90) is not a fresh arrival.
+        assert!(radar_range_reports(&mut st, &sweep(100.0), true, 96.0).is_empty());
+        assert!(st.radar_inside.contains(BOB), "within the slack he still counts as inside");
+        assert!(radar_range_reports(&mut st, &sweep(90.0), true, 96.0).is_empty());
+        // Well outside, then back in: a return worth a line.
+        assert!(radar_range_reports(&mut st, &sweep(110.0), true, 96.0).is_empty());
+        assert!(!st.radar_inside.contains(BOB));
+        let a = radar_range_reports(&mut st, &sweep(40.0), true, 96.0);
+        assert_eq!(radar_lines(&a).len(), 1);
+        assert_eq!(radar_lines(&a)[0]["text"], "entered radar range (40 m).");
+        // Beyond the range from the start: never reported.
+        st.set_name(FAR, "Far Away");
+        let a = radar_range_reports(
+            &mut st,
+            &[json!({ "id": BOB, "range": 40.0 }), json!({ "id": FAR, "range": 120.0 })],
+            true,
+            96.0,
+        );
+        assert!(radar_lines(&a).is_empty());
+        // A new region starts over: its first sweep records, no report.
+        st.reset_radar_tracking();
+        assert!(!st.radar_primed && st.radar_inside.is_empty());
+        assert!(radar_range_reports(&mut st, &sweep(10.0), true, 96.0).is_empty());
+        assert!(st.radar_primed);
+    }
+
     const ME: &str = "11111111-1111-1111-1111-111111111111";
     const OTHER: &str = "22222222-2222-2222-2222-222222222222";
 
@@ -5627,6 +6144,80 @@ mod tests {
         let p = emit_of(&a, "im").expect("im");
         assert_eq!(p["participant"]["name"], "Pantera Polnocy");
         assert_eq!(p["participant"]["userName"], "Ruth Resident");
+    }
+
+    #[test]
+    fn estate_message_to_everyone_is_nearby_chat_not_an_im() {
+        const ZERO_ID: &str = "00000000-0000-0000-0000-000000000000";
+        let mut st = me_state();
+        // ToAgentID null: the sim fanning an estate manager's message out to
+        // everyone. It belongs in nearby chat and must not open an IM tab
+        // with the manager.
+        let a = route(&mut st, &im_packet(0, OTHER, ZERO_ID, false, ZERO_ID, "Please be nice.", ""));
+        assert!(emit_of(&a, "im").is_none(), "no IM tab for a message to everyone");
+        let c = emit_of(&a, "chat").expect("a nearby chat line");
+        assert_eq!(c["kind"], "region-message");
+        assert_eq!(c["scope"], "estate");
+        assert_eq!(c["source"], "region");
+        assert_eq!(c["fromId"], OTHER);
+        assert_eq!(c["fromName"], "Ruth Resident");
+        assert_eq!(c["text"], "Please be nice.");
+        assert_eq!(c["outgoing"], false);
+        // An empty one says nothing at all.
+        let a = route(&mut st, &im_packet(0, OTHER, ZERO_ID, false, ZERO_ID, "  ", ""));
+        assert!(a.is_empty());
+        // Addressed to us, the very same packet is still an ordinary IM.
+        let a = route(&mut st, &im_packet(0, OTHER, ME, false, ZERO_ID, "Please be nice.", ""));
+        assert!(emit_of(&a, "im").is_some());
+        assert!(emit_of(&a, "chat").is_none());
+    }
+
+    #[test]
+    fn plain_im_from_nobody_is_a_system_line() {
+        const ZERO_ID: &str = "00000000-0000-0000-0000-000000000000";
+        let mut st = me_state();
+        let a = route(&mut st, &im_packet(0, ZERO_ID, ME, false, ZERO_ID, "Your object was returned.", ""));
+        assert!(emit_of(&a, "im").is_none(), "no IM tab under a null resident");
+        let c = emit_of(&a, "chat").expect("system chat line");
+        assert_eq!(c["source"], "system");
+        assert_eq!(c["text"], "Your object was returned.");
+        // The null id never enters the name cache under the packet's name.
+        assert!(st.cached_name(ZERO_ID).is_none());
+    }
+
+    #[test]
+    fn im_emote_is_flagged_and_kept_verbatim() {
+        let mut st = me_state();
+        let a = route(&mut st, &im_packet(0, OTHER, ME, false, "00000000-0000-0000-0000-000000000000", "/me waves", ""));
+        let p = emit_of(&a, "im").expect("im");
+        assert_eq!(p["message"]["emote"], true);
+        assert_eq!(p["message"]["text"], "/me waves");
+        let a = route(&mut st, &im_packet(0, OTHER, ME, false, "00000000-0000-0000-0000-000000000000", "hello", ""));
+        assert_eq!(emit_of(&a, "im").unwrap()["message"]["emote"], false);
+    }
+
+    #[test]
+    fn region_sourced_chat_is_a_framed_line_under_the_senders_name() {
+        let mut st = SessionState::default();
+        // SourceType 5 (CHAT_SOURCE_REGION): the sim signs a region message
+        // with the manager's name.
+        let a = route(&mut st, &chat_packet(5, 1, 1, "Coral Sharpshire", "55555555-5555-5555-5555-555555555555", "The Gateway is G rated."));
+        let c = emit_of(&a, "chat").expect("chat");
+        assert_eq!(c["kind"], "region-message");
+        assert_eq!(c["scope"], "region");
+        assert_eq!(c["source"], "region");
+        assert_eq!(c["fromName"], "Coral Sharpshire");
+        assert_eq!(c["text"], "The Gateway is G rated.");
+        // A system-sourced line signed with a resident's name is the same
+        // thing; one signed by the grid itself stays the plain system line.
+        let a = route(&mut st, &chat_packet(0, 1, 1, "Coral Sharpshire", "55555555-5555-5555-5555-555555555555", "Hello all."));
+        assert_eq!(emit_of(&a, "chat").unwrap()["kind"], "region-message");
+        let a = route(&mut st, &chat_packet(0, 1, 1, "Second Life", "00000000-0000-0000-0000-000000000000", "Region restarting."));
+        let c = emit_of(&a, "chat").unwrap();
+        assert!(c.get("kind").is_none());
+        assert_eq!(c["source"], "system");
+        let a = route(&mut st, &chat_packet(0, 1, 1, "", "00000000-0000-0000-0000-000000000000", "Unsigned."));
+        assert_eq!(emit_of(&a, "chat").unwrap()["source"], "system");
     }
 
     #[test]
@@ -6441,7 +7032,15 @@ mod tests {
         assert_eq!(p["about"], "hi");
         assert_eq!(p["flags"]["allowPublish"], true);
         assert_eq!(p["flags"]["online"], true);
+        assert_eq!(p["online"], true);
         assert_eq!(p["flags"]["transacted"], false);
+        // A clear online bit is not "offline": nothing is claimed either way.
+        let mut pkt2 = pkt.clone();
+        pkt2["blocks"]["PropertiesData"][0]["Flags"] = json!(0x1);
+        let a = route(&mut st, &pkt2);
+        let p = emit_of(&a, "avatar-profile").unwrap();
+        assert!(p.get("online").is_none());
+        assert!(p["flags"].get("online").is_none());
     }
 
     #[test]

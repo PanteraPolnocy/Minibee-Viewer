@@ -78,6 +78,22 @@ const BeeProfiles = (function () {
     };
   }
 
+  // The online status a profile can show, as far as the grid lets this
+  // account know it. A friend's presence is live (ctx.friendOnline, from the
+  // buddy list); for anyone else the profile reply says `online` when the
+  // grid allows it (the cap answers true or false, the UDP flag only ever
+  // says true), and otherwise nothing is known. Returns 'online', 'offline'
+  // or 'unknown'.
+  function onlineStatus(profile, ctx) {
+    const c = ctx || {};
+    if (c.isFriend) return c.friendOnline ? 'online' : 'offline';
+    const p = profile || {};
+    if (p.online === true) return 'online';
+    if (p.online === false) return 'offline';
+    if (p.flags && p.flags.online === true) return 'online';
+    return 'unknown';
+  }
+
   function formatBornLabel(bornOn, hideAge) {
     if (!bornOn || hideAge) return hideAge ? 'Age hidden' : '';
     const date = new Date(bornOn);
@@ -478,6 +494,7 @@ const BeeProfiles = (function () {
     init: init, onChange: onChange, normId: normId, isZero: isZero,
     textureImageUrl: textureImageUrl, resolveWebProfileUrl: resolveWebProfileUrl,
     formatAvatarInterests: formatAvatarInterests, formatBornLabel: formatBornLabel,
+    onlineStatus: onlineStatus,
     getAvatarProfile: getAvatarProfile, getGroupProfile: getGroupProfile,
     getGroupName: getGroupName, getGroupInsigniaId: getGroupInsigniaId,
     getGroupTitles: getGroupTitles, hasGroupTitlesCache: hasGroupTitlesCache,

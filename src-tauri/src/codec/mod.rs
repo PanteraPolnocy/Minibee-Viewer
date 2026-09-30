@@ -671,7 +671,7 @@ mod tests {
             "UUIDNameRequest", "LogoutRequest", "UseCircuitCode", "CompleteAgentMovement",
             "RegionHandshakeReply", "PacketAck", "CompletePingCheck",
             "InviteGroupRequest", "RezMultipleAttachmentsFromInv", "AgentAnimation",
-            "AgentRequestSit", "AgentSit", "AgentUpdate", "RequestXfer", "ConfirmXferPacket",
+            "AgentRequestSit", "AgentSit", "AgentUpdate", "AgentThrottle", "RequestXfer", "ConfirmXferPacket",
             "MuteListRequest", "UpdateMuteListEntry", "RemoveMuteListEntry", "DirPlacesQuery",
             "EstateCovenantRequest", "ParcelAccessListRequest", "ParcelAccessListUpdate",
             "ParcelObjectOwnersRequest", "ParcelReturnObjects", "ParcelSetOtherCleanTime",

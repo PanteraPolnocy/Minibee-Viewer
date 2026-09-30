@@ -12,6 +12,10 @@
          voice is connected and RECORD_AUDIO is granted. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Default-network tracking (MainActivity.watchNetwork): a wifi <-> LTE
+         switch is reported to the core so a stranded circuit is caught at
+         once. Normal permission, granted at install. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Voice chat: the WebView's getUserMedia still needs the app permission. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />

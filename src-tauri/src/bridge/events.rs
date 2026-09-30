@@ -44,6 +44,17 @@ pub struct NetRate {
     pub label: String,
     /// Log-scaled 0..1 fill for the meter bar.
     pub level: f64,
+    /// Bytes received since the viewer was launched, over the sim circuit
+    /// and HTTP together (voice and parcel music are not counted: the
+    /// WebView carries those itself).
+    #[ts(type = "number")]
+    pub in_total: u64,
+    /// Bytes sent since launch, likewise.
+    #[ts(type = "number")]
+    pub out_total: u64,
+    /// Ready-to-display totals with the circuit/HTTP split, e.g.
+    /// "Since launch: ↓ 120.4 MB  ↑ 8.1 MB (circuit ↓ 110.2 MB ↑ 7.0 MB, HTTP ↓ 10.2 MB ↑ 1.1 MB)".
+    pub totals_label: String,
 }
 
 /// Whether the avatar is seated, and on what (`sit-state`).
@@ -78,10 +89,17 @@ mod tests {
             out_bps: 300,
             label: "down 1.5 KB/s".into(),
             level: 0.25,
+            in_total: 120_000_000,
+            out_total: 8_000_000,
+            totals_label: "Since launch: down 114.4 MB".into(),
         });
         assert_eq!(
             v,
-            json!({ "inBps": 1500, "outBps": 300, "label": "down 1.5 KB/s", "level": 0.25 })
+            json!({
+                "inBps": 1500, "outBps": 300, "label": "down 1.5 KB/s", "level": 0.25,
+                "inTotal": 120_000_000, "outTotal": 8_000_000,
+                "totalsLabel": "Since launch: down 114.4 MB",
+            })
         );
     }
 
