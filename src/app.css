@@ -257,6 +257,16 @@ body {
   font-weight: 700;
 }
 
+/* "Google Play edition" under the name on About, when that is the binary. */
+.about-name__edition {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
 .login-sub {
   margin: 0;
   color: var(--text-muted);
@@ -310,6 +320,13 @@ body {
 
 #screen-login .login-footnote:last-child {
   padding-bottom: 8px;
+}
+
+/* The third-party notice, right under the username hint. */
+.login-footnote--legal {
+  margin-top: -14px;
+  font-size: 0.7rem;
+  opacity: 0.8;
 }
 
 @media (max-height: 720px) {
@@ -2524,10 +2541,16 @@ button.bee-menu__value--action:disabled {
 
 .dest-loading,
 .dest-empty,
-.dest-error {
+.dest-error,
+.dest-note {
   margin: 12px 4px;
   color: var(--text-muted);
   font-size: 0.88rem;
+}
+
+/* The core's line about ratings left out of the feed (Settings -> Search). */
+.dest-note {
+  font-size: 0.8rem;
 }
 
 .dest-error {
@@ -6471,6 +6494,12 @@ button.profile-uuid--menu:focus-visible {
 }
 .confirm-dialog .login-challenge__actions { margin-top: 6px; }
 .confirm-dialog__field { margin-top: 2px; }
+.confirm-dialog__select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
 
 /* ============================================================
    Teleport progress lock - a padded, themed progress bar

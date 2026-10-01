@@ -89,7 +89,7 @@ Any future departure from standard protocol behaviour will be documented here be
 
 Open **Bee** in the nav (bee icon) for preferences and bundled docs:
 
-- **Settings** (sub-tab) - theme, radar range/alerts, buddies filter, destination feed, parcel music, auto-reconnect, data saver, IM sounds, the optional nearby-people strip beside nearby chat, optional sit-on-ground after login. Changes apply everywhere immediately.
+- **Settings** (sub-tab) - theme, radar range/alerts, buddies filter, content ratings for search and the Destination Guide (General and Moderate by default; the first login asks once), destination feed, parcel music, auto-reconnect, data saver, IM sounds, the optional nearby-people strip beside nearby chat, optional sit-on-ground after login. Changes apply everywhere immediately.
 - **About Minibee** - version, author, support links, **Check for updates** (desktop), **Copy all** for bug reports.
 - **Help** - the full user guide ([HELP.md](HELP.md)).
 - **README** / **License** / **Privacy** - bundled project docs.
@@ -99,7 +99,7 @@ There is **no Debug tab** and no in-app log viewer. For a bug paper trail, start
 ## Getting around
 
 - **Side navigation** - Chat, IM, Interact, Events, People, Search, Radar, Map, Land, Guide, News, Bee down the left edge (bottom bar on a phone-width screen).
-- **Top bar** - connection dot, your name (tap for your profile), **active group title** underneath, parcel + region, parcel-music control when the parcel streams, L$ balance (tap to buy L$ - amount, estimated cost, and new balance, with a confirmation before anything is charged), SLT clock, sim FPS, theme toggle, logout.
+- **Top bar** - connection dot, your name (tap for your profile), **active group title** underneath, parcel + region, parcel-music control when the parcel streams, L$ balance (tap for the balance menu:<!-- play:skip --> buy L$ with amount, estimated cost and new balance, confirmed before anything is charged;<!-- /play:skip --> refresh from the server; copy), SLT clock, sim FPS, theme toggle, logout.
 - **Unread badges** - numbers on Chat, IM, and Events; dots on Radar (someone new in range) and Land (parcel updated). A new IM bumps the badge but doesn't yank you to the tab - you read when you're ready.
 
 Tabs load their data when you open them, so login stays quick. Chat and IM keep flowing in the background once you're connected.

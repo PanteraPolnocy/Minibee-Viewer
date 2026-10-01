@@ -323,9 +323,9 @@ const BeeNavigation = (function () {
     }
     if (balance) {
       balance.textContent = BeeUtils.formatLindenBalance(s.lindenBalance);
-      const canBuy = !!(s.connected && !s.sessionLost);
-      balance.title = canBuy ? 'Linden dollar balance - click to buy L$' : 'Linden dollar balance';
-      if (balance.tagName === 'BUTTON') (balance as HTMLButtonElement).disabled = !canBuy;
+      const online = !!(s.connected && !s.sessionLost);
+      balance.title = online ? balanceTitle() : 'Linden dollar balance';
+      if (balance.tagName === 'BUTTON') (balance as HTMLButtonElement).disabled = !online;
     }
     if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '-- FPS';
     updateActiveGroupLines();
@@ -334,15 +334,48 @@ const BeeNavigation = (function () {
     updateLocationMenu();
   }
 
+  // What a tap on the balance offers: the small menu with Buy L$ (where this
+  // edition sells it - the core says), a refresh from the server and a copy.
+  function balanceTitle() {
+    return BeeState.get().canBuyCurrency
+      ? 'Linden dollar balance - click to buy L$ or refresh'
+      : 'Linden dollar balance - click to refresh';
+  }
+
+  // Tapping the balance opens the same menu its right-click shows. The
+  // synthetic contextmenu is dispatched after the click has finished
+  // bubbling, or the menu's own outside-click listener would put it away
+  // at once; it is anchored under the balance rather than at the pointer.
+  function openBalanceMenu(el) {
+    if (!el || typeof BeeContextMenu === 'undefined') return;
+    const rect = el.getBoundingClientRect();
+    window.setTimeout(function () {
+      el.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: Math.round(rect.left),
+        clientY: Math.round(rect.bottom + 4)
+      }));
+    }, 0);
+  }
+
+  function bindBalanceMenu() {
+    ['balance-badge', 'bee-menu-balance'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('click', function () { openBalanceMenu(el); });
+    });
+  }
+
   function updateBeeMenu() {
     const s = BeeState.get();
     const balance = document.getElementById('bee-menu-balance');
     const fps = document.getElementById('bee-menu-fps');
     if (balance) {
       balance.textContent = BeeUtils.formatLindenBalance(s.lindenBalance);
-      const canBuy = !!(s.connected && !s.sessionLost);
-      balance.title = canBuy ? 'Buy L$' : 'Linden dollar balance';
-      if (balance.tagName === 'BUTTON') (balance as HTMLButtonElement).disabled = !canBuy;
+      const online = !!(s.connected && !s.sessionLost);
+      balance.title = online ? balanceTitle() : 'Linden dollar balance';
+      if (balance.tagName === 'BUTTON') (balance as HTMLButtonElement).disabled = !online;
     }
     if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '--';
     const slt = document.getElementById('bee-menu-slt');
@@ -432,15 +465,9 @@ const BeeNavigation = (function () {
         if (window.BeeApp) window.BeeApp.logout();
       });
     }
-    // The top-bar stats are hidden on narrow screens, so this row is the
-    // phone-width way into Buy L$.
-    const menuBalance = document.getElementById('bee-menu-balance');
-    if (menuBalance) {
-      menuBalance.addEventListener('click', function () {
-        setBeeMenuOpen(false);
-        if (typeof BeeCurrency !== 'undefined') BeeCurrency.open();
-      });
-    }
+    // The top-bar stats are hidden on narrow screens, so the balance row here
+    // is the phone-width way into the balance menu (bindBalanceMenu); the
+    // popup stays open under it and goes with the first tap outside.
     // Tapping anywhere else, or pressing Escape, puts it away.
     document.addEventListener('click', function (e) {
       if (menu.hidden) return;
@@ -604,17 +631,23 @@ const BeeNavigation = (function () {
       ];
     });
 
+    // The balance menu, from a tap or a right-click on either balance.
     BeeContextMenu.register('#balance-badge, #bee-menu-balance', function () {
       const online = BeeState.gridOnline();
       const balance = BeeState.get().lindenBalance;
-      return [
-        {
+      const items: Array<{ label: string; disabled?: boolean; action: () => void }> = [];
+      // The Google Play edition sells no L$ and must not point anywhere
+      // that does: the entry is simply absent there (the core decides).
+      if (BeeState.get().canBuyCurrency) {
+        items.push({
           label: 'Buy L$...',
           disabled: !online,
           action: function () {
             if (typeof BeeCurrency !== 'undefined') BeeCurrency.open();
           }
-        },
+        });
+      }
+      return items.concat([
         {
           label: 'Refresh balance',
           disabled: !online,
@@ -633,7 +666,7 @@ const BeeNavigation = (function () {
             }
           }
         }
-      ];
+      ]);
     });
 
     BeeContextMenu.register('#slt-clock, #bee-menu-slt', function (host) {
@@ -676,6 +709,7 @@ const BeeNavigation = (function () {
 
     bindBeeMenu();
     bindLocationMenu();
+    bindBalanceMenu();
 
     const identity = document.querySelector('.top-bar__identity');
     if (identity) {

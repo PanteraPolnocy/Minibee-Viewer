@@ -58,6 +58,13 @@ const BeeSettings = (function () {
     // of 128 m and caps the object stream, which is what eats mobile data in
     // a busy region. Off by default; the core is told on startup and on change.
     dataSaver: { type: 'boolean', default: false },
+    // The maturity bands search results (places, groups) and the Destination
+    // Guide show: General only, General and Moderate (the default), or all
+    // three. The Rust core applies it (query flags, feed filtering); it is
+    // told at startup and on change. The first login asks once
+    // (maturityAsked remembers it was answered).
+    maturity: { type: 'string', default: 'moderate', choices: ['general', 'moderate', 'adult'] },
+    maturityAsked: { type: 'boolean', default: false },
     // 'system' follows the device's light/dark preference (and tracks changes
     // to it); the other two are fixed.
     theme: { type: 'string', default: 'dark', choices: ['dark', 'light', 'system'] }

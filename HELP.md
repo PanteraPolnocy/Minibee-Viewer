@@ -43,11 +43,13 @@ Linden Lab's Terms of Service (and MFA when enabled) are shown when you connect 
 
 **Numbers** on Chat, IM, Events = new stuff. **Dots** on Radar or Land = something changed.
 
-**Top bar** - your name (profile), active group title, parcel and region, L$ (tap to buy more), Second Life time, connection, theme, logout. Speaker icon when the parcel streams music.
+**Top bar** - your name (profile), active group title, parcel and region, L$ balance (tap it for the balance menu:<!-- play:skip --> buy L$,<!-- /play:skip --> refresh from the server, copy), Second Life time, connection, theme, logout. Speaker icon when the parcel streams music.
 
-**Buying L$** - tap the balance (on a narrow screen it lives in the bee session menu). Type an amount to see the estimated real-money cost and your new balance, then **Buy now** - every purchase asks for a confirmation first. While the purchase is processing, a "Buying L$" screen blocks the viewer (tapping the balance again shows the same screen, never a second purchase form) until the billing service answers or times out. Accounts without a payment method on file are pointed at the billing page instead, and any refusal from the billing system is shown word for word.
+<!-- play:skip -->
+**Buying L$** - tap the balance (on a narrow screen it lives in the bee session menu) and pick **Buy L$...**. Type an amount to see the estimated real-money cost and your new balance, then **Buy now** - every purchase asks for a confirmation first. While the purchase is processing, a "Buying L$" screen blocks the viewer (tapping the balance again shows the same screen, never a second purchase form) until the billing service answers or times out. Accounts without a payment method on file are pointed at the billing page instead, and any refusal from the billing system is shown word for word.
 
-In the **Google Play edition** you can't buy L$ at all - Google Play requires virtual-currency purchases to go through its own billing, which the L$ exchange doesn't support - so tapping the balance there explains this instead. Spending your balance works normally; buy L$ on the Second Life website or in the desktop Minibee version. The sideload APK from GitHub Releases is not affected.
+<!-- /play:skip -->
+In the **Google Play edition** there is no L$ purchase: Google Play requires virtual-currency purchases to go through its own billing, which the L$ exchange does not support, so the balance menu there has no Buy entry. Spending your balance works normally.<!-- play:skip --> Buy L$ on the Second Life website or in the desktop Minibee version; the sideload APK from GitHub Releases is not affected.<!-- /play:skip -->
 
 ---
 
@@ -65,7 +67,7 @@ In the **Google Play edition** you can't buy L$ at all - Google Play requires vi
 
 **Settings on disk** - preferences, the remembered username/grid, and MFA "remember device" tokens live in `settings.json` in the same data folder, so they survive a webview data wipe and are shared by every viewer window. The MFA token is stored **encrypted with your account password** - it is unlocked with the password you type at login and opens to nothing under any other, so the file on its own is no use to anyone, and changing your password simply means entering an authenticator code once more. Running **more than one viewer at once** (say, two accounts) works; they share that settings file, and each account's chat logs land in its own folder.
 
-**On Android** - a permanent notification keeps the connection alive for the whole run (Android would otherwise freeze the app in the background and the sim would drop the session). It is more than a tile: it shows the unread-IM count with the newest message when expanded, and carries buttons to play/stop parcel music and mute/unmute the microphone in voice - all without opening the app. It disappears when the viewer is really closed. Sessions parked in the background for over six straight hours may still be paused by Android; opening the viewer starts a fresh allowance.
+**On Android** - a permanent notification keeps the connection alive for the whole run (Android would otherwise freeze the app in the background and the sim would drop the session). It is more than a tile: it shows the unread-IM count with the newest message when expanded, and carries buttons to play/stop parcel music and mute/unmute the microphone in voice - all without opening the app. It disappears when the viewer is really closed. Android puts no time limit on it (the service is declared for exactly this purpose), though a phone's battery-optimisation settings can still stop the app; opening the viewer starts the connection service again.
 
 **Events** - script menus, permission requests, payments, teleport offers, LoadURL prompts. **Nothing answers by itself.**
 
@@ -85,13 +87,15 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Report abuse** - from a profile: pick a category, write a short summary and details, send. The report goes to the grid's moderation team; the person reported is not notified.
 
+**Content and conduct** - everything you see in Minibee (chat, profiles, groups, places, pictures) is made by other residents and governed by Linden Lab's [Terms of Service](https://www.lindenlab.com/legal/second-life-terms-and-conditions) and [Community Standards](https://www.lindenlab.com/legal/community-standards); Minibee hosts none of it and cannot remove it. To report something, open the person's profile and use **Report abuse**; to stop seeing someone, **Block** them.
+
 **Groups** - charter, insignia, join/leave, activate, set active title, open group chat. The **Notices** tab lists the group's past notices (members only); pick one to read it, and keep or discard its attachment right there.
 
 ---
 
 ## Search, radar, map
 
-**Search** - three characters minimum; People, Places, or Groups.
+**Search** - three characters minimum; People, Places, or Groups. Places and groups are shown up to the rating chosen in **Bee -> Settings -> Search** - General and Moderate by default, Adult only if you pick it there (the first login asks once). The Destination Guide follows the same choice, and a line under the results says when something was left out; what your account may see at all is still decided by the grid.
 
 **Radar** - who's nearby; range and alerts in **Bee -> Settings** or on the Radar tab. With alerts on, someone new within range is reported in nearby chat ("Ruth entered radar range (12 m).", name clickable). On a wide screen the people button by the chat box puts the same list beside the nearby chat.
 
@@ -141,8 +145,8 @@ Open **Bee** in the nav. Sub-tabs:
 
 | Sub-tab | What |
 |---------|------|
-| Settings | Theme, auto-reconnect, data saver, IM sounds, nearby-people strip beside chat, sit after login, radar, buddies, voice, chat logs, guide feed, parcel music |
-| About | Version, updates, chat-log disk usage, **Copy all** for bug reports (includes the package list) |
+| Settings | Theme, auto-reconnect, data saver, IM sounds, nearby-people strip beside chat, sit after login, radar, buddies, search content ratings, voice, chat logs, guide feed, parcel music |
+| About | Version and edition (the Google Play build says so under the name), updates, chat-log disk usage, **Copy all** for bug reports (includes the package list) |
 | Packages | Everything this build was compiled from: Linden Lab's message template, every Rust crate, the build tools |
 | Help | This guide |
 | README | Project overview |

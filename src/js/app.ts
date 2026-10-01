@@ -529,6 +529,61 @@ const BeeApp = (function () {
     }).catch(function () {});
   }
 
+  // The maturity bands search and the Destination Guide show are applied by
+  // the Rust core (query flags, feed filtering); it is told the choice at
+  // startup and on every change.
+  function syncMaturity() {
+    if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke || typeof BeeSettings === 'undefined') return;
+    BeeBridge.invoke('sl_set_max_maturity', {
+      level: String(BeeSettings.get('maturity') || 'moderate')
+    }).catch(function () {});
+  }
+
+  // One-time question on the first login this install sees, like the chat
+  // logs one: which ratings search and the guide show. The list starts on the
+  // default (General and Moderate), so Adult stays out unless it is picked
+  // and then confirmed; Bee -> Settings -> Search changes it any time, and
+  // dismissing the question keeps the default.
+  async function maybeAskMaturity() {
+    if (typeof BeeSettings === 'undefined' || BeeSettings.get('maturityAsked')) return;
+    BeeSettings.set('maturityAsked', true);
+    if (typeof BeeUtils.choose !== 'function') return;
+    const picked = await BeeUtils.choose({
+      title: 'What would you like to see?',
+      message: 'Second Life rates places and groups as General, Moderate or Adult. ' +
+        'Choose which ratings Minibee shows in search results and the Destination Guide; ' +
+        'what your account may see is still decided by the grid. ' +
+        'You can change this any time in Bee -> Settings -> Search.',
+      choices: [
+        ['general', 'General only'],
+        ['moderate', 'General and Moderate'],
+        ['adult', 'General, Moderate and Adult']
+      ],
+      value: String(BeeSettings.get('maturity') || 'moderate'),
+      confirmLabel: 'Continue',
+      hideCancel: true
+    });
+    if (picked) BeeSettings.set('maturity', picked);
+  }
+
+  // Which edition this is (the core knows: the Google Play build sells no
+  // L$). Every Buy L$ entry point reads the answer from the state, so it has
+  // to be in before the UI binds.
+  async function loadDistribution() {
+    if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke) return;
+    try {
+      const d = await BeeBridge.invoke('app_distribution');
+      if (!d || !d.ok) return;
+      BeeState.patch({
+        playStore: !!d.playStore,
+        canBuyCurrency: d.canBuyCurrency !== false,
+        buyNotice: typeof d.buyNotice === 'string' ? d.buyNotice : ''
+      });
+    } catch (_e) {
+      // Not the Play edition unless the core says so.
+    }
+  }
+
   async function init() {
     try {
       setCloseGuard(false);
@@ -536,13 +591,19 @@ const BeeApp = (function () {
       installContextMenu();
       // The settings file has to be in memory before anything reads a setting.
       await BeeUtils.storageInit();
+      await loadDistribution();
       if (typeof BeeSettings !== 'undefined') {
         BeeSettings.init();
         syncDataSaver(BeeSettings.get('dataSaver'));
         syncRadarAlerts();
+        syncMaturity();
         BeeSettings.onChange(function (key, value) {
           if (key === 'dataSaver') syncDataSaver(value);
           if (key === 'radarAlerts' || key === 'radarRange') syncRadarAlerts();
+          if (key === 'maturity') syncMaturity();
+        });
+        BeeState.on('change', function (partial) {
+          if (partial && partial.connected === true) void maybeAskMaturity();
         });
       }
       bindUnloadGuard();
@@ -569,7 +630,6 @@ const BeeApp = (function () {
       BeeAvatarThumb.init();
       BeeProfile.init();
       BeeSettingsUI.init();
-      BeeCurrency.init();
       BeeNews.init();
       BeeInteract.init();
       BeeSessionLost.init();

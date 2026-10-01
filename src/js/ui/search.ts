@@ -410,9 +410,15 @@ const BeeSearch = (function () {
     }
     const cached = resultCache[activeKind];
     setStatus(rows.length + (cached && cached.hasMore ? '+' : '') +
-      ' result' + (rows.length === 1 ? '' : 's'));
+      ' result' + (rows.length === 1 ? '' : 's') + noteSuffix(cached && cached.note));
     appendRows(list, rows);
     renderLoadMore(list);
+  }
+
+  // The core's line about maturity bands left out (see the Search setting),
+  // appended to whatever the status says so an empty page explains itself.
+  function noteSuffix(note) {
+    return note ? ' ' + String(note) : '';
   }
 
   const MIN_SEARCH_LEN = 3;
@@ -453,15 +459,17 @@ const BeeSearch = (function () {
       if (token !== searchToken) return;
       const page = (res && res.rows) || [];
       const rows = loadMore ? ((cached && cached.rows) || []).concat(page) : page;
-      const statusText = rows.length
+      const note = (res && res.note) || '';
+      const statusText = (rows.length
         ? (rows.length + (res && res.hasMore ? '+' : '') + ' result' + (rows.length === 1 ? '' : 's'))
-        : ((res && res.statusText) || 'No results.');
+        : ((res && res.statusText) || 'No results.')) + noteSuffix(note);
       resultCache[activeKind] = {
         query: query,
         rows: rows,
         status: statusText,
         hasMore: !!(res && res.hasMore),
-        nextStart: (res && res.nextStart) || 0
+        nextStart: (res && res.nextStart) || 0,
+        note: note
       };
       renderResults(rows, statusText);
     } catch (err) {

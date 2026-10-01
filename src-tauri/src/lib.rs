@@ -215,6 +215,7 @@ pub fn run() {
             commands::sl_logout,
             commands::sl_set_data_saver,
             commands::sl_set_radar_alerts,
+            commands::sl_set_max_maturity,
             commands::sl_network_changed,
             commands::sl_accept_teleport_offer,
             commands::sl_decline_teleport_offer,

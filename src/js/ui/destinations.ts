@@ -23,6 +23,9 @@ const BeeDestinations = (function () {
   // Filled in init(): settings aren't loaded yet at script parse time.
   let activeFeed = 'mobile';
   const cache = new Map();
+  // Per feed, the core's line about ratings it left out (Settings ->
+  // Search); shown above the cards, kept with the cached items.
+  const notes = new Map();
   let loadToken = 0;
   let bound = false;
   let destTeleportBusy = false;
@@ -119,6 +122,10 @@ const BeeDestinations = (function () {
   function setContent(html) {
     const node = el('dest-content');
     if (node) node.innerHTML = html || '';
+  }
+
+  function noteHtml(note) {
+    return note ? '<p class="dest-note">' + BeeUtils.escapeHtml(String(note)) + '</p>' : '';
   }
 
   function renderFeedBar() {
@@ -234,7 +241,7 @@ const BeeDestinations = (function () {
 
     if (!force && cache.has(feed)) {
       renderGroups(groupByCategory(cache.get(feed)));
-      setStatus('');
+      setStatus(noteHtml(notes.get(feed)));
       return;
     }
 
@@ -250,7 +257,8 @@ const BeeDestinations = (function () {
         throw new Error(detail || 'Failed to load destinations');
       }
       cache.set(feed, data.items);
-      setStatus('');
+      notes.set(feed, typeof data.note === 'string' ? data.note : '');
+      setStatus(noteHtml(notes.get(feed)));
       renderGroups(groupByCategory(data.items));
     } catch (err) {
       if (token !== loadToken) return;
@@ -396,6 +404,16 @@ const BeeDestinations = (function () {
     bindEvents();
     bindTeleportEvents();
     renderFeedBar();
+    // The ratings setting changed: the cached feeds were filtered under the
+    // old one, so they are dropped, and the open guide is fetched again.
+    if (typeof BeeSettings !== 'undefined' && BeeSettings.onChange) {
+      BeeSettings.onChange(function (key) {
+        if (key !== 'maturity') return;
+        cache.clear();
+        notes.clear();
+        if (BeeState.get().activeTab === 'destinations') void loadFeed(activeFeed, true);
+      });
+    }
     // Right-click anywhere on a destination card: the same map/teleport
     // choices as its buttons, plus the SLURL as text.
     if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {

@@ -8,6 +8,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 
+use crate::bridge::session::Maturity;
 use crate::bridge::state::{viewer_identity_for_product, AppState};
 use crate::bridge::util::{normalize_seed_url, normalize_sim_ip, trim_quotes};
 use crate::bridge::{circuit, login, map, proxy};
@@ -85,6 +86,13 @@ pub async fn app_about() -> Cmd {
         .as_object_mut()
         .ok_or_else(|| "about payload".to_string())?;
     about_obj.insert("name".into(), json!(name));
+    // The Google Play build is a different binary (no L$ purchase); the About
+    // subtab says so next to the name, and so does the Copy-all report.
+    about_obj.insert(
+        "edition".into(),
+        if crate::bridge::platform::play_store_build() { json!("Google Play edition") } else { Value::Null },
+    );
+    // The same sentence sits on the login screen (index.html).
     about_obj.insert(
         "disclaimer".into(),
         json!("This software is not provided or supported by Linden Lab, the makers of Second Life."),
@@ -161,12 +169,88 @@ fn mem_snapshot() -> (u64, u64, u64) {
     (total, used, proc)
 }
 
+/// What the balance says when tapped in an edition without the L$ purchase.
+/// Deliberately says nothing about where else to buy: in the Google Play
+/// edition, pointing at another way to pay for virtual currency is itself
+/// against the store's payments policy.
+const BUY_UNAVAILABLE_NOTICE: &str =
+    "Buying Linden Dollars is not available in this edition of Minibee. Your balance still works normally everywhere in the app.";
+
 /// Which edition this binary is: the Google Play AAB reports playStore=true
-/// and the frontend hides the Buy L$ flow there (Play policy: virtual
-/// currency must go through the store's own billing).
+/// and ships without the Buy L$ flow (Play policy: virtual currency must go
+/// through the store's own billing). The frontend reads `canBuyCurrency` for
+/// every Buy L$ entry point and shows `buyNotice` in their place.
 #[tauri::command]
 pub fn app_distribution() -> Cmd {
-    Ok(json!({ "ok": true, "playStore": crate::bridge::platform::play_store_build() }))
+    let play = crate::bridge::platform::play_store_build();
+    Ok(json!({
+        "ok": true,
+        "playStore": play,
+        "canBuyCurrency": !play,
+        "buyNotice": if play { Value::String(BUY_UNAVAILABLE_NOTICE.into()) } else { Value::Null },
+    }))
+}
+
+/// Markers in the bundled Markdown around text that must not reach the
+/// Google Play edition (anything pointing at a way to buy L$ outside the
+/// app). The Play build drops the marked spans, every other build drops just
+/// the markers; on GitHub they are HTML comments, invisible either way.
+const PLAY_SKIP_START: &str = "<!-- play:skip -->";
+const PLAY_SKIP_END: &str = "<!-- /play:skip -->";
+
+fn edition_text(text: &str) -> String {
+    strip_play_blocks(text, crate::bridge::platform::play_store_build())
+}
+
+/// A span to cut, widened to whole lines when the markers sit alone on
+/// theirs, so block markers leave no blank lines behind; inline markers cut
+/// exactly the span.
+fn whole_lines_if_alone(text: &str, start: usize, end: usize) -> (usize, usize) {
+    let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_end = text[end..].find('\n').map(|i| end + i + 1).unwrap_or(text.len());
+    let alone = text[line_start..start].trim().is_empty() && text[end..line_end].trim().is_empty();
+    if alone { (line_start, line_end) } else { (start, end) }
+}
+
+/// Remove the play markers, and with `play` the text between them too. An
+/// unclosed marker is dropped on its own and the text after it kept.
+fn strip_play_blocks(text: &str, play: bool) -> String {
+    let mut cuts: Vec<(usize, usize)> = Vec::new();
+    let mut from = 0;
+    while let Some(rel) = text[from..].find(PLAY_SKIP_START) {
+        let start = from + rel;
+        let after_start = start + PLAY_SKIP_START.len();
+        match text[after_start..].find(PLAY_SKIP_END) {
+            Some(rel_end) => {
+                let end_marker = after_start + rel_end;
+                let end = end_marker + PLAY_SKIP_END.len();
+                if play {
+                    cuts.push(whole_lines_if_alone(text, start, end));
+                } else {
+                    cuts.push(whole_lines_if_alone(text, start, after_start));
+                    cuts.push(whole_lines_if_alone(text, end_marker, end));
+                }
+                from = end;
+            }
+            None => {
+                cuts.push(whole_lines_if_alone(text, start, after_start));
+                from = after_start;
+            }
+        }
+    }
+    if cuts.is_empty() {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut pos = 0;
+    for (start, end) in cuts {
+        if start > pos {
+            out.push_str(&text[pos..start]);
+        }
+        pos = pos.max(end);
+    }
+    out.push_str(&text[pos..]);
+    out
 }
 
 /// One "[[package]]" entry per crate: (name, version) pairs out of Cargo.lock.
@@ -279,16 +363,18 @@ pub fn app_license() -> Cmd {
     Ok(json!({ "text": include_str!("../../LICENSE") }))
 }
 
-/// The complete README text, baked in at build time; Bee -> README reads it lazily.
+/// The complete README text, baked in at build time; Bee -> README reads it
+/// lazily. Trimmed to the edition (see `edition_text`).
 #[tauri::command]
 pub fn app_readme() -> Cmd {
-    Ok(json!({ "text": include_str!("../../README.md") }))
+    Ok(json!({ "text": edition_text(include_str!("../../README.md")) }))
 }
 
-/// The plain-language user guide, baked in at build time; Bee -> Help reads it lazily.
+/// The plain-language user guide, baked in at build time; Bee -> Help reads
+/// it lazily. Trimmed to the edition (see `edition_text`).
 #[tauri::command]
 pub fn app_help() -> Cmd {
-    Ok(json!({ "text": include_str!("../../HELP.md") }))
+    Ok(json!({ "text": edition_text(include_str!("../../HELP.md")) }))
 }
 
 /// Turn window-close interception on or off. The frontend sets this true while a
@@ -1070,9 +1156,45 @@ const DIR_PAGE: usize = 100;
 const DFQ_PEOPLE: i64 = 1 << 0;
 const DFQ_GROUPS: i64 = 1 << 4;
 const DFQ_DWELL_SORT: i64 = 1 << 10;
-/// Ask for every maturity band; the dataserver intersects these with what the
-/// account is actually allowed to see, so over-asking is safe.
-const DFQ_INC_ALL: i64 = (1 << 24) | (1 << 25) | (1 << 26);
+const DFQ_INC_PG: i64 = 1 << 24;
+const DFQ_INC_MATURE: i64 = 1 << 25;
+const DFQ_INC_ADULT: i64 = 1 << 26;
+/// Every maturity band: the mask a caller's bits are replaced under.
+const DFQ_INC_ALL: i64 = DFQ_INC_PG | DFQ_INC_MATURE | DFQ_INC_ADULT;
+
+/// The maturity bands a directory query asks for under the Settings choice:
+/// General always, Moderate from "General and Moderate" up, Adult only at the
+/// top. The dataserver intersects the request with what the account may see,
+/// so asking is never more than a request.
+fn maturity_flags(level: Maturity) -> i64 {
+    let mut flags = DFQ_INC_PG;
+    if level >= Maturity::Moderate {
+        flags |= DFQ_INC_MATURE;
+    }
+    if level >= Maturity::Adult {
+        flags |= DFQ_INC_ADULT;
+    }
+    flags
+}
+
+/// The flags a places query goes out with: the caller's (dwell sort by
+/// default) with the maturity bits replaced by the allowed set, so no caller
+/// can ask past the setting.
+fn places_query_flags(requested: Option<i64>, level: Maturity) -> i64 {
+    (requested.unwrap_or(DFQ_DWELL_SORT) & !DFQ_INC_ALL) | maturity_flags(level)
+}
+
+/// The Settings choice of maturity bands for directory searches and the
+/// Destination Guide ("general", "moderate" or "adult"), told at startup and
+/// on every change. An unknown value is refused rather than guessed.
+#[tauri::command]
+pub async fn sl_set_max_maturity(level: String) -> Cmd {
+    let Some(parsed) = Maturity::parse(&level) else {
+        return Err(format!("unknown maturity level: {level}"));
+    };
+    crate::bridge::session::set_max_maturity(parsed);
+    Ok(json!({ "ok": true, "level": level }))
+}
 
 /// Wait for every reply packet of one directory query, then hand the batch back
 /// as (rows, status). One query's answer arrives spread across several UDP
@@ -1109,10 +1231,12 @@ async fn await_dir_results(s: &Arc<crate::bridge::circuit::Session>, query_id: &
 }
 
 /// Trim the overflow sentinel off and shape the reply the search UI renders.
-fn dir_result_payload(query_id: &str, mut rows: Vec<Value>, status: u64, start: i64) -> Value {
+/// `note` is the line shown under the result count while maturity bands are
+/// left out (see `maturity_hidden_note`); people searches have none.
+fn dir_result_payload(query_id: &str, mut rows: Vec<Value>, status: u64, start: i64, note: Option<String>) -> Value {
     let has_more = rows.len() > DIR_PAGE;
     rows.truncate(DIR_PAGE);
-    json!({
+    let mut payload = json!({
         "ok": true,
         "queryId": query_id,
         "results": rows,
@@ -1120,7 +1244,11 @@ fn dir_result_payload(query_id: &str, mut rows: Vec<Value>, status: u64, start: 
         "nextStart": start + DIR_PAGE as i64,
         "status": status,
         "statusText": dir_status_text(status),
-    })
+    });
+    if let Some(note) = note {
+        payload["note"] = json!(note);
+    }
+    payload
 }
 
 /// Human-readable reason when the sim answers with a status instead of rows.
@@ -1143,18 +1271,20 @@ pub async fn sl_search_groups(state: State<'_, Arc<AppState>>, query: String, st
     let (s, agent, sess) = active_ids(&state)?;
     let query_id = crate::bridge::circuit::gen_id();
     let start = start.unwrap_or(0);
+    let level = crate::bridge::session::max_maturity();
     // The reply arrives as DirGroupsReply packets, collected by await_dir_results.
     s.send_encoded(
         "DirFindQuery",
         &json!({
             "AgentData": [{ "AgentID": agent, "SessionID": sess }],
-            "QueryData": [{ "QueryID": query_id, "QueryText": vstr(&query), "QueryFlags": DFQ_GROUPS | DFQ_INC_ALL, "QueryStart": start }],
+            "QueryData": [{ "QueryID": query_id, "QueryText": vstr(&query), "QueryFlags": DFQ_GROUPS | maturity_flags(level), "QueryStart": start }],
         }),
         true,
     )
     .await;
     let (rows, status) = await_dir_results(&s, &query_id).await;
-    Ok(dir_result_payload(&query_id, rows, status, start))
+    let note = crate::bridge::session::maturity_hidden_note(level, "groups");
+    Ok(dir_result_payload(&query_id, rows, status, start, note))
 }
 
 #[tauri::command]
@@ -1168,13 +1298,14 @@ pub async fn sl_search_places(
     let (s, agent, sess) = active_ids(&state)?;
     let query_id = crate::bridge::circuit::gen_id();
     let start = start.unwrap_or(0);
+    let level = crate::bridge::session::max_maturity();
     s.send_encoded(
         "DirPlacesQuery",
         &json!({
             "AgentData": [{ "AgentID": agent, "SessionID": sess }],
             "QueryData": [{
                 "QueryID": query_id, "QueryText": vstr(&query),
-                "QueryFlags": flags.unwrap_or(DFQ_INC_ALL | DFQ_DWELL_SORT),
+                "QueryFlags": places_query_flags(flags, level),
                 "Category": category.unwrap_or(-1), "SimName": vstr(""), "QueryStart": start
             }],
         }),
@@ -1182,7 +1313,8 @@ pub async fn sl_search_places(
     )
     .await;
     let (rows, status) = await_dir_results(&s, &query_id).await;
-    Ok(dir_result_payload(&query_id, rows, status, start))
+    let note = crate::bridge::session::maturity_hidden_note(level, "places");
+    Ok(dir_result_payload(&query_id, rows, status, start, note))
 }
 
 /// Invite residents to a group. RoleID zero means the implicit Everyone role.
@@ -2842,7 +2974,7 @@ pub async fn sl_search_people(state: State<'_, Arc<AppState>>, query: String, fl
     )
     .await;
     let (rows, status) = await_dir_results(&s, &query_id).await;
-    Ok(dir_result_payload(&query_id, rows, status, start))
+    Ok(dir_result_payload(&query_id, rows, status, start, None))
 }
 
 /// Normalize a people-search query: dots (the username form) become spaces and
@@ -2898,7 +3030,7 @@ mod tests {
 
     #[test]
     fn dir_result_payload_within_one_page() {
-        let p = dir_result_payload("q1", rows(37), 0, 0);
+        let p = dir_result_payload("q1", rows(37), 0, 0, None);
         assert_eq!(p["results"].as_array().unwrap().len(), 37);
         assert_eq!(p["hasMore"], false);
         assert_eq!(p["queryId"], "q1");
@@ -2909,7 +3041,7 @@ mod tests {
     fn dir_result_payload_trims_the_overflow_sentinel() {
         // The server sends 101 rows to say "another page exists"; the 101st is
         // a flag, not a result.
-        let p = dir_result_payload("q1", rows(DIR_PAGE + 1), 0, 0);
+        let p = dir_result_payload("q1", rows(DIR_PAGE + 1), 0, 0, None);
         assert_eq!(p["results"].as_array().unwrap().len(), DIR_PAGE);
         assert_eq!(p["hasMore"], true);
         assert_eq!(p["nextStart"], DIR_PAGE as i64);
@@ -2917,13 +3049,13 @@ mod tests {
 
     #[test]
     fn dir_result_payload_advances_next_start_from_the_requested_page() {
-        let p = dir_result_payload("q1", rows(DIR_PAGE + 1), 0, 200);
+        let p = dir_result_payload("q1", rows(DIR_PAGE + 1), 0, 200, None);
         assert_eq!(p["nextStart"], 300);
     }
 
     #[test]
     fn dir_result_payload_empty_page() {
-        let p = dir_result_payload("q1", rows(0), 0, 0);
+        let p = dir_result_payload("q1", rows(0), 0, 0, None);
         assert_eq!(p["results"].as_array().unwrap().len(), 0);
         assert_eq!(p["hasMore"], false);
     }
@@ -3049,13 +3181,70 @@ mod tests {
     }
 
     #[test]
-    fn search_query_flags_ask_for_every_maturity_band() {
-        // The dataserver intersects these with the account's allowance, so the
-        // right request is always "everything".
+    fn search_query_flags_follow_the_maturity_setting() {
         assert_eq!(DFQ_INC_ALL, (1 << 24) | (1 << 25) | (1 << 26));
         assert_eq!(DFQ_PEOPLE, 1);
         assert_eq!(DFQ_GROUPS, 16);
         assert_eq!(DFQ_DWELL_SORT, 1 << 10);
+        // General is always asked for; each step up adds one band.
+        assert_eq!(maturity_flags(Maturity::General), DFQ_INC_PG);
+        assert_eq!(maturity_flags(Maturity::Moderate), DFQ_INC_PG | DFQ_INC_MATURE);
+        assert_eq!(maturity_flags(Maturity::Adult), DFQ_INC_ALL);
+    }
+
+    #[test]
+    fn places_query_flags_cannot_ask_past_the_setting() {
+        // No caller flags: dwell sort plus the allowed bands.
+        assert_eq!(places_query_flags(None, Maturity::Moderate), DFQ_DWELL_SORT | DFQ_INC_PG | DFQ_INC_MATURE);
+        // A caller asking for everything gets its maturity bits replaced,
+        // the rest of its flags kept.
+        let asked = DFQ_INC_ALL | DFQ_DWELL_SORT | (1 << 7);
+        assert_eq!(places_query_flags(Some(asked), Maturity::General), DFQ_DWELL_SORT | (1 << 7) | DFQ_INC_PG);
+        assert_eq!(places_query_flags(Some(asked), Maturity::Adult), asked);
+    }
+
+    #[test]
+    fn dir_result_payload_carries_the_maturity_note_only_when_given() {
+        let with = dir_result_payload("q1", Vec::new(), 0, 0, Some("hidden".into()));
+        assert_eq!(with["note"], "hidden");
+        let without = dir_result_payload("q1", Vec::new(), 0, 0, None);
+        assert!(without.get("note").is_none());
+    }
+
+    #[test]
+    fn play_markers_cut_whole_lines_in_the_play_edition_and_vanish_elsewhere() {
+        let text = "Intro.\n\n<!-- play:skip -->\nBuy elsewhere.\n\n<!-- /play:skip -->\nOutro.\n";
+        assert_eq!(strip_play_blocks(text, true), "Intro.\n\nOutro.\n");
+        assert_eq!(strip_play_blocks(text, false), "Intro.\n\nBuy elsewhere.\n\nOutro.\n");
+    }
+
+    #[test]
+    fn inline_play_markers_cut_exactly_the_span() {
+        let text = "L$ balance<!-- play:skip --> (tap to buy)<!-- /play:skip -->, clock";
+        assert_eq!(strip_play_blocks(text, true), "L$ balance, clock");
+        assert_eq!(strip_play_blocks(text, false), "L$ balance (tap to buy), clock");
+    }
+
+    #[test]
+    fn stray_or_absent_play_markers_lose_nothing_but_themselves() {
+        assert_eq!(strip_play_blocks("plain text\n", true), "plain text\n");
+        assert_eq!(strip_play_blocks("a <!-- play:skip --> b", true), "a  b");
+        assert_eq!(strip_play_blocks("a <!-- play:skip --> b", false), "a  b");
+    }
+
+    #[test]
+    fn bundled_docs_have_balanced_play_markers() {
+        for doc in [include_str!("../../HELP.md"), include_str!("../../README.md")] {
+            assert_eq!(doc.matches(PLAY_SKIP_START).count(), doc.matches(PLAY_SKIP_END).count());
+            // Every Play-only pointer must be gone from the Play edition's
+            // copy, and nothing else.
+            let play = strip_play_blocks(doc, true);
+            assert!(!play.contains("play:skip"));
+            assert!(play.len() < doc.len());
+            let other = strip_play_blocks(doc, false);
+            assert!(!other.contains("play:skip"));
+            assert!(other.len() > play.len());
+        }
     }
 }
 

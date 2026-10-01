@@ -12,6 +12,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::{json, Value};
 
+use crate::bridge::session::Maturity;
 use crate::bridge::state::AppState;
 
 static RE_REGION: Lazy<Regex> =
@@ -72,6 +73,31 @@ mod tests {
         assert_eq!(parse_region_coords_cap_js(r#"{'x':1000,'y':1001}"#), Some((1000, 1001)));
         assert_eq!(parse_region_coords_cap_js(r#"{"error":true}"#), None);
         assert_eq!(parse_region_coords_cap_js("garbage"), None);
+    }
+
+    #[test]
+    fn destinations_above_the_setting_are_left_out() {
+        let feed = json!([
+            { "name": "Park", "maturity": "G" },
+            { "name": "Club", "maturity": "m" },
+            { "name": "Den", "maturity": "Adult" },
+            { "name": "Unrated" }
+        ]);
+        let names = |v: &Value| -> Vec<String> {
+            v.as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap().to_string()).collect()
+        };
+        let (kept, dropped) = destinations_within(feed.clone(), Maturity::General);
+        assert_eq!(names(&kept), ["Park", "Unrated"]);
+        assert_eq!(dropped, 2);
+        let (kept, dropped) = destinations_within(feed.clone(), Maturity::Moderate);
+        assert_eq!(names(&kept), ["Park", "Club", "Unrated"]);
+        assert_eq!(dropped, 1);
+        let (kept, dropped) = destinations_within(feed.clone(), Maturity::Adult);
+        assert_eq!(kept, feed);
+        assert_eq!(dropped, 0);
+        // Not a list: handed back untouched.
+        let odd = json!({ "items": 3 });
+        assert_eq!(destinations_within(odd.clone(), Maturity::General), (odd, 0));
     }
 
     #[test]
@@ -327,8 +353,43 @@ pub async fn fetch_destinations_feed(state: &AppState, feed: &str) -> Value {
     };
     match serde_json::from_str::<Value>(&body) {
         Ok(items) if items.is_array() || items.is_object() => {
-            json!({ "ok": true, "feed": feed, "items": items })
+            let level = crate::bridge::session::max_maturity();
+            let (items, hidden) = destinations_within(items, level);
+            let mut out = json!({ "ok": true, "feed": feed, "items": items });
+            if hidden > 0 {
+                out["hidden"] = json!(hidden);
+                if let Some(note) = crate::bridge::session::maturity_hidden_note(level, "destinations") {
+                    out["note"] = json!(note);
+                }
+            }
+            out
         }
         _ => json!({ "error": "invalid destinations response" }),
+    }
+}
+
+/// Leave out feed entries rated above `level`. The feed is a flat array of
+/// destinations, each carrying a `maturity` code (G, M or A); an entry
+/// without a readable rating stays. Returns the kept items and how many
+/// were dropped.
+pub fn destinations_within(items: Value, level: Maturity) -> (Value, usize) {
+    match items {
+        Value::Array(list) => {
+            let total = list.len();
+            let kept: Vec<Value> = list
+                .into_iter()
+                .filter(|item| destination_allowed(item, level))
+                .collect();
+            let dropped = total - kept.len();
+            (Value::Array(kept), dropped)
+        }
+        other => (other, 0),
+    }
+}
+
+fn destination_allowed(item: &Value, level: Maturity) -> bool {
+    match item.get("maturity").and_then(Value::as_str).and_then(Maturity::parse) {
+        Some(rating) => rating <= level,
+        None => true,
     }
 }

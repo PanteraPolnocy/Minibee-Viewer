@@ -125,6 +125,7 @@
         <button type="button" class="btn btn--ghost btn--block" id="login-forget" hidden>Forget saved login &amp; MFA token</button>
       </form>
       <p class="login-footnote">Use your SL username (e.g. bobsmith12) or legacy First Last.<br>Display names do not work here.</p>
+      <p class="login-footnote login-footnote--legal">Minibee is a third-party viewer. This software is not provided or supported by Linden Lab, the makers of Second Life.</p>
         </div>
       </div>
     </section>
@@ -197,7 +198,7 @@
       <div id="bee-menu" class="bee-menu" hidden role="dialog" aria-label="Session">
         <div class="bee-menu__row">
           <span class="bee-menu__label">Balance</span>
-          <button type="button" id="bee-menu-balance" class="bee-menu__value bee-menu__value--action" title="Buy L$">L$ &mdash;</button>
+          <button type="button" id="bee-menu-balance" class="bee-menu__value bee-menu__value--action" title="Linden dollar balance">L$ &mdash;</button>
         </div>
         <div class="bee-menu__row">
           <span class="bee-menu__label">SL time</span>
@@ -1333,6 +1334,9 @@
         <p id="confirm-message" class="login-challenge__text"></p>
         <label id="confirm-input-wrap" class="field confirm-dialog__field" hidden>
           <input type="text" id="confirm-input" maxlength="255" autocomplete="off">
+        </label>
+        <label id="confirm-select-wrap" class="field confirm-dialog__field" hidden>
+          <select id="confirm-select" class="settings-control__select confirm-dialog__select" aria-label="Your choice"></select>
         </label>
         <div class="login-challenge__actions">
           <button type="button" class="btn btn--ghost" id="confirm-cancel">Cancel</button>

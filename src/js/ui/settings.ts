@@ -48,6 +48,11 @@ const BeeSettingsUI = (function () {
     { section: 'Buddies', items: [
       { key: 'buddiesOnlineOnly', label: 'Show online friends only', kind: 'toggle' }
     ] },
+    { section: 'Search', items: [
+      { key: 'maturity', label: 'Content to show (search results and the Destination Guide)', kind: 'select',
+        options: [['general', 'General'], ['moderate', 'General and Moderate'],
+          ['adult', 'General, Moderate and Adult']] }
+    ] },
     { section: 'Destination guide', items: [
       { key: 'destFeed', label: 'Default feed', kind: 'select',
         options: [['mobile', 'Mobile'], ['popular', 'Popular'], ['new', 'New'],
@@ -571,6 +576,15 @@ const BeeSettingsUI = (function () {
       aboutInfo = info || {};
       const data = aboutInfo;
       setText('about-name', data.name || 'Minibee Viewer');
+      // The Google Play build announces itself under the name (the core
+      // knows which binary this is).
+      const nameEl = document.getElementById('about-name');
+      if (nameEl && data.edition) {
+        const edition = document.createElement('span');
+        edition.className = 'about-name__edition';
+        edition.textContent = String(data.edition);
+        nameEl.appendChild(edition);
+      }
       setText('about-catchphrase', data.catchphrase || '');
       setText('about-version', data.displayVersion || '');
       setText('about-disclaimer', data.disclaimer || '');
@@ -762,7 +776,7 @@ const BeeSettingsUI = (function () {
     const s = d.system || {};
     const display = d.displayVersion || '';
     const lines = [
-      (d.name || 'Minibee Viewer') + (display ? ' ' + display : ''),
+      (d.name || 'Minibee Viewer') + (display ? ' ' + display : '') + (d.edition ? ' (' + d.edition + ')' : ''),
       d.channel ? ('Channel: ' + d.channel) : '',
       d.disclaimer || '',
       d.catchphrase || '',

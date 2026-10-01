@@ -669,7 +669,8 @@ const BeeSLBridge = (function () {
 
   // The Rust command now gathers every reply packet of the query (one page =
   // up to 100 rows) before returning, so this is a plain call: no waiters.
-  // Returns { rows, hasMore, nextStart, statusText }.
+  // Returns { rows, hasMore, nextStart, statusText, note }; `note` is the
+  // core's line about maturity bands left out of this result set, if any.
   function searchDirectory(kind, query, start) {
     const cmd = kind === 'places' ? 'sl_search_places' : (kind === 'groups' ? 'sl_search_groups' : 'sl_search_people');
     return invoke(cmd, { query: query, start: start || 0 }).then(function (res) {
@@ -677,7 +678,8 @@ const BeeSLBridge = (function () {
         rows: (res && res.results) || [],
         hasMore: !!(res && res.hasMore),
         nextStart: (res && res.nextStart) || 0,
-        statusText: (res && res.statusText) || ''
+        statusText: (res && res.statusText) || '',
+        note: (res && typeof res.note === 'string') ? res.note : ''
       };
     });
   }

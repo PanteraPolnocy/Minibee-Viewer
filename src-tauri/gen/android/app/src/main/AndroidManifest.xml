@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Keep the SL circuit alive for the whole run (see ConnectionService). -->
+    <!-- Keep the SL circuit alive for the whole run (see ConnectionService).
+         Holding a live game-server session is none of the predefined service
+         types, so the service runs as specialUse: no time limit, and the use
+         case is spelled out in the service's property below (and in the Play
+         Console declaration). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <!-- Voice and parcel music keep playing while backgrounded. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Voice and parcel music keep playing while backgrounded: the service
+         adds this type only while either is actually sounding. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Since Android 11 the microphone stays open in the background only for
          a foreground service of type microphone; API 34+ gates that type
@@ -52,11 +57,17 @@
         </activity>
 
         <!-- The declared set is the ceiling; the service picks the actual types
-             per startForeground() call (microphone only while voice is on). -->
+             per startForeground() call: specialUse always, mediaPlayback while
+             parcel music or voice is sounding, microphone only while voice is
+             on and the permission is granted. -->
         <service
             android:name=".ConnectionService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|mediaPlayback|microphone" />
+            android:foregroundServiceType="specialUse|mediaPlayback|microphone">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the user's live Second Life session open while the viewer is in the background: the connection to the virtual world's server is a UDP session the server drops after about a minute without traffic, there is no push service for this protocol, and the user expects chat and instant messages to keep arriving until they log out. Started only from the visible app, stopped on logout, close or swipe-away; always shown as an ongoing notification." />
+        </service>
 
         <provider
           android:name="androidx.core.content.FileProvider"

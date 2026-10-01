@@ -324,16 +324,17 @@ const BeeUtils = (function () {
     return run;
   }
 
-  // The dialog itself; resolves { ok, value } with the input's text captured
-  // at the moment of the answer (the element is reused right after).
+  // The dialog itself; resolves { ok, value, choice } with the input's text
+  // and the list's pick captured at the moment of the answer (the element is
+  // reused right after).
   function confirmCore(options) {
     const o = options || {};
-    return new Promise<{ ok: boolean; value: string }>(function (resolve) {
+    return new Promise<{ ok: boolean; value: string; choice: string }>(function (resolve) {
       const dialog = document.getElementById('confirm-dialog') as HTMLDialogElement | null;
       if (!dialog || typeof dialog.showModal !== 'function') {
         const ok = typeof window !== 'undefined' && window.confirm
           ? window.confirm(o.message || 'Are you sure?') : true;
-        resolve({ ok: ok, value: '' });
+        resolve({ ok: ok, value: '', choice: '' });
         return;
       }
       const titleEl = document.getElementById('confirm-title');
@@ -342,11 +343,28 @@ const BeeUtils = (function () {
       const cancelBtn = document.getElementById('confirm-cancel');
       const inputWrap = document.getElementById('confirm-input-wrap');
       const inputEl = document.getElementById('confirm-input') as HTMLInputElement | null;
+      const selectWrap = document.getElementById('confirm-select-wrap');
+      const selectEl = document.getElementById('confirm-select') as HTMLSelectElement | null;
       const withInput = !!o.input;
+      const choices = Array.isArray(o.choices) ? o.choices : [];
+      const withChoices = choices.length > 0;
       if (titleEl) titleEl.textContent = o.title || 'Please confirm';
       if (msgEl) msgEl.textContent = o.message || 'Are you sure?';
       if (inputWrap) inputWrap.hidden = !withInput;
       if (inputEl && withInput) inputEl.value = o.inputValue || '';
+      if (selectWrap) selectWrap.hidden = !withChoices;
+      if (selectEl && withChoices) {
+        selectEl.innerHTML = '';
+        choices.forEach(function (c) {
+          const opt = document.createElement('option');
+          opt.value = String(c[0]);
+          opt.textContent = String(c[1]);
+          selectEl.appendChild(opt);
+        });
+        const wanted = o.choiceValue != null ? String(o.choiceValue) : String(choices[0][0]);
+        selectEl.value = wanted;
+        if (selectEl.value !== wanted) selectEl.value = String(choices[0][0]);
+      }
       if (okBtn) {
         okBtn.textContent = o.confirmLabel || 'Confirm';
         okBtn.classList.toggle('btn--danger', !!o.danger);
@@ -361,6 +379,7 @@ const BeeUtils = (function () {
         if (settled) return;
         settled = true;
         const value = inputEl && withInput ? inputEl.value : '';
+        const choice = selectEl && withChoices ? selectEl.value : '';
         if (okBtn) okBtn.removeEventListener('click', onOk);
         if (cancelBtn) {
           cancelBtn.removeEventListener('click', onCancel);
@@ -368,9 +387,10 @@ const BeeUtils = (function () {
         }
         if (inputEl) inputEl.removeEventListener('keydown', onInputKey);
         if (inputWrap) inputWrap.hidden = true;
+        if (selectWrap) selectWrap.hidden = true;
         dialog.removeEventListener('cancel', onDialogCancel);
         dismissDialog(dialog);
-        resolve({ ok: result, value: value });
+        resolve({ ok: result, value: value, choice: choice });
       }
       function onOk() { done(true); }
       function onCancel() { done(false); }
@@ -391,6 +411,7 @@ const BeeUtils = (function () {
         return;
       }
       if (withInput && inputEl) { inputEl.focus(); inputEl.select(); }
+      else if (withChoices && selectEl) selectEl.focus();
       else if (okBtn) okBtn.focus();
     });
   }
@@ -409,6 +430,18 @@ const BeeUtils = (function () {
       title: o.title, message: o.message, confirmLabel: o.confirmLabel || 'OK',
       input: true, inputValue: o.value || ''
     }).then(function (r) { return r.ok ? r.value : null; });
+  }
+
+  // A pick from a short list ([value, label] pairs): resolves to the chosen
+  // value, or null when dismissed. The list starts on `value`, else its
+  // first entry.
+  function chooseDialog(options) {
+    const o = options || {};
+    return queueConfirm({
+      title: o.title, message: o.message, confirmLabel: o.confirmLabel || 'OK',
+      cancelLabel: o.cancelLabel, hideCancel: !!o.hideCancel,
+      choices: o.choices, choiceValue: o.value
+    }).then(function (r) { return r.ok ? r.choice : null; });
   }
 
   // Backend command rejections arrive as bare strings; JS errors carry .message.
@@ -432,6 +465,7 @@ const BeeUtils = (function () {
     dismissDialog: dismissDialog,
     confirm: confirmDialog,
     prompt: promptDialog,
+    choose: chooseDialog,
     alert: alertDialog,
     errText: errText,
     formatTime: formatTime,

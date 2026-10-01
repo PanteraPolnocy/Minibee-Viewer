@@ -32,7 +32,14 @@ const BeeState = (function () {
     radarAlerts: true,
     sessionLost: false,
     sessionLostReason: '',
-    sessionLostDismissed: false
+    sessionLostDismissed: false,
+    // Which edition this is, as the core reports it at startup
+    // (app_distribution): the Google Play build has no L$ purchase, and
+    // every Buy L$ entry point checks canBuyCurrency and shows buyNotice
+    // in its place.
+    playStore: false,
+    canBuyCurrency: true,
+    buyNotice: ''
   };
 
   function on(event, fn) {

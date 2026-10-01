@@ -240,8 +240,8 @@ class MainActivity : TauriActivity() {
 
   override fun onResume() {
     super.onResume()
-    // Also revives the service after a system kill or an Android 15 dataSync
-    // timeout - a fresh start gets a fresh background allowance.
+    // Also revives the service after a system kill (memory pressure, a
+    // battery restriction): a fresh start while visible is always allowed.
     startKeepAlive()
   }
 

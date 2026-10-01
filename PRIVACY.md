@@ -1,6 +1,6 @@
 # Minibee Viewer - Privacy Policy
 
-Last updated: 2026-09-18
+Last updated: 2026-10-01
 
 Minibee Viewer ("Minibee") is developed by **Pantera Polnocy**. It is **not** provided by Linden Lab.
 
@@ -16,6 +16,7 @@ Also in the app: **Bee -> Privacy**.
 - The **microphone** is used only if you turn voice on and join a voice channel; audio goes directly to your grid's voice service (Linden Lab's, on Second Life), never to us.
 - Your **password is never saved** to disk.
 - Login data goes **only to the grid you choose** (by default Linden Lab's Second Life).
+- Login and the grid's web services use **HTTPS**. The simulator connection itself (nearby chat, IMs, your position, radar, objects) runs over Second Life's **UDP protocol, which is not encrypted** - that is how the grid works, for every viewer. See "In transit" below.
 - No analytics, ads, or third-party tracking.
 - Desktop builds **check GitHub for updates** after startup. **You confirm** before any download or install.
 
@@ -34,6 +35,13 @@ Also in the app: **Bee -> Privacy**.
 After login, traffic to simulators and Linden services is governed by [Linden Lab's privacy policy](https://www.lindenlab.com/privacy).
 
 Your password is **not** sent anywhere except the login server you picked.
+
+---
+
+## In transit
+
+- Login (username, hashed password, device identifiers), the grid's capability web services (profiles, group chat, voice setup, the L$ helper) and the feeds use **HTTPS**.
+- The simulator connection - nearby chat, instant messages, your position and movements, the radar, object data - is Second Life's **UDP protocol, which carries no encryption**. Anyone on the network path (a public Wi-Fi, for instance) can read that traffic, as with every Second Life viewer; the protocol offers no encrypted option.
 
 ---
 
@@ -80,6 +88,12 @@ Android's Auto Backup is turned off for Minibee: its data folder (`settings.json
 
 ---
 
+## Content and conduct
+
+Everything Minibee shows - chat, instant messages, profiles, groups, places, pictures - is made by other residents and governed by Linden Lab's [Terms of Service](https://www.lindenlab.com/legal/second-life-terms-and-conditions) and [Community Standards](https://www.lindenlab.com/legal/community-standards). Minibee hosts none of it and cannot remove it. Report abuse from a resident's profile (the report goes to Linden Lab's moderation team) and block anyone you do not want to hear from; both are in the app. Search results and the Destination Guide show General and Moderate ratings unless you choose otherwise in Bee -> Settings -> Search.
+
+---
+
 ## Open source
 
 https://github.com/PanteraPolnocy/Minibee-Viewer
@@ -100,6 +114,7 @@ The copy in the repository is the current version.
 
 ## Contact
 
+- E-mail: panterapolnocy+github@gmail.com
 - [Issues](https://github.com/PanteraPolnocy/Minibee-Viewer/issues)
 - [Discussions](https://github.com/PanteraPolnocy/Minibee-Viewer/discussions)
 - Security: [SECURITY.md](SECURITY.md)

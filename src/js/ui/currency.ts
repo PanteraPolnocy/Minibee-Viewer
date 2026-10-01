@@ -1,6 +1,6 @@
 /**
- * Buy L$ - opened from the balance in the top bar (or the session menu on
- * narrow screens).
+ * Buy L$ - an entry of the balance menu (the balance in the top bar, or in
+ * the session menu on narrow screens; see BeeNavigation).
  *
  * The flow is quote-then-buy: an amount is priced through the
  * grid's currency helper (which may adjust it and hands back a confirm
@@ -25,7 +25,6 @@ const BeeCurrency = (function () {
   const BUY_TIMEOUT_MS = 120000;
 
   let bound = false;
-  let playStoreBuild = null; // cached app_distribution answer; null until asked
   let quote = null;        // the helper's answer: { amount, estimate, usdCents, localCost, confirm }
   let quoteSeq = 0;        // bumped on every amount edit / close, so stale replies drop
   let busy = false;        // a purchase is in flight
@@ -97,21 +96,6 @@ const BeeCurrency = (function () {
     resetQuote();
     const d = dlg();
     if (d) BeeUtils.dismissDialog(d);
-  }
-
-  // The Google Play edition ships without the L$ purchase: Play policy routes
-  // virtual-currency sales through the store's own billing, which the LindeX
-  // exchange doesn't use. Spending an existing balance is unaffected.
-  async function isPlayStoreBuild() {
-    if (playStoreBuild === null) {
-      try {
-        const d = await BeeBridge.invoke('app_distribution');
-        playStoreBuild = !!(d && d.playStore);
-      } catch (_e) {
-        playStoreBuild = false;
-      }
-    }
-    return playStoreBuild;
   }
 
   // Full-screen lock while a purchase runs, like the teleport screen: tapping
@@ -362,14 +346,13 @@ const BeeCurrency = (function () {
   async function open() {
     const s = BeeState.get();
     if (!s.connected || s.sessionLost || !s.agent || !s.agent.id) return;
-    if (await isPlayStoreBuild()) {
+    // An edition without the purchase (the Google Play build; the core says
+    // which at startup) stops here with the core's own wording, which points
+    // nowhere else on purpose.
+    if (!s.canBuyCurrency) {
       BeeUtils.alert({
         title: 'Buying L$ unavailable',
-        message: 'Buying Linden Dollars is not available in this Google Play edition: Google Play ' +
-          'requires virtual-currency purchases to go through its own billing system, which the L$ ' +
-          'exchange does not support. Your balance still works normally everywhere in the app. ' +
-          'To buy more L$, use the Second Life website in your web browser, or the desktop ' +
-          'Minibee version.'
+        message: s.buyNotice || 'Buying Linden Dollars is not available in this edition of Minibee.'
       });
       return;
     }
@@ -397,10 +380,5 @@ const BeeCurrency = (function () {
     openDialog();
   }
 
-  function init() {
-    const badge = el('balance-badge');
-    if (badge) badge.addEventListener('click', function () { open(); });
-  }
-
-  return { init: init, open: open };
+  return { open: open };
 })();

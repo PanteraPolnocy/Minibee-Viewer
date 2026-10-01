@@ -13,7 +13,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt::Write;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -501,6 +501,62 @@ pub fn radar_alerts() -> bool {
 
 pub fn radar_range_m() -> f64 {
     RADAR_RANGE_M.load(Ordering::Relaxed) as f64
+}
+
+/// The grid's maturity ratings, in order: General (G), Moderate (M), Adult (A).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Maturity {
+    General = 0,
+    Moderate = 1,
+    Adult = 2,
+}
+
+impl Maturity {
+    /// Reads the Settings value ("general", "moderate", "adult") as well as
+    /// the one-letter codes feeds and directory rows carry.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "general" | "g" | "pg" => Some(Self::General),
+            "moderate" | "m" | "mature" => Some(Self::Moderate),
+            "adult" | "a" => Some(Self::Adult),
+            _ => None,
+        }
+    }
+
+    fn from_u8(value: u8) -> Self {
+        match value {
+            0 => Self::General,
+            2 => Self::Adult,
+            _ => Self::Moderate,
+        }
+    }
+}
+
+/// The highest maturity band directory searches and the Destination Guide
+/// show, as chosen in Settings: Moderate by default, so Adult-rated entries
+/// stay out until the user asks for them there. The dataserver intersects any
+/// query with what the account may see, so this is a cap, never a grant.
+static MAX_MATURITY: AtomicU8 = AtomicU8::new(Maturity::Moderate as u8);
+
+pub fn set_max_maturity(level: Maturity) {
+    MAX_MATURITY.store(level as u8, Ordering::Relaxed);
+}
+
+pub fn max_maturity() -> Maturity {
+    Maturity::from_u8(MAX_MATURITY.load(Ordering::Relaxed))
+}
+
+/// The line a search or guide page shows while bands above the setting are
+/// left out, so an empty page is not a mystery; `what` names the entries
+/// ("results", "destinations"). Nothing at the top band.
+pub fn maturity_hidden_note(level: Maturity, what: &str) -> Option<String> {
+    match level {
+        Maturity::Adult => None,
+        Maturity::Moderate => Some(format!("Adult-rated {what} are hidden (Bee -> Settings -> Search).")),
+        Maturity::General => Some(format!(
+            "Moderate and Adult-rated {what} are hidden (Bee -> Settings -> Search)."
+        )),
+    }
 }
 
 /// The interest radius to ask the sim for right now.

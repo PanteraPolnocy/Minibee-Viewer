@@ -47,6 +47,14 @@ import androidx.lifecycle.ProcessLifecycleOwner
  * process) beat it, and the system killed the app with
  * ForegroundServiceDidNotStartInTimeException.
  *
+ * Service types: holding a live game-server session is none of the predefined
+ * foreground types, so the base type is specialUse (declared in the manifest
+ * with the use case spelled out in its property; no time limit, unlike the
+ * dataSync type's six hours on Android 15+). mediaPlayback rides along only
+ * while parcel music or voice is actually sounding, and the microphone type
+ * only while voice is on - the set held is exactly what is in use, which is
+ * what the store's declaration describes.
+ *
  * Microphone: since Android 11 a backgrounded app may keep capturing audio
  * only through a foreground service of type microphone, so voice would go
  * silent the moment the viewer left the screen. The type is not declared
@@ -57,8 +65,10 @@ import androidx.lifecycle.ProcessLifecycleOwner
  * promote() adds the type only when voice is connected, RECORD_AUDIO is
  * granted, and either the app is in the foreground or the service is already
  * running with the type (keeping it is always allowed); refresh() re-promotes
- * when the page's voice state flips that decision, and any refusal falls back
- * to the previous type set instead of crashing.
+ * when the page's state flips a type decision (voice, music), and any refusal
+ * falls back to the previous type set instead of crashing. Adding or dropping
+ * mediaPlayback is allowed from the background (it is not a while-in-use
+ * type), so music started from the notification button gets it too.
  */
 class ConnectionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -105,10 +115,11 @@ class ConnectionService : Service() {
         return START_NOT_STICKY
     }
 
-    // Android 15+ allows a dataSync service 6 hours of background time, then
-    // calls this; not stopping within seconds is an ANR. Stop cleanly - the
-    // next time the viewer comes to the front, MainActivity starts a fresh
-    // service with a fresh allowance.
+    // None of the types held here is time-limited (specialUse, mediaPlayback,
+    // microphone), so this should never fire; if a future Android version
+    // does limit one, not stopping within seconds is an ANR. Stop cleanly -
+    // the next time the viewer comes to the front, MainActivity starts a
+    // fresh service.
     override fun onTimeout(startId: Int, fgsType: Int) {
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -129,11 +140,10 @@ class ConnectionService : Service() {
             startForeground(NOTIFICATION_ID, notification)
             return
         }
-        // dataSync keeps the SL circuit alive; mediaPlayback lets voice and
-        // parcel music keep sounding while backgrounded. Explicit on every
-        // API 29+ call, so the manifest's microphone entry never gets pulled
-        // in implicitly (the two-argument form would use the whole declared set).
-        val types = if (wantMicrophoneType()) BASE_TYPES or MICROPHONE_TYPE else BASE_TYPES
+        // Explicit on every API 29+ call, so the manifest's microphone entry
+        // never gets pulled in implicitly (the two-argument form would use
+        // the whole declared set).
+        val types = desiredTypes()
         try {
             startForeground(NOTIFICATION_ID, notification, types)
             promotedTypes = types
@@ -149,6 +159,16 @@ class ConnectionService : Service() {
             startForeground(NOTIFICATION_ID, notification, fallback)
             promotedTypes = fallback
         }
+    }
+
+    // The type set this promotion should hold: specialUse always (the live
+    // session), mediaPlayback while parcel music or voice is sounding, the
+    // microphone type under wantMicrophoneType()'s rules. Main thread only.
+    private fun desiredTypes(): Int {
+        var types = BASE_TYPES
+        if (mediaWanted()) types = types or MEDIA_TYPE
+        if (wantMicrophoneType()) types = types or MICROPHONE_TYPE
+        return types
     }
 
     // Whether this promotion may carry the microphone type. Main thread only
@@ -170,14 +190,15 @@ class ConnectionService : Service() {
         return ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
     }
 
-    // The page's voice state changed: add or drop the microphone type when the
-    // decision flips (startForeground repaints too), otherwise just repaint
-    // the notification - directly, not through refresh(), which would post
-    // back here for as long as voice is on without the type (permission not
-    // granted, app in the background). Main thread.
+    // The page's voice or music state changed: add or drop the media and
+    // microphone types when the decision flips (startForeground repaints
+    // too), otherwise just repaint the notification - directly, not through
+    // refresh(), which would post back here for as long as voice is on
+    // without the microphone type (permission not granted, app in the
+    // background). Main thread.
     private fun syncTypes() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && promotedTypes != 0) {
-            val types = if (wantMicrophoneType()) BASE_TYPES or MICROPHONE_TYPE else BASE_TYPES
+            val types = desiredTypes()
             if (types != promotedTypes) {
                 try {
                     promote()
@@ -215,11 +236,19 @@ class ConnectionService : Service() {
         private const val ACTION_MUSIC = "com.pantera.minibee_viewer.MUSIC_TOGGLE"
         private const val ACTION_VOICE = "com.pantera.minibee_viewer.VOICE_TOGGLE"
 
-        private const val BASE_TYPES =
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-        // Compile-time constant (inlined), so naming it below API 30 is safe;
-        // wantMicrophoneType() never lets it through there.
+        // Compile-time constants (inlined), so naming them below the API
+        // level that introduced them is safe. The system only checks that a
+        // promotion's types are a subset of the manifest's declared set,
+        // which lists all three; wantMicrophoneType() keeps the microphone
+        // type out below API 30, and specialUse is just a declared bit to
+        // versions before API 34.
+        private const val BASE_TYPES = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+        private const val MEDIA_TYPE = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
         private const val MICROPHONE_TYPE = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+
+        // Whether something is sounding that the media type should cover.
+        // Any thread (plain volatile reads).
+        private fun mediaWanted(): Boolean = musicPlaying || voiceConnected
 
         @Volatile private var running = false
         // The live service, for refresh() to re-promote through. Cleared in
@@ -257,12 +286,15 @@ class ConnectionService : Service() {
             // promotion must not silence IMs.
             maybeAlertIm(context)
             if (!running) return
-            // Voice came or went relative to the promoted types: the service
-            // decides about the microphone type on the main thread (this runs
-            // on a WebView worker thread) and repaints from there.
+            // Voice or music came or went relative to the promoted types: the
+            // service decides about the media and microphone types on the main
+            // thread (this runs on a WebView worker thread) and repaints from
+            // there.
             val svc = instance
-            if (svc != null && promotedTypes != 0 &&
-                voiceConnected != (promotedTypes and MICROPHONE_TYPE != 0)
+            val held = promotedTypes
+            if (svc != null && held != 0 &&
+                (mediaWanted() != (held and MEDIA_TYPE != 0) ||
+                    voiceConnected != (held and MICROPHONE_TYPE != 0))
             ) {
                 Handler(Looper.getMainLooper()).post { if (running) svc.syncTypes() }
                 return
