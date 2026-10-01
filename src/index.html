@@ -374,7 +374,7 @@
                   <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
                 </button>
                 <div class="im-thread__title">
-                  <span id="im-thread-name">Conversation</span>
+                  <button type="button" id="im-thread-name" class="im-thread__name" disabled>Conversation</button>
                   <span id="im-thread-status" class="im-thread__status"></span>
                 </div>
                 <div class="im-thread__actions">
@@ -417,9 +417,10 @@
               </header>
               <div id="im-empty" class="im-thread__empty">
                 <p>Select a conversation or start a new IM from
-                  <button type="button" class="im-tab-link" data-tab-link="buddies">People</button>
+                  <button type="button" class="im-tab-link" data-tab-link="buddies">People</button>,
+                  <button type="button" class="im-tab-link" data-tab-link="radar">Radar</button>
                   or
-                  <button type="button" class="im-tab-link" data-tab-link="radar">Radar</button>.
+                  <button type="button" class="im-tab-link" data-tab-link="search">Search</button>.
                 </p>
               </div>
               <div id="im-thread-body" class="im-thread__body" hidden>

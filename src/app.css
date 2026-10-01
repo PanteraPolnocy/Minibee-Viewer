@@ -1966,8 +1966,8 @@ button.bee-menu__value--action:disabled {
 .im-thread__header {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 8px 8px 4px;
+  gap: 8px;
+  padding: 8px 10px 8px 6px;
   background: var(--bg-deep);
   border-bottom: 1px solid var(--border);
 }
@@ -1975,25 +1975,55 @@ button.bee-menu__value--action:disabled {
 .im-thread__title {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   min-width: 0;
+  padding-left: 4px;
 }
 
-.im-thread__title span:first-child {
+/* The conversation's name: a button that opens the group's or the
+   resident's profile (a conference has none, so it stays a plain label). */
+.im-thread__name {
+  max-width: 100%;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
   font-weight: 600;
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.im-thread__name:not(:disabled):hover,
+.im-thread__name:not(:disabled):focus-visible {
+  color: var(--accent);
+  background: var(--bg-elevated);
+  outline: none;
+}
+
+.im-thread__name:disabled {
+  cursor: default;
+  color: var(--text);
 }
 
 .im-thread__status {
   font-size: 0.75rem;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .im-thread__actions {
   margin-left: auto;
   display: flex;
-  gap: 2px;
+  gap: 4px;
   flex-shrink: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -2005,8 +2035,8 @@ button.bee-menu__value--action:disabled {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-width: 32px;
-  min-height: 32px;
+  min-width: 34px;
+  min-height: 34px;
   padding: 4px;
 }
 
@@ -2019,19 +2049,40 @@ button.bee-menu__value--action:disabled {
 .im-action-btn--active {
   color: var(--accent);
   background: var(--bg-input);
+  border-color: var(--accent-border);
 }
 
 .im-thread__actions .icon-btn[hidden] { display: none; }
 
+/* Chips rather than bare glyphs: the header's dark background swallowed
+   plain icons, so each action gets a surface and a border of its own. */
 .im-thread__actions .icon-btn {
+  width: 34px;
+  height: 34px;
   font-size: 0.72rem;
   font-weight: 700;
-  min-width: 32px;
+  min-width: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+.im-thread__actions .icon-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .im-thread__actions .icon-btn:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+.im-thread__actions .im-action-btn--active {
+  color: var(--accent);
+  background: var(--bg-input);
+  border-color: var(--accent);
 }
 
 .im-thread__empty {
@@ -4623,12 +4674,19 @@ button.bee-menu__value--action:disabled {
     display: flex;
   }
   .im-back { display: none; }
+  /* No back button here, so the name gets its own breathing room. */
+  .im-thread__header { padding-left: 14px; }
 }
 
 @media (max-width: 480px) {
   .im-layout:not(.im-layout--active) .im-thread {
     display: none;
   }
+  /* A phone's header: the actions take their row below the name instead of
+     squeezing it, and the wrap gap stays even. */
+  .im-thread__header { flex-wrap: wrap; row-gap: 6px; }
+  .im-thread__title { flex: 1 1 140px; }
+  .im-thread__actions { max-width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

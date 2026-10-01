@@ -348,8 +348,19 @@ const BeeIm = (function () {
     }
     const p = session.participant;
     const names = nameLines(p || {});
-    const nameEl = document.getElementById('im-thread-name');
+    const nameEl = document.getElementById('im-thread-name') as HTMLButtonElement | null;
     const statusEl = document.getElementById('im-thread-status');
+    // The name in the header opens the profile behind the conversation: the
+    // group's for a group chat, the resident's for a private thread. A
+    // conference has no profile, so its name is just a label.
+    const profileKind = session.type === 'group' ? 'group'
+      : isSessionChat(session) ? '' : 'resident';
+    if (nameEl) {
+      nameEl.disabled = !profileKind;
+      nameEl.title = profileKind === 'group' ? 'View group profile'
+        : profileKind === 'resident' ? 'View profile' : '';
+      nameEl.setAttribute('aria-label', nameEl.title || 'Conversation');
+    }
     if (isSessionChat(session)) {
       const count = Array.isArray(session.participants) ? session.participants.length : 0;
       const typeLabel = session.type === 'group' ? 'Group chat' : 'Conference';
@@ -601,11 +612,18 @@ const BeeIm = (function () {
       const sendBtn = form.querySelector<HTMLButtonElement>('[type="submit"]');
       if (sendBtn) sendBtn.disabled = !hasSession;
     }
-    [profileBtn, payBtn, friendBtn, tpOffer, tpRequest].forEach(function (btn) {
+    [payBtn, friendBtn, tpOffer, tpRequest].forEach(function (btn) {
       if (!btn) return;
       btn.hidden = sessionChat;
       btn.disabled = !p2p;
     });
+    // The profile button serves private threads and group chats alike (the
+    // group's profile for the latter); a conference has nothing to open.
+    const isGroupChat = sessionChat && session && session.type === 'group';
+    if (profileBtn) {
+      profileBtn.hidden = sessionChat && !isGroupChat;
+      profileBtn.disabled = !(p2p || isGroupChat);
+    }
     if (tpOffer) {
       tpOffer.disabled = !p2p || !tpOnline;
       tpOffer.title = !p2p ? 'Offer teleport' : (tpOnline ? 'Offer teleport' : 'Resident is offline');
@@ -615,8 +633,8 @@ const BeeIm = (function () {
       tpRequest.title = !p2p ? 'Request teleport' : (tpOnline ? 'Request teleport' : 'Resident is offline');
     }
     if (profileBtn) {
-      profileBtn.disabled = !p2p;
-      profileBtn.title = 'Profile';
+      profileBtn.title = isGroupChat ? 'Group profile' : 'Profile';
+      profileBtn.setAttribute('aria-label', profileBtn.title);
       profileBtn.removeAttribute('aria-disabled');
     }
     if (friendBtn) {
@@ -668,11 +686,36 @@ const BeeIm = (function () {
     }
 
     if (!hasSession) {
-      document.getElementById('im-thread-name').textContent = 'Conversation';
+      const nameEl = document.getElementById('im-thread-name') as HTMLButtonElement | null;
+      if (nameEl) {
+        nameEl.textContent = 'Conversation';
+        nameEl.disabled = true;
+        nameEl.title = '';
+        nameEl.setAttribute('aria-label', 'Conversation');
+      }
       document.getElementById('im-thread-status').textContent = '';
       if (messages) messages.innerHTML = '';
     }
     renderTyping();
+  }
+
+  // The profile behind the active conversation: the group's for a group
+  // chat, the resident's for a private thread. Both the header name and the
+  // profile button open it.
+  function openActiveProfile() {
+    const sessionId = BeeState.get().activeImSession;
+    const session = sessionId ? BeeState.get().imSessions[sessionId] : null;
+    if (!session || typeof BeeProfile === 'undefined') return;
+    if (session.type === 'group') {
+      const opts: { group?: { name: string }; isMember?: boolean } = { isMember: true };
+      if (session.title) opts.group = { name: session.title };
+      BeeProfile.openGroup(sessionId, opts);
+      return;
+    }
+    if (isSessionChat(session)) return;
+    const participant = session.participant;
+    if (!participant || !participant.id) return;
+    BeeProfile.openAvatar(participant.id, { agent: participant });
   }
 
   function getActiveParticipant() {
@@ -1113,11 +1156,8 @@ const BeeIm = (function () {
         setSessionFilter(btn.dataset.imSub);
       });
     });
-    (document.getElementById('im-profile') as HTMLButtonElement).addEventListener('click', function () {
-      const participant = getActiveParticipant();
-      if (!participant || !participant.id) return;
-      BeeProfile.openAvatar(participant.id, { agent: participant });
-    });
+    (document.getElementById('im-profile') as HTMLButtonElement).addEventListener('click', openActiveProfile);
+    (document.getElementById('im-thread-name') as HTMLButtonElement).addEventListener('click', openActiveProfile);
     (document.getElementById('im-tp-offer') as HTMLButtonElement).addEventListener('click', function () {
       const session = BeeState.get().imSessions[BeeState.get().activeImSession];
       if (!session || !session.participant) return;
