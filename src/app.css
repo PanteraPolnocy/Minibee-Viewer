@@ -565,6 +565,11 @@ body {
 
 .btn:active { transform: scale(0.98); }
 
+/* The display rule above outranks the browser's own [hidden] styling, so a
+   hidden button (Check for updates on Android, Forget saved login with
+   nothing saved) stayed on screen without this. */
+.btn[hidden] { display: none !important; }
+
 .btn--primary {
   background: var(--accent);
   color: var(--stripe-dark, #1a1408);
