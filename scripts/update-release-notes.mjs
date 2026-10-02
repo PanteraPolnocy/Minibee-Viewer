@@ -8,8 +8,11 @@
  *   node scripts/update-release-notes.mjs --release-id 12345
  *   node scripts/update-release-notes.mjs --tag 0.0.0 --dry-run
  *
- * SHA-256 cells link to VirusTotal scan results (no API key required).
- * Release uploads run by default in CI (crazy-max/ghaction-virustotal; secret VIRUSTOTAL_API_KEY).
+ * SHA-256 cells link to VirusTotal scan results for the assets the workflow's
+ * VirusTotal job actually submitted (crazy-max/ghaction-virustotal; secret
+ * VIRUSTOTAL_API_KEY). CI hands that job's `analysis` output over in
+ * MINIBEE_VIRUSTOTAL_ANALYSIS ("<asset>=<url>,<asset>=<url>"); assets missing
+ * from it, or every asset when the variable is absent, get the bare checksum.
  */
 
 import path from 'node:path';
@@ -349,12 +352,34 @@ function normalizeSha256Hex(digest) {
 }
 
 /**
- * @param {string | undefined} digest
+ * The asset names the VirusTotal job submitted, out of its `analysis` output
+ * ("<asset>=<analysis url>" pairs, comma separated) as CI passes it in
+ * MINIBEE_VIRUSTOTAL_ANALYSIS. Empty when the variable is missing (a local
+ * dry run, a skipped job), so no row claims a scan that never happened.
+ *
+ * @param {string | undefined} analysis
+ * @returns {Set<string>}
  */
-export function formatDigest(digest) {
+export function scannedAssetNames(analysis = process.env.MINIBEE_VIRUSTOTAL_ANALYSIS) {
+  const names = new Set();
+  for (const entry of String(analysis ?? '').split(',')) {
+    const eq = entry.indexOf('=');
+    const name = (eq === -1 ? entry : entry.slice(0, eq)).trim();
+    if (name) names.add(name);
+  }
+  return names;
+}
+
+/**
+ * @param {string | undefined} digest
+ * @param {boolean} [scanned] whether this asset went to VirusTotal, which is
+ *   the only case a scan link is offered
+ */
+export function formatDigest(digest, scanned = false) {
   const hex = normalizeSha256Hex(digest);
   if (!hex) return '-';
   const formatted = hex.length <= 24 ? hex : `${hex.slice(0, 12)}...${hex.slice(-12)}`;
+  if (!scanned) return `\`${formatted}\``;
   const vtUrl = `${VIRUSTOTAL_FILE_GUI}${hex}`;
   return `\`${formatted}\`<br>[VirusTotal scan](${vtUrl})`;
 }
@@ -431,8 +456,9 @@ function stripLegacyFooter(text) {
 export function buildDownloadBlock(release) {
   const version = String(release.tag_name).replace(/^v/, '');
 
-  /** @type {Array<{ platform: string; label: string; recommended: boolean; sort: number; url?: string; downloadLabel?: string; downloadText?: string; size?: number; digest?: string }>} */
+  /** @type {Array<{ platform: string; label: string; recommended: boolean; sort: number; name?: string; url?: string; downloadLabel?: string; downloadText?: string; size?: number; digest?: string }>} */
   const playRecommended = googlePlayRowRecommended();
+  const scanned = scannedAssetNames();
   const rows = buildExtraDistributionRows().map((row) => ({
     ...row,
     recommended: row.recommended ?? false,
@@ -448,6 +474,7 @@ export function buildDownloadBlock(release) {
     rows.push({
       ...info,
       recommended,
+      name: asset.name,
       url: asset.browser_download_url,
       size: asset.size,
       digest: asset.digest,
@@ -480,7 +507,7 @@ export function buildDownloadBlock(release) {
       ? row.downloadText
       : `[${row.downloadLabel ?? row.url?.split('/').pop() ?? row.label}](${row.url})`;
     lines.push(
-      `| ${row.platform} | ${packageLabel} | ${downloadCell} | ${formatSize(row.size ?? NaN)} | ${formatDigest(row.digest)} |`,
+      `| ${row.platform} | ${packageLabel} | ${downloadCell} | ${formatSize(row.size ?? NaN)} | ${formatDigest(row.digest, !!row.name && scanned.has(row.name))} |`,
     );
   }
 
@@ -507,7 +534,7 @@ export function buildDownloadBlock(release) {
     'sha256sum path/to/installer',
     '```',
     '',
-    'On macOS, `shasum -a 256 path/to/installer` works too. Abbreviated checksums are middle-truncated; use **VirusTotal scan** for multi-engine results (analysis appears after the file is indexed on [VirusTotal](https://www.virustotal.com/)).',
+    'On macOS, `shasum -a 256 path/to/installer` works too. Abbreviated checksums are middle-truncated. A **VirusTotal scan** link appears under the files the release workflow submitted there (the recommended installers and the APK); the analysis shows up once [VirusTotal](https://www.virustotal.com/) has processed the file.',
     '',
     '</details>',
     '',

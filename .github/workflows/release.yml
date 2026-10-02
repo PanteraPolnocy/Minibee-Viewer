@@ -389,11 +389,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      # "<asset>=<analysis url>" pairs for what was actually submitted; the
+      # release notes offer a scan link only under those rows.
+      analysis: ${{ steps.vt.outputs.analysis }}
     steps:
       # https://github.com/marketplace/actions/virustotal-github-action
       # Runs on every release (public API: 4 req/min). Requires repository secret VIRUSTOTAL_API_KEY.
       # APK is scanned even when Google Play is the recommended Android install on the release page.
       - name: Upload release assets to VirusTotal
+        id: vt
         uses: crazy-max/ghaction-virustotal@v5
         with:
           vt_api_key: ${{ secrets.VIRUSTOTAL_API_KEY }}
@@ -426,6 +431,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           RELEASE_ID: ${{ github.event.release.id }}
           MINIBEE_GOOGLE_PLAY_RECOMMENDED: ${{ needs.build-android.outputs.google_play_recommended == 'true' && '1' || '0' }}
+          MINIBEE_VIRUSTOTAL_ANALYSIS: ${{ needs.virustotal.outputs.analysis }}
         run: node scripts/update-release-notes.mjs --release-id "${RELEASE_ID}"
 
   publish-winget:

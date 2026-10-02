@@ -1,20 +1,84 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildDownloadBlock, formatDigest } from '../scripts/update-release-notes.mjs';
+import { buildDownloadBlock, formatDigest, scannedAssetNames } from '../scripts/update-release-notes.mjs';
 
-test('formatDigest links full sha256 to VirusTotal', () => {
+test('formatDigest links full sha256 to VirusTotal only for a scanned asset', () => {
   const hex = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
-  const out = formatDigest(`sha256:${hex}`);
   assert.equal(
-    out,
+    formatDigest(`sha256:${hex}`, true),
     '`abcdef012345...ef0123456789`<br>[VirusTotal scan](https://www.virustotal.com/gui/file/abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789)',
   );
+  // Not submitted: the checksum alone, no link to a report that cannot exist.
+  assert.equal(formatDigest(`sha256:${hex}`, false), '`abcdef012345...ef0123456789`');
+  assert.equal(formatDigest(`sha256:${hex}`), '`abcdef012345...ef0123456789`');
 });
 
 test('formatDigest returns dash when digest missing', () => {
   assert.equal(formatDigest(undefined), '-');
   assert.equal(formatDigest('not-a-hash'), '-');
+  assert.equal(formatDigest(undefined, true), '-');
+});
+
+// The VirusTotal action reports what it sent as "<asset>=<analysis url>"
+// pairs, comma separated; only the names matter here.
+test('scannedAssetNames reads the asset names out of the analysis output', () => {
+  const analysis =
+    'app-universal-release.apk=https://www.virustotal.com/gui/file-analysis/MWJiYj==,' +
+    'windows_Minibee-Viewer_0.14.2_x64_setup.exe=https://www.virustotal.com/gui/file-analysis/ZmZm';
+  assert.deepEqual([...scannedAssetNames(analysis)], [
+    'app-universal-release.apk',
+    'windows_Minibee-Viewer_0.14.2_x64_setup.exe',
+  ]);
+  assert.equal(scannedAssetNames('').size, 0);
+  assert.equal(scannedAssetNames(undefined).size, 0);
+});
+
+// Runs `fn` with MINIBEE_VIRUSTOTAL_ANALYSIS set to `value` (unset when
+// undefined), restoring whatever was there before.
+function withAnalysis(value, fn) {
+  const before = process.env.MINIBEE_VIRUSTOTAL_ANALYSIS;
+  if (value === undefined) delete process.env.MINIBEE_VIRUSTOTAL_ANALYSIS;
+  else process.env.MINIBEE_VIRUSTOTAL_ANALYSIS = value;
+  try {
+    return fn();
+  } finally {
+    if (before === undefined) delete process.env.MINIBEE_VIRUSTOTAL_ANALYSIS;
+    else process.env.MINIBEE_VIRUSTOTAL_ANALYSIS = before;
+  }
+}
+
+// The scan link goes only under the rows whose files the workflow submitted;
+// the MSI, .deb, .rpm and .aab keep their checksum and nothing else.
+test('only assets the VirusTotal job submitted get a scan link', () => {
+  const analysis = [
+    'windows_Minibee-Viewer_0.14.0_x64_setup.exe=https://www.virustotal.com/gui/file-analysis/a',
+    'macos_Minibee-Viewer_0.14.0_universal.dmg=https://www.virustotal.com/gui/file-analysis/b',
+    'linux_Minibee-Viewer_0.14.0_amd64.AppImage=https://www.virustotal.com/gui/file-analysis/c',
+    'android_Minibee-Viewer_0.14.0_universal.apk=https://www.virustotal.com/gui/file-analysis/d',
+  ].join(',');
+  withAnalysis(analysis, () => {
+    const lines = buildDownloadBlock(release()).split('\n').filter((l) => l.startsWith('| '));
+    const linked = lines.filter((l) => l.includes('VirusTotal scan')).map((l) => l.split('|')[2].trim());
+    assert.deepEqual(linked, [
+      '**Installer (.exe)** *(recommended)*',
+      '**Disk image (.dmg)** *(recommended)*',
+      '**AppImage** *(recommended)*',
+      'APK (full app, sideload)',
+    ]);
+    const bare = lines.filter((l) => l.includes('`abcdef012345...ef0123456789`') && !l.includes('VirusTotal scan'));
+    assert.equal(bare.length, 4, 'MSI, deb, rpm and aab keep the bare checksum');
+  });
+});
+
+// Without the job's output (a local dry run, or the job did not run) no row
+// claims a scan that never happened.
+test('without the analysis output no row links to VirusTotal', () => {
+  withAnalysis(undefined, () => {
+    const block = buildDownloadBlock(release());
+    assert.doesNotMatch(block, /VirusTotal scan\]\(/);
+    assert.match(block, /`abcdef012345\.\.\.ef0123456789`/);
+  });
 });
 
 // A release as the GitHub API describes it, with one asset per platform row.
