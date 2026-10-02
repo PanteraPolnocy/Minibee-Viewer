@@ -147,7 +147,7 @@ jobs:
     permissions:
       contents: write
     outputs:
-      google_play_recommended: ${{ steps.play.outputs.recommended }}
+      google_play_recommended: ${{ steps.play_result.outputs.recommended }}
     runs-on: ubuntu-latest
     env:
       APK_PATH: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
@@ -311,13 +311,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Push the bundle to Google Play through the Play Developer API. Skipped
-      # until the GOOGLE_PLAY_SERVICE_ACCOUNT_JSON secret exists (the service
+      # without the GOOGLE_PLAY_SERVICE_ACCOUNT_JSON secret (the service
       # account's JSON key, invited under Play Console -> Users and permissions
-      # with release rights) and always for prereleases. The app's very first
-      # bundle has to be uploaded by hand in the Play Console; afterwards every
-      # stable release goes straight to the production track (the app has
-      # production access), a prerelease never reaches Play. To stage a release
-      # instead, switch `tracks` to `alpha` and promote it in the Console.
+      # with release rights) and always for prereleases. Every stable release
+      # goes straight to the production track; a prerelease never reaches
+      # Play. To stage a release instead, switch `tracks` to `alpha` and
+      # promote it in the Console. The Console refuses a bundle whose
+      # foreground-service permissions are not covered by the app's
+      # declaration (Policy -> App content -> Foreground service permissions),
+      # so a new service type in the manifest means updating that declaration
+      # before the release is published.
       - name: Check for Play upload credentials
         id: play
         if: github.event_name == 'release'
@@ -328,11 +331,6 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
-          if [ -n "$SERVICE_ACCOUNT_JSON" ] && [ "${{ github.event.release.prerelease }}" != "true" ]; then
-            echo "recommended=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "recommended=false" >> "$GITHUB_OUTPUT"
           fi
 
       # The release event payload is a snapshot from publish time, so the name
@@ -345,8 +343,15 @@ jobs:
           RELEASE_BODY: ${{ github.event.release.body }}
         run: node scripts/play-whatsnew.mjs
 
+      # A refused upload (a Play Console declaration out of date, a policy
+      # hold) must not leave the GitHub release half-finished with no download
+      # table: the job carries on, the step below records that this release is
+      # not on Google Play (the release page then recommends the APK and says
+      # so), and the failure is surfaced as an error annotation on the run.
       - name: Upload AAB to Google Play (production track)
+        id: upload
         if: github.event_name == 'release' && github.event.release.prerelease == false && steps.play.outputs.enabled == 'true'
+        continue-on-error: true
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
@@ -358,6 +363,24 @@ jobs:
           whatsNewDirectory: play-whatsnew
           debugSymbols: ${{ steps.symbols.outputs.path }}
           mappingFile: src-tauri/gen/android/app/build/outputs/mapping/universalRelease/mapping.txt
+
+      # Google Play is the recommended Android install on the release page
+      # only when this very bundle reached it; a skipped upload (prerelease,
+      # no secret) or a refused one both point people at the APK instead.
+      - name: Record whether this release is on Google Play
+        id: play_result
+        if: github.event_name == 'release'
+        env:
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
+        run: |
+          if [ "$UPLOAD_OUTCOME" = "success" ]; then
+            echo "recommended=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "recommended=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$UPLOAD_OUTCOME" = "failure" ]; then
+            echo "::error title=Google Play upload failed::The bundle did not reach Google Play (see the upload step). Fix the cause in the Play Console, then re-run this job, or upload the .aab from the release page by hand."
+          fi
 
   virustotal:
     name: VirusTotal (recommended installers + APK)
