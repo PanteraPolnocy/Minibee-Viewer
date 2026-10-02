@@ -114,7 +114,7 @@ The copy in the repository is the current version.
 
 ## Contact
 
-- E-mail: panterapolnocy+github@gmail.com
+- E-mail: panterapolnocy+minibee@gmail.com
 - [Issues](https://github.com/PanteraPolnocy/Minibee-Viewer/issues)
 - [Discussions](https://github.com/PanteraPolnocy/Minibee-Viewer/discussions)
 - Security: [SECURITY.md](SECURITY.md)
