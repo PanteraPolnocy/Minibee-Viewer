@@ -80,7 +80,7 @@ No Second Life account data is sent with the update check. Android has no automa
 
 ## Android
 
-Same login and on-device storage behaviour as desktop. Distributed on Google Play and, as an APK, on GitHub Releases. The Google Play edition has no in-app L$ purchase (Play policy); everything else is the same app.
+Same login and on-device storage behaviour as desktop. Distributed on [Google Play](https://play.google.com/store/apps/details?id=com.pantera.minibee_viewer) and, as an APK, on GitHub Releases. The Google Play edition has no in-app L$ purchase (Play policy); everything else is the same app.
 
 While the viewer runs, a persistent notification keeps the connection alive; it can show the number of unread IMs and, expanded, the newest message's sender and text. That preview lives only in the device's own notification shade (your lock-screen notification settings govern what shows when locked) and is never sent anywhere. While voice is connected and you have granted the microphone permission, the same connection service is marked as using the microphone so voice keeps working when the app is in the background; the marking is dropped when voice disconnects.
 
