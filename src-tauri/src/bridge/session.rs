@@ -1133,19 +1133,36 @@ fn system_chat(text: &str) -> Action {
     )
 }
 
-/// Someone crossed into the radar's alert range: a system-sourced chat line
-/// under the resident's id and name ("entered radar range (12 m)."), the
-/// name a clickable profile link. An empty name is a resident whose lookup
-/// never answered; the UI shows a profile link and fills the name in itself.
-fn radar_line(id: &str, name: &str, range: f64) -> Action {
+/// Which way a resident crossed the radar's alert range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RadarCrossing {
+    Enter,
+    Leave,
+}
+
+/// Someone crossed the radar's alert range: a system-sourced chat line under
+/// the resident's id and name ("entered radar range (12 m).", "left radar
+/// range (104 m)."), the name a clickable profile link. The line is dated
+/// with the moment of the crossing (`at_ms`), not the moment it goes out: an
+/// arrival can wait seconds for its name. An empty name is a resident whose
+/// lookup never answered; the UI shows a profile link and fills the name in
+/// itself. A leave without a range is someone gone from the sweep altogether
+/// (left the region, logged out).
+fn radar_line(id: &str, name: &str, crossing: RadarCrossing, range: Option<f64>, at_ms: u64) -> Action {
+    let (verb, event) = match crossing {
+        RadarCrossing::Enter => ("entered", "enter"),
+        RadarCrossing::Leave => ("left", "leave"),
+    };
+    let metres = range.map(|r| format!(" ({} m)", r.round() as i64)).unwrap_or_default();
     Action::emit(
         "chat",
         json!({
             "kind": "radar", "fromId": id, "fromName": name,
-            "text": format!("entered radar range ({} m).", range.round() as i64),
+            "text": format!("{verb} radar range{metres}."),
             "type": "normal", "source": "system", "ownerId": "", "channel": 0,
             "outgoing": false, "emote": false,
-            "radar": { "event": "enter", "range": range },
+            "timestamp": at_ms,
+            "radar": { "event": event, "range": range },
         }),
     )
 }
@@ -1162,12 +1179,17 @@ const RADAR_LEAVE_SLACK_M: f64 = 8.0;
 /// only records who is already around; from then on each resident newly within
 /// `range_m` is reported once - as soon as their name is cached, otherwise when
 /// it resolves (`SessionState::radar_lines_for_resolved_names`) or, failing
-/// that, after RADAR_NAME_WAIT_MS with a profile link. `alerts` off keeps the
-/// bookkeeping (so switching it on later reports only real newcomers) and
-/// drops anything waiting.
+/// that, after RADAR_NAME_WAIT_MS with a profile link - and reported again
+/// when they leave it: past the range plus the slack (with the distance), or
+/// gone from the sweep altogether (without). Someone who comes and goes
+/// before their arrival was announced is not announced at all. `alerts` off
+/// keeps the bookkeeping (so switching it on later reports only real
+/// newcomers) and drops anything waiting.
 fn radar_range_reports(state: &mut SessionState, entries: &[Value], alerts: bool, range_m: f64) -> Vec<Action> {
     let mut inside: HashSet<String> = HashSet::new();
     let mut newcomers: Vec<(String, f64)> = Vec::new();
+    // Where everyone in the sweep is, for the distance in a leave line.
+    let mut seen_range: HashMap<String, f64> = HashMap::new();
     for e in entries {
         let id = e.get("id").and_then(|v| v.as_str()).unwrap_or("");
         if id.is_empty() {
@@ -1175,6 +1197,9 @@ fn radar_range_reports(state: &mut SessionState, entries: &[Value], alerts: bool
         }
         let key = id.to_lowercase();
         let range = e.get("range").and_then(|v| v.as_f64()).unwrap_or(f64::MAX);
+        if range < f64::MAX {
+            seen_range.insert(key.clone(), range);
+        }
         let was_inside = state.radar_inside.contains(&key);
         if range <= range_m {
             inside.insert(key);
@@ -1185,7 +1210,8 @@ fn radar_range_reports(state: &mut SessionState, entries: &[Value], alerts: bool
             inside.insert(key);
         }
     }
-    state.radar_inside = inside;
+    let previous = std::mem::replace(&mut state.radar_inside, inside);
+    let now = state.now_ms;
     let mut actions = Vec::new();
     if !state.radar_primed {
         // Whoever is here when we arrive is not news.
@@ -1196,23 +1222,36 @@ fn radar_range_reports(state: &mut SessionState, entries: &[Value], alerts: bool
         state.radar_pending.clear();
         return actions;
     }
+    // Inside last sweep, not this one: gone. Sorted so a sweep that loses
+    // several people reports them in a stable order.
+    let mut left: Vec<&String> = previous.iter().filter(|key| !state.radar_inside.contains(*key)).collect();
+    left.sort();
+    for key in left {
+        if let Some(pos) = state.radar_pending.iter().position(|p| p.id.eq_ignore_ascii_case(key)) {
+            // Never announced, so nothing to take back.
+            state.radar_pending.remove(pos);
+            continue;
+        }
+        let name = state.cached_name(key).map(|n| n.trim().to_string()).unwrap_or_default();
+        actions.push(radar_line(key, &name, RadarCrossing::Leave, seen_range.get(key).copied(), now));
+    }
     for (id, range) in newcomers {
         let name = state.cached_name(&id).map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
         match name {
-            Some(name) => actions.push(radar_line(&id, &name, range)),
+            Some(name) => actions.push(radar_line(&id, &name, RadarCrossing::Enter, Some(range), now)),
             None => {
                 if !state.radar_pending.iter().any(|p| p.id.eq_ignore_ascii_case(&id)) {
-                    state.radar_pending.push(RadarPending { id, range, since_ms: state.now_ms });
+                    state.radar_pending.push(RadarPending { id, range, since_ms: now });
                 }
             }
         }
     }
-    // Names that never came: report with a profile link after the wait.
-    let now = state.now_ms;
+    // Names that never came: report with a profile link after the wait,
+    // still dated with the arrival.
     let pending = std::mem::take(&mut state.radar_pending);
     for p in pending {
         if now.saturating_sub(p.since_ms) >= RADAR_NAME_WAIT_MS {
-            actions.push(radar_line(&p.id, "", p.range));
+            actions.push(radar_line(&p.id, "", RadarCrossing::Enter, Some(p.range), p.since_ms));
         } else {
             state.radar_pending.push(p);
         }
@@ -1233,7 +1272,7 @@ impl SessionState {
         for p in pending {
             let name = self.cached_name(&p.id).map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
             match name {
-                Some(name) => out.push(radar_line(&p.id, &name, p.range)),
+                Some(name) => out.push(radar_line(&p.id, &name, RadarCrossing::Enter, Some(p.range), p.since_ms)),
                 None => self.radar_pending.push(p),
             }
         }
@@ -6011,7 +6050,9 @@ mod tests {
         assert!(radar_lines(&a).is_empty(), "no name, no line yet");
         assert_eq!(st.radar_pending.len(), 1);
         assert_eq!(st.radar_pending[0].id, BOB);
-        // His name resolves (a UUIDNameReply): the line goes out under it.
+        // His name resolves (a UUIDNameReply) a little later: the line goes
+        // out under it, dated with his arrival rather than with the reply.
+        st.now_ms = 2500;
         let reply = json!({
             "name": "UUIDNameReply",
             "blocks": { "UUIDNameBlock": [{
@@ -6025,19 +6066,35 @@ mod tests {
         assert_eq!(lines[0]["fromName"], "Bob Builder");
         assert_eq!(lines[0]["text"], "entered radar range (20 m).");
         assert_eq!(lines[0]["source"], "system");
+        assert_eq!(lines[0]["radar"]["event"], "enter");
         assert_eq!(lines[0]["radar"]["range"], 20.0);
+        assert_eq!(lines[0]["timestamp"], 2000, "stamped with the arrival, not the report");
         assert!(st.radar_pending.is_empty());
         // Still there on the next sweep: nothing more to say.
         st.now_ms = 3000;
         let a = route(&mut st, &coarse_sweep(&[(ANN, 138, 128), (BOB, 150, 128)]));
         assert!(radar_lines(&a).is_empty());
-        // A name already cached is reported at once.
+        // A name already cached is reported at once, dated with this sweep.
         st.set_name(CID, "Cid Resident");
         let a = route(&mut st, &coarse_sweep(&[(ANN, 138, 128), (BOB, 150, 128), (CID, 128, 158)]));
         let lines = radar_lines(&a);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0]["fromName"], "Cid Resident");
         assert_eq!(lines[0]["text"], "entered radar range (30 m).");
+        assert_eq!(lines[0]["timestamp"], 3000);
+        // Bob is gone from the sweep (left the region or logged out): a leave
+        // line under his name, dated with this sweep, no distance to give.
+        st.now_ms = 4000;
+        let a = route(&mut st, &coarse_sweep(&[(ANN, 138, 128), (CID, 128, 158)]));
+        let lines = radar_lines(&a);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0]["fromId"], BOB);
+        assert_eq!(lines[0]["fromName"], "Bob Builder");
+        assert_eq!(lines[0]["text"], "left radar range.");
+        assert_eq!(lines[0]["radar"]["event"], "leave");
+        assert!(lines[0]["radar"]["range"].is_null());
+        assert_eq!(lines[0]["timestamp"], 4000);
+        assert!(!st.radar_inside.contains(BOB));
     }
 
     #[test]
@@ -6058,6 +6115,16 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0]["fromId"], BOB);
         assert_eq!(lines[0]["fromName"], "");
+        assert_eq!(lines[0]["timestamp"], 2000, "dated with the arrival, three seconds back");
+        assert!(st.radar_pending.is_empty());
+        // Someone who comes and goes before their name arrives was never
+        // announced, so their leaving is not announced either.
+        const DAN: &str = "dddddddd-0000-0000-0000-000000000005";
+        st.now_ms = 6000;
+        assert!(radar_lines(&route(&mut st, &coarse_sweep(&[(BOB, 148, 128), (DAN, 128, 148)]))).is_empty());
+        assert_eq!(st.radar_pending.len(), 1);
+        st.now_ms = 7000;
+        assert!(radar_lines(&route(&mut st, &coarse_sweep(&[(BOB, 148, 128)]))).is_empty());
         assert!(st.radar_pending.is_empty());
     }
 
@@ -6069,20 +6136,31 @@ mod tests {
         let mut st = SessionState { now_ms: 1000, ..Default::default() };
         st.set_name(BOB, "Bob Builder");
         assert!(radar_range_reports(&mut st, &sweep(50.0), true, 96.0).is_empty(), "first sweep primes");
-        // Gone, then back with the alerts off: the bookkeeping continues,
-        // nothing is said.
-        assert!(radar_range_reports(&mut st, &[], true, 96.0).is_empty());
+        // Gone from the sweep altogether: a leave line, no distance to give.
+        let a = radar_range_reports(&mut st, &[], true, 96.0);
+        assert_eq!(radar_lines(&a).len(), 1);
+        assert_eq!(radar_lines(&a)[0]["text"], "left radar range.");
+        assert_eq!(radar_lines(&a)[0]["radar"]["event"], "leave");
         assert!(!st.radar_inside.contains(BOB));
+        // Back, and gone, and back with the alerts off: the bookkeeping
+        // continues, nothing is said either way.
+        assert!(radar_range_reports(&mut st, &sweep(50.0), false, 96.0).is_empty());
+        assert!(radar_range_reports(&mut st, &[], false, 96.0).is_empty());
         assert!(radar_range_reports(&mut st, &sweep(50.0), false, 96.0).is_empty());
         assert!(st.radar_inside.contains(BOB));
         // Switched on later: Bob was already inside, so still nothing.
         assert!(radar_range_reports(&mut st, &sweep(60.0), true, 96.0).is_empty());
-        // Idling on the boundary (96 -> 100 -> 90) is not a fresh arrival.
+        // Idling on the boundary (96 -> 100 -> 90) is neither a departure
+        // nor a fresh arrival.
         assert!(radar_range_reports(&mut st, &sweep(100.0), true, 96.0).is_empty());
         assert!(st.radar_inside.contains(BOB), "within the slack he still counts as inside");
         assert!(radar_range_reports(&mut st, &sweep(90.0), true, 96.0).is_empty());
-        // Well outside, then back in: a return worth a line.
-        assert!(radar_range_reports(&mut st, &sweep(110.0), true, 96.0).is_empty());
+        // Well outside: a leave line with the distance; then back in: a
+        // return worth a line.
+        let a = radar_range_reports(&mut st, &sweep(110.0), true, 96.0);
+        assert_eq!(radar_lines(&a).len(), 1);
+        assert_eq!(radar_lines(&a)[0]["text"], "left radar range (110 m).");
+        assert_eq!(radar_lines(&a)[0]["radar"]["range"], 110.0);
         assert!(!st.radar_inside.contains(BOB));
         let a = radar_range_reports(&mut st, &sweep(40.0), true, 96.0);
         assert_eq!(radar_lines(&a).len(), 1);

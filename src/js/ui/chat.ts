@@ -1022,16 +1022,25 @@ const BeeChat = (function () {
   }
 
   // A radar range report from the Rust core: a system line reading
-  // "<name> entered radar range (12 m).", the name a profile link. A report
+  // "12:34 <name> entered radar range (12 m)." or "... left radar range
+  // (104 m).", the name a profile link. A report
   // posted before the name resolved carries
   // none; the link then starts as the placeholder BeeSlurl.refreshAppLinks
   // relabels the moment the name lands.
   function renderRadarLine(msg) {
     const el = document.createElement('div');
     el.className = 'msg msg--system msg--radar';
+    if (msg.radar && msg.radar.event === 'leave') el.classList.add('msg--radar-leave');
     el.dataset.id = msg.id;
     const body = document.createElement('p');
     body.className = 'msg__body';
+    // The core dates the line with the crossing itself (an arrival may wait
+    // for its name), so this is when it happened, not when it was shown.
+    const time = document.createElement('span');
+    time.className = 'msg__time';
+    time.textContent = String(BeeUtils.formatTime(msg.timestamp));
+    body.appendChild(time);
+    body.appendChild(document.createTextNode(' '));
     const id = String(msg.fromId || '');
     if (id) {
       const url = 'secondlife:///app/agent/' + id + '/about';

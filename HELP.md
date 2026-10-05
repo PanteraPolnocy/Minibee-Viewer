@@ -97,7 +97,7 @@ Links in chat and IM open the map, profiles, or your browser. Unfamiliar website
 
 **Search** - three characters minimum; People, Places, or Groups. Places and groups are shown up to the rating chosen in **Bee -> Settings -> Search** - General and Moderate by default, Adult only if you pick it there (the first login asks once). The Destination Guide follows the same choice, and a line under the results says when something was left out; what your account may see at all is still decided by the grid.
 
-**Radar** - who's nearby; range and alerts in **Bee -> Settings** or on the Radar tab. With alerts on, someone new within range is reported in nearby chat ("Ruth entered radar range (12 m).", name clickable). On a wide screen the people button by the chat box puts the same list beside the nearby chat.
+**Radar** - who's nearby; range and alerts in **Bee -> Settings** or on the Radar tab. With alerts on, someone new within range is reported in nearby chat with the time they arrived ("Ruth entered radar range (12 m).", name clickable), and again when they go ("Ruth left radar range (104 m).", or without the distance when they vanished from the region). On a wide screen the people button by the chat box puts the same list beside the nearby chat.
 
 **Map** - pan, click, or type a region / SLURL -> **Show on map** -> **Teleport Here** or **Teleport Home**. Bad names get a toast, not a wild teleport. Progress dialog while moving. On a phone the map fills the screen; the controls slide out from the icon in the top-right corner.
 

@@ -1281,6 +1281,11 @@ button.bee-menu__value--action:disabled {
   font-weight: 600;
 }
 
+/* A departure reads quieter than an arrival. */
+.msg--radar-leave {
+  opacity: 0.8;
+}
+
 .msg__meta {
   display: flex;
   gap: 8px;

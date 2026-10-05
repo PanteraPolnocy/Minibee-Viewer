@@ -176,7 +176,7 @@ Two sub-tabs. **Friends** is the buddy list (search by name or private note, onl
 
 ## Radar
 
-Who's near you and roughly how far. Filter by name, set the range slider (avatars past it are dimmed), and optionally turn on **Alerts**: someone new wandering into range is reported as a line in nearby chat ("Ruth entered radar range (12 m)."), the name a link to their profile. Range and alerts also live in **Bee -> Settings**. On a wide screen the same list can sit beside the nearby chat (the people button by the chat box, or **Bee -> Settings**).
+Who's near you and roughly how far. Filter by name, set the range slider (avatars past it are dimmed), and optionally turn on **Alerts**: someone new wandering into range is reported as a timestamped line in nearby chat ("Ruth entered radar range (12 m)."), the name a link to their profile, and leaving gets its own line ("Ruth left radar range (104 m).", or without the distance when they vanished from the region altogether). Range and alerts also live in **Bee -> Settings**. On a wide screen the same list can sit beside the nearby chat (the people button by the chat box, or **Bee -> Settings**).
 
 ## Interact (nearby objects, avatar actions)
 

@@ -831,7 +831,13 @@ impl Session {
         st.radar_lines_for_resolved_names(session::radar_alerts())
             .into_iter()
             .filter_map(|a| match a {
-                Action::Emit { event, payload } if event == "chat" => Some(payload),
+                // Lines leaving through this side door get the same id and
+                // timestamp stamp as the ones the packet router emits (the
+                // engine already dates them with the arrival, which stays).
+                Action::Emit { event, mut payload } if event == "chat" => {
+                    stamp_event("chat", &mut payload);
+                    Some(payload)
+                }
                 _ => None,
             })
             .collect()
@@ -1250,6 +1256,16 @@ mod tests {
         stamp_event("chat", &mut p);
         assert!(p.get("id").and_then(|v| v.as_str()).is_some());
         assert!(p.get("timestamp").and_then(|v| v.as_u64()).is_some());
+    }
+
+    #[test]
+    fn stamp_keeps_a_timestamp_the_engine_set() {
+        // Radar range reports are dated with the arrival, which can be
+        // seconds before the line goes out; the stamp must not overwrite it.
+        let mut p = json!({ "text": "entered radar range (12 m).", "timestamp": 1234 });
+        stamp_event("chat", &mut p);
+        assert_eq!(p["timestamp"], 1234);
+        assert!(p.get("id").and_then(|v| v.as_str()).is_some());
     }
 
     #[test]
