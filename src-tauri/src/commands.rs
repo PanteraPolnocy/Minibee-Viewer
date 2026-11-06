@@ -155,7 +155,9 @@ pub async fn app_about() -> Cmd {
 
 /// Memory in bytes, returned as (total, used, minibee-process).
 fn mem_snapshot() -> (u64, u64, u64) {
-    let mut sys = sysinfo::System::new();
+    let Ok(mut sys) = sysinfo::System::new() else {
+        return (0, 0, 0);
+    };
     sys.refresh_memory();
     let total = sys.total_memory();
     let used = sys.used_memory();
