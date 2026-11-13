@@ -18,6 +18,8 @@
 const BeeVoice = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const POSITION_INTERVAL_MS = 2000;
   const ICE_FLUSH_MS = 300;
   const RECONNECT_DELAY_MS = 2500;
@@ -170,7 +172,7 @@ const BeeVoice = (function () {
   // The device lists for the settings pickers. Labels only exist once the
   // microphone permission has been granted; numbered stand-ins otherwise.
   async function listDevices(kind) {
-    const out = [['', 'System default']];
+    const out = [['', t('voice.systemDefault')]];
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return out;
       const devs = await navigator.mediaDevices.enumerateDevices();
@@ -178,7 +180,9 @@ const BeeVoice = (function () {
       devs.forEach(function (d) {
         if (d.kind !== kind || !d.deviceId || d.deviceId === 'default' || d.deviceId === 'communications') return;
         n++;
-        out.push([d.deviceId, d.label || ((kind === 'audioinput' ? 'Microphone ' : 'Output ') + n)]);
+        out.push([d.deviceId, d.label || (kind === 'audioinput'
+          ? t('voice.microphoneNumbered', { n: n })
+          : t('voice.outputNumbered', { n: n }))]);
       });
     } catch (_e) { /* the default entry stands */ }
     return out;
@@ -501,7 +505,7 @@ const BeeVoice = (function () {
       connectTimer = null;
       if (seq !== connectSeq || state !== 'connecting') return;
       vlog('connect: timed out waiting for the data channel');
-      scheduleReconnect(auto ? '' : 'Voice took too long to connect.');
+      scheduleReconnect(auto ? '' : t('voice.connectTimeout'));
     }, CONNECT_TIMEOUT_MS);
     try {
       const stun = await BeeBridge.invoke('sl_voice_stun');
@@ -585,7 +589,7 @@ const BeeVoice = (function () {
         if (seq !== connectSeq || !pc) return;
         vlog('peer connection state: ' + pc.connectionState);
         if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-          scheduleReconnect('The voice connection dropped.');
+          scheduleReconnect(t('voice.connectionDropped'));
         }
       };
       const offer = await pc.createOffer();
@@ -621,7 +625,7 @@ const BeeVoice = (function () {
       // voice; a deliberate tap deserves the reason.
       if (!auto) {
         desired = false;
-        BeeUtils.showToast(BeeUtils.errText(err) || 'Voice could not connect.', 'error');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('voice.connectFailed'), 'error');
       }
     }
   }
@@ -677,7 +681,7 @@ const BeeVoice = (function () {
     teardown();
     emitState();
     if (!desired) return;
-    if (reason) BeeUtils.showToast(reason + ' Reconnecting voice...', 'warning');
+    if (reason) BeeUtils.showToast(t('voice.reconnecting', { reason: reason }), 'warning');
     reconnectTimer = setTimeout(function () {
       reconnectTimer = null;
       if (desired && state === 'off' && available()) void connect(true);
@@ -861,7 +865,7 @@ const BeeVoice = (function () {
   // two people: ring timeout and hang-up when the other side leaves.
   async function startCall(sessionId, title, origin?, p2p?) {
     if (callSession) {
-      BeeUtils.showToast('Already in a voice call.', 'warning');
+      BeeUtils.showToast(t('voice.alreadyInCall'), 'warning');
       return;
     }
     if (!BeeState.gridOnline() || !window.RTCPeerConnection) return;
@@ -878,7 +882,7 @@ const BeeVoice = (function () {
       }
       await joinCallChannel(sessionId, title, String(res.channelUri || ''), String(res.credentials || ''), origin, p2p);
     } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not be started.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('voice.callStartFailed'), 'error');
     }
   }
 
@@ -906,11 +910,11 @@ const BeeVoice = (function () {
 
   async function startP2PCall(sessionId, peerId, title) {
     if (callSession) {
-      BeeUtils.showToast('Already in a voice call.', 'warning');
+      BeeUtils.showToast(t('voice.alreadyInCall'), 'warning');
       return;
     }
     if (pendingP2P) {
-      BeeUtils.showToast('A call is already being set up.', 'warning');
+      BeeUtils.showToast(t('voice.callPending'), 'warning');
       return;
     }
     if (!BeeState.gridOnline() || !window.RTCPeerConnection) return;
@@ -922,13 +926,13 @@ const BeeVoice = (function () {
       await BeeBridge.invoke('sl_voice_call_p2p', { sessionId: sessionId, peerId: peerId });
     } catch (err) {
       if (pendingP2P && pendingP2P.sessionId === key) pendingP2P.settle('failed');
-      BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not be started.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('voice.callStartFailed'), 'error');
       return;
     }
-    BeeUtils.showToast('Calling ' + (title || '...') + '...', 'info');
+    BeeUtils.showToast(t('voice.calling', { name: title || '...' }), 'info');
     const outcome = await started;
     if (outcome === 'failed') {
-      BeeUtils.showToast('The call could not be started.', 'error');
+      BeeUtils.showToast(t('voice.callStartFailed'), 'error');
       return;
     }
     if (outcome === 'timeout') vlog('call: no start reply for the p2p session; calling anyway');
@@ -937,14 +941,14 @@ const BeeVoice = (function () {
 
   async function answerCall(invite) {
     if (callSession) {
-      BeeUtils.showToast('Already in a voice call.', 'warning');
+      BeeUtils.showToast(t('voice.alreadyInCall'), 'warning');
       return;
     }
     // invitation_type 2 marks a person-to-person call on the wire.
     const p2p = Number(invite.invitationType) === 2;
     await joinCallChannel(
       String(invite.sessionId || ''),
-      String(invite.sessionName || invite.fromName || 'Voice call'),
+      String(invite.sessionName || invite.fromName || t('voice.callTitle')),
       String(invite.channelUri || ''),
       String(invite.credentials || ''),
       '',
@@ -954,7 +958,7 @@ const BeeVoice = (function () {
 
   async function joinCallChannel(sessionId, title, channelUri, credentials, origin?, p2p?) {
     if (!channelUri) {
-      BeeUtils.showToast('The call carried no voice channel.', 'error');
+      BeeUtils.showToast(t('voice.callNoChannel'), 'error');
       return;
     }
     // One channel at a time: spatial voice pauses for the call.
@@ -984,12 +988,12 @@ const BeeVoice = (function () {
         emitCallState();
         if (cs.p2p) {
           // We're in the channel; the other side hasn't picked up yet.
-          BeeUtils.showToast('Ringing...', 'info');
+          BeeUtils.showToast(t('voice.ringing'), 'info');
           cs.noAnswerTimer = setTimeout(function () {
-            if (callSession === cs && !cs.peerJoined) endCall('No answer.');
+            if (callSession === cs && !cs.peerJoined) endCall(t('voice.noAnswer'));
           }, 45000);
         } else {
-          BeeUtils.showToast('Voice call connected.', 'success');
+          BeeUtils.showToast(t('voice.voiceCallConnected'), 'success');
         }
       }
       // P2P call semantics from the participant roster: "connected" once the
@@ -1005,9 +1009,9 @@ const BeeVoice = (function () {
           cs.peerJoined = true;
           if (cs.noAnswerTimer) { clearTimeout(cs.noAnswerTimer); cs.noAnswerTimer = null; }
           vlog('call: peer joined');
-          BeeUtils.showToast('Call connected.', 'success');
+          BeeUtils.showToast(t('voice.callConnected'), 'success');
         } else if (others === 0 && cs.peerJoined) {
-          endCall('The call ended.');
+          endCall(t('voice.callEnded'));
         }
       }
       function csBind(ch) {
@@ -1052,7 +1056,7 @@ const BeeVoice = (function () {
         if (callSession !== cs || !cs.pc) return;
         vlog('call: peer connection state ' + cs.pc.connectionState);
         if (cs.pc.connectionState === 'failed' || cs.pc.connectionState === 'closed') {
-          endCall('The call dropped.');
+          endCall(t('voice.callDropped'));
         }
       };
 
@@ -1072,7 +1076,7 @@ const BeeVoice = (function () {
       if (callSession !== cs) return;
       vlog('call: failed: ' + (BeeUtils.errText(err) || err));
       endCall('');
-      BeeUtils.showToast(BeeUtils.errText(err) || 'The call could not connect.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('voice.callConnectFailed'), 'error');
     }
   }
 
@@ -1148,12 +1152,12 @@ const BeeVoice = (function () {
       micMuted = true;
       applyMicMute();
       emitState();
-      BeeUtils.showToast('Microphone muted.', 'warning');
+      BeeUtils.showToast(t('voice.micMuted'), 'warning');
       return;
     }
     if (!micStream) {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        BeeUtils.showToast('This platform offers no microphone access.', 'error');
+        BeeUtils.showToast(t('voice.noMicAccess'), 'error');
         return;
       }
       try {
@@ -1207,9 +1211,9 @@ const BeeVoice = (function () {
         stopTracks();
         const name = err && err.name;
         BeeUtils.showToast(
-          name === 'NotAllowedError' ? 'Microphone access was denied.'
-            : name === 'NotFoundError' ? 'No microphone found.'
-              : BeeUtils.errText(err) || 'The microphone could not be opened.',
+          name === 'NotAllowedError' ? t('voice.micDenied')
+            : name === 'NotFoundError' ? t('voice.micNotFound')
+              : BeeUtils.errText(err) || t('voice.micOpenFailed'),
           'error'
         );
         return;
@@ -1218,7 +1222,7 @@ const BeeVoice = (function () {
     micMuted = false;
     applyMicMute();
     emitState();
-    BeeUtils.showToast('Microphone live.', 'success');
+    BeeUtils.showToast(t('voice.micLive'), 'success');
   }
 
   function toggleMute() {
@@ -1248,12 +1252,14 @@ const BeeVoice = (function () {
     const on = el('voice-icon-on');
     if (off) off.toggleAttribute('hidden', live);
     if (on) on.toggleAttribute('hidden', !live);
-    btn.title = inCall() ? ('In a call: ' + (callSession.title || 'voice call') +
-        (micMuted ? ' - tap to unmute (right-click to hang up)' : ' - tap to mute (right-click to hang up)'))
-      : state === 'off' ? 'Join voice (nearby chat)'
-        : state === 'connecting' ? 'Voice connecting...'
-          : micMuted ? 'Voice on, listening - tap to unmute the microphone (right-click to leave)'
-            : 'Microphone live - tap to mute (right-click to leave)';
+    const callName = inCall() ? (callSession.title || t('voice.aCall')) : '';
+    btn.title = inCall() ? (micMuted
+      ? t('voice.hintInCallMuted', { name: callName })
+      : t('voice.hintInCallLive', { name: callName }))
+      : state === 'off' ? t('voice.hintJoin')
+        : state === 'connecting' ? t('voice.hintConnecting')
+          : micMuted ? t('voice.hintListening')
+            : t('voice.hintLive');
     btn.setAttribute('aria-label', btn.title);
   }
 
@@ -1273,19 +1279,22 @@ const BeeVoice = (function () {
         const items = [];
         const connected = state === 'on' || inCall();
         if (connected) {
-          items.push({ label: micMuted ? 'Unmute microphone' : 'Mute microphone', action: toggleMute });
           items.push({
-            label: inCall() ? 'Hang up' : 'Leave voice',
+            label: micMuted ? t('voice.unmuteMic') : t('voice.muteMic'),
+            action: toggleMute
+          });
+          items.push({
+            label: inCall() ? t('voice.hangUp') : t('voice.leave'),
             action: function () {
               if (inCall()) endCall('');
               else leave();
             }
           });
         } else if (state === 'off') {
-          items.push({ label: 'Join voice', action: join, disabled: !available() });
+          items.push({ label: t('voice.join'), action: join, disabled: !available() });
         }
         items.push({
-          label: 'Voice settings',
+          label: t('voice.settings'),
           action: function () {
             if (typeof BeeNavigation !== 'undefined') BeeNavigation.switchTab('settings');
           }
@@ -1387,6 +1396,9 @@ const BeeVoice = (function () {
         render();
       });
     }
+    // The mic button's hint stays until the next state change; a language
+    // switch repaints it right away.
+    BeeI18n.onChange(function () { render(); });
     render();
   }
 

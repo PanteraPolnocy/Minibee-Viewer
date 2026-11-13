@@ -10,9 +10,26 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
+use crate::uitext::ui_err;
+
 type Cmd = Result<Value, String>;
 
 const KINDS: [&str; 3] = ["avatars", "groups", "local"];
+
+/// The app data directory could not be found or created.
+fn no_data_directory() -> String {
+    ui_err("err.noDataDirectory", json!({}))
+}
+
+/// An agent id that cannot name an account folder.
+fn bad_log_account() -> String {
+    ui_err("err.badLogAccount", json!({}))
+}
+
+/// A kind or name that resolves to no log file.
+fn bad_log_target() -> String {
+    ui_err("err.badLogTarget", json!({}))
+}
 /// One appended line is a chat message plus a timestamp; anything much bigger
 /// is not chat.
 const MAX_LINE_BYTES: usize = 8 * 1024;
@@ -135,17 +152,18 @@ fn account_segments(base: &Path) -> Vec<String> {
 
 pub fn append_line(base: &Path, agent: &str, kind: &str, name: &str, line: &str) -> Result<(), String> {
     // New lines always belong to an account; only old files live in the shared folder.
-    let segment = canonical_uuid(agent).ok_or("Bad log account")?;
-    let path = log_file(base, &segment, kind, name).ok_or("Bad log target")?;
+    let segment = canonical_uuid(agent).ok_or_else(bad_log_account)?;
+    let path = log_file(base, &segment, kind, name).ok_or_else(bad_log_target)?;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
-        .map_err(|e| format!("Could not open the log file: {e}"))?;
+        .map_err(|e| ui_err("err.logOpenFailed", json!({ "error": e.to_string() })))?;
     // One line per message: embedded newlines become the visual "¦" so a log
     // line always equals one message.
     let flat: String = line.chars().map(|c| if c == '\n' || c == '\r' { '¦' } else { c }).collect();
-    writeln!(file, "{flat}").map_err(|e| format!("Could not write the log file: {e}"))
+    writeln!(file, "{flat}")
+        .map_err(|e| ui_err("err.logWriteFailed", json!({ "error": e.to_string() })))
 }
 
 /// Reading the last few lines only needs the end of the file; this is far more
@@ -157,7 +175,7 @@ const TAIL_CHUNK_BYTES: u64 = 64 * 1024;
 /// shows. A missing file is an empty history, not an error, and nothing is
 /// created on the way.
 pub fn read_tail(base: &Path, agent: &str, kind: &str, name: &str, max: usize) -> Result<Vec<String>, String> {
-    let segment = canonical_uuid(agent).ok_or("Bad log account")?;
+    let segment = canonical_uuid(agent).ok_or_else(bad_log_account)?;
     let Some(path) = [segment.as_str(), ""]
         .iter()
         .filter_map(|seg| log_path(base, seg, kind, name))
@@ -165,7 +183,9 @@ pub fn read_tail(base: &Path, agent: &str, kind: &str, name: &str, max: usize) -
     else {
         return Ok(Vec::new());
     };
-    let err = |e: std::io::Error| format!("Could not read the log file: {e}");
+    let err = |e: std::io::Error| {
+        ui_err("err.logReadFailed", json!({ "error": e.to_string() }))
+    };
     let mut file = std::fs::File::open(&path).map_err(err)?;
     let len = file.metadata().map_err(err)?.len();
     let start = len.saturating_sub(TAIL_CHUNK_BYTES);
@@ -214,14 +234,16 @@ pub fn list_logs(base: &Path) -> Vec<(String, String, String, u64)> {
 /// The path is rebuilt through the same sanitizer that wrote it, so this can
 /// only ever touch files inside one account's `logs/<kind>/`.
 pub fn delete_logs(base: &Path, agent: &str, kind: &str, name: Option<&str>) -> Result<u64, String> {
-    let segment = account_segment(agent).ok_or("Bad log account")?;
-    let dir = kind_dir(base, &segment, kind).ok_or("Bad log kind")?;
+    let segment = account_segment(agent).ok_or_else(bad_log_account)?;
+    let dir = kind_dir(base, &segment, kind).ok_or_else(|| ui_err("err.badLogKind", json!({})))?;
     let mut deleted = 0u64;
     match name {
         Some(name) => {
-            let path = log_file(base, &segment, kind, name).ok_or("Bad log target")?;
+            let path = log_file(base, &segment, kind, name).ok_or_else(bad_log_target)?;
             if path.is_file() {
-                std::fs::remove_file(&path).map_err(|e| format!("Could not delete the log: {e}"))?;
+                std::fs::remove_file(&path).map_err(|e| {
+                    ui_err("err.logDeleteFailed", json!({ "error": e.to_string() }))
+                })?;
                 deleted = 1;
             }
         }
@@ -259,9 +281,9 @@ pub fn usage(base: &Path) -> (u64, u64) {
 #[tauri::command]
 pub async fn chat_log_append(app: tauri::AppHandle, agent: String, kind: String, name: String, line: String) -> Cmd {
     if line.len() > MAX_LINE_BYTES {
-        return Err("Log line too long".into());
+        return Err(ui_err("err.logLineTooLong", json!({})));
     }
-    let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
+    let base = crate::bridge::scripts::app_data_dir(&app).ok_or_else(no_data_directory)?;
     append_line(&base, &agent, &kind, &name, &line)?;
     Ok(json!({ "ok": true }))
 }
@@ -270,7 +292,7 @@ pub async fn chat_log_append(app: tauri::AppHandle, agent: String, kind: String,
 /// conversation opens. An absent file just means no history.
 #[tauri::command]
 pub async fn chat_log_tail(app: tauri::AppHandle, agent: String, kind: String, name: String, lines: Option<usize>) -> Cmd {
-    let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
+    let base = crate::bridge::scripts::app_data_dir(&app).ok_or_else(no_data_directory)?;
     let max = lines.unwrap_or(10).clamp(1, 100);
     let rows = read_tail(&base, &agent, &kind, &name, max)?;
     Ok(json!({ "ok": true, "lines": rows }))
@@ -280,7 +302,7 @@ pub async fn chat_log_tail(app: tauri::AppHandle, agent: String, kind: String, n
 /// from before logs were split per account.
 #[tauri::command]
 pub async fn chat_log_list(app: tauri::AppHandle) -> Cmd {
-    let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
+    let base = crate::bridge::scripts::app_data_dir(&app).ok_or_else(no_data_directory)?;
     let rows: Vec<Value> = list_logs(&base)
         .into_iter()
         .map(|(agent, kind, name, bytes)| json!({ "agent": agent, "kind": kind, "name": name, "bytes": bytes }))
@@ -292,7 +314,7 @@ pub async fn chat_log_list(app: tauri::AppHandle) -> Cmd {
 /// log manager, behind its own confirmation.
 #[tauri::command]
 pub async fn chat_log_delete(app: tauri::AppHandle, agent: String, kind: String, name: Option<String>) -> Cmd {
-    let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
+    let base = crate::bridge::scripts::app_data_dir(&app).ok_or_else(no_data_directory)?;
     let deleted = delete_logs(&base, &agent, &kind, name.as_deref())?;
     Ok(json!({ "ok": true, "deleted": deleted }))
 }
@@ -300,7 +322,7 @@ pub async fn chat_log_delete(app: tauri::AppHandle, agent: String, kind: String,
 /// How much disk the chat logs take, and where they live.
 #[tauri::command]
 pub async fn chat_log_usage(app: tauri::AppHandle) -> Cmd {
-    let base = crate::bridge::scripts::app_data_dir(&app).ok_or("No data directory")?;
+    let base = crate::bridge::scripts::app_data_dir(&app).ok_or_else(no_data_directory)?;
     let (bytes, files) = usage(&base);
     Ok(json!({
         "ok": true,
@@ -366,8 +388,11 @@ mod tests {
         append_line(&base, AGENT, "avatars", "Some One", "[2026-09-01 12:01] Me: hello").unwrap();
         append_line(&base, AGENT, "groups", "Bee Lovers", "[2026-09-01 12:02] Some One: buzz").unwrap();
         // An unknown kind or a non-account agent is refused, not written somewhere surprising.
-        assert!(append_line(&base, AGENT, "..", "x", "y").is_err());
-        assert!(append_line(&base, "", "avatars", "x", "y").is_err());
+        let bad_kind = append_line(&base, AGENT, "..", "x", "y").unwrap_err();
+        assert_eq!(crate::uitext::plain(&bad_kind), "Bad log target");
+        let bad_agent = append_line(&base, "", "avatars", "x", "y").unwrap_err();
+        assert_eq!(crate::uitext::plain(&bad_agent), "Bad log account");
+        assert_eq!(crate::uitext::UiText::decode(&bad_agent).unwrap().key, "err.badLogAccount");
         assert!(append_line(&base, "../escape/aaaa-bbbb-cccc-dddd-ee", "avatars", "x", "y").is_err());
         let text = std::fs::read_to_string(base.join(AGENT).join("logs/avatars/Some One.txt")).unwrap();
         assert_eq!(text.lines().count(), 2, "embedded newline flattened: {text}");

@@ -7,6 +7,8 @@
 //! Not counted: the voice call and the parcel music stream, which the
 //! WebView carries itself (WebRTC and an audio element), never this core.
 
+use crate::uitext::UiText;
+use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Who moved the bytes: the sim's UDP circuit, or an HTTP exchange (caps,
@@ -79,20 +81,22 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
-/// The totals since launch, ready for a tooltip: overall down/up, then the
-/// split between the sim circuit and HTTP, e.g.
-/// "Since launch: ↓ 120.4 MB  ↑ 8.1 MB (circuit ↓ 110.2 MB ↑ 7.0 MB, HTTP ↓ 10.2 MB ↑ 1.1 MB)".
-pub fn totals_label() -> String {
+/// The totals since launch, a keyed line for the tooltip and the Bee menu:
+/// overall down/up, then the split between the sim circuit and HTTP, e.g.
+/// "↓ 120.4 MB  ↑ 8.1 MB (circuit ↓ 110.2 MB ↑ 7.0 MB, HTTP ↓ 10.2 MB ↑ 1.1 MB)".
+pub fn totals_line() -> UiText {
     let (udp_in, udp_out) = lane_totals(Lane::Udp);
     let (http_in, http_out) = lane_totals(Lane::Http);
-    format!(
-        "Since launch: \u{2193} {}  \u{2191} {} (circuit \u{2193} {} \u{2191} {}, HTTP \u{2193} {} \u{2191} {})",
-        format_bytes(udp_in + http_in),
-        format_bytes(udp_out + http_out),
-        format_bytes(udp_in),
-        format_bytes(udp_out),
-        format_bytes(http_in),
-        format_bytes(http_out)
+    UiText::new(
+        "topbar.trafficTotals",
+        json!({
+            "down": format_bytes(udp_in + http_in),
+            "up": format_bytes(udp_out + http_out),
+            "circuitDown": format_bytes(udp_in),
+            "circuitUp": format_bytes(udp_out),
+            "httpDown": format_bytes(http_in),
+            "httpUp": format_bytes(http_out),
+        }),
     )
 }
 
@@ -123,10 +127,13 @@ mod tests {
         assert!(lane_totals(Lane::Udp).0 >= u0 + 1500);
         assert!(lane_totals(Lane::Http).1 >= h0 + 300);
         // Other tests add to the counters in parallel, so only the growth
-        // is checked - and the label always carries every part.
-        let label = totals_label();
-        assert!(label.starts_with("Since launch: \u{2193} "), "{label}");
+        // is checked - and the line always carries every part.
+        let line = totals_line();
+        let label = line.text.clone();
+        assert_eq!(line.key, "topbar.trafficTotals");
+        assert!(label.starts_with("\u{2193} "), "{label}");
         assert!(label.contains("(circuit \u{2193} ") && label.contains(", HTTP \u{2193} "), "{label}");
+        assert!(line.args["httpUp"].is_string());
     }
 
     #[test]

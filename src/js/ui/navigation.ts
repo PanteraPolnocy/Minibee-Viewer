@@ -4,7 +4,9 @@
 const BeeNavigation = (function () {
   'use strict';
 
-  const TABS = ['chat', 'im', 'interact', 'events', 'buddies', 'search', 'radar', 'map', 'land', 'destinations', 'scripts', 'notecards', 'news', 'settings'];
+  const t = BeeI18n.t;
+
+  const TABS =['chat', 'im', 'interact', 'events', 'buddies', 'search', 'radar', 'map', 'land', 'destinations', 'scripts', 'notecards', 'news', 'settings'];
   const radarKnownIds = new Set();
   const SLT_TICK_MS = 60000;
   let sltTimer = null;
@@ -229,15 +231,17 @@ const BeeNavigation = (function () {
       : '';
     if (!state.connected || state.sessionLost) return '';
     const parcel = state.parcel;
+    const land = t('topbar.land');
     if (!parcel) {
-      return coordSuffix ? 'Land' + coordSuffix : '';
+      return coordSuffix ? land + coordSuffix : '';
     }
     const rawName = String(parcel.name || parcel.parcelName || '').trim();
-    const placeholder = !rawName || rawName === 'Current parcel' || rawName === 'Parcel';
+    // The stub the session starts with (sl-bridge.ts) has no name.
+    const placeholder = !rawName;
     if (parcel.stub && placeholder) {
-      return coordSuffix ? 'Land' + coordSuffix : '';
+      return coordSuffix ? land + coordSuffix : '';
     }
-    const name = placeholder ? 'Land' : rawName;
+    const name = placeholder ? land : rawName;
     return name + coordSuffix;
   }
 
@@ -248,14 +252,14 @@ const BeeNavigation = (function () {
     const s = BeeState.get();
     if (!s.connected || s.sessionLost || typeof BeeProfiles === 'undefined' ||
         typeof BeeProfiles.getActiveGroupInfo !== 'function') {
-      titleEl.textContent = 'No active group title';
+      titleEl.textContent = t('topbar.noGroupTitle');
       titleEl.classList.add('top-bar__group-title--empty');
       if (nameEl) nameEl.hidden = true;
       return;
     }
     const active = BeeProfiles.getActiveGroupInfo();
     if (!active || !active.id || BeeProfiles.isZero(active.id)) {
-      titleEl.textContent = 'No active group title';
+      titleEl.textContent = t('topbar.noGroupTitle');
       titleEl.classList.add('top-bar__group-title--empty');
       if (nameEl) {
         nameEl.hidden = true;
@@ -265,7 +269,7 @@ const BeeNavigation = (function () {
     }
     titleEl.classList.remove('top-bar__group-title--empty');
     const title = String(active.title || '').trim();
-    titleEl.textContent = title || 'Member';
+    titleEl.textContent = title || t('topbar.member');
     if (nameEl) {
       nameEl.hidden = true;
       nameEl.textContent = '';
@@ -289,34 +293,34 @@ const BeeNavigation = (function () {
         s.connected ? 'status-dot--online' : 'status-dot--offline'
       );
       if (s.sessionLost) {
-        dot.title = 'Disconnected from simulator';
+        dot.title = t('topbar.statusDisconnected');
       } else if (s.connected) {
-        dot.title = 'Connected';
+        dot.title = t('topbar.statusConnected');
       } else if (s.connecting) {
-        dot.title = 'Connecting';
+        dot.title = t('topbar.statusConnecting');
       } else {
-        dot.title = 'Offline';
+        dot.title = t('common.offline');
       }
     }
     if (name) {
-      name.textContent = s.agent ? s.agent.displayName : 'Agent';
+      name.textContent = s.agent ? s.agent.displayName : t('topbar.agent');
       const canOpenProfile = !!(s.connected && !s.sessionLost && s.agent && s.agent.id);
       name.classList.toggle('top-bar__name--interactive', canOpenProfile);
-      name.title = canOpenProfile ? 'View your profile' : '';
+      name.title = canOpenProfile ? t('topbar.viewYourProfile') : '';
       if (name.tagName === 'BUTTON') name.disabled = !canOpenProfile;
       const identity = document.querySelector<HTMLElement>('.top-bar__identity');
       if (identity) {
         identity.classList.toggle('top-bar__identity--interactive', canOpenProfile);
-        identity.title = canOpenProfile ? 'View your profile' : '';
+        identity.title = canOpenProfile ? t('topbar.viewYourProfile') : '';
       }
     }
     if (region) {
-      region.textContent = s.sessionLost ? 'Disconnected' : (s.region ? s.region.name : 'Offline');
+      region.textContent = regionLine(s);
     }
     if (parcelLine) {
       const line = formatParcelLine(s);
       parcelLine.textContent = line || '\u2014';
-      parcelLine.title = line || 'Parcel';
+      parcelLine.title = line || t('topbar.parcel');
     }
     if (stats) {
       stats.hidden = !(s.connected && !s.sessionLost);
@@ -324,22 +328,32 @@ const BeeNavigation = (function () {
     if (balance) {
       balance.textContent = BeeUtils.formatLindenBalance(s.lindenBalance);
       const online = !!(s.connected && !s.sessionLost);
-      balance.title = online ? balanceTitle() : 'Linden dollar balance';
+      balance.title = online ? balanceTitle() : t('topbar.balance');
       if (balance.tagName === 'BUTTON') (balance as HTMLButtonElement).disabled = !online;
     }
-    if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '-- FPS';
+    if (fps) fps.textContent = s.connected ? fpsLabel(s.fps) : t('topbar.fpsNone');
     updateActiveGroupLines();
     updateSltClock();
     updateBeeMenu();
     updateLocationMenu();
   }
 
+  function fpsLabel(fps) {
+    return t('topbar.fps', { fps: fps });
+  }
+
+  // The region readout: its name, or the state of the connection instead.
+  function regionLine(s) {
+    if (s.sessionLost) return t('topbar.disconnected');
+    return s.region ? s.region.name : t('common.offline');
+  }
+
   // What a tap on the balance offers: the small menu with Buy L$ (where this
   // edition sells it - the core says), a refresh from the server and a copy.
   function balanceTitle() {
     return BeeState.get().canBuyCurrency
-      ? 'Linden dollar balance - click to buy L$ or refresh'
-      : 'Linden dollar balance - click to refresh';
+      ? t('topbar.balanceBuyOrRefresh')
+      : t('topbar.balanceRefresh');
   }
 
   // Tapping the balance opens the same menu its right-click shows. The
@@ -374,10 +388,10 @@ const BeeNavigation = (function () {
     if (balance) {
       balance.textContent = BeeUtils.formatLindenBalance(s.lindenBalance);
       const online = !!(s.connected && !s.sessionLost);
-      balance.title = online ? balanceTitle() : 'Linden dollar balance';
+      balance.title = online ? balanceTitle() : t('topbar.balance');
       if (balance.tagName === 'BUTTON') (balance as HTMLButtonElement).disabled = !online;
     }
-    if (fps) fps.textContent = s.connected ? s.fps + ' FPS' : '--';
+    if (fps) fps.textContent = s.connected ? fpsLabel(s.fps) : '--';
     const slt = document.getElementById('bee-menu-slt');
     if (slt) {
       slt.textContent = (!s.connected || s.sessionLost)
@@ -403,7 +417,7 @@ const BeeNavigation = (function () {
     const s = BeeState.get();
     if (parcelEl) parcelEl.textContent = formatParcelLine(s) || '-';
     if (regionEl) {
-      regionEl.textContent = s.sessionLost ? 'Disconnected' : (s.region ? s.region.name : 'Offline');
+      regionEl.textContent = regionLine(s);
     }
   }
 
@@ -502,20 +516,22 @@ const BeeNavigation = (function () {
 
     BeeTransport.on('net-rate', function (rate) {
       const total = ((rate && rate.inBps) || 0) + ((rate && rate.outBps) || 0);
-      const t = (rate && rate.level) || 0;
+      const level = (rate && rate.level) || 0;
       meter.hidden = !BeeState.gridOnline();
-      bar.style.height = Math.max(total > 0 ? 12 : 4, Math.round(t * 100)) + '%';
-      const hue = Math.round(120 - t * 120); // 120 green -> 0 red
+      bar.style.height = Math.max(total > 0 ? 12 : 4, Math.round(level * 100)) + '%';
+      const hue = Math.round(120 - level * 120); // 120 green -> 0 red
       bar.style.background = 'hsl(' + hue + ', 85%, 52%)';
       const text = (rate && rate.label) || '';
       // The core also ships the totals since launch (circuit and HTTP
-      // split), formatted; they ride under the rate in the tooltip and in
+      // split), formatted and keyed, so they arrive in the UI language
+      // (BeeI18n.localize); they ride under the rate in the tooltip and in
       // the bee menu, where a phone can read them.
       const totals = (rate && rate.totalsLabel) || '';
-      liveTitle = 'Network: ' + text + (totals ? '\n' + totals : '');
+      liveTitle = t('topbar.network', { rate: text }) +
+        (totals ? '\n' + t('topbar.sinceLaunch', { totals: totals }) : '');
       if (!hovered) meter.title = liveTitle;
       if (menuNet) menuNet.textContent = text;
-      if (menuTotal && totals) menuTotal.textContent = totals.replace(/^Since launch:\s*/, '');
+      if (menuTotal && totals) menuTotal.textContent = totals;
     });
 
     BeeTransport.on('disconnected', function () {
@@ -542,7 +558,7 @@ const BeeNavigation = (function () {
           menu.hidden = true;
           if (!navigator.clipboard) return;
           navigator.clipboard.writeText(value).then(function () {
-            BeeUtils.showToast(what + ' copied', 'success');
+            BeeUtils.showToast(t('common.copiedWhat', { what: what }), 'success');
           }).catch(function () {});
         });
       }
@@ -554,17 +570,17 @@ const BeeNavigation = (function () {
     function copySlurlItem() {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = 'Copy SLURL';
+      btn.textContent = t('menu.copySlurl');
       btn.disabled = !BeeState.gridOnline();
       btn.addEventListener('click', function () {
         menu.hidden = true;
         BeeBridge.invoke('sl_current_slurl').then(function (res) {
           if (!res || !res.slurl || !navigator.clipboard) return;
           navigator.clipboard.writeText(res.slurl).then(function () {
-            BeeUtils.showToast('SLURL copied', 'success');
+            BeeUtils.showToast(t('common.copiedWhat', { what: 'SLURL' }), 'success');
           }).catch(function () {});
         }).catch(function (err) {
-          BeeUtils.showToast(err && err.message ? err.message : String(err || 'No location yet.'), 'warning');
+          BeeUtils.showToast(BeeUtils.errText(err) || t('topbar.noLocation'), 'warning');
         });
       });
       menu.appendChild(btn);
@@ -579,8 +595,8 @@ const BeeNavigation = (function () {
       menu.innerHTML = '';
       menu.hidden = false;
       copySlurlItem();
-      copyItem('Copy region name', regionName, 'Region name');
-      copyItem('Copy parcel name', parcelName, 'Parcel name');
+      copyItem(t('menu.copyRegionName'), regionName, t('topbar.regionName'));
+      copyItem(t('menu.copyParcelName'), parcelName, t('topbar.parcelName'));
       const rect = menu.getBoundingClientRect();
       menu.style.left = Math.max(0, Math.min(e.clientX, window.innerWidth - rect.width - 8)) + 'px';
       menu.style.top = Math.max(0, Math.min(e.clientY, window.innerHeight - rect.height - 8)) + 'px';
@@ -598,7 +614,7 @@ const BeeNavigation = (function () {
       const online = !!(agent && agent.id && s.connected && !s.sessionLost);
       return [
         {
-          label: 'View profile',
+          label: t('menu.viewProfile'),
           disabled: !online,
           action: function () {
             if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) {
@@ -607,23 +623,23 @@ const BeeNavigation = (function () {
           }
         },
         {
-          label: 'Copy name',
+          label: t('common.copyName'),
           disabled: !agent,
           action: function () {
             if (agent && navigator.clipboard) {
               navigator.clipboard.writeText(agent.displayName || agent.name || '').then(function () {
-                BeeUtils.showToast('Name copied', 'success');
+                BeeUtils.showToast(t('common.copiedWhat', { what: t('common.name') }), 'success');
               }).catch(function () {});
             }
           }
         },
         {
-          label: 'Copy UUID',
+          label: t('common.copyUuid'),
           disabled: !(agent && agent.id),
           action: function () {
             if (agent && agent.id && navigator.clipboard) {
               navigator.clipboard.writeText(agent.id).then(function () {
-                BeeUtils.showToast('UUID copied', 'success');
+                BeeUtils.showToast(t('common.copiedWhat', { what: t('common.uuid') }), 'success');
               }).catch(function () {});
             }
           }
@@ -640,7 +656,7 @@ const BeeNavigation = (function () {
       // that does: the entry is simply absent there (the core decides).
       if (BeeState.get().canBuyCurrency) {
         items.push({
-          label: 'Buy L$...',
+          label: t('menu.buyCurrency'),
           disabled: !online,
           action: function () {
             if (typeof BeeCurrency !== 'undefined') BeeCurrency.open();
@@ -649,19 +665,19 @@ const BeeNavigation = (function () {
       }
       return items.concat([
         {
-          label: 'Refresh balance',
+          label: t('menu.refreshBalance'),
           disabled: !online,
           action: function () {
             BeeBridge.invoke('sl_request_balance').catch(function () {});
           }
         },
         {
-          label: 'Copy balance',
+          label: t('menu.copyBalance'),
           disabled: typeof balance !== 'number',
           action: function () {
             if (navigator.clipboard) {
               navigator.clipboard.writeText(String(balance)).then(function () {
-                BeeUtils.showToast('Balance copied', 'success');
+                BeeUtils.showToast(t('common.copiedWhat', { what: t('topbar.balanceWhat') }), 'success');
               }).catch(function () {});
             }
           }
@@ -672,12 +688,12 @@ const BeeNavigation = (function () {
     BeeContextMenu.register('#slt-clock, #bee-menu-slt', function (host) {
       const text = String(host.textContent || '').trim();
       return [{
-        label: 'Copy time',
+        label: t('menu.copyTime'),
         disabled: !text || text.indexOf('--') === 0,
         action: function () {
           if (navigator.clipboard) {
             navigator.clipboard.writeText(text).then(function () {
-              BeeUtils.showToast('Time copied', 'success');
+              BeeUtils.showToast(t('common.copiedWhat', { what: t('topbar.timeWhat') }), 'success');
             }).catch(function () {});
           }
         }
@@ -755,6 +771,13 @@ const BeeNavigation = (function () {
         if (evt && evt.kind === 'active-group') updateActiveGroupLines();
       });
     }
+
+    // A language switch: the top bar's readouts and tooltips (status, region,
+    // parcel, balance, FPS, group title, the bee and location menus) are
+    // painted from state, so one repaint puts them in the new words.
+    BeeI18n.onChange(function () {
+      updateTopBar();
+    });
   }
 
   return {

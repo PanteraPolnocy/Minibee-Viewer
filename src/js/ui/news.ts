@@ -5,6 +5,8 @@
 const BeeNews = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const DEFAULT_TAB = 'linden';
   const PANES = {
     linden: 'news-pane-linden',
@@ -37,7 +39,7 @@ const BeeNews = (function () {
     if (!s) return '';
     const d = new Date(s);
     if (isNaN(d.getTime())) return s;
-    return d.toLocaleString();
+    return d.toLocaleString(BeeI18n.dateLocale());
   }
 
   function metaLine(item) {
@@ -56,7 +58,7 @@ const BeeNews = (function () {
     const rows = items[FEEDS[tab]] || [];
     list.innerHTML = '';
     if (!rows.length) {
-      list.innerHTML = '<p class="news-empty">Nothing to show.</p>';
+      list.innerHTML = '<p class="news-empty">' + BeeUtils.escapeHtml(t('news.empty')) + '</p>';
       return;
     }
     rows.forEach(function (item) {
@@ -76,7 +78,7 @@ const BeeNews = (function () {
             '" alt="" loading="lazy" decoding="async">'
           : '') +
         '<span class="news-item__headings">' +
-          '<span class="news-item__title">' + BeeUtils.escapeHtml(item.title || 'Untitled') + '</span>' +
+          '<span class="news-item__title">' + BeeUtils.escapeHtml(item.title || t('news.untitled')) + '</span>' +
           '<span class="news-item__meta">' + BeeUtils.escapeHtml(metaLine(item)) + '</span>' +
           (item.summary
             ? '<span class="news-item__summary">' + BeeUtils.escapeHtml(item.summary) + '</span>'
@@ -111,7 +113,7 @@ const BeeNews = (function () {
             const open2 = document.createElement('button');
             open2.type = 'button';
             open2.className = 'btn btn--secondary btn--sm';
-            open2.textContent = 'Read on the web';
+            open2.textContent = t('news.readOnWeb');
             open2.addEventListener('click', function () { openExternal(item.link); });
             actions.appendChild(open2);
             body.appendChild(actions);
@@ -128,9 +130,9 @@ const BeeNews = (function () {
     if (!key) return;
     if (loaded[tab] && !force) return;
     const list = document.getElementById('news-list-' + tab);
-    if (list) list.innerHTML = '<p class="news-empty">Loading...</p>';
+    if (list) list.innerHTML = '<p class="news-empty">' + BeeUtils.escapeHtml(t('common.loading')) + '</p>';
     if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke) {
-      if (list) list.innerHTML = '<p class="news-empty">Native bridge unavailable.</p>';
+      if (list) list.innerHTML = '<p class="news-empty">' + BeeUtils.escapeHtml(t('news.bridgeUnavailable')) + '</p>';
       return;
     }
     loaded[tab] = true;
@@ -138,8 +140,9 @@ const BeeNews = (function () {
       if (!res || res.error) {
         loaded[tab] = false;
         if (list) {
+          // The core's own line about the feed when it has one.
           list.innerHTML = '<p class="news-empty">' +
-            BeeUtils.escapeHtml((res && res.error) || 'Could not load this feed.') + '</p>';
+            BeeUtils.escapeHtml(BeeI18n.field(res, 'error') || t('news.loadFailed')) + '</p>';
         }
         return;
       }
@@ -149,7 +152,7 @@ const BeeNews = (function () {
       loaded[tab] = false;
       if (list) {
         list.innerHTML = '<p class="news-empty">' +
-          BeeUtils.escapeHtml((err && err.message) || 'Could not load this feed.') + '</p>';
+          BeeUtils.escapeHtml(BeeUtils.errText(err) || t('news.loadFailed')) + '</p>';
       }
     });
   }
@@ -164,12 +167,14 @@ const BeeNews = (function () {
 
     const note = document.createElement('p');
     note.className = 'news-empty news-frame__note';
-    note.textContent = 'Loading...';
+    note.textContent = t('common.loading');
     host.appendChild(note);
 
     const frame = document.createElement('iframe');
     frame.className = 'news-frame__iframe';
-    frame.setAttribute('title', tab === 'calendar' ? 'Second Life calendar' : 'Blogger network');
+    frame.setAttribute('title', tab === 'calendar'
+      ? t('news.calendarFrame')
+      : t('news.blogsFrame'));
     frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.setAttribute('loading', 'lazy');
     // Let the page run and navigate, but keep it out of our origin.
@@ -182,7 +187,7 @@ const BeeNews = (function () {
     // after a grace period instead of leaving a blank rectangle.
     window.setTimeout(function () {
       if (!note.hidden) {
-        note.textContent = 'This page would not load in the app. Use "Open in browser" above.';
+        note.textContent = t('news.frameBlocked');
       }
     }, 6000);
   }
@@ -215,6 +220,14 @@ const BeeNews = (function () {
     });
     document.querySelectorAll<HTMLElement>('[data-news-open]').forEach(function (btn) {
       btn.addEventListener('click', function () { openExternal(btn.dataset.newsOpen); });
+    });
+    // A language switch: the feed lists are kept between visits, so the ones
+    // already fetched are rebuilt in the new words (dates included). A fetch
+    // still in flight paints itself when it lands.
+    BeeI18n.onChange(function () {
+      Object.keys(FEEDS).forEach(function (tab) {
+        if (loaded[tab] && items[FEEDS[tab]]) renderItems(tab);
+      });
     });
   }
 

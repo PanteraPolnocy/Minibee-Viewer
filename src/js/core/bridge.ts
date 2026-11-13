@@ -13,12 +13,16 @@ const BeeBridge = (function () {
     return !!(t && t.core && typeof t.core.invoke === 'function');
   }
 
+  // Everything the core sends - a command's result, an event's payload - is
+  // put in the UI language on the way in: the lines it wrote come with their
+  // key (BeeI18n.localize), so no consumer has to ask.
   function invoke(cmd: string, args?: Record<string, unknown>): Promise<any> {
     const t = tauri();
     if (!t || !t.core || typeof t.core.invoke !== 'function') {
+      // A developer running the page in a plain browser; never seen in the app.
       return Promise.reject(new Error('Minibee backend unavailable - run the Minibee app (Tauri), not a browser.'));
     }
-    return t.core.invoke(cmd, args || {});
+    return t.core.invoke(cmd, args || {}).then(BeeI18n.localize);
   }
 
   /** Subscribe to a backend event. Resolves to a function you call to unlisten. */
@@ -27,7 +31,7 @@ const BeeBridge = (function () {
     if (!t || !t.event || typeof t.event.listen !== 'function') {
       return Promise.resolve(function () {});
     }
-    return t.event.listen(event, function (e) { handler(e.payload); });
+    return t.event.listen(event, function (e) { handler(BeeI18n.localize(e.payload)); });
   }
 
   function Bridge() {

@@ -4,12 +4,16 @@
 const BeeDestinations = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
+  // The feed bar. The labels are ours (the feed's own category names come
+  // with the items), so they translate when the bar renders.
   const FEEDS = [
-    { id: 'mobile', label: 'Mobile' },
-    { id: 'popular', label: 'Popular' },
-    { id: 'new', label: 'New' },
-    { id: 'editor', label: 'Editor' },
-    { id: 'events', label: 'Events' }
+    { id: 'mobile', label: function () { return t('dest.feedMobile'); } },
+    { id: 'popular', label: function () { return t('dest.feedPopular'); } },
+    { id: 'new', label: function () { return t('dest.feedNew'); } },
+    { id: 'editor', label: function () { return t('dest.feedEditor'); } },
+    { id: 'events', label: function () { return t('nav.events'); } }
   ];
 
   const FEED_MARKERS = {
@@ -24,7 +28,7 @@ const BeeDestinations = (function () {
   let activeFeed = 'mobile';
   const cache = new Map();
   // Per feed, the core's line about ratings it left out (Settings ->
-  // Search); shown above the cards, kept with the cached items.
+  // Search), with its key; shown above the cards, kept with the cached items.
   const notes = new Map();
   let loadToken = 0;
   let bound = false;
@@ -43,9 +47,11 @@ const BeeDestinations = (function () {
     return key.indexOf('portal_') === 0;
   }
 
+  // The feed's category name, as it gives it; only the fallback for an item
+  // with none is ours.
   function formatCategoryName(cat) {
-    if (!cat) return 'Other';
-    const raw = String(cat.parent_name || cat.simple_name || 'other');
+    const raw = cat ? String(cat.parent_name || cat.simple_name || '') : '';
+    if (!raw) return t('land.categoryOther');
     return raw.replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
   }
 
@@ -80,10 +86,10 @@ const BeeDestinations = (function () {
 
   function maturityLabel(code) {
     const c = String(code || '').toUpperCase();
-    if (c === 'G') return 'General';
-    if (c === 'M') return 'Moderate';
-    if (c === 'A') return 'Adult';
-    return c || 'Unknown';
+    if (c === 'G') return t('land.ratingGeneral');
+    if (c === 'M') return t('land.ratingModerate');
+    if (c === 'A') return t('land.ratingAdult');
+    return c || t('common.unknown');
   }
 
   function maturityClass(code) {
@@ -124,8 +130,17 @@ const BeeDestinations = (function () {
     if (node) node.innerHTML = html || '';
   }
 
+  // The note's fields out of a feed reply, for BeeI18n.field; null when
+  // the reply carries none.
+  function noteOf(data) {
+    return data && typeof data.note === 'string'
+      ? { note: data.note, noteKey: data.noteKey, noteArgs: data.noteArgs }
+      : null;
+  }
+
   function noteHtml(note) {
-    return note ? '<p class="dest-note">' + BeeUtils.escapeHtml(String(note)) + '</p>' : '';
+    const text = BeeI18n.field(note, 'note');
+    return text ? '<p class="dest-note">' + BeeUtils.escapeHtml(text) + '</p>' : '';
   }
 
   function renderFeedBar() {
@@ -137,12 +152,12 @@ const BeeDestinations = (function () {
         (active ? ' dest-feedbar__item--active' : '') +
         '" role="tab" aria-selected="' + (active ? 'true' : 'false') +
         '" data-feed="' + BeeUtils.escapeHtml(feed.id) + '">' +
-        BeeUtils.escapeHtml(feed.label) + '</button>';
+        BeeUtils.escapeHtml(feed.label()) + '</button>';
     }).join('');
   }
 
   function renderCard(item) {
-    const name = String(item.name || 'Destination').trim();
+    const name = String(item.name || t('dest.destination')).trim();
     const desc = String(item.description || '').trim();
     let slurl = '';
     if (typeof item.slurl === 'string') {
@@ -182,7 +197,8 @@ const BeeDestinations = (function () {
                 BeeUtils.escapeHtml(slurl) + '">' + BeeUtils.escapeHtml(name) + '</button>'
               : BeeUtils.escapeHtml(name)) +
           '</h4>' +
-          '<span class="dest-maturity ' + maturityClass(mat) + '" title="Maturity rating">' +
+          '<span class="dest-maturity ' + maturityClass(mat) + '" title="' +
+            BeeUtils.escapeHtml(t('dest.maturityRating')) + '">' +
             BeeUtils.escapeHtml(maturityLabel(mat)) +
           '</span>' +
         '</div>' +
@@ -196,15 +212,17 @@ const BeeDestinations = (function () {
           : '') +
         '<div class="dest-card__meta">' +
           (pop !== null && pop > 0
-            ? '<span class="badge">' + BeeUtils.escapeHtml(String(pop)) + ' here</span>'
+            ? '<span class="badge">' +
+              BeeUtils.escapeHtml(t('dest.hereCount', { count: pop })) +
+              '</span>'
             : '') +
         '</div>' +
         '<div class="dest-card__actions">' +
           (slurl
             ? '<button type="button" class="btn btn--ghost btn--sm dest-action" data-action="map" data-slurl="' +
-              BeeUtils.escapeHtml(slurl) + '">Open in Map</button>' +
+              BeeUtils.escapeHtml(slurl) + '">' + BeeUtils.escapeHtml(t('dest.openInMap')) + '</button>' +
               '<button type="button" class="btn btn--primary btn--sm dest-action" data-action="tp" data-slurl="' +
-              BeeUtils.escapeHtml(slurl) + '">Teleport</button>'
+              BeeUtils.escapeHtml(slurl) + '">' + BeeUtils.escapeHtml(t('teleport.teleport')) + '</button>'
             : '') +
         '</div>' +
       '</div>' +
@@ -213,7 +231,7 @@ const BeeDestinations = (function () {
 
   function renderGroups(groups) {
     if (!groups.length) {
-      setContent('<p class="dest-empty">No destinations in this feed.</p>');
+      setContent('<p class="dest-empty">' + BeeUtils.escapeHtml(t('dest.empty')) + '</p>');
       return;
     }
     const html = groups.map(function (group) {
@@ -227,7 +245,7 @@ const BeeDestinations = (function () {
     }).join('');
     setContent(html);
     if (destTeleportBusy) {
-      setDestTeleportBusy(true, 'Teleporting...');
+      setDestTeleportBusy(true);
     }
   }
 
@@ -246,26 +264,28 @@ const BeeDestinations = (function () {
     }
 
     const token = ++loadToken;
-    setStatus('<p class="dest-loading">Loading destinations...</p>');
+    setStatus('<p class="dest-loading">' + BeeUtils.escapeHtml(t('dest.loading')) + '</p>');
     setContent('');
 
     try {
       const data = await BeeBridge.destinations(feed).catch(function () { return null; });
       if (token !== loadToken) return;
       if (!data || !data.ok || !Array.isArray(data.items)) {
-        const detail = data && (data.detail || data.error) ? String(data.detail || data.error) : '';
-        throw new Error(detail || 'Failed to load destinations');
+        const detail = data ? (BeeI18n.field(data, 'detail') || BeeI18n.field(data, 'error')) : '';
+        throw new Error(detail || t('dest.loadFailed'));
       }
       cache.set(feed, data.items);
-      notes.set(feed, typeof data.note === 'string' ? data.note : '');
+      notes.set(feed, noteOf(data));
       setStatus(noteHtml(notes.get(feed)));
       renderGroups(groupByCategory(data.items));
     } catch (err) {
       if (token !== loadToken) return;
       setStatus('');
       setContent(
-        '<p class="dest-error">' + BeeUtils.escapeHtml(err.message || 'Could not load destinations') +
-        '</p><button type="button" class="btn btn--ghost btn--sm" id="dest-retry">Retry</button>'
+        '<p class="dest-error">' +
+        BeeUtils.escapeHtml(BeeUtils.errText(err) || t('dest.loadFailed')) +
+        '</p><button type="button" class="btn btn--ghost btn--sm" id="dest-retry">' +
+        BeeUtils.escapeHtml(t('common.retry')) + '</button>'
       );
       const retry = el('dest-retry');
       if (retry) {
@@ -277,10 +297,11 @@ const BeeDestinations = (function () {
   }
 
   function applyDestTeleportProgress(message, fallbackShort) {
+    const short = fallbackShort || t('teleport.stageTeleporting');
     let out = {
-      text: (fallbackShort || 'Teleporting') + ' 50%',
+      text: t('teleport.stagePercent', { stage: short, pct: 50 }),
       pct: destTeleportPct || 50,
-      short: fallbackShort || 'Teleporting'
+      short: short
     };
     if (typeof BeeTeleportUI !== 'undefined' && BeeTeleportUI.formatProgressLabel) {
       out = BeeTeleportUI.formatProgressLabel(message, destTeleportPct, fallbackShort);
@@ -294,10 +315,10 @@ const BeeDestinations = (function () {
     if (!busy) destTeleportPct = 0;
     const content = el('dest-content');
     if (!content) return;
-    const text = label || 'Teleporting...';
+    const text = label || t('teleport.teleporting');
     content.querySelectorAll<HTMLButtonElement>('.dest-action[data-action="tp"]').forEach(function (btn) {
       btn.disabled = busy;
-      btn.textContent = busy ? text : 'Teleport';
+      btn.textContent = busy ? text : t('teleport.teleport');
       btn.setAttribute('aria-busy', busy ? 'true' : 'false');
     });
   }
@@ -308,7 +329,7 @@ const BeeDestinations = (function () {
 
     BeeTransport.on('teleport-progress', function (data) {
       if (!destTeleportBusy) return;
-      applyDestTeleportProgress(data && data.message, 'Teleporting');
+      applyDestTeleportProgress(data && data.message, t('teleport.stageTeleporting'));
       if (typeof BeeMap !== 'undefined' && BeeMap.beginMapTeleport) {
         BeeMap.beginMapTeleport(data && data.message);
       }
@@ -316,7 +337,7 @@ const BeeDestinations = (function () {
 
     BeeTransport.on('teleport-started', function () {
       if (!destTeleportBusy) return;
-      applyDestTeleportProgress('starting', 'Starting');
+      applyDestTeleportProgress('starting', t('teleport.stageStarting'));
     });
 
     BeeTransport.on('teleport-finish', function () {
@@ -352,19 +373,19 @@ const BeeDestinations = (function () {
 
     if (action === 'tp') {
       if (!BeeState.gridOnline()) {
-        BeeUtils.showToast('Not connected to the grid', 'warning');
+        BeeUtils.showToast(t('session.notConnected'), 'warning');
         return;
       }
       if (destTeleportBusy) return;
 
-      applyDestTeleportProgress('requesting', 'Requesting');
+      applyDestTeleportProgress('requesting', t('teleport.stageRequesting'));
       if (typeof BeeMap !== 'undefined') {
         if (BeeMap.showLocation) BeeMap.showLocation(slurl);
         if (BeeMap.beginMapTeleport) BeeMap.beginMapTeleport('requesting');
       }
 
       BeeTransport.teleportTo(slurl).then(function () {
-        applyDestTeleportProgress('starting', 'Starting');
+        applyDestTeleportProgress('starting', t('teleport.stageStarting'));
         if (typeof BeeMap !== 'undefined' && BeeMap.beginMapTeleport) {
           BeeMap.beginMapTeleport('starting');
         }
@@ -373,7 +394,7 @@ const BeeDestinations = (function () {
         if (typeof BeeMap !== 'undefined' && BeeMap.resetTeleportButton) {
           BeeMap.resetTeleportButton();
         }
-        BeeUtils.showToast(err.message || 'Teleport failed', 'error');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('teleport.failed'), 'error');
       });
     }
   }
@@ -414,6 +435,15 @@ const BeeDestinations = (function () {
         if (BeeState.get().activeTab === 'destinations') void loadFeed(activeFeed, true);
       });
     }
+    // A language switch: the feed bar, and the open feed's cards and note
+    // from the cache, are painted again in the new words. A feed still
+    // loading, or one that failed, is painted when its load ends.
+    BeeI18n.onChange(function () {
+      renderFeedBar();
+      if (!cache.has(activeFeed)) return;
+      renderGroups(groupByCategory(cache.get(activeFeed)));
+      setStatus(noteHtml(notes.get(activeFeed)));
+    });
     // Right-click anywhere on a destination card: the same map/teleport
     // choices as its buttons, plus the SLURL as text.
     if (typeof BeeContextMenu !== 'undefined' && BeeContextMenu.register) {
@@ -428,14 +458,14 @@ const BeeDestinations = (function () {
           };
         };
         return [
-          { label: 'Open in Map', action: clickAction('map') },
-          { label: 'Teleport', action: clickAction('tp'), disabled: !BeeState.gridOnline() },
+          { label: t('dest.openInMap'), action: clickAction('map') },
+          { label: t('teleport.teleport'), action: clickAction('tp'), disabled: !BeeState.gridOnline() },
           {
-            label: 'Copy SLURL',
+            label: t('menu.copySlurl'),
             action: function () {
               if (navigator.clipboard) {
                 navigator.clipboard.writeText(slurl).then(function () {
-                  BeeUtils.showToast('SLURL copied', 'success');
+                  BeeUtils.showToast(t('common.copiedWhat', { what: 'SLURL' }), 'success');
                 }).catch(function () {});
               }
             }

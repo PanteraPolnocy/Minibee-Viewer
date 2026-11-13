@@ -4,6 +4,8 @@
 const BeeSessionLost = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let modalOpen = false;
 
   function appEl() {
@@ -33,8 +35,15 @@ const BeeSessionLost = (function () {
     );
   }
 
+  // `reason` is the line to show: the core's words already resolved by the
+  // caller (BeeApp's session-lost handler), or the event payload itself, whose
+  // reason is read through its key when the core sent one; a kick reason from
+  // the grid passes through as it is.
   function show(reason) {
-    const text = String(reason || '').trim() || 'Disconnected from the simulator.';
+    const given = reason && typeof reason === 'object'
+      ? BeeI18n.field(reason, 'reason')
+      : String(reason || '');
+    const text = given.trim() || t('session.disconnected');
     modalOpen = true;
 
     BeeState.patch({
@@ -51,7 +60,7 @@ const BeeSessionLost = (function () {
     const teleportDlg = document.getElementById('teleport-prompt') as HTMLDialogElement | null;
     if (teleportDlg && teleportDlg.open) BeeUtils.dismissDialog(teleportDlg);
 
-    BeeUtils.showToast('Session ended', 'warning', 4500);
+    BeeUtils.showToast(t('session.ended'), 'warning', 4500);
   }
 
   function dismiss() {

@@ -45,7 +45,7 @@ const BeeErrors = (function () {
       BeeTransport.emit('chat', {
         id: BeeUtils.uuid(),
         fromId: '00000000-0000-0000-0000-000000000000',
-        fromName: 'System',
+        fromName: BeeI18n.t('chat.systemName'),
         text: '[' + row.source + '] ' + text,
         type: 'system',
         source: 'system',

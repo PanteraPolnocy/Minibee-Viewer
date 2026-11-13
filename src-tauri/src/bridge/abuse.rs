@@ -9,27 +9,32 @@ use tauri::State;
 
 use crate::bridge::inventory::{self, xml_escape};
 use crate::bridge::state::AppState;
+use crate::uitext::{ui_err, UiText};
 
 type Cmd = Result<Value, String>;
 
-/// The categories the report form offers. The numeric codes are the grid's
-/// own; 0 is reserved for "no category picked".
-pub const ABUSE_CATEGORIES: &[(i64, &str)] = &[
-    (31, "Age > Age play"),
-    (35, "Assault > Shooting, pushing, or shoving another Resident in a Safe Area"),
-    (39, "Disclosure > Real world information"),
-    (43, "Disturbing the peace > Excessive scripted objects"),
-    (44, "Disturbing the peace > Object littering"),
-    (45, "Disturbing the peace > Repetitive spam"),
-    (50, "Fraud > L$ or USD $"),
-    (55, "Harassment > Targeted behavior intended to disrupt"),
-    (57, "Indecency > Broadly offensive content or conduct"),
-    (59, "Indecency > Inappropriate avatar name"),
-    (60, "Indecency > Inappropriate content or conduct for Region Rating"),
-    (61, "Intolerance"),
-    (63, "Land > Encroachment > Objects or textures"),
-    (67, "Skill Gaming Policy Violation"),
-];
+/// The categories the report form offers, each with its code and its label:
+/// the English the moderation queue reads in the report itself, carrying the
+/// key the interface translates the picker entry under. The numeric codes are
+/// the grid's own; 0 is reserved for "no category picked".
+pub fn abuse_categories() -> Vec<(i64, UiText)> {
+    vec![
+        (31, UiText::new("abuse.catAgePlay", json!({}))),
+        (35, UiText::new("abuse.catAssault", json!({}))),
+        (39, UiText::new("abuse.catDisclosure", json!({}))),
+        (43, UiText::new("abuse.catScriptedObjects", json!({}))),
+        (44, UiText::new("abuse.catLittering", json!({}))),
+        (45, UiText::new("abuse.catSpam", json!({}))),
+        (50, UiText::new("abuse.catFraud", json!({}))),
+        (55, UiText::new("abuse.catHarassment", json!({}))),
+        (57, UiText::new("abuse.catOffensive", json!({}))),
+        (59, UiText::new("abuse.catAvatarName", json!({}))),
+        (60, UiText::new("abuse.catRegionRating", json!({}))),
+        (61, UiText::new("abuse.catIntolerance", json!({}))),
+        (63, UiText::new("abuse.catEncroachment", json!({}))),
+        (67, UiText::new("abuse.catSkillGaming", json!({}))),
+    ]
+}
 
 /// A resident's complaint (as opposed to the retired bug-report kind).
 const REPORT_TYPE_COMPLAINT: i64 = 2;
@@ -39,8 +44,9 @@ const REPORT_TYPE_COMPLAINT: i64 = 2;
 const MAX_SUMMARY_BYTES: usize = 250;
 const MAX_DETAILS_BYTES: usize = 8192;
 
-pub fn category_label(category: i64) -> Option<&'static str> {
-    ABUSE_CATEGORIES.iter().find(|(v, _)| *v == category).map(|(_, l)| *l)
+/// The English label of a category, the way the report's summary line names it.
+pub fn category_label(category: i64) -> Option<String> {
+    abuse_categories().into_iter().find(|(v, _)| *v == category).map(|(_, l)| l.text)
 }
 
 fn truncate_bytes(mut s: String, max: usize) -> String {
@@ -69,12 +75,17 @@ pub fn compose_report(
     )
 }
 
-/// The categories, for the report dialog's picker.
+/// The categories, for the report dialog's picker: `value` with `label`,
+/// `labelKey` and `labelArgs`.
 #[tauri::command]
 pub fn sl_abuse_categories() -> Cmd {
-    let rows: Vec<Value> = ABUSE_CATEGORIES
-        .iter()
-        .map(|(value, label)| json!({ "value": value, "label": label }))
+    let rows: Vec<Value> = abuse_categories()
+        .into_iter()
+        .map(|(value, label)| {
+            let mut row = json!({ "value": value });
+            label.fields(&mut row, "label");
+            row
+        })
         .collect();
     Ok(json!({ "ok": true, "categories": rows }))
 }
@@ -93,12 +104,12 @@ pub async fn sl_report_abuse(
     let (s, agent, sess) = crate::commands::active_ids(&state)?;
     let abuser_id = abuser_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&abuser_id) || inventory::is_zero_uuid(&abuser_id) {
-        return Err("Not a resident".into());
+        return Err(ui_err("err.notAResident", json!({})));
     }
-    let label = category_label(category).ok_or("Pick a category")?;
+    let label = category_label(category).ok_or_else(|| ui_err("err.pickACategory", json!({})))?;
     let summary = summary.trim();
     if summary.is_empty() {
-        return Err("A short summary is required".into());
+        return Err(ui_err("err.summaryRequired", json!({})));
     }
     let details = details.trim();
     let abuser_name = abuser_name.trim();
@@ -119,7 +130,7 @@ pub async fn sl_report_abuse(
         .and_then(|v| v.as_str())
         .unwrap_or("0.0.0.0")
         .to_string();
-    let (summary_line, details_text) = compose_report(&region, &location, label, abuser_name, summary, details, &version);
+    let (summary_line, details_text) = compose_report(&region, &location, &label, abuser_name, summary, details, &version);
 
     const ZERO: &str = "00000000-0000-0000-0000-000000000000";
     if s.cap("SendUserReport").is_some() {
@@ -147,7 +158,7 @@ pub async fn sl_report_abuse(
         );
         inventory::cap_post(state.inner(), &s, "SendUserReport", &body)
             .await
-            .ok_or("The report could not be sent")?;
+            .ok_or_else(|| ui_err("err.reportNotSent", json!({})))?;
     } else {
         s.send_encoded(
             "UserReport",
@@ -181,15 +192,28 @@ mod tests {
 
     #[test]
     fn categories_resolve_to_labels() {
-        assert_eq!(category_label(45), Some("Disturbing the peace > Repetitive spam"));
+        assert_eq!(category_label(45).as_deref(), Some("Disturbing the peace > Repetitive spam"));
         assert_eq!(category_label(0), None);
         assert_eq!(category_label(999), None);
-        // Every listed category is nonzero and uniquely coded.
+        // Every listed category is nonzero, uniquely coded and uniquely keyed.
         let mut seen = std::collections::HashSet::new();
-        for (v, l) in ABUSE_CATEGORIES {
-            assert!(*v > 0 && !l.is_empty());
-            assert!(seen.insert(*v), "duplicate category code {v}");
+        let mut keys = std::collections::HashSet::new();
+        for (v, l) in abuse_categories() {
+            assert!(v > 0 && !l.text.is_empty());
+            assert!(seen.insert(v), "duplicate category code {v}");
+            assert!(keys.insert(l.key.clone()), "duplicate category key {}", l.key);
         }
+    }
+
+    #[test]
+    fn picker_rows_carry_the_label_with_its_key() {
+        let rows = sl_abuse_categories().unwrap();
+        let first = &rows["categories"][0];
+        assert_eq!(first["value"], 31);
+        assert_eq!(first["label"], "Age > Age play");
+        assert_eq!(first["labelKey"], "abuse.catAgePlay");
+        assert_eq!(first["labelArgs"], json!({}));
+        assert_eq!(rows["categories"].as_array().unwrap().len(), abuse_categories().len());
     }
 
     #[test]

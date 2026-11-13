@@ -57,6 +57,40 @@ casting an element where it is looked up
 `querySelectorAll` a type argument, annotating an object literal that gets
 fields added to it, and marking trailing parameters optional (`options?`).
 
+## UI text and languages
+
+Every line a person can read is looked up by key, and the words live only in
+`src/lang/`: `en.json` (English, the fallback for every language, also
+compiled into the core) and one `<code>.json` per other language.
+
+| Where | How a line is named |
+|-------|---------------------|
+| Frontend (`src/js`) | `t('radar.range')`, `t('im.members', { count: n })`, `BeeI18n.html(...)` for a line with markup (values escaped) - see the header of `src/js/i18n.ts` |
+| Markup (`src/index.html`) | `data-i18n="key"` on an element whose text is the line, `data-i18n-html` for markup, `data-i18n-title` / `-placeholder` / `-aria-label` / `-alt` / `-value` for attributes; the HTML itself holds no words there |
+| Core (`src-tauri`) | `ui_err("err.noNotice", json!({}))` for a command's error, `UiText::new("key", args).fields(&mut payload, "reason")` beside a payload field, `ui_text(...)` standalone - see `src-tauri/src/uitext.rs` |
+
+Keys are `module.camelCaseName`. Placeholders are `{name}`, filled from the
+arguments; a line that bends with a number is an object of plural forms
+(`one`/`other` in English, `one`/`few`/`many`/`other` in Polish), picked by
+`count`. Never call `t()` while a script is being evaluated (module-level
+constants): the files are loaded by `BeeApp.init`, so tables of labels hold
+functions and translate when they render.
+
+| Task | Command |
+|------|---------|
+| Check the language files against the sources | `npm run lang:check` (also part of `npm test`) |
+| List what a translation still lacks | `node scripts/sync-lang.mjs --missing pl` |
+
+To add a line: use a new key in the code or markup, add the English to
+`en.json` and the Polish to `pl.json` (keys sorted). The check fails on a key
+the sources use but a file lacks, on a key no source uses, on placeholders
+that disagree with the call's arguments, and on a translation missing a key
+or a plural form. To add a language: copy `en.json` to `src/lang/<code>.json`
+and translate it, then add the code with its native name to `LANGUAGES` (and
+the locale tables) in `src/js/i18n.ts` and to the `language` choices in
+`src/js/settings.ts`. Android's notification texts are the usual string
+resources under `src-tauri/gen/android/app/src/main/res/values-<code>/`.
+
 ## Pull requests
 
 1. Fork, branch, make your change.

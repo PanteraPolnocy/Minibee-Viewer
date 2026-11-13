@@ -4,17 +4,24 @@
 const BeeAvatarThumb = (function () {
   'use strict';
 
-  const GROUP_GLYPH = 'G';
+  const t = BeeI18n.t;
+
   // Every thumbnail a profile event may have to repaint: the ones this module
   // creates, plus the list-row avatars other surfaces mark up themselves.
   const THUMB_SELECTOR = '[data-agent-id].avatar-thumb, .entity-item__avatar[data-agent-id], ' +
     '.im-session__avatar[data-agent-id]';
 
+  // The letter a group without an insignia shows: the initial of the word for
+  // a group, so it follows the UI language.
+  function groupGlyph() {
+    return t('thumb.groupGlyph');
+  }
+
   function fallbackLabel(agentId, options) {
     const opts = options || {};
     if (opts.label) return BeeUtils.initials(opts.label);
-    if (opts.kind === 'group') return GROUP_GLYPH;
-    if (opts.kind === 'place') return 'P';
+    if (opts.kind === 'group') return groupGlyph();
+    if (opts.kind === 'place') return t('thumb.placeGlyph');
     return '?';
   }
 
@@ -80,7 +87,7 @@ const BeeAvatarThumb = (function () {
         ? BeeProfiles.textureImageUrl(insigniaId, 64)
         : '';
       if (url) setImage(el, url, agentId, { kind: 'group', label: label });
-      else setInitials(el, GROUP_GLYPH);
+      else setInitials(el, groupGlyph());
       return;
     }
     const imageId = BeeProfiles.getImageId(agentId);
@@ -182,6 +189,11 @@ const BeeAvatarThumb = (function () {
       // every still-unresolved friend (see queueAvatarThumb's in-flight guard).
       if (evt.id) refreshFor(evt.id);
       else refreshAll(document);
+    });
+    // A language switch repaints the glyph letters; a thumbnail already
+    // showing its image is left alone (setImage skips a same-src repaint).
+    BeeI18n.onChange(function () {
+      refreshAll(document);
     });
   }
 

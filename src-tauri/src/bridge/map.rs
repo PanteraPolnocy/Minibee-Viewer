@@ -14,6 +14,21 @@ use serde_json::{json, Value};
 
 use crate::bridge::session::Maturity;
 use crate::bridge::state::AppState;
+use crate::uitext::{ui_err, UiText};
+
+/// `error`, `errorKey` and `errorArgs` written onto `extra`: why a lookup
+/// gave nothing, beside whatever the reply still carries.
+fn failed(line: UiText, mut extra: Value) -> Value {
+    line.fields(&mut extra, "error");
+    extra
+}
+
+/// The lookup services know no region by that name or at those coordinates.
+/// The frontend matches these words (map.ts regionErrorMessage), so they stay
+/// as they are; the key rides beside them.
+fn region_not_found() -> UiText {
+    UiText::new("map.regionNotFound", json!({}))
+}
 
 static RE_REGION: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?i)var\s+region\s*=\s*['"]([^'"]*)['"]"#).unwrap());
@@ -101,6 +116,17 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_lookup_keeps_its_fields_and_carries_the_key() {
+        let v = failed(region_not_found(), json!({ "gridX": 1000, "gridY": 1001 }));
+        // The words stay exactly as the frontend matches them; the key rides beside.
+        assert_eq!(v["error"], "region not found");
+        assert_eq!(v["errorKey"], "map.regionNotFound");
+        assert_eq!(v["errorArgs"], json!({}));
+        assert_eq!(v["gridX"], 1000);
+        assert_eq!(v["gridY"], 1001);
+    }
+
+    #[test]
     fn cap_coords_grid_index_branch() {
         // Small values come in as grid indices already.
         let g = cap_coords_to_grid(1000, 1001);
@@ -156,14 +182,14 @@ pub async fn fetch_map_tile(
             .timeout(Duration::from_secs(20))
             .send()
             .await
-            .map_err(|e| format!("map tile fetch failed: {e}"))?;
+            .map_err(|e| ui_err("err.mapTileFetchFailed", json!({ "error": e.to_string() })))?;
         if resp.status().is_redirection() && hops < 4 {
             let next = resp
                 .headers()
                 .get(reqwest::header::LOCATION)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|loc| resp.url().join(loc).ok())
-                .ok_or_else(|| "map tile fetch failed: bad redirect".to_string())?;
+                .ok_or_else(|| ui_err("err.mapTileBadRedirect", json!({})))?;
             current = next.to_string();
             hops += 1;
             continue;
@@ -171,7 +197,7 @@ pub async fn fetch_map_tile(
         break;
     }
     if !resp.status().is_success() {
-        return Err(format!("map tile fetch failed: HTTP {}", resp.status().as_u16()));
+        return Err(ui_err("err.mapTileFetchFailedHttp", json!({ "status": resp.status().as_u16() })));
     }
     let ctype = resp
         .headers()
@@ -185,7 +211,7 @@ pub async fn fetch_map_tile(
     let mut bytes = Vec::new();
     while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
         if bytes.len() + chunk.len() > MAX_TILE_BYTES {
-            return Err("map tile fetch failed: response too large".to_string());
+            return Err(ui_err("err.mapTileTooLarge", json!({})));
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -224,14 +250,14 @@ async fn fetch_region_cap_body(state: &AppState, grid_x: i64, grid_y: i64) -> Op
 pub async fn fetch_region_by_grid(state: &AppState, grid_x: i64, grid_y: i64) -> Value {
     match fetch_region_cap_body(state, grid_x, grid_y).await {
         Some(name) if !name.is_empty() => json!({ "name": name, "gridX": grid_x, "gridY": grid_y }),
-        _ => json!({ "error": "region not found", "gridX": grid_x, "gridY": grid_y }),
+        _ => failed(region_not_found(), json!({ "gridX": grid_x, "gridY": grid_y })),
     }
 }
 
 pub async fn fetch_region_by_name(state: &AppState, name: &str) -> Value {
     let name = name.trim();
     if name.is_empty() {
-        return json!({ "error": "region name required" });
+        return failed(UiText::new("map.regionNameRequired", json!({})), json!({}));
     }
     let urls = [
         format!("https://cap.secondlife.com/cap/0/d661249b-2b5a-4436-966a-3d3b8d7a574f?var=coords&sim_name={}", urlencoding::encode(name)),
@@ -285,7 +311,7 @@ pub async fn fetch_region_by_name(state: &AppState, name: &str) -> Value {
         }
     }
     crate::dlog!("region_by_name '{}': all lookup services failed -> region not found", name);
-    json!({ "error": "region not found", "name": name })
+    failed(region_not_found(), json!({ "name": name }))
 }
 
 pub async fn fetch_regions_by_grid_batch(state: &Arc<AppState>, tiles_param: &str) -> Value {
@@ -307,7 +333,7 @@ pub async fn fetch_regions_by_grid_batch(state: &Arc<AppState>, tiles_param: &st
         tiles.push((x, y));
     }
     if tiles.is_empty() {
-        return json!({ "error": "no valid tiles" });
+        return failed(UiText::new("map.noValidTiles", json!({})), json!({}));
     }
     tiles.truncate(25);
 
@@ -333,7 +359,7 @@ pub async fn fetch_regions_by_grid_batch(state: &Arc<AppState>, tiles_param: &st
 pub async fn fetch_destinations_feed(state: &AppState, feed: &str) -> Value {
     let allowed = ["mobile", "popular", "new", "editor", "events"];
     if !allowed.contains(&feed) {
-        return json!({ "error": "invalid feed" });
+        return failed(UiText::new("map.invalidFeed", json!({})), json!({}));
     }
     let url = format!("https://worldaping.agni.lindenlab.com/v2/destinations/{}/", feed);
     let resp = state
@@ -343,13 +369,24 @@ pub async fn fetch_destinations_feed(state: &AppState, feed: &str) -> Value {
         .timeout(Duration::from_secs(25))
         .send()
         .await;
+    let fetch_failed = |e: reqwest::Error| {
+        failed(
+            UiText::new("map.destinationsFetchFailed", json!({ "error": e.to_string() })),
+            json!({}),
+        )
+    };
     let body = match resp {
         Ok(r) if r.status().is_success() => match r.text().await {
             Ok(t) => t,
-            Err(e) => return json!({ "error": format!("destinations fetch failed: {e}") }),
+            Err(e) => return fetch_failed(e),
         },
-        Ok(r) => return json!({ "error": format!("destinations fetch failed: HTTP {}", r.status().as_u16()) }),
-        Err(e) => return json!({ "error": format!("destinations fetch failed: {e}") }),
+        Ok(r) => {
+            return failed(
+                UiText::new("map.destinationsFetchFailedHttp", json!({ "status": r.status().as_u16() })),
+                json!({}),
+            )
+        }
+        Err(e) => return fetch_failed(e),
     };
     match serde_json::from_str::<Value>(&body) {
         Ok(items) if items.is_array() || items.is_object() => {
@@ -358,13 +395,16 @@ pub async fn fetch_destinations_feed(state: &AppState, feed: &str) -> Value {
             let mut out = json!({ "ok": true, "feed": feed, "items": items });
             if hidden > 0 {
                 out["hidden"] = json!(hidden);
-                if let Some(note) = crate::bridge::session::maturity_hidden_note(level, "destinations") {
-                    out["note"] = json!(note);
+                if let Some(note) = crate::bridge::session::maturity_hidden_line(level, "destinations") {
+                    note.fields(&mut out, "note");
                 }
             }
             out
         }
-        _ => json!({ "error": "invalid destinations response" }),
+        _ => failed(
+            UiText::new("map.invalidDestinationsResponse", json!({})),
+            json!({}),
+        ),
     }
 }
 

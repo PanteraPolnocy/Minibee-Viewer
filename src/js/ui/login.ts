@@ -5,6 +5,8 @@
 const BeeLogin = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const STORAGE_KEY = 'minibee-credentials';
   // MFA tokens live one key per account, matched by this prefix.
   const MFA_KEY_PATTERNS = [/^minibee-mfa-/i];
@@ -76,9 +78,9 @@ const BeeLogin = (function () {
   // Forget the saved username/grid and every remembered MFA token.
   async function forgetCredentials() {
     const ok = await BeeUtils.confirm({
-      title: 'Forget saved login?',
-      message: 'This clears the saved username, grid, and any remembered MFA tokens on this device. Your password is never stored.',
-      confirmLabel: 'Forget',
+      title: t('login.forgetTitle'),
+      message: t('login.forgetMessage'),
+      confirmLabel: t('login.forgetConfirm'),
       danger: true
     });
     if (!ok) return;
@@ -93,7 +95,7 @@ const BeeLogin = (function () {
     if (remember) remember.checked = true;
     defaultGrid();
     updateForgetVisibility();
-    BeeUtils.showToast('Saved login and MFA tokens cleared.', 'success');
+    BeeUtils.showToast(t('login.forgetDone'), 'success');
   }
 
   function updateForgetVisibility() {
@@ -149,32 +151,33 @@ const BeeLogin = (function () {
       }
 
       if (challenge.type === 'tos') {
-        title.textContent = 'Terms of Service';
-        accept.textContent = 'I Agree';
-        decline.textContent = 'Decline';
+        title.textContent = t('login.tosTitle');
+        accept.textContent = t('login.tosAccept');
+        decline.textContent = t('common.decline');
         mfaFields.hidden = true;
       } else if (challenge.type === 'critical') {
-        title.textContent = 'Important message';
-        accept.textContent = 'I have read this';
-        decline.textContent = 'Cancel';
+        title.textContent = t('login.criticalTitle');
+        accept.textContent = t('login.criticalAccept');
+        decline.textContent = t('common.cancel');
         mfaFields.hidden = true;
       } else if (challenge.type === 'mfa') {
-        title.textContent = 'Two-factor authentication';
-        accept.textContent = 'Verify';
-        decline.textContent = 'Cancel';
+        title.textContent = t('login.mfaTitle');
+        accept.textContent = t('login.mfaVerify');
+        decline.textContent = t('common.cancel');
         mfaFields.hidden = false;
         mfaToken.value = '';
         mfaRemember.checked = true;
       } else {
-        title.textContent = 'Action required';
-        accept.textContent = 'Continue';
-        decline.textContent = 'Cancel';
+        title.textContent = t('login.challengeTitle');
+        accept.textContent = t('common.continue');
+        decline.textContent = t('common.cancel');
         mfaFields.hidden = true;
       }
 
       // Render the message with clickable, safely-opened links, so a user can
       // read a Terms of Service or critical-message URL before having to agree.
-      const rawMsg = challenge.message || 'Please confirm to continue.';
+      // The message itself is the grid's (the ToS text, a critical notice).
+      const rawMsg = challenge.message || t('login.challengeDefault');
       if (typeof BeeSlurl !== 'undefined' && BeeSlurl.linkify) {
         body.innerHTML = BeeSlurl.linkify(rawMsg, BeeUtils.escapeHtml).replace(/\n/g, '<br>');
         if (BeeSlurl.bindLinks) BeeSlurl.bindLinks(body);
@@ -213,16 +216,16 @@ const BeeLogin = (function () {
     const btn = document.getElementById('login-submit') as HTMLButtonElement;
 
     if (!window.BeeApp || typeof window.BeeApp.login !== 'function') {
-      showError('Viewer failed to load. Hard-refresh (Ctrl+Shift+R) and check the browser console.');
+      showError(t('login.viewerNotLoaded'));
       return;
     }
     if (typeof BeeSLBridge === 'undefined') {
-      showError('Protocol module failed to load. Hard-refresh (Ctrl+Shift+R).');
+      showError(t('login.protocolNotLoaded'));
       return;
     }
 
     btn.disabled = true;
-    btn.textContent = 'Connecting...';
+    btn.textContent = t('login.connecting');
 
     try {
       BeeState.patch({ connecting: true });
@@ -236,11 +239,13 @@ const BeeLogin = (function () {
       });
       showScreen(true);
     } catch (err) {
-      showError(err.message || 'Login failed.');
+      // The grid's own refusal (a wrong password, a banned account) shows as
+      // the grid worded it; only the fallback is ours.
+      showError(BeeUtils.errText(err) || t('login.failed'));
       BeeState.patch({ connecting: false });
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Log In';
+      btn.textContent = t('login.submit');
     }
   }
 

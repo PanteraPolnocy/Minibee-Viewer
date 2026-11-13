@@ -1,6 +1,9 @@
 //! Desktop auto-update checks and installs via `tauri-plugin-updater`.
 
 use serde::Serialize;
+use serde_json::{json, Value};
+
+use crate::uitext::UiText;
 
 #[derive(Clone, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -14,27 +17,45 @@ pub enum UpdateCheckResponse {
         current_display_version: String,
     },
     Unavailable,
-    Error { message: String },
+    /// `message` is the English; `messageKey` and `messageArgs` beside it
+    /// let the interface translate it (BeeI18n.field).
+    Error {
+        message: String,
+        #[serde(rename = "messageKey")]
+        message_key: String,
+        #[serde(rename = "messageArgs")]
+        message_args: Value,
+    },
 }
 
-pub fn format_check_error(raw: &str) -> String {
+impl UpdateCheckResponse {
+    /// The failed-check reply for a line: its words, key and arguments.
+    pub fn error(line: UiText) -> Self {
+        Self::Error { message: line.text, message_key: line.key, message_args: line.args }
+    }
+}
+
+/// What a failed update check tells the person, from the updater's raw error.
+pub fn format_check_error(raw: &str) -> UiText {
     if raw.contains("404") || raw.to_ascii_lowercase().contains("not found") {
-        return "Update feed not found. On GitHub, this release must not be marked pre-release, or /releases/latest/latest.json will 404.".into();
+        return UiText::new("updater.feedNotFound", json!({}));
     }
     if raw.is_empty() {
-        return "Could not check for updates.".into();
+        return UiText::new("updater.checkFailed", json!({}));
     }
-    format!("Could not check for updates: {raw}")
+    UiText::new("updater.checkFailedDetail", json!({ "error": raw }))
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 pub mod imp {
     use std::sync::{Arc, Mutex};
 
+    use serde_json::json;
     use tauri::{AppHandle, State};
     use tauri_plugin_updater::UpdaterExt;
 
     use crate::bridge::state::AppState;
+    use crate::uitext::ui_err;
 
     use super::{format_check_error, UpdateCheckResponse};
 
@@ -44,6 +65,11 @@ pub mod imp {
         fn default() -> Self {
             Self(Mutex::new(None))
         }
+    }
+
+    /// The pending-update lock was left poisoned by a panic elsewhere.
+    fn lock_poisoned() -> String {
+        ui_err("err.updateLockPoisoned", json!({}))
     }
 
     fn updater_target() -> Option<&'static str> {
@@ -83,7 +109,7 @@ pub mod imp {
             Ok(Some(update)) => {
                 let version = update.version.to_string();
                 let notes = update.body.clone().unwrap_or_default();
-                *pending.0.lock().map_err(|_| "Update state lock poisoned.".to_string())? = Some(update);
+                *pending.0.lock().map_err(|_| lock_poisoned())? = Some(update);
                 UpdateCheckResponse::Available {
                     version,
                     notes,
@@ -93,9 +119,7 @@ pub mod imp {
             Ok(None) => UpdateCheckResponse::UpToDate {
                 current_display_version,
             },
-            Err(err) => UpdateCheckResponse::Error {
-                message: format_check_error(&err.to_string()),
-            },
+            Err(err) => UpdateCheckResponse::error(format_check_error(&err.to_string())),
         })
     }
 
@@ -107,9 +131,9 @@ pub mod imp {
         let update = pending
             .0
             .lock()
-            .map_err(|_| "Update state lock poisoned.".to_string())?
+            .map_err(|_| lock_poisoned())?
             .take()
-            .ok_or_else(|| "No pending update.".to_string())?;
+            .ok_or_else(|| ui_err("err.noPendingUpdate", json!({})))?;
 
         update
             .download_and_install(|_, _| {}, || {})
@@ -122,6 +146,10 @@ pub mod imp {
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub mod imp {
+    use serde_json::json;
+
+    use crate::uitext::ui_err;
+
     use super::UpdateCheckResponse;
 
     #[tauri::command]
@@ -136,7 +164,7 @@ pub mod imp {
 
     #[tauri::command]
     pub async fn app_install_update() -> Result<(), String> {
-        Err("Updater is not available on this platform.".into())
+        Err(ui_err("err.updaterUnavailableOnPlatform", json!({})))
     }
 }
 
@@ -145,16 +173,31 @@ pub use imp::PendingUpdate;
 
 #[cfg(test)]
 mod tests {
-    use super::format_check_error;
+    use serde_json::json;
+
+    use super::{format_check_error, UpdateCheckResponse};
 
     #[test]
     fn maps_404_to_prerelease_hint() {
         let msg = format_check_error("HTTP status client error (404 Not Found)");
-        assert!(msg.contains("pre-release"));
+        assert!(msg.text.contains("pre-release"));
+        assert_eq!(msg.key, "updater.feedNotFound");
     }
 
     #[test]
     fn empty_error_uses_default_message() {
-        assert_eq!(format_check_error(""), "Could not check for updates.");
+        assert_eq!(format_check_error("").text, "Could not check for updates.");
+        let detailed = format_check_error("boom");
+        assert_eq!(detailed.text, "Could not check for updates: boom");
+        assert_eq!(detailed.args["error"], "boom");
+    }
+
+    #[test]
+    fn a_failed_check_carries_the_key_beside_the_words() {
+        let v = serde_json::to_value(UpdateCheckResponse::error(format_check_error(""))).unwrap();
+        assert_eq!(v["status"], "error");
+        assert_eq!(v["message"], "Could not check for updates.");
+        assert_eq!(v["messageKey"], "updater.checkFailed");
+        assert_eq!(v["messageArgs"], json!({}));
     }
 }

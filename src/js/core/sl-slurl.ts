@@ -4,6 +4,8 @@
 const BeeSlurl = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const REGION_WIDTH = 256;
   // Grid indices run 0..16384 (one per region along each axis); global origins are larger, in metres.
   const GRID_INDEX_MAX = 16384;
@@ -61,8 +63,10 @@ const BeeSlurl = (function () {
   // it. Until then they say "Resident profile" and the id is queued for a
   // lookup - at most once a minute per id, since every repaint asks again -
   // so refreshAppLinks() can fill the name in when names-updated fires.
-  const AGENT_PLACEHOLDER = 'Resident profile';
-  const GROUP_PLACEHOLDER = 'Group profile';
+  // Functions, not constants: the words follow the UI language, and the
+  // dictionary is not in yet while this script is evaluated.
+  function agentPlaceholder() { return t('slurl.residentProfile'); }
+  function groupPlaceholder() { return t('menu.groupProfile'); }
   const LINK_RESOLVE_RETRY_MS = 60000;
   const linkResolveAsked = new Map();
 
@@ -105,8 +109,8 @@ const BeeSlurl = (function () {
 
   function slurlLabel(url) {
     const parsed = parse(url);
-    if (parsed && parsed.type === 'app-agent') return agentLinkName(parsed.id) || AGENT_PLACEHOLDER;
-    if (parsed && parsed.type === 'app-group') return groupLinkName(parsed.id) || GROUP_PLACEHOLDER;
+    if (parsed && parsed.type === 'app-agent') return agentLinkName(parsed.id) || agentPlaceholder();
+    if (parsed && parsed.type === 'app-group') return groupLinkName(parsed.id) || groupPlaceholder();
     if (parsed && parsed.regionName) {
       if (parsed.x !== undefined && parsed.y !== undefined) {
         const z = parsed.z !== undefined ? parsed.z : 25;
@@ -311,7 +315,7 @@ const BeeSlurl = (function () {
 
   function formatLocation(loc) {
     if (!loc) return '';
-    const name = loc.regionName || ('Region ' + loc.gridX + ',' + loc.gridY);
+    const name = loc.regionName || t('map.regionAt', { x: loc.gridX, y: loc.gridY });
     const x = Math.round(loc.x !== undefined ? loc.x : 128);
     const y = Math.round(loc.y !== undefined ? loc.y : 128);
     const z = Math.round(loc.z !== undefined ? loc.z : 25);
@@ -459,13 +463,15 @@ const BeeSlurl = (function () {
   function refreshAppLinks(root) {
     const scope = root || (typeof document !== 'undefined' ? document : null);
     if (!scope || typeof scope.querySelectorAll !== 'function') return;
+    const agentStub = agentPlaceholder();
+    const groupStub = groupPlaceholder();
     scope.querySelectorAll('a[data-agent-link]').forEach(function (a) {
-      if (a.textContent !== AGENT_PLACEHOLDER) return;
+      if (a.textContent !== agentStub) return;
       const name = agentLinkName(a.getAttribute('data-agent-link'));
       if (name) a.textContent = name;
     });
     scope.querySelectorAll('a[data-group-link]').forEach(function (a) {
-      if (a.textContent !== GROUP_PLACEHOLDER) return;
+      if (a.textContent !== groupStub) return;
       const name = groupLinkName(a.getAttribute('data-group-link'));
       if (name) a.textContent = name;
     });
@@ -499,12 +505,12 @@ const BeeSlurl = (function () {
       }
       const ask = (typeof BeeUtils !== 'undefined' && BeeUtils.confirm)
         ? BeeUtils.confirm({
-            title: 'Open external link?',
-            message: 'This link leaves Second Life and opens in your browser:\n' + normalized,
-            confirmLabel: 'Open',
-            cancelLabel: 'Cancel'
+            title: t('slurl.openExternalTitle'),
+            message: t('slurl.openExternalMessage', { url: normalized }),
+            confirmLabel: t('common.open'),
+            cancelLabel: t('common.cancel')
           })
-        : Promise.resolve(window.confirm('Open external link?\n' + normalized));
+        : Promise.resolve(window.confirm(t('slurl.openExternalTitle') + '\n' + normalized));
       return ask.then(function (ok) {
         if (ok) openExternalUrl(normalized);
         return !!ok;
@@ -544,12 +550,12 @@ const BeeSlurl = (function () {
         }
         const ask = (typeof BeeUtils !== 'undefined' && BeeUtils.confirm)
           ? BeeUtils.confirm({
-              title: 'Open external link?',
-              message: 'This link leaves Second Life and opens in your browser:\n' + url,
-              confirmLabel: 'Open',
-              cancelLabel: 'Cancel'
+              title: t('slurl.openExternalTitle'),
+              message: t('slurl.openExternalMessage', { url: url }),
+              confirmLabel: t('common.open'),
+              cancelLabel: t('common.cancel')
             })
-          : Promise.resolve(window.confirm('Open external link?\n' + url));
+          : Promise.resolve(window.confirm(t('slurl.openExternalTitle') + '\n' + url));
         ask.then(function (ok) { if (ok) openExternalUrl(url); });
       });
     });

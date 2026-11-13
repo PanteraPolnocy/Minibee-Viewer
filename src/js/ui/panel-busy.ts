@@ -4,6 +4,8 @@
 const BeePanelBusy = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   function resolvePanel(panelOrId) {
     if (!panelOrId) return null;
     if (typeof panelOrId === 'string') {
@@ -35,7 +37,7 @@ const BeePanelBusy = (function () {
     const overlay = ensureOverlay(panel);
     const text = overlay.querySelector('.panel-busy__text');
     if (text) {
-      text.textContent = message || 'Loading, please wait...';
+      text.textContent = message || t('panel.loading');
     }
     overlay.hidden = false;
   }

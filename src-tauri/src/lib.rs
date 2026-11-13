@@ -7,6 +7,7 @@ pub mod codec;
 pub mod commands;
 pub mod diaglog;
 pub mod settings;
+pub mod uitext;
 pub mod updater;
 pub mod urlmatch;
 

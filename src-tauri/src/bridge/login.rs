@@ -13,6 +13,7 @@ use crate::bridge::util::{
     llsd_cap_keys, llsd_cap_map, normalize_seed_url, normalize_sim_ip, seed_has_region_caps,
     trim_quotes, xml_escape,
 };
+use crate::uitext::{ui_err, UiText};
 
 fn gs(p: &Value, key: &str) -> String {
     match p.get(key) {
@@ -245,14 +246,14 @@ pub fn classify_login(login: &Map<String, Value>) -> Value {
         .or_else(|| login.get("status").and_then(|v| v.as_str()))
         .unwrap_or("")
         .to_lowercase();
+    // The grid's own explanation, as it came; None when the reply has none.
     let message = login
         .get("message")
         .and_then(|v| v.as_str())
         .or_else(|| login.get("message_id").and_then(|v| v.as_str()))
-        .unwrap_or("Login failed.")
-        .to_string();
+        .map(str::to_string);
     let mfa_hash = login.get("mfa_hash").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let ml = message.to_lowercase();
+    let ml = message.as_deref().unwrap_or("").to_lowercase();
     let ty = if reason == "tos" {
         "tos"
     } else if reason == "critical" {
@@ -271,7 +272,14 @@ pub fn classify_login(login: &Map<String, Value>) -> Value {
     } else {
         "error"
     };
-    json!({ "ok": false, "type": ty, "reason": reason, "message": message, "mfaHash": mfa_hash })
+    let mut out = json!({ "ok": false, "type": ty, "reason": reason, "mfaHash": mfa_hash });
+    match message {
+        // The grid's words pass through untouched, with no key of ours.
+        Some(m) => out["message"] = Value::String(m),
+        // A refusal that says nothing gets our line, with its key beside it.
+        None => UiText::new("login.failed", json!({})).fields(&mut out, "message"),
+    }
+    out
 }
 
 fn parse_buddies(login: &Map<String, Value>) -> Value {
@@ -302,11 +310,12 @@ pub fn normalize_login(login: &Map<String, Value>) -> Value {
     let grid_x = region_x / 256;
     let grid_y = region_y / 256;
     let sim_name = map_str(login, "sim_name");
-    let region_name = if sim_name.is_empty() {
-        format!("Region {region_x},{region_y}")
-    } else {
-        sim_name
-    };
+    // No name from the grid: the map's "Region x,y" stand-in, keyed so the
+    // interface shows it in its own language (`region.nameKey`).
+    let stand_in = sim_name.is_empty().then(|| {
+        UiText::new("map.regionAt", json!({ "x": grid_x, "y": grid_y }))
+    });
+    let region_name = stand_in.as_ref().map(|l| l.text.clone()).unwrap_or(sim_name);
     let look_at = login
         .get("look_at")
         .and_then(|v| v.as_str())
@@ -315,7 +324,7 @@ pub fn normalize_login(login: &Map<String, Value>) -> Value {
     let sim_ip = normalize_sim_ip(login.get("sim_ip").unwrap_or(&Value::Null));
     let display_name = format!("{first} {last}").trim().to_string();
 
-    json!({
+    let mut out = json!({
         "agent": { "id": trim_quotes(&map_str(login, "agent_id")), "first": first, "last": last, "displayName": display_name },
         "sessionId": trim_quotes(&map_str(login, "session_id")),
         "secureSessionId": trim_quotes(&map_str(login, "secure_session_id")),
@@ -332,7 +341,11 @@ pub fn normalize_login(login: &Map<String, Value>) -> Value {
         "lookAt": { "x": look_at.0, "y": look_at.1, "z": look_at.2 },
         "spawnPosition": { "x": 128, "y": 128, "z": 25 },
         "message": map_str(login, "message"),
-    })
+    });
+    if let Some(line) = stand_in {
+        line.fields(&mut out["region"], "name");
+    }
+    out
 }
 
 /// The id of the login inventory skeleton's folder with this `type_default`.
@@ -398,18 +411,18 @@ pub fn parse_login_response(xml: &str) -> Result<Map<String, Value>, String> {
     // The login URL is grid-configurable, so screen for a nesting-bomb response
     // before roxmltree builds the tree (and could overflow the stack on it).
     if crate::codec::llsd::max_xml_nesting(xml) > MAX_XMLRPC_DEPTH as usize {
-        return Err("XML-RPC response nested too deeply".to_string());
+        return Err(ui_err("err.xmlrpcNestedTooDeeply", json!({})));
     }
     // XML-RPC never needs a DTD, and an inline one is how entity-expansion
     // bombs get in, so refuse to parse one at all rather than rely on the
     // library's default staying that way.
     let opts = roxmltree::ParsingOptions { allow_dtd: false, ..Default::default() };
     let doc = roxmltree::Document::parse_with_options(xml, opts)
-        .map_err(|_| "Invalid XML-RPC response".to_string())?;
+        .map_err(|_| ui_err("err.invalidXmlrpcResponse", json!({})))?;
     let struct_node = doc
         .descendants()
         .find(|n| n.has_tag_name("struct"))
-        .ok_or("XML-RPC response has no struct")?;
+        .ok_or_else(|| ui_err("err.xmlrpcNoStruct", json!({})))?;
     let mut result = Map::new();
     for member in struct_node.children().filter(|c| c.has_tag_name("member")) {
         let name = member
@@ -533,7 +546,9 @@ async fn fetch_login_seed_caps(
 ) -> Value {
     let seed_url = normalize_seed_url(seed_url);
     if seed_url.is_empty() {
-        return json!({ "ok": false, "error": "No seed capability URL" });
+        let mut failed = json!({ "ok": false });
+        UiText::new("login.noSeedCapUrl", json!({})).fields(&mut failed, "error");
+        return failed;
     }
     let sim_ip = normalize_sim_ip(&json!(sim_ip));
 
@@ -606,19 +621,19 @@ async fn fetch_login_seed_caps(
         }
     }
 
-    json!({
+    let got = last_keys.iter().take(12).cloned().collect::<Vec<_>>().join(", ");
+    let mut failed = json!({
         "ok": false,
-        "error": format!(
-            "Seed grant missing region caps (got: {})",
-            last_keys.iter().take(12).cloned().collect::<Vec<_>>().join(", ")
-        ),
         "body": last_body,
         "caps": llsd_cap_map(&last_body),
         "contentType": "application/llsd+xml",
         "capKeys": last_keys,
         "status": last_status,
         "simPinnedIp": sim_ip,
-    })
+    });
+    UiText::new("login.seedGrantMissingRegionCaps", json!({ "keys": got }))
+    .fields(&mut failed, "error");
+    failed
 }
 
 #[cfg(test)]
@@ -747,6 +762,24 @@ mod tests {
         assert_eq!(case(json!({ "login": false, "reason": "mfa_challenge" }))["type"], "mfa");
         assert_eq!(case(json!({ "login": false, "message": "Enter your authenticator code" }))["type"], "mfa");
         assert_eq!(case(json!({ "login": false, "reason": "key", "message": "bad login" }))["type"], "error");
+        // The grid's own message passes through with no key of ours...
+        let theirs = case(json!({ "login": false, "reason": "key", "message": "bad login" }));
+        assert_eq!(theirs["message"], "bad login");
+        assert!(theirs.get("messageKey").is_none());
+        // ...and a reply that says nothing gets our line, keyed.
+        let silent = case(json!({ "login": false, "reason": "key" }));
+        assert_eq!(silent["message"], "Login failed.");
+        assert_eq!(silent["messageKey"], "login.failed");
+        assert_eq!(silent["messageArgs"], json!({}));
+    }
+
+    #[test]
+    fn a_broken_login_reply_is_refused_with_a_keyed_error() {
+        let err = parse_login_response("<not-xmlrpc").unwrap_err();
+        assert_eq!(crate::uitext::plain(&err), "Invalid XML-RPC response");
+        assert_eq!(UiText::decode(&err).unwrap().key, "err.invalidXmlrpcResponse");
+        let no_struct = parse_login_response("<methodResponse><params></params></methodResponse>").unwrap_err();
+        assert_eq!(UiText::decode(&no_struct).unwrap().key, "err.xmlrpcNoStruct");
     }
 
     #[test]
@@ -1089,7 +1122,7 @@ pub async fn relogin(state: Arc<AppState>) -> Result<Value, String> {
     let creds = state
         .creds
         .reveal()
-        .ok_or_else(|| "No stored session to reconnect".to_string())?;
+        .ok_or_else(|| ui_err("err.noStoredSession", json!({})))?;
     login_with(state, relogin_credentials(creds), Some(generation)).await
 }
 
@@ -1100,7 +1133,11 @@ async fn login_with(
 ) -> Result<Value, String> {
     let stored_mfa_used = unseal_stored_mfa(&mut credentials).await;
     let body = assemble_login_body(&state, &credentials);
-    let url = body.get("url").and_then(|u| u.as_str()).ok_or("url required")?.to_string();
+    let url = body
+        .get("url")
+        .and_then(|u| u.as_str())
+        .ok_or_else(|| ui_err("err.urlRequired", json!({})))?
+        .to_string();
     let xml = build_login_xml(&body);
 
     // The login URL is grid-supplied, so route it through the same guarded path as
@@ -1123,9 +1160,9 @@ async fn login_with(
         false,
     )
     .await
-    .map_err(|e| format!("Login HTTP error: {e}"))?;
+    .map_err(|e| ui_err("err.loginHttpError", json!({ "error": crate::uitext::plain(&e) })))?;
     if !(200..300).contains(&ex.status) {
-        return Err(format!("Login HTTP status {}", ex.status));
+        return Err(ui_err("err.loginHttpStatus", json!({ "status": ex.status })));
     }
     let parsed = parse_login_response(&ex.body)?;
 
@@ -1137,7 +1174,7 @@ async fn login_with(
     // or reach the UI as a session to start.
     if login_ok && logged_out_since(logout_gen_at_start, state.logout_gen.load(Ordering::SeqCst)) {
         crate::dlog!("relogin: logged out while the login was in flight - dropping the reply");
-        return Err("Logged out during reconnect".to_string());
+        return Err(ui_err("err.loggedOutDuringReconnect", json!({})));
     }
 
     // Stash the login payload for auto-reconnect (SecretStore keeps it obfuscated

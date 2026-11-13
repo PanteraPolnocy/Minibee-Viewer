@@ -15,6 +15,8 @@
 const BeeAndroidBridge = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let timer = null;
   let lastSent = '';
   const voice = { connected: false, muted: true };
@@ -128,7 +130,8 @@ const BeeAndroidBridge = (function () {
     if (!msg || msg.outgoing || !msg.text) return;
     const session = (BeeState.get().imSessions || {})[payload.sessionId];
     if (!session || session.muted) return;
-    const who = String(msg.fromName || 'Someone');
+    // "Name: text" is data for the notification; only the stand-in name is ours.
+    const who = String(msg.fromName || t('android.someone'));
     lastMessage = (who + ': ' + String(msg.text)).slice(0, 120);
     if (typeof BeeSounds !== 'undefined' && BeeSounds.wantsSound(payload.sessionId, msg)) {
       imAlerts += 1;

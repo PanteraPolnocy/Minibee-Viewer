@@ -16,6 +16,7 @@ use crate::bridge::login::{member_int, member_string, parse_login_response, xmlr
 use crate::bridge::proxy;
 use crate::bridge::state::AppState;
 use crate::bridge::util::truthy;
+use crate::uitext::{ui_err, UiText};
 
 #[derive(Debug, Clone, Default)]
 pub struct CurrencyContext {
@@ -70,9 +71,11 @@ async fn call(state: &AppState, url: &str, method: &str, members: &str) -> Resul
     let pin = proxy::resolve_public_pin(url).await;
     let ex = proxy::exchange(&state.ua, "POST", url, &xml, "text/xml", &[], pin, Duration::from_secs(60), false)
         .await
-        .map_err(|e| format!("Currency service error: {e}"))?;
+        .map_err(|e| {
+            ui_err("err.currencyServiceError", json!({ "error": crate::uitext::plain(&e) }))
+        })?;
     if !(200..300).contains(&ex.status) {
-        return Err(format!("Currency service HTTP {}", ex.status));
+        return Err(ui_err("err.currencyServiceHttp", json!({ "status": ex.status })));
     }
     parse_login_response(&ex.body)
 }
@@ -89,36 +92,40 @@ fn str_of(m: &Map<String, Value>, k: &str) -> String {
 /// Everything a currency command needs up front, or the reply that ends it early.
 fn gate(state: &AppState, amount: i64) -> Result<Result<(CurrencyContext, String), Value>, String> {
     if amount <= 0 {
-        return Err("Amount must be a positive number".into());
+        return Err(ui_err("err.amountNotPositive", json!({})));
     }
-    state.active().ok_or("No active session")?;
+    state.active().ok_or_else(|| ui_err("err.noActiveSession", json!({})))?;
     let ctx = state
         .currency
         .lock()
         .unwrap()
         .clone()
-        .ok_or_else(|| "No currency session".to_string())?;
+        .ok_or_else(|| ui_err("err.noCurrencySession", json!({})))?;
     let url = endpoint(&ctx.helper_uri);
     if url.is_empty() {
-        return Ok(Err(json!({
-            "ok": false,
-            "unsupported": true,
-            "error": "Buying currency is not available on this grid.",
-        })));
+        let mut reply = json!({ "ok": false, "unsupported": true });
+        UiText::new("currency.unsupportedOnGrid", json!({}))
+            .fields(&mut reply, "error");
+        return Ok(Err(reply));
     }
     Ok(Ok((ctx, url)))
 }
 
 fn failure(r: &Map<String, Value>) -> Value {
     // A refusal carries errorMessage; a protocol-level fault carries faultString.
+    // Either passes through as the server wrote it; only silence gets our words.
     let msg = match str_of(r, "errorMessage") {
         m if m.is_empty() => str_of(r, "faultString"),
         m => m,
     };
-    json!({
-        "ok": false,
-        "error": if msg.is_empty() { "The billing service is unavailable right now.".to_string() } else { msg },
-    })
+    let mut reply = json!({ "ok": false });
+    if msg.is_empty() {
+        UiText::new("currency.billingUnavailable", json!({}))
+            .fields(&mut reply, "error");
+    } else {
+        reply["error"] = Value::String(msg);
+    }
+    reply
 }
 
 /// Price `amount` L$. Returns the estimate plus the confirm token a purchase
@@ -246,7 +253,35 @@ mod tests {
         </struct></value></fault></methodResponse>"#;
         let r = parse_login_response(xml).expect("parse");
         assert!(!truthy(r.get("success")));
-        assert_eq!(failure(&r)["error"], "Method not supported.");
+        let reply = failure(&r);
+        assert_eq!(reply["error"], "Method not supported.");
+        // The server's words carry no key of ours.
+        assert!(reply.get("errorKey").is_none());
+    }
+
+    #[test]
+    fn a_silent_failure_gets_our_words_with_their_key() {
+        let xml = r#"<?xml version="1.0"?><methodResponse><params><param><value><struct>
+            <member><name>success</name><value><boolean>0</boolean></value></member>
+        </struct></value></param></params></methodResponse>"#;
+        let r = parse_login_response(xml).expect("parse");
+        let reply = failure(&r);
+        assert_eq!(reply["ok"], false);
+        assert_eq!(reply["error"], "The billing service is unavailable right now.");
+        assert_eq!(reply["errorKey"], "currency.billingUnavailable");
+        assert_eq!(reply["errorArgs"], json!({}));
+    }
+
+    #[test]
+    fn a_grid_without_a_helper_is_reported_as_unsupported() {
+        let (payload, ua) = crate::bridge::state::version_payload("Minibee-Viewer Test", 1, 2, 3, 456);
+        let state = AppState::new(payload, ua);
+        // No amount, no session: the amount check comes first.
+        let refused = gate(&state, 0).unwrap_err();
+        assert_eq!(crate::uitext::plain(&refused), "Amount must be a positive number");
+        // Without a session the gate stops there too.
+        let no_session = gate(&state, 100).unwrap_err();
+        assert_eq!(crate::uitext::plain(&no_session), "No active session");
     }
 
     #[test]

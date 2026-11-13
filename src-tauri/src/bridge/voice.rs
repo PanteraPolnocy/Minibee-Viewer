@@ -16,8 +16,19 @@ use tauri::State;
 
 use crate::bridge::inventory::{self, xml_escape};
 use crate::bridge::state::AppState;
+use crate::uitext::ui_err;
 
 type Cmd = Result<Value, String>;
+
+/// The rejection every voice command gives without a live session.
+fn no_active_session() -> String {
+    ui_err("err.noActiveSession", json!({}))
+}
+
+/// A region without the ChatSessionRequest capability cannot set up calls.
+fn no_voice_calls_in_region() -> String {
+    ui_err("err.voiceCallsUnavailableInRegion", json!({}))
+}
 
 const VOICE_SERVER_TYPE: &str = "webrtc";
 
@@ -30,9 +41,11 @@ const PF_USE_ESTATE_VOICE_CHAN: u32 = 1 << 30;
 /// parcel's own channel when it opts out of the estate-wide one, the estate
 /// channel (no parcel id) otherwise - also the default when no parcel data
 /// has arrived yet.
-pub fn parcel_channel(parcel: Option<(i64, u32)>) -> Result<Option<i64>, &'static str> {
+pub fn parcel_channel(parcel: Option<(i64, u32)>) -> Result<Option<i64>, String> {
     match parcel {
-        Some((_, flags)) if flags & PF_ALLOW_VOICE_CHAT == 0 => Err("Voice is not allowed on this parcel"),
+        Some((_, flags)) if flags & PF_ALLOW_VOICE_CHAT == 0 => {
+            Err(ui_err("err.voiceNotAllowedOnParcel", json!({})))
+        }
         Some((local_id, flags)) if flags & PF_USE_ESTATE_VOICE_CHAN == 0 && local_id > 0 => Ok(Some(local_id)),
         _ => Ok(None),
     }
@@ -161,14 +174,18 @@ fn voice_cap_url(
     match neighbour {
         Some(key) => {
             let guard = state.neighbour_voice.lock().unwrap();
-            let (_, _, provision, signaling) = guard.get(key).ok_or("Unknown voice neighbour")?;
+            let (_, _, provision, signaling) = guard
+                .get(key)
+                .ok_or_else(|| ui_err("err.unknownVoiceNeighbour", json!({})))?;
             let url = if cap == "VoiceSignalingRequest" { signaling } else { provision };
             if url.is_empty() {
-                return Err("The neighbour lacks that capability".into());
+                return Err(ui_err("err.neighbourLacksCapability", json!({})));
             }
             Ok(url.clone())
         }
-        None => session.cap(cap).ok_or_else(|| "This region has no voice".into()),
+        None => session
+            .cap(cap)
+            .ok_or_else(|| ui_err("err.regionHasNoVoice", json!({}))),
     }
 }
 
@@ -183,9 +200,9 @@ pub async fn sl_voice_provision(
     offer: String,
     neighbour: Option<String>,
 ) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     if offer.trim().is_empty() || offer.len() > 128 * 1024 {
-        return Err("Bad SDP offer".into());
+        return Err(ui_err("err.badSdpOffer", json!({})));
     }
     let url = voice_cap_url(state.inner(), &session, "ProvisionVoiceAccountRequest", &neighbour)?;
     // Cross-border listening happens on the neighbour's estate channel, the
@@ -198,7 +215,7 @@ pub async fn sl_voice_provision(
     let body = provision_body(&offer, parcel_local_id);
     let res = inventory::cap_post_url(state.inner(), &session, &url, &body)
         .await
-        .ok_or("The voice provisioning request failed")?;
+        .ok_or_else(|| ui_err("err.voiceProvisionFailed", json!({})))?;
     let viewer_session = res.get("viewer_session").and_then(|v| v.as_str()).unwrap_or("");
     let jsep = res.get("jsep");
     let answer = jsep
@@ -208,7 +225,7 @@ pub async fn sl_voice_provision(
         .unwrap_or("");
     if viewer_session.is_empty() || answer.is_empty() {
         crate::dlog!("voice: bad provision response: {:.300}", res.to_string());
-        return Err("The sim refused the voice session".into());
+        return Err(ui_err("err.simRefusedVoiceSession", json!({})));
     }
     Ok(json!({
         "ok": true,
@@ -226,13 +243,13 @@ pub async fn sl_voice_provision(
 /// sl_voice_call_provision then joins; the sim invites the other members.
 #[tauri::command]
 pub async fn sl_voice_call_request(state: State<'_, Arc<AppState>>, session_id: String) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let session_id = session_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&session_id) || inventory::is_zero_uuid(&session_id) {
-        return Err("Not a chat session".into());
+        return Err(ui_err("err.notAChatSession", json!({})));
     }
     if session.cap("ChatSessionRequest").is_none() {
-        return Err("Voice calls are unavailable in this region".into());
+        return Err(no_voice_calls_in_region());
     }
     let body = format!(
         "<?xml version=\"1.0\"?><llsd><map>\
@@ -244,12 +261,14 @@ pub async fn sl_voice_call_request(state: State<'_, Arc<AppState>>, session_id: 
     );
     let res = inventory::cap_post(state.inner(), &session, "ChatSessionRequest", &body)
         .await
-        .ok_or("The call could not be started (the session may not allow voice)")?;
+        .ok_or_else(|| {
+            ui_err("err.callNotStartedSessionVoice", json!({}))
+        })?;
     let creds = res.get("voice_credentials").cloned().unwrap_or(Value::Null);
     let uri = creds.get("channel_uri").and_then(|v| v.as_str()).unwrap_or("");
     if uri.is_empty() {
         crate::dlog!("voice: call request without channel: {:.300}", res.to_string());
-        return Err("The sim did not hand back a voice channel".into());
+        return Err(ui_err("err.simGaveNoVoiceChannel", json!({})));
     }
     Ok(json!({
         "ok": true,
@@ -270,16 +289,16 @@ pub async fn sl_voice_call_p2p(
     session_id: String,
     peer_id: String,
 ) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let session_id = session_id.trim().to_ascii_lowercase();
     let peer_id = peer_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&session_id) || inventory::is_zero_uuid(&session_id)
         || !inventory::is_uuid(&peer_id) || inventory::is_zero_uuid(&peer_id)
     {
-        return Err("Not a resident conversation".into());
+        return Err(ui_err("err.notAResidentConversation", json!({})));
     }
     if session.cap("ChatSessionRequest").is_none() {
-        return Err("Voice calls are unavailable in this region".into());
+        return Err(no_voice_calls_in_region());
     }
     let body = format!(
         "<?xml version=\"1.0\"?><llsd><map>\
@@ -292,7 +311,7 @@ pub async fn sl_voice_call_p2p(
     );
     inventory::cap_post(state.inner(), &session, "ChatSessionRequest", &body)
         .await
-        .ok_or("The call could not be started")?;
+        .ok_or_else(|| ui_err("err.callNotStarted", json!({})))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -305,15 +324,15 @@ pub async fn sl_voice_call_provision(
     channel: String,
     credentials: String,
 ) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     if offer.trim().is_empty() || offer.len() > 128 * 1024 || channel.trim().is_empty() {
-        return Err("Bad call parameters".into());
+        return Err(ui_err("err.badCallParameters", json!({})));
     }
     let url = voice_cap_url(state.inner(), &session, "ProvisionVoiceAccountRequest", &None)?;
     let body = provision_body_adhoc(&offer, &channel, &credentials);
     let res = inventory::cap_post_url(state.inner(), &session, &url, &body)
         .await
-        .ok_or("The call provisioning request failed")?;
+        .ok_or_else(|| ui_err("err.callProvisionFailed", json!({})))?;
     let viewer_session = res.get("viewer_session").and_then(|v| v.as_str()).unwrap_or("");
     let answer = res
         .get("jsep")
@@ -323,7 +342,7 @@ pub async fn sl_voice_call_provision(
         .unwrap_or("");
     if viewer_session.is_empty() || answer.is_empty() {
         crate::dlog!("voice: bad call provision response: {:.300}", res.to_string());
-        return Err("The sim refused the call".into());
+        return Err(ui_err("err.simRefusedCall", json!({})));
     }
     Ok(json!({ "ok": true, "viewerSession": viewer_session, "sdp": answer }))
 }
@@ -337,18 +356,18 @@ pub async fn sl_voice_ice(
     completed: bool,
     neighbour: Option<String>,
 ) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     if viewer_session.is_empty() || (candidates.is_empty() && !completed) {
         return Ok(json!({ "ok": true, "skipped": true }));
     }
     if candidates.len() > 64 {
-        return Err("Too many candidates".into());
+        return Err(ui_err("err.tooManyCandidates", json!({})));
     }
     let url = voice_cap_url(state.inner(), &session, "VoiceSignalingRequest", &neighbour)?;
     let body = ice_body(&viewer_session, &candidates, completed);
     inventory::cap_post_url(state.inner(), &session, &url, &body)
         .await
-        .ok_or("The voice signalling request failed")?;
+        .ok_or_else(|| ui_err("err.voiceSignallingFailed", json!({})))?;
     Ok(json!({ "ok": true }))
 }
 
@@ -360,7 +379,7 @@ pub async fn sl_voice_logout(
     viewer_session: String,
     neighbour: Option<String>,
 ) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     if viewer_session.is_empty() {
         return Ok(json!({ "ok": true }));
     }
@@ -383,7 +402,7 @@ pub async fn sl_voice_logout(
 /// position (head height), which the voice server uses for spatial mixing.
 #[tauri::command]
 pub fn sl_voice_position(state: State<'_, Arc<AppState>>) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     match session.agent_global_position() {
         Some(p) => Ok(json!({ "ok": true, "position": p, "rotation": session.agent_rotation() })),
         None => Ok(json!({ "ok": false })),
@@ -414,7 +433,9 @@ mod tests {
         // No parcel data yet: estate channel.
         assert_eq!(parcel_channel(None), Ok(None));
         // Voice forbidden on the parcel: no session at all.
-        assert_eq!(parcel_channel(Some((7, 0))), Err("Voice is not allowed on this parcel"));
+        let refused = parcel_channel(Some((7, 0))).unwrap_err();
+        assert_eq!(crate::uitext::plain(&refused), "Voice is not allowed on this parcel");
+        assert_eq!(crate::uitext::UiText::decode(&refused).unwrap().key, "err.voiceNotAllowedOnParcel");
         // Voice allowed, estate-wide channel opted in: estate.
         assert_eq!(parcel_channel(Some((7, PF_ALLOW_VOICE_CHAT | PF_USE_ESTATE_VOICE_CHAN))), Ok(None));
         // Voice allowed, estate channel opted out: the parcel's own channel.

@@ -11,8 +11,19 @@ use tauri::{AppHandle, Emitter, State};
 use crate::bridge::proxy;
 use crate::bridge::state::AppState;
 use crate::codec;
+use crate::uitext::{ui_err, UiText};
 
 type Cmd = Result<Value, String>;
+
+/// The rejection every capability command gives without a live session.
+fn no_active_session() -> String {
+    ui_err("err.noActiveSession", json!({}))
+}
+
+/// The AgentProfile cap is missing: no extended profile, no notes save.
+fn agent_profile_cap_unavailable() -> String {
+    ui_err("err.agentProfileCapUnavailable", json!({}))
+}
 
 /// Capability URLs want a trailing slash before any query string or sub-path.
 pub(crate) fn cap_endpoint(url: &str) -> String {
@@ -211,7 +222,7 @@ pub(crate) async fn resolve_display_names(
 
 #[tauri::command]
 pub async fn sl_resolve_display_names(app: AppHandle, state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     resolve_display_names(&app, state.inner(), &session, &ids).await?;
     Ok(json!({ "ok": true, "requested": ids.len() }))
 }
@@ -224,10 +235,10 @@ fn xml_text(s: &str) -> String {
 /// environment through the ExtEnvironment cap.
 #[tauri::command]
 pub async fn sl_parcel_environment(state: State<'_, Arc<AppState>>, local_id: i64) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let cap = session
         .cap("ExtEnvironment")
-        .ok_or("Environment capability unavailable")?;
+        .ok_or_else(|| ui_err("err.environmentCapUnavailable", json!({})))?;
     let url = if local_id > 0 {
         format!("{}?parcelid={}", cap.trim_end_matches('/'), local_id)
     } else {
@@ -236,7 +247,7 @@ pub async fn sl_parcel_environment(state: State<'_, Arc<AppState>>, local_id: i6
     let (pin, _) = proxy::simhost_pin(&url, "").await;
     let ex = proxy::exchange(&state.ua, "GET", &url, "", "application/llsd+xml", &[], pin, Duration::from_secs(30), true).await?;
     if !(200..300).contains(&ex.status) {
-        return Err(format!("Environment fetch failed (HTTP {}).", ex.status));
+        return Err(ui_err("err.environmentFetchFailedHttp", json!({ "status": ex.status })));
     }
     let parsed = codec::llsd::parse(&ex.body, &ex.content_type).unwrap_or(Value::Null);
     let env = parsed.get("environment").cloned().unwrap_or(Value::Null);
@@ -265,10 +276,10 @@ pub async fn sl_parcel_environment(state: State<'_, Arc<AppState>>, local_id: i6
 /// Returns `{ names: { id: name } }`; unknown ids are simply absent.
 #[tauri::command]
 pub async fn sl_experience_names(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let cap = session
         .cap("GetExperienceInfo")
-        .ok_or("Experience capability unavailable")?;
+        .ok_or_else(|| ui_err("err.experienceCapUnavailable", json!({})))?;
     let mut names = serde_json::Map::new();
     for chunk in ids.chunks(20) {
         let query = chunk
@@ -417,9 +428,9 @@ pub(crate) async fn update_parcel_via_cap(
     session: &Arc<crate::bridge::circuit::Session>,
     body: &str,
 ) -> Result<(), String> {
-    let cap = session
-        .cap("ParcelPropertiesUpdate")
-        .ok_or("ParcelPropertiesUpdate capability unavailable")?;
+    let cap = session.cap("ParcelPropertiesUpdate").ok_or_else(|| {
+        ui_err("err.parcelUpdateCapUnavailable", json!({}))
+    })?;
     let (pin, _) = proxy::simhost_pin(&cap, "").await;
     let ex = proxy::exchange(
         &state.ua,
@@ -438,7 +449,7 @@ pub(crate) async fn update_parcel_via_cap(
         Ok(())
     } else {
         crate::dlog!("parcel: cap save REFUSED: HTTP {} body={:.200}", ex.status, ex.body);
-        Err(format!("The server refused the parcel update (HTTP {}).", ex.status))
+        Err(ui_err("err.parcelUpdateRefusedHttp", json!({ "status": ex.status })))
     }
 }
 
@@ -461,9 +472,7 @@ pub(crate) async fn save_avatar_notes(
     target_id: &str,
     notes: &str,
 ) -> Result<(), String> {
-    let cap = session
-        .cap("AgentProfile")
-        .ok_or("AgentProfile capability unavailable")?;
+    let cap = session.cap("AgentProfile").ok_or_else(agent_profile_cap_unavailable)?;
     let url = format!("{}{}", cap_endpoint(&cap), target_id);
     let body = notes_put_body(notes);
     let (pin, _) = proxy::simhost_pin(&url, "").await;
@@ -484,7 +493,7 @@ pub(crate) async fn save_avatar_notes(
         Ok(())
     } else {
         crate::dlog!("notes: save for {} REFUSED: HTTP {} body={:.200}", target_id, ex.status, ex.body);
-        Err(format!("The server refused the notes update (HTTP {}).", ex.status))
+        Err(ui_err("err.notesUpdateRefusedHttp", json!({ "status": ex.status })))
     }
 }
 
@@ -566,10 +575,12 @@ pub(crate) async fn chat_session_post(
     params: &[String],
     mute: Option<(&str, bool)>,
 ) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     // POST to the bare cap URL. ChatSessionRequest is an opaque, sim-granted key
     // matched by exact path, so a trailing slash misroutes the request.
-    let base = session.cap("ChatSessionRequest").ok_or("ChatSessionRequest capability unavailable")?;
+    let base = session.cap("ChatSessionRequest").ok_or_else(|| {
+        ui_err("err.chatSessionCapUnavailable", json!({}))
+    })?;
     let agent_session = session.agent_ids().map(|(_, s)| s).unwrap_or_default();
     let headers: Vec<(String, String)> = if agent_session.is_empty() {
         Vec::new()
@@ -625,9 +636,9 @@ pub async fn sl_chat_session_moderate(
 #[tauri::command]
 /// Extra detail for one object, gathered only when the user opens the detail view.
 pub async fn sl_object_extra(state: State<'_, Arc<AppState>>, object_id: String) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     if object_id.is_empty() {
-        return Err("No object".into());
+        return Err(ui_err("err.noObject", json!({})));
     }
     let mut out = json!({ "ok": true, "id": object_id });
 
@@ -713,14 +724,16 @@ pub async fn sl_remote_parcel(
     z: f64,
     region_id: Option<String>,
 ) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
-    let cap = session.cap("RemoteParcelRequest").ok_or("RemoteParcelRequest capability unavailable")?;
+    let session = state.active().ok_or_else(no_active_session)?;
+    let cap = session.cap("RemoteParcelRequest").ok_or_else(|| {
+        ui_err("err.remoteParcelCapUnavailable", json!({}))
+    })?;
     // A landmark knows its region only by id; everything else names it by grid
     // position. region_handle is a 64-bit value, so it goes out as LLSD binary;
     // a 32-bit <integer> would overflow.
     let region = match region_id.as_deref().map(str::trim).filter(|r| !r.is_empty()) {
         Some(id) if crate::bridge::inventory::is_uuid(id) => format!("<key>region_id</key><uuid>{id}</uuid>"),
-        Some(_) => return Err("Invalid region id".into()),
+        Some(_) => return Err(ui_err("err.invalidRegionId", json!({}))),
         None => {
             let handle: u64 = ((grid_x.max(0) as u64) * 256 << 32) | ((grid_y.max(0) as u64) * 256);
             let handle_b64 = base64::engine::general_purpose::STANDARD.encode(handle.to_be_bytes());
@@ -768,12 +781,12 @@ fn cap_str(v: &Value, keys: &[&str]) -> String {
 /// of the UDP AvatarProperties path. Emits `avatar-profile` with `source: "cap"`.
 #[tauri::command]
 pub async fn sl_fetch_agent_profile(app: AppHandle, state: State<'_, Arc<AppState>>, avatar_id: String) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let cap = match session.cap("AgentProfile") {
         Some(c) => c,
         None => {
             crate::dlog!("AgentProfile: cap NOT present -> extended profile unavailable for {}", avatar_id);
-            return Err("AgentProfile capability unavailable".into());
+            return Err(agent_profile_cap_unavailable());
         }
     };
     let url = format!("{}{}", cap_endpoint(&cap), avatar_id);
@@ -904,49 +917,46 @@ pub async fn sl_fetch_agent_profile(app: AppHandle, state: State<'_, Arc<AppStat
 /// Assess a region's capability health for the degraded-features banner. It's
 /// pure (no I/O) so it can be unit-tested; `emit_caps_status` wraps it and does
 /// the actual emit. Returns `(ok, title, detail)`, where `ok: true` means healthy
-/// (clear the banner).
+/// (clear the banner) and carries no lines.
 ///
 /// `caps` is `None` when the seed / region cap fetch itself failed - a total
 /// failure where nothing works - and `Some(map)` after a successful fetch, where
 /// an individual cap may still be missing.
-fn assess_caps(caps: Option<&std::collections::HashMap<String, String>>) -> (bool, &'static str, String) {
+fn assess_caps(caps: Option<&std::collections::HashMap<String, String>>) -> (bool, Option<UiText>, Option<UiText>) {
     let has = |name: &str| caps.map_or(false, |m| m.get(name).map_or(false, |v| !v.trim().is_empty()));
     let cap_count = caps.map_or(0, |m| m.len());
 
     // Non-fatal caps: losing one degrades a specific feature rather than the whole
-    // session, so we name them and the banner can tell the user what won't work.
-    let mut minor: Vec<&str> = Vec::new();
-    if !has("GetDisplayNames") {
-        minor.push("resident names");
-    }
-    if !has("RemoteParcelRequest") {
-        minor.push("land / parcel info");
-    }
+    // session, so the banner names it and can tell the user what won't work. Each
+    // combination is spelled out in full, so a translation can phrase the list.
+    let names_missing = !has("GetDisplayNames");
+    let land_missing = !has("RemoteParcelRequest");
 
     if cap_count == 0 {
         (
             false,
-            "Region features failed to load",
-            "Couldn't fetch this region's capabilities. Teleports, resident names, land info \
-             and live updates won't work here. Try logging in again."
-                .to_string(),
+            Some(UiText::new("caps.failedTitle", json!({}))),
+            Some(UiText::new("caps.failedDetail", json!({}))),
         )
     } else if !has("EventQueueGet") {
         (
             false,
-            "Live updates unavailable",
-            "The region's event channel didn't come up. Teleports, incoming IMs and land \
-             updates may not arrive until you relog."
-                .to_string(),
+            Some(UiText::new("caps.noEventQueueTitle", json!({}))),
+            Some(UiText::new("caps.noEventQueueDetail", json!({}))),
         )
-    } else if !minor.is_empty() {
+    } else if names_missing || land_missing {
+        let detail = match (names_missing, land_missing) {
+            (true, true) => UiText::new("caps.minorNamesAndLand", json!({})),
+            (true, false) => UiText::new("caps.minorNames", json!({})),
+            _ => UiText::new("caps.minorLand", json!({})),
+        };
         (
             false,
-            "Some region features unavailable",
-            format!("These may not work in this region: {}.", minor.join(", ")),
+            Some(UiText::new("caps.title", json!({}))),
+            Some(detail),
         )
     } else {
-        (true, "", String::new())
+        (true, None, None)
     }
 }
 
@@ -954,20 +964,26 @@ fn assess_caps(caps: Option<&std::collections::HashMap<String, String>>) -> (boo
 /// degraded-features banner. We call this every time a region's caps are
 /// (re)established - at login and on every region cross - which keeps the banner a
 /// pure function of the latest assessment: a healthy result clears any stale
-/// warning left over from an earlier region or a failed session.
+/// warning left over from an earlier region or a failed session. `title` and
+/// `detail` carry their keys beside them (titleKey, detailArgs, ...); a healthy
+/// status has both empty.
 pub fn emit_caps_status(app: &AppHandle, caps: Option<&std::collections::HashMap<String, String>>, source: &str) {
     let (ok, title, detail) = assess_caps(caps);
-    let _ = app.emit(
-        "minibee-viewer://caps-status",
-        json!({
-            "ok": ok,
-            "capCount": caps.map_or(0, |m| m.len()),
-            "eventQueue": caps.map_or(false, |m| m.get("EventQueueGet").map_or(false, |v| !v.trim().is_empty())),
-            "title": title,
-            "detail": detail,
-            "source": source,
-        }),
-    );
+    let mut status = json!({
+        "ok": ok,
+        "capCount": caps.map_or(0, |m| m.len()),
+        "eventQueue": caps.map_or(false, |m| m.get("EventQueueGet").map_or(false, |v| !v.trim().is_empty())),
+        "title": "",
+        "detail": "",
+        "source": source,
+    });
+    if let Some(line) = title {
+        line.fields(&mut status, "title");
+    }
+    if let Some(line) = detail {
+        line.fields(&mut status, "detail");
+    }
+    let _ = app.emit("minibee-viewer://caps-status", status);
 }
 
 #[cfg(test)]
@@ -1128,28 +1144,41 @@ mod tests {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
     }
 
+    /// The English of an assessment line, or "" when there is none.
+    fn text(line: &Option<UiText>) -> String {
+        line.as_ref().map(|l| l.text.clone()).unwrap_or_default()
+    }
+
+    fn key(line: &Option<UiText>) -> String {
+        line.as_ref().map(|l| l.key.clone()).unwrap_or_default()
+    }
+
     #[test]
     fn assess_no_caps_is_total_failure() {
-        let (ok, title, _) = assess_caps(None);
+        let (ok, title, detail) = assess_caps(None);
         assert!(!ok);
-        assert_eq!(title, "Region features failed to load");
+        assert_eq!(text(&title), "Region features failed to load");
+        assert_eq!(key(&title), "caps.failedTitle");
+        assert_eq!(key(&detail), "caps.failedDetail");
         let empty = caps_from(&[]);
-        assert_eq!(assess_caps(Some(&empty)).1, "Region features failed to load");
+        assert_eq!(text(&assess_caps(Some(&empty)).1), "Region features failed to load");
     }
 
     #[test]
     fn assess_missing_event_queue_warns() {
         let caps = caps_from(&[("GetDisplayNames", "http://x/n"), ("RemoteParcelRequest", "http://x/p")]);
-        let (ok, title, _) = assess_caps(Some(&caps));
+        let (ok, title, detail) = assess_caps(Some(&caps));
         assert!(!ok);
-        assert_eq!(title, "Live updates unavailable");
+        assert_eq!(text(&title), "Live updates unavailable");
+        assert_eq!(key(&title), "caps.noEventQueueTitle");
+        assert_eq!(key(&detail), "caps.noEventQueueDetail");
     }
 
     #[test]
     fn assess_blank_event_queue_url_counts_as_missing() {
         // A cap key that's present but has an empty URL still isn't usable.
         let caps = caps_from(&[("EventQueueGet", "   "), ("GetDisplayNames", "http://x/n"), ("RemoteParcelRequest", "http://x/p")]);
-        assert_eq!(assess_caps(Some(&caps)).1, "Live updates unavailable");
+        assert_eq!(text(&assess_caps(Some(&caps)).1), "Live updates unavailable");
     }
 
     #[test]
@@ -1157,9 +1186,18 @@ mod tests {
         let caps = caps_from(&[("EventQueueGet", "http://x/eq"), ("RemoteParcelRequest", "http://x/p")]);
         let (ok, title, detail) = assess_caps(Some(&caps));
         assert!(!ok);
-        assert_eq!(title, "Some region features unavailable");
-        assert!(detail.contains("resident names"));
-        assert!(!detail.contains("land / parcel info"));
+        assert_eq!(text(&title), "Some region features unavailable");
+        assert_eq!(key(&title), "caps.title");
+        assert!(text(&detail).contains("resident names"));
+        assert!(!text(&detail).contains("land / parcel info"));
+        assert_eq!(key(&detail), "caps.minorNames");
+        // Each combination has a line of its own, so a translation can phrase it.
+        let land_only = caps_from(&[("EventQueueGet", "http://x/eq"), ("GetDisplayNames", "http://x/n")]);
+        assert_eq!(key(&assess_caps(Some(&land_only)).2), "caps.minorLand");
+        let both = caps_from(&[("EventQueueGet", "http://x/eq")]);
+        let (_, _, detail) = assess_caps(Some(&both));
+        assert_eq!(key(&detail), "caps.minorNamesAndLand");
+        assert!(text(&detail).contains("resident names") && text(&detail).contains("land / parcel info"));
     }
 
     #[test]
@@ -1171,7 +1209,7 @@ mod tests {
         ]);
         let (ok, title, detail) = assess_caps(Some(&caps));
         assert!(ok);
-        assert!(title.is_empty());
-        assert!(detail.is_empty());
+        assert!(title.is_none());
+        assert!(detail.is_none());
     }
 }

@@ -40,10 +40,20 @@ inTotal: number,
  */
 outTotal: number, 
 /**
- * Ready-to-display totals with the circuit/HTTP split, e.g.
- * "Since launch: ↓ 120.4 MB  ↑ 8.1 MB (circuit ↓ 110.2 MB ↑ 7.0 MB, HTTP ↓ 10.2 MB ↑ 1.1 MB)".
+ * Ready-to-display totals since launch with the circuit/HTTP split, in
+ * English, e.g. "↓ 120.4 MB  ↑ 8.1 MB (circuit ↓ 110.2 MB ↑ 7.0 MB,
+ * HTTP ↓ 10.2 MB ↑ 1.1 MB)"; the interface shows it in its own language
+ * from the key and arguments beside it.
  */
-totalsLabel: string, };
+totalsLabel: string, 
+/**
+ * The language-file key of `totals_label`.
+ */
+totalsLabelKey: string, 
+/**
+ * The values `totals_label` interpolates (formatted sizes).
+ */
+totalsLabelArgs: Record<string, string>, };
 
 /**
  * Whether the avatar is seated, and on what (`sit-state`).

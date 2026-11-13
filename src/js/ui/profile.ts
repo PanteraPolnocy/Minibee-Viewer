@@ -4,20 +4,25 @@
 const BeeProfile = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+  const th = BeeI18n.html;
+
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
   const PROFILE_STALE_MS = 15 * 60 * 1000;
+  // The labels are functions: the dictionary is not loaded while this script
+  // is evaluated, so they translate when the tab strip renders.
   const AVATAR_TABS = [
-    { id: 'resident', label: 'Resident' },
-    { id: 'web', label: 'Web' },
-    { id: 'interests', label: 'Interests' },
-    { id: 'places', label: 'Picks' },
-    { id: 'classifieds', label: 'Classifieds' },
-    { id: 'more', label: 'More' },
-    { id: 'notes', label: 'Notes' }
+    { id: 'resident', label: function () { return t('profile.resident'); } },
+    { id: 'web', label: function () { return t('profile.web'); } },
+    { id: 'interests', label: function () { return t('profile.interests'); } },
+    { id: 'places', label: function () { return t('profile.picks'); } },
+    { id: 'classifieds', label: function () { return t('profile.classifieds'); } },
+    { id: 'more', label: function () { return t('profile.more'); } },
+    { id: 'notes', label: function () { return t('profile.notes'); } }
   ];
   const GROUP_TABS = [
-    { id: 'group', label: 'Group' },
-    { id: 'notices', label: 'Notices' }
+    { id: 'group', label: function () { return t('groups.group'); } },
+    { id: 'notices', label: function () { return t('groups.notices'); } }
   ];
   const CLIP_GLYPH = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z"/></svg>';
 
@@ -112,7 +117,7 @@ const BeeProfile = (function () {
   function teleportFromProfileDetail(loc) {
     if (!loc) return;
     if (!BeeState.gridOnline()) {
-      BeeUtils.showToast('Not connected to the grid', 'warning');
+      BeeUtils.showToast(t('profile.notConnected'), 'warning');
       return;
     }
     if (typeof BeeMap !== 'undefined') {
@@ -129,7 +134,7 @@ const BeeProfile = (function () {
       if (typeof BeeMap !== 'undefined' && BeeMap.resetTeleportButton) {
         BeeMap.resetTeleportButton();
       }
-      BeeUtils.showToast(err.message || 'Teleport failed', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('teleport.failed'), 'error');
     });
   }
 
@@ -153,26 +158,32 @@ const BeeProfile = (function () {
       const cached = BeeTransport.getCachedName(profile.avatarId);
       if (cached) return cached;
     }
-    return shortUuid(profile.avatarId) || 'Resident';
+    return shortUuid(profile.avatarId) || t('profile.resident');
   }
 
-  const CUSTOMER_TYPE_LABELS = {
-    secondlifetime_premium_plus: 'Premium Plus lifetime',
-    secondlifetime_premium: 'Premium lifetime',
-    lifetime: 'Lifetime',
-    beta_lifetime: 'Beta lifetime',
-    plus_monthly: 'Premium Plus monthly',
-    premium_monthly: 'Premium monthly',
-    premium_plus_monthly: 'Premium Plus monthly',
-    annual: 'Annual',
-    premium_annual: 'Premium annual',
-    premium_plus_annual: 'Premium Plus annual'
-  };
+  // The account levels the profile cap reports, in words; '' for one not
+  // listed here.
+  function customerTypeLabel(key) {
+    switch (key) {
+      case 'secondlifetime_premium_plus': return t('profile.accountPremiumPlusLifetime');
+      case 'secondlifetime_premium': return t('profile.accountPremiumLifetime');
+      case 'lifetime': return t('profile.accountLifetime');
+      case 'beta_lifetime': return t('profile.accountBetaLifetime');
+      case 'plus_monthly':
+      case 'premium_plus_monthly': return t('profile.accountPremiumPlusMonthly');
+      case 'premium_monthly': return t('profile.accountPremiumMonthly');
+      case 'annual': return t('profile.accountAnnual');
+      case 'premium_annual': return t('profile.accountPremiumAnnual');
+      case 'premium_plus_annual': return t('profile.accountPremiumPlusAnnual');
+      default: return '';
+    }
+  }
 
   function formatCustomerTypeLabel(raw) {
     const key = String(raw || '').trim().toLowerCase();
     if (!key) return '';
-    if (CUSTOMER_TYPE_LABELS[key]) return CUSTOMER_TYPE_LABELS[key];
+    const known = customerTypeLabel(key);
+    if (known) return known;
     return key.split(/[_\s]+/).filter(Boolean).map(function (word) {
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     }).join(' ');
@@ -190,7 +201,9 @@ const BeeProfile = (function () {
   }
 
   function onlineStatusLabel(status) {
-    return status === 'online' ? 'Online' : status === 'offline' ? 'Offline' : 'Unknown';
+    return status === 'online' ? t('common.online')
+      : status === 'offline' ? t('common.offline')
+        : t('common.unknown');
   }
 
   // Repaint the Status field of an open resident profile in place (a friend
@@ -210,36 +223,52 @@ const BeeProfile = (function () {
       if (status !== 'unknown') parts.push(onlineStatusLabel(status));
     }
     const level = formatCustomerTypeLabel(profile.customerType);
-    if (level) parts.push('Account level: ' + level);
+    if (level) parts.push(t('profile.accountLevel', { level: level }));
     return parts.join(' \u00b7 ');
   }
 
   function formatGroupJoinFee(profile) {
     const fee = Number(profile && profile.membershipFee) || 0;
-    if (fee > 0) return 'L$ ' + fee.toLocaleString('en-US');
-    return 'Free';
+    if (fee > 0) return 'L$ ' + BeeI18n.formatNumber(fee);
+    return t('groups.feeFree');
+  }
+
+  // "1,234 members": the form follows the count, the digits the UI language.
+  function memberCountLabel(count) {
+    const n = Number(count) || 0;
+    return t('groups.memberCount', { count: n, number: BeeI18n.formatNumber(n) });
+  }
+
+  function enrollmentLabel(profile) {
+    return profile.openEnrollment
+      ? t('groups.openEnrollment')
+      : t('groups.closedEnrollment');
+  }
+
+  function contentRatingLabel(profile) {
+    return profile.maturePublish ? t('groups.mature') : t('groups.general');
   }
 
   function groupSubtitleHtml(profile) {
     const parts = [];
     if (profile.memberCount !== undefined && profile.memberCount !== null) {
       parts.push('<strong class="profile-subtitle__emphasis">' +
-        BeeUtils.escapeHtml(String(profile.memberCount.toLocaleString('en-US'))) + ' members</strong>');
+        BeeUtils.escapeHtml(memberCountLabel(profile.memberCount)) + '</strong>');
     }
-    parts.push(BeeUtils.escapeHtml(profile.openEnrollment ? 'Open enrollment' : 'Closed enrollment'));
-    parts.push(BeeUtils.escapeHtml(profile.maturePublish ? 'Mature' : 'General'));
+    parts.push(BeeUtils.escapeHtml(enrollmentLabel(profile)));
+    parts.push(BeeUtils.escapeHtml(contentRatingLabel(profile)));
     return parts.join(' \u00b7 ');
   }
 
   function updateGroupHeader(profile) {
     const titleEl = el('profile-title');
     const subtitleEl = el('profile-subtitle');
-    if (titleEl) titleEl.textContent = profile.name || 'Group';
+    if (titleEl) titleEl.textContent = profile.name || t('groups.group');
     if (subtitleEl) subtitleEl.innerHTML = groupSubtitleHtml(profile);
   }
 
   function formatAccountInfo(profile) {
-    const parts = ['Resident'];
+    const parts = [t('profile.resident')];
     // The account caption (UDP `CharterMember` / cap `caption`) is already the
     // label text itself (e.g. "Charter Member", "Linden"), so show it verbatim
     // rather than forcing a hardcoded "Charter member" for any non-empty value.
@@ -250,9 +279,9 @@ const BeeProfile = (function () {
 
   function formatPaymentInfo(profile) {
     const flags = profile.flags || {};
-    if (flags.transacted) return 'Payment info in use';
-    if (flags.identified) return 'Payment info on file';
-    return 'No payment info on file';
+    if (flags.transacted) return t('profile.paymentUsed');
+    if (flags.identified) return t('profile.paymentOnFile');
+    return t('profile.paymentNone');
   }
 
   function paymentInfoClass(profile) {
@@ -268,10 +297,11 @@ const BeeProfile = (function () {
   function renderKeyMeta(id, kind) {
     return '<div class="profile-desc-meta profile-desc-meta--key">' +
       '<div class="profile-meta-item">' +
-      '<span class="profile-meta-item__label">Key</span>' +
+      '<span class="profile-meta-item__label">' + BeeUtils.escapeHtml(t('profile.key')) + '</span>' +
       '<span class="profile-meta-item__value">' +
       '<button type="button" class="profile-uuid profile-uuid--menu" data-key-menu="' + kind +
-      '" data-key-id="' + BeeUtils.escapeHtml(id) + '" title="Copy the key or its URI" aria-haspopup="menu">' +
+      '" data-key-id="' + BeeUtils.escapeHtml(id) + '" title="' +
+      BeeUtils.escapeHtml(t('profile.keyMenuTitle')) + '" aria-haspopup="menu">' +
       BeeUtils.escapeHtml(id) + '</button></span></div></div>';
   }
 
@@ -308,8 +338,8 @@ const BeeProfile = (function () {
   }
 
   function copyValue(text, what) {
-    const done = function () { BeeUtils.showToast(what + ' copied', 'success'); };
-    const failed = function () { BeeUtils.showToast('Copy failed', 'warning'); };
+    const done = function () { BeeUtils.showToast(t('common.copiedWhat', { what: what }), 'success'); };
+    const failed = function () { BeeUtils.showToast(t('profile.copyFailed'), 'warning'); };
     const legacy = function () {
       try {
         const ta = document.createElement('textarea');
@@ -344,8 +374,8 @@ const BeeProfile = (function () {
     const uri = 'secondlife:///app/' + kind + '/' + id + '/about';
     menu.innerHTML = '';
     [
-      { label: 'Copy UUID', value: id, what: 'UUID' },
-      { label: 'Copy URI', value: uri, what: 'URI' }
+      { label: t('common.copyUuid'), value: id, what: t('common.uuid') },
+      { label: t('profile.copyUri'), value: uri, what: t('profile.uri') }
     ].forEach(function (item) {
       const entry = document.createElement('button');
       entry.type = 'button';
@@ -392,23 +422,33 @@ const BeeProfile = (function () {
     // nothing to tell.
     if (!isSelfProfile(profile)) {
       const status = onlineStatusFor(profile);
-      html += '<div class="profile-field"><span class="profile-field__label">Status</span>' +
+      html += '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('profile.status')) + '</span>' +
         '<span class="profile-status profile-status--' + status + '" data-profile-status>' +
         BeeUtils.escapeHtml(onlineStatusLabel(status)) + '</span></div>';
     }
     const born = BeeProfiles.formatBornLabel(profile.bornOn, profile.hideAge);
     if (born) {
-      html += '<div class="profile-field"><span class="profile-field__label">Born</span><span>' +
+      html += '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('profile.born')) + '</span><span>' +
         BeeUtils.escapeHtml(born) + '</span></div>';
     }
     if (profile.partnerId && profile.partnerId !== ZERO_UUID) {
-      const partnerLabel = profile.partnerName || 'View profile';
-      html += '<div class="profile-field"><span class="profile-field__label">Partner</span>' +
+      const partnerLabel = profile.partnerName || viewProfileLabel();
+      html += '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('profile.partner')) + '</span>' +
         '<span><button type="button" class="profile-link" data-avatar-id="' +
         BeeUtils.escapeHtml(profile.partnerId) + '">' + BeeUtils.escapeHtml(partnerLabel) +
         '</button></span></div>';
     }
     return html;
+  }
+
+  // What a partner or founder link says until the name resolves. The label
+  // doubles as a name hint when the link is followed, so it must be told
+  // apart from a real name (openAvatarFromLink).
+  function viewProfileLabel() {
+    return t('profile.viewProfile');
   }
 
   function findKnownAgent(agentId) {
@@ -476,18 +516,19 @@ const BeeProfile = (function () {
     if (BeeProfiles.isZero(id) || !imageDialog) return;
     const img = el<HTMLImageElement>('profile-image-full');
     if (!img) return;
-    img.alt = label || 'Profile image';
+    img.alt = label || t('profile.image');
     img.src = BeeProfiles.textureImageUrl(id, 512);
     if (typeof imageDialog.showModal === 'function') imageDialog.showModal();
   }
 
   function renderAboutBlock(html, emptyText) {
     if (html === null) {
-      return '<div class="profile-scroll profile-about profile-about--loading">Fetching...</div>';
+      return '<div class="profile-scroll profile-about profile-about--loading">' +
+        BeeUtils.escapeHtml(t('profile.fetching')) + '</div>';
     }
     if (!html) {
       return '<div class="profile-scroll profile-about profile-about--empty">' +
-        BeeUtils.escapeHtml(emptyText || 'No profile text.') + '</div>';
+        BeeUtils.escapeHtml(emptyText || t('profile.noText')) + '</div>';
     }
     return '<div class="profile-scroll profile-about" tabindex="0">' + html + '</div>';
   }
@@ -520,15 +561,16 @@ const BeeProfile = (function () {
     let html = '';
     if (showClearActive) {
       html += '<button type="button" class="profile-link profile-groups-list__clear" data-clear-active-group>' +
-        '[ Set active group to none ]</button>';
+        BeeUtils.escapeHtml(t('groups.clearActive')) + '</button>';
     }
     if (!groups || !groups.length) {
-      return html + '<p class="profile-section__empty">No groups listed</p>';
+      return html + '<p class="profile-section__empty">' +
+        BeeUtils.escapeHtml(t('profile.noGroups')) + '</p>';
     }
     const activeId = BeeProfiles.normId(activeGroupId || '');
     html += '<div class="profile-groups-list">' + groups.map(function (g) {
       const hidden = g.listInProfile === false;
-      const baseLabel = g.name || 'Group';
+      const baseLabel = g.name || t('groups.group');
       const label = BeeUtils.escapeHtml(baseLabel);
       const isActive = activeId && BeeProfiles.normId(g.id) === activeId;
       const cls = 'profile-link profile-groups-list__item' +
@@ -544,7 +586,8 @@ const BeeProfile = (function () {
     const section = document.querySelector('.profile-section--groups');
     if (!section || !profile || !isSelfProfile(profile)) return false;
     const h3 = section.querySelector('.profile-section__title');
-    const titleHtml = h3 ? h3.outerHTML : '<h3 class="profile-section__title">Groups</h3>';
+    const titleHtml = h3 ? h3.outerHTML : '<h3 class="profile-section__title">' +
+      BeeUtils.escapeHtml(t('profile.groups')) + '</h3>';
     section.innerHTML = titleHtml + renderGroupsList(
       typeof BeeProfiles.getProfileGroupsForDisplay === 'function'
         ? BeeProfiles.getProfileGroupsForDisplay(profile.avatarId, profile)
@@ -563,11 +606,11 @@ const BeeProfile = (function () {
         if (typeof BeeTransport.activateGroup !== 'function') return;
         BeeTransport.activateGroup(ZERO_UUID).then(function (result) {
           if (result && result.sent) {
-            BeeUtils.showToast('Active group cleared.', 'success');
+            BeeUtils.showToast(t('groups.activeCleared'), 'success');
             highlightActiveGroupInList();
             return;
           }
-          BeeUtils.showToast('Could not clear active group.', 'warning');
+          BeeUtils.showToast(t('groups.clearActiveFailed'), 'warning');
         });
       });
     }
@@ -586,10 +629,11 @@ const BeeProfile = (function () {
 
   function renderSplitList(rows, emptyText, itemClass, layout) {
     if (!rows || !rows.length) {
-      return '<p class="profile-section__empty">' + BeeUtils.escapeHtml(emptyText || 'None') + '</p>';
+      return '<p class="profile-section__empty">' +
+        BeeUtils.escapeHtml(emptyText || t('common.none')) + '</p>';
     }
     const list = rows.map(function (row, index) {
-      const label = BeeUtils.escapeHtml(row.name || row.title || 'Item');
+      const label = BeeUtils.escapeHtml(row.name || row.title || t('profile.item'));
       return '<button type="button" class="profile-split__item ' + (itemClass || '') + '" data-item-index="' +
         index + '">' + label + '</button>';
     }).join('');
@@ -599,7 +643,8 @@ const BeeProfile = (function () {
     return '<div class="' + splitClass + '">' +
       '<div class="profile-split__list">' + list + '</div>' +
       '<div class="profile-split__detail">' +
-      '<p class="profile-section__empty">Select an item</p></div></div>';
+      '<p class="profile-section__empty">' + BeeUtils.escapeHtml(t('profile.selectItem')) +
+      '</p></div></div>';
   }
 
   function isSelfProfile(profile) {
@@ -649,7 +694,7 @@ const BeeProfile = (function () {
   }
 
   function renderItemDetail(detail, kind) {
-    const name = detail.name || 'Item';
+    const name = detail.name || t('profile.item');
     const descHtml = sanitizeProfileHtml(detail.description || '');
     let snap = '';
     if (detail.snapshotId && !BeeProfiles.isZero(detail.snapshotId)) {
@@ -668,17 +713,21 @@ const BeeProfile = (function () {
       const parcelName = detail.resolvedParcelName || detail.parcelName || '';
       let locText = (parcelName ? parcelName + ' ' : '') + '(' + coords + ')';
       if (loc.regionName) locText += ' - ' + loc.regionName;
-      html += '<div class="profile-field"><span class="profile-field__label">Location</span><span>' +
+      html += '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('profile.location')) + '</span><span>' +
         BeeUtils.escapeHtml(locText) + '</span></div>';
     }
     if (kind === 'classified' && detail.priceForListing) {
-      html += '<div class="profile-field"><span class="profile-field__label">Listing price</span><span>L$ ' +
-        Number(detail.priceForListing).toLocaleString('en-US') + '</span></div>';
+      html += '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('profile.listingPrice')) + '</span><span>L$ ' +
+        BeeUtils.escapeHtml(BeeI18n.formatNumber(detail.priceForListing)) + '</span></div>';
     }
     if (loc) {
       html += '<div class="profile-detail__actions">' +
-        '<button type="button" class="btn btn--secondary profile-detail__action" data-detail-action="map">Show on map</button>' +
-        '<button type="button" class="btn btn--primary profile-detail__action" data-detail-action="teleport">Teleport</button>' +
+        '<button type="button" class="btn btn--secondary profile-detail__action" data-detail-action="map">' +
+        BeeUtils.escapeHtml(t('profile.showOnMap')) + '</button>' +
+        '<button type="button" class="btn btn--primary profile-detail__action" data-detail-action="teleport">' +
+        BeeUtils.escapeHtml(t('profile.teleport')) + '</button>' +
         '</div>';
     }
     return html;
@@ -708,7 +757,7 @@ const BeeProfile = (function () {
     if (!detailEl) return;
     detailEl.querySelectorAll('[data-image-id]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        openImagePreview(btn.getAttribute('data-image-id'), 'Profile image');
+        openImagePreview(btn.getAttribute('data-image-id'), t('profile.image'));
       });
     });
   }
@@ -784,21 +833,25 @@ const BeeProfile = (function () {
     return '<div class="profile-pane profile-pane--resident">' +
       '<div class="profile-resident__columns">' +
       '<div class="profile-resident__side">' +
-      '<button type="button" class="profile-avatar-btn" id="profile-avatar-btn" title="View larger image" aria-label="View larger profile image">' +
+      '<button type="button" class="profile-avatar-btn" id="profile-avatar-btn" title="' +
+        BeeUtils.escapeHtml(t('profile.viewLarger')) + '" aria-label="' +
+        BeeUtils.escapeHtml(t('profile.viewLargerImage')) + '">' +
       '<span id="profile-avatar-slot" class="profile-avatar-btn__slot"></span></button>' +
-      '<div class="profile-field"><span class="profile-field__label">Account</span><span>' +
+      '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('profile.account')) + '</span><span>' +
         BeeUtils.escapeHtml(formatAccountInfo(profile)) + '</span></div>' +
-      '<div class="profile-field profile-field--payment"><span class="profile-field__label">Payment</span>' +
+      '<div class="profile-field profile-field--payment"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('profile.payment')) + '</span>' +
       '<span class="profile-payment' + paymentInfoClass(profile) + '">' +
         BeeUtils.escapeHtml(paymentText) + '</span></div>' +
       renderResidentSideMeta(profile) +
       '</div>' +
       '<div class="profile-resident__about">' +
       renderResidentKeyMeta(profile) +
-      renderAboutBlock(aboutHtml, 'No profile text.') +
+      renderAboutBlock(aboutHtml, t('profile.noText')) +
       '</div></div>' +
       '<section class="profile-section profile-section--groups">' +
-      '<h3 class="profile-section__title">Groups</h3>' +
+      '<h3 class="profile-section__title">' + BeeUtils.escapeHtml(t('profile.groups')) + '</h3>' +
       renderGroupsList(
         typeof BeeProfiles.getProfileGroupsForDisplay === 'function'
           ? BeeProfiles.getProfileGroupsForDisplay(profile.avatarId, profile)
@@ -811,10 +864,12 @@ const BeeProfile = (function () {
 
   function renderInterestTags(labels) {
     if (!labels || !labels.length) {
-      return '<p class="profile-section__empty">None selected.</p>';
+      return '<p class="profile-section__empty">' + BeeUtils.escapeHtml(t('profile.noneSelected')) + '</p>';
     }
+    // A label is a keyed line from the core (BeeI18n.fromCore takes both
+    // that and a plain string).
     return '<ul class="profile-interests__tags">' + labels.map(function (label) {
-      return '<li class="profile-interests__tag">' + BeeUtils.escapeHtml(label) + '</li>';
+      return '<li class="profile-interests__tag">' + BeeUtils.escapeHtml(BeeI18n.fromCore(label)) + '</li>';
     }).join('') + '</ul>';
   }
 
@@ -830,32 +885,33 @@ const BeeProfile = (function () {
     if (!profile.interestsLoaded && !profile.interests) {
       if (typeof BeeState !== 'undefined' && !BeeState.gridOnline()) {
         return '<div class="profile-pane profile-pane--interests">' +
-          '<p class="profile-section__empty">Interests are not available offline.</p></div>';
+          '<p class="profile-section__empty">' +
+          BeeUtils.escapeHtml(t('profile.interestsOffline')) + '</p></div>';
       }
       return '<div class="profile-pane profile-pane--interests">' +
-        '<p class="profile-section__empty">Loading...</p></div>';
+        '<p class="profile-section__empty">' + BeeUtils.escapeHtml(t('common.loading')) + '</p></div>';
     }
     const row = typeof BeeProfiles.formatAvatarInterests === 'function'
       ? BeeProfiles.formatAvatarInterests(profile.interests)
       : { hasContent: false, wantTo: [], skills: [], wantToText: '', skillsText: '', languagesText: '' };
     if (!row.hasContent) {
       return '<div class="profile-pane profile-pane--interests">' +
-        '<p class="profile-section__empty">No interests listed.</p></div>';
+        '<p class="profile-section__empty">' + BeeUtils.escapeHtml(t('profile.noInterests')) + '</p></div>';
     }
     return '<div class="profile-pane profile-pane--interests">' +
       '<section class="profile-section profile-section--interests">' +
-      '<h3 class="profile-section__title">I want to</h3>' +
+      '<h3 class="profile-section__title">' + BeeUtils.escapeHtml(t('profile.wantTo')) + '</h3>' +
       renderInterestTags(row.wantTo) +
-      renderInterestText('More', row.wantToText) +
+      renderInterestText(t('profile.more'), row.wantToText) +
       '</section>' +
       '<section class="profile-section profile-section--interests">' +
-      '<h3 class="profile-section__title">Skills</h3>' +
+      '<h3 class="profile-section__title">' + BeeUtils.escapeHtml(t('profile.skills')) + '</h3>' +
       renderInterestTags(row.skills) +
-      renderInterestText('More', row.skillsText) +
+      renderInterestText(t('profile.more'), row.skillsText) +
       '</section>' +
       (row.languagesText
         ? '<section class="profile-section profile-section--interests">' +
-          '<h3 class="profile-section__title">Languages</h3>' +
+          '<h3 class="profile-section__title">' + BeeUtils.escapeHtml(t('profile.languages')) + '</h3>' +
           '<p class="profile-interests__text">' + BeeUtils.escapeHtml(row.languagesText) + '</p>' +
           '</section>'
         : '') +
@@ -865,31 +921,34 @@ const BeeProfile = (function () {
   function renderWebTab(profile) {
     const url = profileWebUrl(profile);
     if (!url) {
-      return '<div class="profile-pane"><p class="profile-section__empty">No web profile URL.</p></div>';
+      return '<div class="profile-pane"><p class="profile-section__empty">' +
+        BeeUtils.escapeHtml(t('profile.noWebUrl')) + '</p></div>';
     }
     const safeUrl = BeeUtils.escapeHtml(url);
+    const urlLabel = BeeUtils.escapeHtml(t('profile.profileUrl'));
     // The URL is whatever the resident typed into their profile. Only a web
     // address is a link, and it opens through the same external-link
     // confirmation as a link in chat (bindLinks picks up .chat-link).
     if (!/^https?:\/\//i.test(url)) {
       return '<div class="profile-pane"><div class="profile-field">' +
-        '<span class="profile-field__label">Profile URL</span>' +
+        '<span class="profile-field__label">' + urlLabel + '</span>' +
         '<span class="profile-field__value">' + safeUrl + '</span></div></div>';
     }
     return '<div class="profile-pane"><div class="profile-field">' +
-      '<span class="profile-field__label">Profile URL</span>' +
+      '<span class="profile-field__label">' + urlLabel + '</span>' +
       '<a class="profile-inline-link chat-link chat-link--external" href="#" data-url="' + safeUrl +
       '" data-trusted="0">' + safeUrl + '</a></div></div>';
   }
 
   function renderPlacesTab(profile) {
     return '<div class="profile-pane">' +
-      renderSplitList(profile.picks || [], 'No picks', 'profile-pick', 'row') + '</div>';
+      renderSplitList(profile.picks || [], t('profile.noPicks'), 'profile-pick', 'row') + '</div>';
   }
 
   function renderClassifiedsTab(profile) {
     return '<div class="profile-pane">' +
-      renderSplitList(profile.classifieds || [], 'No classifieds', 'profile-classified', 'stack') + '</div>';
+      renderSplitList(profile.classifieds || [], t('profile.noClassifieds'), 'profile-classified', 'stack') +
+      '</div>';
   }
 
   function renderMoreTab(profile) {
@@ -897,10 +956,12 @@ const BeeProfile = (function () {
     const hasFlImage = profile.flImageId && profile.flImageId !== ZERO_UUID;
     return '<div class="profile-pane profile-pane--more">' +
       (hasFlImage
-        ? '<button type="button" class="profile-fl-image-btn" id="profile-fl-image-btn" title="View larger image">' +
-          '<img class="profile-fl-image-btn__img" id="profile-fl-image-preview" alt="Profile image"></button>'
+        ? '<button type="button" class="profile-fl-image-btn" id="profile-fl-image-btn" title="' +
+          BeeUtils.escapeHtml(t('profile.viewLarger')) + '">' +
+          '<img class="profile-fl-image-btn__img" id="profile-fl-image-preview" alt="' +
+          BeeUtils.escapeHtml(t('profile.image')) + '"></button>'
         : '') +
-      renderAboutBlock(flAboutHtml, 'No extended profile text.') +
+      renderAboutBlock(flAboutHtml, t('profile.noExtendedText')) +
       '</div>';
   }
 
@@ -910,19 +971,23 @@ const BeeProfile = (function () {
     // reply arrives would overwrite the real notes with a blank field - data loss.
     const loaded = typeof profile.notes === 'string';
     const notes = String(profile.notes || '');
+    const placeholder = loaded
+      ? t('profile.notesPlaceholder')
+      : t('profile.notesLoading');
     return '<div class="profile-pane profile-pane--notes">' +
-      '<p class="profile-notes-hint">Your private notes about this person. Only you can see them.</p>' +
+      '<p class="profile-notes-hint">' +
+      BeeUtils.escapeHtml(t('profile.notesHint')) + '</p>' +
       // Whose notes these are. The draft-preserving rebuild in renderAvatar
       // reads this back: text typed about one resident must never be carried
       // into another resident's field, where a Save would file it against them.
       '<textarea id="profile-notes-input" class="profile-notes-input" rows="10" maxlength="65530" ' +
         'data-avatar-id="' + BeeUtils.escapeHtml(String(profile.avatarId || '')) + '" ' +
         (loaded ? '' : 'readonly ') +
-        'placeholder="' + (loaded ? 'Add private notes...' : 'Loading notes...') + '">' +
+        'placeholder="' + BeeUtils.escapeHtml(placeholder) + '">' +
         BeeUtils.escapeHtml(notes) + '</textarea>' +
       '<div class="profile-notes-actions">' +
       '<button type="button" class="btn btn--primary" id="profile-notes-save"' +
-        (loaded ? '' : ' disabled') + '>Save notes</button>' +
+        (loaded ? '' : ' disabled') + '>' + BeeUtils.escapeHtml(t('profile.notesSave')) + '</button>' +
       '</div>' +
       '<div id="profile-notes-status" class="profile-notes-status" role="status" aria-live="polite"></div>' +
       '</div>';
@@ -938,7 +1003,7 @@ const BeeProfile = (function () {
     const nav = tabs.map(function (tab) {
       const active = tab.id === activeTab ? ' profile-tab--active' : '';
       return '<button type="button" class="profile-tab' + active + '" data-profile-tab="' +
-        tab.id + '">' + BeeUtils.escapeHtml(tab.label) + '</button>';
+        tab.id + '">' + BeeUtils.escapeHtml(tab.label()) + '</button>';
     }).join('');
 
     const panes = {
@@ -957,7 +1022,8 @@ const BeeProfile = (function () {
         panes[tab.id] + '</div>';
     }).join('');
 
-    return '<nav class="profile-tabs" aria-label="Profile sections">' + nav + '</nav>' +
+    return '<nav class="profile-tabs" aria-label="' + BeeUtils.escapeHtml(t('profile.sections')) + '">' +
+      nav + '</nav>' +
       '<div class="profile-tab-panels">' + body + '</div>';
   }
 
@@ -1002,7 +1068,7 @@ const BeeProfile = (function () {
         enrichItemLocation(detail, cached, kind, row.id);
         if (!refetch) return;
       } else {
-        detail.innerHTML = '<p class="profile-section__empty">Loading...</p>';
+        detail.innerHTML = '<p class="profile-section__empty">' + BeeUtils.escapeHtml(t('common.loading')) + '</p>';
       }
       const task = kind === 'pick'
         ? BeeProfiles.fetchPickInfo(profile.avatarId, row.id)
@@ -1015,8 +1081,8 @@ const BeeProfile = (function () {
         enrichItemLocation(detail, loaded, kind, row.id);
       }).catch(function () {
         if (!detail || cached) return;
-        detail.innerHTML = '<h4 class="profile-split__title">' + BeeUtils.escapeHtml(row.name || 'Item') + '</h4>' +
-          '<p class="profile-section__empty">Could not load details.</p>';
+        detail.innerHTML = '<h4 class="profile-split__title">' + BeeUtils.escapeHtml(row.name || t('profile.item')) + '</h4>' +
+          '<p class="profile-section__empty">' + BeeUtils.escapeHtml(t('profile.detailLoadFailed')) + '</p>';
       });
     }
 
@@ -1116,7 +1182,7 @@ const BeeProfile = (function () {
       // pane is rebuilt on every async reply, so this asserts that what is on
       // screen is still about the person this handler was bound for.
       if (notesInput.dataset.avatarId !== String(profile.avatarId || '')) {
-        setNotesStatus('Notes belong to a different resident - reopen the profile.', 'error');
+        setNotesStatus(t('profile.notesWrongResident'), 'error');
         return;
       }
       const text = notesInput.value || '';
@@ -1124,11 +1190,11 @@ const BeeProfile = (function () {
       const token = ++notesSaveToken;
       clearNotesTimers();
       notesSave.disabled = true;
-      setNotesStatus('Saving...', 'pending');
+      setNotesStatus(t('profile.saving'), 'pending');
       timeoutTimer = setTimeout(function () {
         if (token !== notesSaveToken) return;
         timeoutTimer = null;
-        releaseNotesSave('Save timed out. Try again.', 'error');
+        releaseNotesSave(t('profile.notesTimedOut'), 'error');
       }, NOTES_SAVE_TIMEOUT_MS);
       BeeTransport.saveAvatarNotes(profile.avatarId, text).then(function (result) {
         if (token !== notesSaveToken) return;
@@ -1147,17 +1213,17 @@ const BeeProfile = (function () {
           });
           // Saved, so there is no longer a draft to protect from the rebuilds.
           delete (notesInput as HTMLTextAreaElement).dataset.dirty;
-          releaseNotesSave('Notes saved.', 'success');
+          releaseNotesSave(t('profile.notesSaved'), 'success');
           return;
         }
-        releaseNotesSave('Could not save notes.', 'error');
+        releaseNotesSave(t('profile.notesSaveFailed'), 'error');
       }).catch(function (err) {
         if (token !== notesSaveToken) return;
         if (timeoutTimer) {
           clearTimeout(timeoutTimer);
           timeoutTimer = null;
         }
-        releaseNotesSave(err.message || 'Could not save notes.', 'error');
+        releaseNotesSave(BeeUtils.errText(err) || t('profile.notesSaveFailed'), 'error');
       });
     });
   }
@@ -1187,7 +1253,7 @@ const BeeProfile = (function () {
       const preview = root.querySelector('#profile-fl-image-preview');
       if (preview) preview.src = BeeProfiles.textureImageUrl(profile.flImageId, 256);
       flBtn.addEventListener('click', function () {
-        openImagePreview(profile.flImageId, title + ' profile image');
+        openImagePreview(profile.flImageId, t('profile.imageOf', { name: title }));
       });
     }
 
@@ -1203,11 +1269,11 @@ const BeeProfile = (function () {
         if (typeof BeeTransport.activateGroup !== 'function') return;
         BeeTransport.activateGroup(ZERO_UUID).then(function (result) {
           if (result && result.sent) {
-            BeeUtils.showToast('Active group cleared.', 'success');
+            BeeUtils.showToast(t('groups.activeCleared'), 'success');
             highlightActiveGroupInList();
             return;
           }
-          BeeUtils.showToast('Could not clear active group.', 'warning');
+          BeeUtils.showToast(t('groups.clearActiveFailed'), 'warning');
         });
       });
     }
@@ -1229,24 +1295,24 @@ const BeeProfile = (function () {
     const tpOnline = typeof BeeTransport.isAgentOnline === 'function'
       ? BeeTransport.isAgentOnline(agentId, profile)
       : true;
-    const tpDisabled = { disabled: true, title: 'Resident is offline' };
+    const tpDisabled = { disabled: true, title: t('profile.residentOffline') };
 
-    addAction('IM', function () {
+    addAction(t('profile.im'), function () {
       closeDialog();
       BeeIm.startImWith({
         id: agentId,
-        name: profile.displayName || profile.userName || profile.name || 'Resident',
+        name: profile.displayName || profile.userName || profile.name || t('profile.resident'),
         displayName: profile.displayName || '',
         userName: profile.userName || ''
       });
     }, { primary: true });
 
     if (!isSelf) {
-      addAction('Pay', function () {
+      addAction(t('profile.pay'), function () {
         const payDialog = el<HTMLDialogElement>('pay-dialog');
         const nameEl = el('pay-target-name');
         if (!payDialog) return;
-        if (nameEl) nameEl.textContent = 'Pay ' + profileTitleText(profile);
+        if (nameEl) nameEl.textContent = t('profile.payTo', { name: profileTitleText(profile) });
         // A fresh form: the last payment's amount must not be pre-filled for
         // a different recipient.
         const amountEl = el<HTMLInputElement>('pay-amount');
@@ -1256,77 +1322,76 @@ const BeeProfile = (function () {
         payDialog.dataset.targetId = agentId;
         if (typeof payDialog.showModal === 'function') payDialog.showModal();
       });
-      addAction('Offer teleport', function () {
+      addAction(t('profile.offerTeleport'), function () {
         BeeTeleportUI.offerTo(agentId, profile.displayName || profile.userName || profile.name, profile);
       }, tpOnline ? undefined : tpDisabled);
-      addAction('Request teleport', function () {
+      addAction(t('profile.requestTeleport'), function () {
         BeeTeleportUI.requestFrom(agentId, profile.displayName || profile.userName || profile.name, profile);
       }, tpOnline ? undefined : tpDisabled);
       const invitable = groupsICanInviteTo();
       if (invitable.length) {
-        addAction('Invite to group', function () {
+        addAction(t('groups.inviteToGroup'), function () {
           openGroupInviteDialog(agentId, profileTitleText(profile), invitable);
         });
       }
-      addAction(isFriend ? 'Remove friend' : 'Add friend', async function () {
-        const name = profileTitleText(profile) || 'this resident';
+      addAction(isFriend ? t('profile.removeFriend') : t('profile.addFriend'), async function () {
+        const name = profileTitleText(profile) || t('profile.thisResident');
         if (isFriend) {
           const ok = await BeeUtils.confirm({
-            title: 'Remove friend?',
-            message: 'Remove ' + name + ' from your friends list?',
-            confirmLabel: 'Remove',
+            title: t('profile.removeFriendTitle'),
+            message: t('profile.removeFriendMessage', { name: name }),
+            confirmLabel: t('common.remove'),
             danger: true
           });
           if (!ok) return;
           BeeTransport.removeFriendship(agentId).then(function (result) {
             if (result && result.sent) {
-              BeeUtils.showToast('Friend removed.', 'success');
+              BeeUtils.showToast(t('profile.friendRemoved'), 'success');
               renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
             } else if (result && result.notFriend) {
-              BeeUtils.showToast('Not on your friends list.', 'warning');
+              BeeUtils.showToast(t('profile.notOnFriendsList'), 'warning');
               renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
             } else {
-              BeeUtils.showToast('Could not remove friend.', 'warning');
+              BeeUtils.showToast(t('profile.removeFriendFailed'), 'warning');
             }
           }).catch(function () {
-            BeeUtils.showToast('Could not remove friend.', 'warning');
+            BeeUtils.showToast(t('profile.removeFriendFailed'), 'warning');
           });
           return;
         }
         const ok = await BeeUtils.confirm({
-          title: 'Offer friendship?',
-          message: 'Send a friendship offer to ' + name + '?',
-          confirmLabel: 'Send offer'
+          title: t('profile.offerFriendshipTitle'),
+          message: t('profile.offerFriendshipMessage', { name: name }),
+          confirmLabel: t('profile.sendOffer')
         });
         if (!ok) return;
         BeeTransport.offerFriendship(agentId).then(function (result) {
           if (result && result.sent) {
-            BeeUtils.showToast('Friendship offer sent.', 'success');
+            BeeUtils.showToast(t('profile.friendshipOfferSent'), 'success');
           } else if (result && result.alreadyFriend) {
-            BeeUtils.showToast('You are already friends.', 'warning');
+            BeeUtils.showToast(t('profile.alreadyFriends'), 'warning');
           } else {
-            BeeUtils.showToast('Could not send friendship offer.', 'warning');
+            BeeUtils.showToast(t('profile.friendshipOfferFailed'), 'warning');
           }
         }).catch(function () {
-          BeeUtils.showToast('Could not send friendship offer.', 'warning');
+          BeeUtils.showToast(t('profile.friendshipOfferFailed'), 'warning');
         });
       });
 
       const blockedNow = typeof BeeBuddies !== 'undefined' && BeeBuddies.isBlocked
         ? BeeBuddies.isBlocked(agentId)
         : false;
-      addAction(blockedNow ? 'Unblock' : 'Block', async function () {
-        const name = profileTitleText(profile) || 'this resident';
+      addAction(blockedNow ? t('profile.unblock') : t('profile.block'), async function () {
+        const name = profileTitleText(profile) || t('profile.thisResident');
         if (blockedNow) {
           await BeeBuddies.unblock(agentId, name);
           renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
           return;
         }
         const ok = await BeeUtils.confirm({
-          title: 'Block this resident?',
-          message: 'Block ' + name + '? You will stop seeing their chat and messages, ' +
-            'on this and any other viewer you use.',
-          confirmLabel: 'Block',
+          title: t('profile.blockTitle'),
+          message: t('profile.blockMessage', { name: name }),
+          confirmLabel: t('profile.block'),
           danger: true
         });
         if (!ok) return;
@@ -1334,8 +1399,8 @@ const BeeProfile = (function () {
         renderAvatarActions(enrichAvatarProfile(Object.assign({}, profile)));
       });
 
-      addAction('Report abuse', function () {
-        openReportAbuse(agentId, profileTitleText(profile) || 'this resident');
+      addAction(t('profile.reportAbuse'), function () {
+        openReportAbuse(agentId, profileTitleText(profile) || t('profile.thisResident'));
       });
     }
   }
@@ -1362,7 +1427,7 @@ const BeeProfile = (function () {
     const submit = document.getElementById('report-abuse-submit') as HTMLButtonElement | null;
     if (!d || !form || !select || !summary || !details || typeof d.showModal !== 'function') return;
 
-    if (target) target.textContent = 'Reporting ' + name;
+    if (target) target.textContent = t('profile.reporting', { name: name });
     summary.value = '';
     details.value = '';
     if (submit) submit.disabled = false;
@@ -1380,11 +1445,11 @@ const BeeProfile = (function () {
       e.preventDefault();
       const category = parseInt(select.value, 10);
       if (!category) {
-        BeeUtils.showToast('Pick a category first.', 'warning');
+        BeeUtils.showToast(t('profile.abuseCategoryRequired'), 'warning');
         return;
       }
       if (!summary.value.trim()) {
-        BeeUtils.showToast('A short summary is required.', 'warning');
+        BeeUtils.showToast(t('profile.abuseSummaryRequired'), 'warning');
         summary.focus();
         return;
       }
@@ -1398,10 +1463,10 @@ const BeeProfile = (function () {
           details: details.value.trim()
         });
         teardown();
-        BeeUtils.showToast('Abuse report sent to the moderation team.', 'success');
+        BeeUtils.showToast(t('profile.abuseSent'), 'success');
       } catch (err) {
         if (submit) submit.disabled = false;
-        BeeUtils.showToast(BeeUtils.errText(err) || 'The report could not be sent.', 'error');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('profile.abuseSendFailed'), 'error');
       }
     }
 
@@ -1409,12 +1474,14 @@ const BeeProfile = (function () {
       select.innerHTML = '';
       const placeholder = document.createElement('option');
       placeholder.value = '0';
-      placeholder.textContent = 'Select category';
+      placeholder.textContent = t('profile.abuseSelectCategory');
       select.appendChild(placeholder);
       cats.forEach(function (c) {
         const opt = document.createElement('option');
         opt.value = String(c.value);
-        opt.textContent = c.label;
+        // The core names the categories; a labelKey beside the label, when
+        // it sends one, puts them in the UI language.
+        opt.textContent = BeeI18n.field(c, 'label');
         select.appendChild(opt);
       });
       select.value = '0';
@@ -1427,7 +1494,7 @@ const BeeProfile = (function () {
       });
       d.showModal();
     }).catch(function () {
-      BeeUtils.showToast('The report form is unavailable right now.', 'error');
+      BeeUtils.showToast(t('profile.abuseFormUnavailable'), 'error');
     });
   }
 
@@ -1481,12 +1548,12 @@ const BeeProfile = (function () {
           BeeBridge.invoke('sl_group_invite', { groupId: groupId, inviteeIds: [inviteeId], roleId: null })
             .then(function () {
               release();
-              BeeUtils.showToast('Group invitation sent.', 'success');
+              BeeUtils.showToast(t('groups.inviteSent'), 'success');
               BeeUtils.dismissDialog(dlg);
             })
             .catch(function (err) {
               release();
-              BeeUtils.showToast('Could not send the invitation: ' + (err.message || err), 'warning');
+              BeeUtils.showToast(t('groups.inviteFailed', { error: BeeUtils.errText(err) || String(err) }), 'warning');
             });
         });
       }
@@ -1498,7 +1565,9 @@ const BeeProfile = (function () {
       opt.textContent = g.name || g.id;
       select.appendChild(opt);
     });
-    if (target) target.textContent = 'Invite ' + (displayName || 'this resident');
+    if (target) {
+      target.textContent = t('groups.inviteTarget', { name: displayName || t('profile.thisResident') });
+    }
     dlg.dataset.inviteeId = agentId;
     if (typeof dlg.showModal === 'function') dlg.showModal();
   }
@@ -1559,8 +1628,9 @@ const BeeProfile = (function () {
 
   function renderGroupFounderField(profile) {
     if (!profile.founderId || profile.founderId === ZERO_UUID) return '';
-    const label = profile.founderName || 'View profile';
-    return '<div class="profile-field"><span class="profile-field__label">Founder</span>' +
+    const label = profile.founderName || viewProfileLabel();
+    return '<div class="profile-field"><span class="profile-field__label">' +
+      BeeUtils.escapeHtml(t('groups.founder')) + '</span>' +
       '<span><button type="button" class="profile-link" data-avatar-id="' +
       BeeUtils.escapeHtml(profile.founderId) + '">' + BeeUtils.escapeHtml(label) + '</button></span></div>';
   }
@@ -1572,8 +1642,9 @@ const BeeProfile = (function () {
       BeeProfiles.isGroupTitlesFetchSettled(profile.groupId);
     const wrap = function (body) {
       return '<section class="profile-section profile-section--title">' +
-        '<h3 class="profile-section__title">Active title</h3>' +
-        '<p class="profile-group-title-hint">The title shown next to your name in this group.</p>' +
+        '<h3 class="profile-section__title">' + BeeUtils.escapeHtml(t('groups.activeTitle')) + '</h3>' +
+        '<p class="profile-group-title-hint">' +
+        BeeUtils.escapeHtml(t('groups.activeTitleHint')) + '</p>' +
         body + '</section>';
     };
     // No titles yet - just show the current one (or a loading/empty note), no picker.
@@ -1583,14 +1654,16 @@ const BeeProfile = (function () {
         return wrap('<div class="profile-field"><span>' + BeeUtils.escapeHtml(fallback) + '</span></div>');
       }
       return wrap('<p class="profile-section__empty">' +
-        (settled ? 'No titles available for this group.' : 'Loading titles...') + '</p>');
+        BeeUtils.escapeHtml(settled
+          ? t('groups.noTitles')
+          : t('groups.loadingTitles')) + '</p>');
     }
     const selectedId = profile.selectedTitleRoleId || '';
     const options = titles.map(function (row) {
       const selected = row.roleId === selectedId ? ' selected' : '';
       // A group's default/Everyone title can be blank, so show a placeholder to
       // keep it selectable rather than an empty, invisible option.
-      const label = row.title && row.title.trim() ? row.title : '(no title)';
+      const label = row.title && row.title.trim() ? row.title : t('groups.noTitle');
       return '<option value="' + BeeUtils.escapeHtml(row.roleId) + '"' + selected + '>' +
         BeeUtils.escapeHtml(label) + '</option>';
     }).join('');
@@ -1600,27 +1673,34 @@ const BeeProfile = (function () {
       '<div class="profile-group-title-row">' +
       '<select id="profile-group-title-select" class="profile-group-title-select"' + disabled + '>' +
       options + '</select>' +
-      '<button type="button" class="btn btn--primary" id="profile-group-title-save"' + disabled + '>Save</button>' +
+      '<button type="button" class="btn btn--primary" id="profile-group-title-save"' + disabled + '>' +
+      BeeUtils.escapeHtml(t('common.save')) + '</button>' +
       '</div>' +
       '<div id="profile-group-title-status" class="profile-notes-status" role="status" aria-live="polite"></div>'
     );
   }
 
   function renderGroupSideMeta(profile) {
-    let html = '<div class="profile-field"><span class="profile-field__label">Join fee</span><span>' +
+    let html = '<div class="profile-field"><span class="profile-field__label">' +
+      BeeUtils.escapeHtml(t('groups.joinFee')) + '</span><span>' +
       BeeUtils.escapeHtml(formatGroupJoinFee(profile)) + '</span></div>';
     if (profile.money !== undefined && profile.money !== null) {
-      html += '<div class="profile-field"><span class="profile-field__label">Treasury</span><span>L$ ' +
-        Number(profile.money).toLocaleString('en-US') + '</span></div>';
+      html += '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('groups.treasury')) + '</span><span>L$ ' +
+        BeeUtils.escapeHtml(BeeI18n.formatNumber(profile.money)) + '</span></div>';
     }
     if (profile.rolesCount !== undefined && profile.rolesCount !== null) {
       // The reply's count leaves out the implicit Everyone role.
-      html += '<div class="profile-field"><span class="profile-field__label">Roles</span><span>' +
+      html += '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('groups.roles')) + '</span><span>' +
         BeeUtils.escapeHtml(String(Number(profile.rolesCount) + 1)) + '</span></div>';
     }
     if (profile.showInList !== undefined) {
-      html += '<div class="profile-field"><span class="profile-field__label">Search</span><span>' +
-        BeeUtils.escapeHtml(profile.showInList ? 'Visible in search' : 'Hidden from search') + '</span></div>';
+      html += '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('common.search')) + '</span><span>' +
+        BeeUtils.escapeHtml(profile.showInList
+          ? t('groups.visibleInSearch')
+          : t('groups.hiddenFromSearch')) + '</span></div>';
     }
     return html;
   }
@@ -1631,18 +1711,21 @@ const BeeProfile = (function () {
       '<div class="profile-resident__columns">' +
       '<div class="profile-resident__side profile-group__side">' +
       '<button type="button" class="profile-avatar-btn profile-group-insignia-btn" id="profile-group-insignia-btn" ' +
-        'title="View larger image" aria-label="View larger group insignia">' +
+        'title="' + BeeUtils.escapeHtml(t('profile.viewLarger')) + '" aria-label="' +
+        BeeUtils.escapeHtml(t('groups.viewLargerInsignia')) + '">' +
       '<span id="profile-group-insignia-slot" class="profile-avatar-btn__slot"></span></button>' +
-      '<div class="profile-field"><span class="profile-field__label">Enrollment</span><span>' +
-        BeeUtils.escapeHtml(profile.openEnrollment ? 'Open enrollment' : 'Closed enrollment') + '</span></div>' +
-      '<div class="profile-field"><span class="profile-field__label">Content</span><span>' +
-        BeeUtils.escapeHtml(profile.maturePublish ? 'Mature' : 'General') + '</span></div>' +
+      '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('groups.enrollment')) + '</span><span>' +
+        BeeUtils.escapeHtml(enrollmentLabel(profile)) + '</span></div>' +
+      '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(t('groups.content')) + '</span><span>' +
+        BeeUtils.escapeHtml(contentRatingLabel(profile)) + '</span></div>' +
       renderGroupSideMeta(profile) +
       renderGroupFounderField(profile) +
       '</div>' +
       '<div class="profile-resident__about profile-group__about">' +
       renderGroupKeyMeta(profile) +
-      renderAboutBlock(charterHtml, 'No charter text.') +
+      renderAboutBlock(charterHtml, t('groups.noCharter')) +
       // The active-title picker sits under the description in the right column;
       // the Activate control lives in the actions bar (renderGroupActions).
       renderGroupTitleSection(profile) +
@@ -1657,7 +1740,11 @@ const BeeProfile = (function () {
     if (!n) return '';
     const d = new Date(n);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return d.toLocaleDateString(BeeI18n.dateLocale(), { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function noSubjectLabel() {
+    return t('groups.noSubject');
   }
 
   function renderNoticeRow(notice) {
@@ -1666,9 +1753,10 @@ const BeeProfile = (function () {
     const meta = [notice.fromName, formatNoticeDate(notice.timestamp)].filter(Boolean).join(' · ');
     return '<button type="button" class="group-notices__item' + (active ? ' group-notices__item--active' : '') +
       '" data-notice-id="' + BeeUtils.escapeHtml(id) + '">' +
-      '<span class="group-notices__subject">' + BeeUtils.escapeHtml(notice.subject || '(no subject)') + '</span>' +
+      '<span class="group-notices__subject">' + BeeUtils.escapeHtml(notice.subject || noSubjectLabel()) + '</span>' +
       (notice.hasAttachment
-        ? '<span class="group-notices__clip" title="Has an attachment">' + CLIP_GLYPH + '</span>'
+        ? '<span class="group-notices__clip" title="' + BeeUtils.escapeHtml(t('groups.hasAttachment')) + '">' +
+          CLIP_GLYPH + '</span>'
         : '<span></span>') +
       '<span class="group-notices__meta">' + BeeUtils.escapeHtml(meta) + '</span>' +
       '</button>';
@@ -1677,7 +1765,8 @@ const BeeProfile = (function () {
   function renderGroupNoticesPane(profile) {
     if (!profileShowsAsMember(profile)) {
       return '<div class="profile-pane profile-pane--notices">' +
-        '<p class="profile-section__empty">Join this group to read its notices.</p></div>';
+        '<p class="profile-section__empty">' +
+        BeeUtils.escapeHtml(t('groups.noticesMembersOnly')) + '</p></div>';
     }
     const cache = typeof BeeProfiles.getGroupNotices === 'function'
       ? BeeProfiles.getGroupNotices(profile.groupId) : null;
@@ -1685,18 +1774,21 @@ const BeeProfile = (function () {
     let list;
     if (!cache) {
       list = '<p class="profile-section__empty">' +
-        (offline ? 'Notices are not available offline.' : 'Loading notices...') + '</p>';
+        BeeUtils.escapeHtml(offline ? noticesOfflineLabel() : t('groups.loadingNotices')) + '</p>';
     } else if (!cache.notices.length) {
-      list = '<p class="profile-section__empty">No notices yet.</p>';
+      list = '<p class="profile-section__empty">' + BeeUtils.escapeHtml(t('groups.noNotices')) + '</p>';
     } else {
       list = '<div class="group-notices__list">' + cache.notices.map(renderNoticeRow).join('') + '</div>';
     }
     const count = cache ? cache.notices.length : 0;
+    const countLabel = cache
+      ? t('groups.noticeCount', { count: count })
+      : '';
     return '<div class="profile-pane profile-pane--notices">' +
       '<div class="group-notices__head">' +
-      '<span>' + (cache ? count + (count === 1 ? ' notice' : ' notices') : '') + '</span>' +
+      '<span>' + BeeUtils.escapeHtml(countLabel) + '</span>' +
       '<button type="button" class="profile-link" data-notices-refresh' + (offline ? ' disabled' : '') +
-        '>Refresh</button>' +
+        '>' + BeeUtils.escapeHtml(t('common.refresh')) + '</button>' +
       '</div>' +
       list +
       '<div class="group-notices__detail" data-notice-detail hidden></div>' +
@@ -1709,11 +1801,12 @@ const BeeProfile = (function () {
     const nav = GROUP_TABS.map(function (tab) {
       const active = tab.id === activeTab ? ' profile-tab--active' : '';
       return '<button type="button" class="profile-tab' + active + '" data-profile-tab="' +
-        tab.id + '">' + BeeUtils.escapeHtml(tab.label) + '</button>';
+        tab.id + '">' + BeeUtils.escapeHtml(tab.label()) + '</button>';
     }).join('');
     // patchGroupTitles looks for .profile-main-panel, so the Group tab keeps
     // that wrapper (the CSS zeroes its padding inside a tab panel).
-    return '<nav class="profile-tabs" aria-label="Group sections">' + nav + '</nav>' +
+    return '<nav class="profile-tabs" aria-label="' + BeeUtils.escapeHtml(t('groups.sections')) + '">' +
+      nav + '</nav>' +
       '<div class="profile-tab-panels">' +
       '<div class="profile-tab-panel' + (activeTab === 'group' ? ' profile-tab-panel--active' : '') +
         '" data-profile-panel="group"><div class="profile-main-panel">' + renderGroupTab(profile) + '</div></div>' +
@@ -1763,6 +1856,18 @@ const BeeProfile = (function () {
     box.appendChild(p);
   }
 
+  function noticesOfflineLabel() {
+    return t('groups.noticesOffline');
+  }
+
+  // The answer the cache keeps for a notice attachment is a fixed token
+  // ('kept' / 'discarded'); this puts it into words.
+  function attachmentChoiceLabel(response) {
+    if (response === 'kept') return t('groups.kept');
+    if (response === 'discarded') return t('groups.discarded');
+    return String(response || '');
+  }
+
   function paintNoticeDetail(pane, detail, profile) {
     const box = noticeDetailBox(pane);
     if (!box || !detail) return;
@@ -1771,7 +1876,7 @@ const BeeProfile = (function () {
 
     const heading = document.createElement('h4');
     heading.className = 'group-notices__detail-subject';
-    heading.textContent = detail.subject || '(no subject)';
+    heading.textContent = detail.subject || noSubjectLabel();
     box.appendChild(heading);
 
     // The IM carrying the notice has no date; the list row does.
@@ -1783,30 +1888,27 @@ const BeeProfile = (function () {
     const from = detail.fromName || (row && row.fromName) || '';
     const meta = document.createElement('p');
     meta.className = 'group-notices__detail-meta';
-    meta.textContent = [from ? 'From ' + from : '', row ? formatNoticeDate(row.timestamp) : '']
-      .filter(Boolean).join(' · ');
+    meta.textContent = [from ? t('groups.noticeFrom', { name: from }) : '',
+      row ? formatNoticeDate(row.timestamp) : ''].filter(Boolean).join(' · ');
     box.appendChild(meta);
 
     const body = document.createElement('p');
     body.className = 'group-notices__body';
     if (detail.text) BeeSlurl.appendLinkified(body, detail.text, { breaks: true });
-    else body.textContent = '(no message)';
+    else body.textContent = t('groups.noMessage');
     box.appendChild(body);
     BeeSlurl.bindLinks(body);
 
     if (!detail.attachment) return;
     const att = document.createElement('p');
     att.className = 'group-notice__attachment';
-    att.textContent = 'Attachment: ';
-    const strong = document.createElement('strong');
-    strong.textContent = detail.attachment.itemName || 'item';
-    att.appendChild(strong);
+    att.innerHTML = th('groups.noticeAttachment', { item: detail.attachment.itemName || t('groups.noticeItem') });
     box.appendChild(att);
 
     if (detail.attachmentResponse) {
       const done = document.createElement('p');
       done.className = 'script-dialog__response';
-      done.textContent = 'You chose: ' + detail.attachmentResponse;
+      done.textContent = t('groups.noticeChoice', { choice: attachmentChoiceLabel(detail.attachmentResponse) });
       box.appendChild(done);
       return;
     }
@@ -1815,11 +1917,11 @@ const BeeProfile = (function () {
     const keep = document.createElement('button');
     keep.type = 'button';
     keep.className = 'btn btn--primary btn--sm';
-    keep.textContent = 'Keep';
+    keep.textContent = t('groups.keep');
     const discard = document.createElement('button');
     discard.type = 'button';
     discard.className = 'btn btn--secondary btn--sm';
-    discard.textContent = 'Discard';
+    discard.textContent = t('groups.discard');
     // Same reply as the Events card: dialog 33/34 to the group, under the
     // notice's id as the transaction.
     const respond = function (accept) {
@@ -1832,12 +1934,15 @@ const BeeProfile = (function () {
         fromTask: false,
         kind: 'group-notice'
       }).then(function () {
-        BeeProfiles.markGroupNoticeAttachment(detail.noticeId, accept ? 'Kept' : 'Discarded');
-        BeeUtils.showToast(accept ? 'Attachment kept.' : 'Attachment discarded.', 'success');
+        // The cache keeps the token, not the words (attachmentChoiceLabel).
+        BeeProfiles.markGroupNoticeAttachment(detail.noticeId, accept ? 'kept' : 'discarded');
+        BeeUtils.showToast(accept
+          ? t('groups.attachmentKept')
+          : t('groups.attachmentDiscarded'), 'success');
       }).catch(function () {
         keep.disabled = false;
         discard.disabled = false;
-        BeeUtils.showToast('Could not answer the attachment offer.', 'warning');
+        BeeUtils.showToast(t('groups.attachmentAnswerFailed'), 'warning');
       });
     };
     keep.addEventListener('click', function () { respond(true); });
@@ -1862,15 +1967,15 @@ const BeeProfile = (function () {
       return;
     }
     if (typeof BeeState !== 'undefined' && !BeeState.gridOnline()) {
-      showNoticeMessage(pane, 'Notices are not available offline.');
+      showNoticeMessage(pane, noticesOfflineLabel());
       return;
     }
-    showNoticeMessage(pane, 'Loading notice...');
+    showNoticeMessage(pane, t('groups.loadingNotice'));
     // The reply repaints through the group-notice-detail change; only the
     // timeout needs handling here.
     BeeProfiles.fetchGroupNotice(id).then(function (got) {
       if (!got && current && current.type === 'group' && current.selectedNoticeId === id) {
-        showNoticeMessage(noticesPane(), 'The group server did not answer - try again.');
+        showNoticeMessage(noticesPane(), serverNoAnswerLabel());
       }
     }).catch(function () {});
   }
@@ -1906,9 +2011,14 @@ const BeeProfile = (function () {
     return true;
   }
 
+  // The group server answered neither the notice read nor the join / leave.
+  function serverNoAnswerLabel() {
+    return t('groups.serverNoAnswer');
+  }
+
   function bindGroupContent(profile, root) {
     if (!root) return;
-    const title = profile.name || 'Group';
+    const title = profile.name || t('groups.group');
     const insigniaId = profile.insigniaId || BeeProfiles.getGroupInsigniaId(profile.groupId);
     BeeAvatarThumb.mountIn(root.querySelector('#profile-group-insignia-slot'), profile.groupId, {
       kind: 'group',
@@ -1921,7 +2031,9 @@ const BeeProfile = (function () {
     if (insigniaBtn) {
       insigniaBtn.addEventListener('click', function () {
         const imageId = profile.insigniaId || BeeProfiles.getGroupInsigniaId(profile.groupId);
-        if (imageId && !BeeProfiles.isZero(imageId)) openImagePreview(imageId, title + ' insignia');
+        if (imageId && !BeeProfiles.isZero(imageId)) {
+          openImagePreview(imageId, t('groups.insigniaOf', { name: title }));
+        }
       });
     }
     root.querySelectorAll('[data-avatar-id]').forEach(function (btn) {
@@ -1971,28 +2083,28 @@ const BeeProfile = (function () {
       if (saveBtn.disabled) return;
       if (typeof BeeProfiles.isAgentInGroup === 'function' &&
           !BeeProfiles.isAgentInGroup(profile.groupId)) {
-        setStatus('You are not a member of this group.', 'error');
+        setStatus(t('groups.notMember'), 'error');
         return;
       }
       const roleId = select.value;
       if (!roleId) return;
       saveBtn.disabled = true;
-      setStatus('Saving...', 'pending');
+      setStatus(t('profile.saving'), 'pending');
       const save = typeof BeeTransport.saveGroupTitle === 'function'
         ? BeeTransport.saveGroupTitle(profile.groupId, roleId)
         : Promise.resolve({ sent: false });
       save.then(function (result) {
         if (!current || current.type !== 'group' || current.id !== profile.groupId) return;
         if (result && result.sent) {
-          setStatus('Title saved.', 'success');
+          setStatus(t('groups.titleSaved'), 'success');
           const cached = BeeProfiles.getGroupProfile(profile.groupId);
           renderGroup(enrichGroupProfile(Object.assign({}, cached || profile)));
           return;
         }
-        setStatus('Could not save title.', 'error');
+        setStatus(t('groups.titleSaveFailed'), 'error');
         updateSaveState();
       }).catch(function (err) {
-        setStatus(err.message || 'Could not save title.', 'error');
+        setStatus(BeeUtils.errText(err) || t('groups.titleSaveFailed'), 'error');
         updateSaveState();
       });
     });
@@ -2001,89 +2113,91 @@ const BeeProfile = (function () {
   function renderGroupActions(profile) {
     clearActions();
     const groupId = profile.groupId;
-    const groupName = profile.name || 'this group';
+    const groupName = profile.name || t('groups.thisGroup');
     if (!groupId || groupId === ZERO_UUID) return;
     if (profile.isMember) {
-      addAction('Open group chat', function () {
+      addAction(t('groups.openChat'), function () {
         closeDialog();
         BeeIm.openGroupChat(groupId, profile.name || '');
       }, { primary: true });
       if (profile.isActive) {
-        addAction('Active group', function () {}, {
+        addAction(t('groups.activeGroup'), function () {}, {
           disabled: true,
-          title: 'This is your active group'
+          title: t('groups.isActiveGroup')
         });
       } else {
-        addAction('Activate', function () {
+        addAction(t('groups.activate'), function () {
           if (typeof BeeTransport.activateGroup !== 'function') return;
           BeeTransport.activateGroup(groupId).then(function (result) {
             if (result && result.sent) {
-              BeeUtils.showToast('Active group updated.', 'success');
+              BeeUtils.showToast(t('groups.activeUpdated'), 'success');
               renderGroup(enrichGroupProfile(Object.assign({}, profile, { isActive: true })));
               return;
             }
-            BeeUtils.showToast('Could not activate group.', 'warning');
+            BeeUtils.showToast(t('groups.activateFailed'), 'warning');
           }).catch(function () {
             // The command itself failed (e.g. not connected).
-            BeeUtils.showToast('Could not activate group.', 'warning');
+            BeeUtils.showToast(t('groups.activateFailed'), 'warning');
           });
         });
       }
-      addAction('Leave group', async function () {
+      addAction(t('groups.leaveGroup'), async function () {
         const ok = await BeeUtils.confirm({
-          title: 'Leave group?',
-          message: 'Leave ' + groupName + '?',
-          confirmLabel: 'Leave',
+          title: t('groups.leaveTitle'),
+          message: t('groups.leaveMessage', { name: groupName }),
+          confirmLabel: t('groups.leaveConfirm'),
           danger: true
         });
         if (!ok) return;
         BeeTransport.leaveGroup(groupId).then(function (result) {
           if (result && result.success) {
-            BeeUtils.showToast('Left ' + groupName + '.', 'success');
+            BeeUtils.showToast(t('groups.left', { name: groupName }), 'success');
             const next = enrichGroupProfile(Object.assign({}, profile, { isMember: false }));
             renderGroup(next);
             return;
           }
           BeeUtils.showToast(result && result.timedOut
-            ? 'The group server did not answer - try again.'
-            : 'Could not leave group.', 'warning');
+            ? serverNoAnswerLabel()
+            : t('groups.leaveFailed'), 'warning');
         }).catch(function () {
-          BeeUtils.showToast('Could not leave group.', 'warning');
+          BeeUtils.showToast(t('groups.leaveFailed'), 'warning');
         });
       }, { danger: true });
       return;
     }
     if (profile.openEnrollment) {
       const fee = Number(profile.membershipFee) || 0;
-      const label = fee > 0 ? 'Join (L$ ' + fee.toLocaleString('en-US') + ')' : 'Join';
+      const label = fee > 0
+        ? t('groups.joinWithFee', { fee: BeeI18n.formatNumber(fee) })
+        : t('groups.join');
       addAction(label, async function () {
         const feeMsg = fee > 0
-          ? 'Join ' + groupName + ' for L$ ' + fee.toLocaleString('en-US') + '?'
-          : 'Join ' + groupName + '?';
+          ? t('groups.joinMessageFee', { name: groupName, fee: BeeI18n.formatNumber(fee) })
+          : t('groups.joinMessage', { name: groupName });
         const ok = await BeeUtils.confirm({
-          title: 'Join group?',
+          title: t('groups.joinTitle'),
           message: feeMsg,
-          confirmLabel: 'Join'
+          confirmLabel: t('groups.join')
         });
         if (!ok) return;
         // Being a member already never reaches the wire: short-circuit locally.
         if (typeof BeeProfiles.isAgentInGroup === 'function' && BeeProfiles.isAgentInGroup(groupId)) {
-          BeeUtils.showToast('You are already a member.', 'warning');
+          BeeUtils.showToast(t('groups.alreadyMember'), 'warning');
           renderGroup(enrichGroupProfile(Object.assign({}, profile, { isMember: true })));
           return;
         }
         BeeTransport.joinGroup(groupId).then(function (result) {
           if (result && result.success) {
-            BeeUtils.showToast('Joined ' + groupName + '.', 'success');
+            BeeUtils.showToast(t('groups.joined', { name: groupName }), 'success');
             const next = enrichGroupProfile(Object.assign({}, profile, { isMember: true }));
             renderGroup(next);
             return;
           }
           BeeUtils.showToast(result && result.timedOut
-            ? 'The group server did not answer - try again.'
-            : 'Could not join group.', 'warning');
+            ? serverNoAnswerLabel()
+            : t('groups.joinFailed'), 'warning');
         }).catch(function () {
-          BeeUtils.showToast('Could not join group.', 'warning');
+          BeeUtils.showToast(t('groups.joinFailed'), 'warning');
         });
       });
     }
@@ -2241,7 +2355,7 @@ const BeeProfile = (function () {
     if (!content) return;
     const btn = content.querySelector('[data-avatar-id="' + profile.founderId + '"]');
     if (!btn) return;
-    const label = profile.founderName || 'View profile';
+    const label = profile.founderName || viewProfileLabel();
     if (btn.textContent !== label) btn.textContent = label;
   }
 
@@ -2361,13 +2475,13 @@ const BeeProfile = (function () {
     if (context && context.founderId &&
         BeeProfiles.normId(context.founderId) === BeeProfiles.normId(avatarId)) {
       const founderName = String(context.founderName || '').trim();
-      if (founderName && founderName !== 'View profile' && !looksLikeUuidLabel(founderName)) {
+      if (founderName && founderName !== viewProfileLabel() && !looksLikeUuidLabel(founderName)) {
         hint = { id: avatarId, name: founderName, displayName: founderName };
       }
     }
     if (!hint) {
       const label = String(btn.textContent || '').trim();
-      if (label && label !== 'View profile' && !looksLikeUuidLabel(label)) {
+      if (label && label !== viewProfileLabel() && !looksLikeUuidLabel(label)) {
         hint = { id: avatarId, name: label, displayName: label };
       }
     }
@@ -2487,7 +2601,7 @@ const BeeProfile = (function () {
       if (content) {
         content.hidden = false;
         content.innerHTML = '<p class="profile-section__empty">' +
-          BeeUtils.escapeHtml(err.message || 'Could not load group profile') + '</p>';
+          BeeUtils.escapeHtml(BeeUtils.errText(err) || t('groups.loadFailed')) + '</p>';
       }
       setLoading(false);
     });
@@ -2527,6 +2641,13 @@ const BeeProfile = (function () {
         if (evt.target === imageDialog) BeeUtils.dismissDialog(imageDialog);
       });
     }
+    // A language switch while a profile is open: the pane is rebuilt in the
+    // new words (the group view's change key is dropped so that it really is).
+    BeeI18n.onChange(function () {
+      if (!current || !dialog || !dialog.open) return;
+      lastGroupViewKey = '';
+      refreshCurrentProfile();
+    });
     BeeProfiles.onChange(function (evt) {
       if (!current || !dialog || !dialog.open) return;
       if (current.type === 'avatar' && evt.id === current.id &&

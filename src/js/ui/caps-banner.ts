@@ -11,7 +11,10 @@
 const BeeCapsBanner = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let userDismissed = false;
+  let lastStatus = null; // the newest assessment, repainted on a language switch
 
   function el() {
     return document.getElementById('caps-banner');
@@ -25,6 +28,7 @@ const BeeCapsBanner = (function () {
   function update(status) {
     const banner = el();
     if (!banner || !status) return;
+    lastStatus = status;
 
     if (status.ok) {
       userDismissed = false; // healthy again, so let any later failure show afresh
@@ -34,10 +38,11 @@ const BeeCapsBanner = (function () {
     // Once the user dismisses it, honor that until the situation actually changes.
     if (userDismissed) return;
 
+    // The title and detail are the core's assessment, read through their keys.
     const titleEl = document.getElementById('caps-banner-title');
     const detailEl = document.getElementById('caps-banner-detail');
-    if (titleEl) titleEl.textContent = status.title || 'Some region features unavailable';
-    if (detailEl) detailEl.textContent = status.detail || '';
+    if (titleEl) titleEl.textContent = BeeI18n.field(status, 'title') || t('caps.title');
+    if (detailEl) detailEl.textContent = BeeI18n.field(status, 'detail');
     banner.hidden = false;
   }
 
@@ -59,9 +64,14 @@ const BeeCapsBanner = (function () {
     if (typeof BeeState !== 'undefined' && BeeState.on) {
       BeeState.on('reset', function () {
         userDismissed = false;
+        lastStatus = null;
         hide();
       });
     }
+    // A language switch while the banner is up: paint the same assessment again.
+    BeeI18n.onChange(function () {
+      if (lastStatus && !lastStatus.ok) update(lastStatus);
+    });
   }
 
   return { init: init, update: update, hide: hide };

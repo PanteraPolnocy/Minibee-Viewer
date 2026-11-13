@@ -12,8 +12,19 @@ use crate::bridge::circuit::Session;
 use crate::bridge::inventory::{self, AT_LANDMARK};
 use crate::bridge::proxy;
 use crate::bridge::state::AppState;
+use crate::uitext::ui_err;
 
 type Cmd = Result<Value, String>;
+
+/// The rejection every landmark command gives without a live session.
+fn no_active_session() -> String {
+    ui_err("err.noActiveSession", json!({}))
+}
+
+/// An asset id that is not a real, non-nil UUID.
+fn not_a_landmark() -> String {
+    ui_err("err.notALandmark", json!({}))
+}
 
 /// Bounds on the folder walk: landmark folders nest, but not forever.
 const MAX_FOLDERS: usize = 64;
@@ -126,14 +137,16 @@ async fn collect(state: &Arc<AppState>, session: &Arc<Session>, roots: &[String]
 
 #[tauri::command]
 pub async fn sl_landmarks_list(state: State<'_, Arc<AppState>>) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
-    let (agent, _) = session.agent_ids().ok_or("Session not ready")?;
+    let session = state.active().ok_or_else(no_active_session)?;
+    let (agent, _) = session
+        .agent_ids()
+        .ok_or_else(|| ui_err("err.sessionNotReady", json!({})))?;
     let roots = state.landmark_folders.lock().unwrap().clone();
     if roots.is_empty() {
         return Ok(json!({ "ok": true, "landmarks": [], "noFolder": true }));
     }
     if session.cap("FetchInventoryDescendents2").is_none() {
-        return Err("Inventory capability unavailable".into());
+        return Err(ui_err("err.inventoryCapUnavailable", json!({})));
     }
     let landmarks = collect(state.inner(), &session, &roots, &agent).await;
     Ok(json!({ "ok": true, "landmarks": landmarks }))
@@ -142,19 +155,22 @@ pub async fn sl_landmarks_list(state: State<'_, Arc<AppState>>) -> Cmd {
 /// Read where a landmark points: its asset, over the ViewerAsset cap.
 #[tauri::command]
 pub async fn sl_landmark_info(state: State<'_, Arc<AppState>>, asset_id: String) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let asset_id = asset_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&asset_id) || inventory::is_zero_uuid(&asset_id) {
-        return Err("Not a landmark".into());
+        return Err(not_a_landmark());
     }
-    let cap = session.cap("ViewerAsset").ok_or("Asset capability unavailable")?;
+    let cap = session
+        .cap("ViewerAsset")
+        .ok_or_else(|| ui_err("err.assetCapUnavailable", json!({})))?;
     let url = format!("{}?landmark_id={asset_id}", crate::bridge::caps::cap_endpoint(&cap));
     let (pin, _) = proxy::simhost_pin(&url, "").await;
     let ex = proxy::exchange(&state.ua, "GET", &url, "", "application/llsd+xml", &[], pin, Duration::from_secs(30), true).await?;
     if !(200..300).contains(&ex.status) {
-        return Err(format!("Landmark data unavailable (HTTP {})", ex.status));
+        return Err(ui_err("err.landmarkDataUnavailableHttp", json!({ "status": ex.status })));
     }
-    let t = parse_landmark_asset(&ex.body).ok_or("This landmark's data is unreadable")?;
+    let t = parse_landmark_asset(&ex.body)
+        .ok_or_else(|| ui_err("err.landmarkUnreadable", json!({})))?;
     Ok(json!({
         "ok": true, "regionId": t.region_id, "gridX": t.grid_x, "gridY": t.grid_y,
         "x": t.x, "y": t.y, "z": t.z,
@@ -169,7 +185,7 @@ pub async fn sl_teleport_landmark(state: State<'_, Arc<AppState>>, asset_id: Str
     let (s, agent, sess) = crate::commands::active_ids(&state)?;
     let asset_id = asset_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&asset_id) || inventory::is_zero_uuid(&asset_id) {
-        return Err("Not a landmark".into());
+        return Err(not_a_landmark());
     }
     crate::commands::stand_before_teleport(&s, &agent, &sess).await;
     let grid = |t: &Value| Some((t.get("gridX")?.as_i64()?, t.get("gridY")?.as_i64()?));

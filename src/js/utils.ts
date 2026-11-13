@@ -4,6 +4,8 @@
 const BeeUtils = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   function uuid() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
       return crypto.randomUUID();
@@ -25,17 +27,19 @@ const BeeUtils = (function () {
     throw new Error('Secure random UUID generation is not available in this runtime.');
   }
 
+  // Clock times follow the device while the UI is English, the UI language
+  // otherwise (BeeI18n.dateLocale).
   function formatTime(date) {
     const d = date instanceof Date ? date : new Date(date);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString(BeeI18n.dateLocale(), { hour: '2-digit', minute: '2-digit' });
   }
 
   function formatRelative(date) {
     const d = date instanceof Date ? date : new Date(date);
     const diff = Date.now() - d.getTime();
-    if (diff < 60000) return 'now';
-    if (diff < 3600000) return Math.floor(diff / 60000) + 'm';
-    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h';
+    if (diff < 60000) return t('time.now');
+    if (diff < 3600000) return t('time.minutesShort', { count: Math.floor(diff / 60000) });
+    if (diff < 86400000) return t('time.hoursShort', { count: Math.floor(diff / 3600000) });
     return formatTime(d);
   }
 
@@ -273,7 +277,7 @@ const BeeUtils = (function () {
     }
     const n = Math.trunc(amount);
     const sign = n < 0 ? '-' : '';
-    return 'L$ ' + sign + Math.abs(n).toLocaleString('en-US');
+    return 'L$ ' + sign + BeeI18n.formatNumber(Math.abs(n));
   }
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -333,7 +337,7 @@ const BeeUtils = (function () {
       const dialog = document.getElementById('confirm-dialog') as HTMLDialogElement | null;
       if (!dialog || typeof dialog.showModal !== 'function') {
         const ok = typeof window !== 'undefined' && window.confirm
-          ? window.confirm(o.message || 'Are you sure?') : true;
+          ? window.confirm(o.message || t('dialog.areYouSure')) : true;
         resolve({ ok: ok, value: '', choice: '' });
         return;
       }
@@ -348,8 +352,8 @@ const BeeUtils = (function () {
       const withInput = !!o.input;
       const choices = Array.isArray(o.choices) ? o.choices : [];
       const withChoices = choices.length > 0;
-      if (titleEl) titleEl.textContent = o.title || 'Please confirm';
-      if (msgEl) msgEl.textContent = o.message || 'Are you sure?';
+      if (titleEl) titleEl.textContent = o.title || t('dialog.pleaseConfirm');
+      if (msgEl) msgEl.textContent = o.message || t('dialog.areYouSure');
       if (inputWrap) inputWrap.hidden = !withInput;
       if (inputEl && withInput) inputEl.value = o.inputValue || '';
       if (selectWrap) selectWrap.hidden = !withChoices;
@@ -366,11 +370,11 @@ const BeeUtils = (function () {
         if (selectEl.value !== wanted) selectEl.value = String(choices[0][0]);
       }
       if (okBtn) {
-        okBtn.textContent = o.confirmLabel || 'Confirm';
+        okBtn.textContent = o.confirmLabel || t('common.confirm');
         okBtn.classList.toggle('btn--danger', !!o.danger);
       }
       if (cancelBtn) {
-        cancelBtn.textContent = o.cancelLabel || 'Cancel';
+        cancelBtn.textContent = o.cancelLabel || t('common.cancel');
         cancelBtn.hidden = !!o.hideCancel;
       }
 
@@ -427,7 +431,7 @@ const BeeUtils = (function () {
   function promptDialog(options) {
     const o = options || {};
     return queueConfirm({
-      title: o.title, message: o.message, confirmLabel: o.confirmLabel || 'OK',
+      title: o.title, message: o.message, confirmLabel: o.confirmLabel || t('common.ok'),
       input: true, inputValue: o.value || ''
     }).then(function (r) { return r.ok ? r.value : null; });
   }
@@ -438,17 +442,22 @@ const BeeUtils = (function () {
   function chooseDialog(options) {
     const o = options || {};
     return queueConfirm({
-      title: o.title, message: o.message, confirmLabel: o.confirmLabel || 'OK',
+      title: o.title, message: o.message, confirmLabel: o.confirmLabel || t('common.ok'),
       cancelLabel: o.cancelLabel, hideCancel: !!o.hideCancel,
       choices: o.choices, choiceValue: o.value
     }).then(function (r) { return r.ok ? r.choice : null; });
   }
 
-  // Backend command rejections arrive as bare strings; JS errors carry .message.
+  // The words for an error, in the UI language where the core gave them a
+  // key. A command's rejection arrives as a bare string - plain, or the
+  // `{ key, text, args }` line the core encodes (see BeeI18n.fromCore); a JS
+  // Error carries .message. Every place that shows an error goes through
+  // here, so nothing ever paints the raw encoding.
   function errText(err) {
     if (!err) return '';
-    if (typeof err === 'string') return err;
-    return err.message || '';
+    if (typeof err === 'string') return BeeI18n.fromCore(err);
+    if (typeof err === 'object' && typeof err.key === 'string') return BeeI18n.fromCore(err);
+    return err.message ? BeeI18n.fromCore(err.message) : '';
   }
 
   // Modal notice with a single OK button, for messages that must not be missed.
@@ -456,7 +465,7 @@ const BeeUtils = (function () {
     const o = options || {};
     return confirmDialog({
       title: o.title, message: o.message,
-      confirmLabel: o.confirmLabel || 'OK', hideCancel: true
+      confirmLabel: o.confirmLabel || t('common.ok'), hideCancel: true
     });
   }
 

@@ -7,6 +7,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 
 use crate::bridge::state::AppState;
+use crate::uitext::UiText;
 
 const MAX_ITEMS: usize = 40;
 
@@ -173,8 +174,9 @@ fn item_image(node: roxmltree::Node, body_html: &str) -> String {
         .unwrap_or_default()
 }
 
-pub fn parse_feed(xml: &str) -> Result<Vec<Value>, String> {
-    let doc = roxmltree::Document::parse(xml).map_err(|e| format!("feed parse failed: {e}"))?;
+pub fn parse_feed(xml: &str) -> Result<Vec<Value>, UiText> {
+    let doc = roxmltree::Document::parse(xml)
+        .map_err(|e| UiText::new("feeds.parseFailed", json!({ "error": e.to_string() })))?;
     let root = doc.root_element();
     let items: Vec<roxmltree::Node> = root
         .descendants()
@@ -235,10 +237,21 @@ pub fn parse_feed(xml: &str) -> Result<Vec<Value>, String> {
     Ok(out)
 }
 
+/// `{ error, errorKey, errorArgs }`: why a feed could not be shown.
+fn failed(line: UiText) -> Value {
+    let mut v = json!({});
+    line.fields(&mut v, "error");
+    v
+}
+
+fn fetch_failed(e: reqwest::Error) -> Value {
+    failed(UiText::new("feeds.fetchFailed", json!({ "error": e.to_string() })))
+}
+
 pub async fn fetch(state: &AppState, kind: &str) -> Value {
     let url = match feed_url(kind) {
         Some(u) => u,
-        None => return json!({ "error": "unknown feed" }),
+        None => return failed(UiText::new("feeds.unknownFeed", json!({}))),
     };
     let resp = state
         .http
@@ -250,17 +263,19 @@ pub async fn fetch(state: &AppState, kind: &str) -> Value {
     let body = match resp {
         Ok(r) if r.status().is_success() => match r.text().await {
             Ok(t) => t,
-            Err(e) => return json!({ "error": format!("feed fetch failed: {e}") }),
+            Err(e) => return fetch_failed(e),
         },
-        Ok(r) => return json!({ "error": format!("feed fetch failed: HTTP {}", r.status().as_u16()) }),
-        Err(e) => return json!({ "error": format!("feed fetch failed: {e}") }),
+        Ok(r) => {
+            return failed(UiText::new("feeds.fetchFailedHttp", json!({ "status": r.status().as_u16() })))
+        }
+        Err(e) => return fetch_failed(e),
     };
     match parse_feed(&body) {
         Ok(items) => {
             crate::dlog!("feed {}: {} item(s)", kind, items.len());
             json!({ "ok": true, "feed": kind, "items": items })
         }
-        Err(e) => json!({ "error": e }),
+        Err(line) => failed(line),
     }
 }
 
@@ -330,6 +345,17 @@ mod tests {
         assert!(feed_url("grid-status").is_some());
         assert!(feed_url("blogs").is_some());
         assert!(feed_url("../etc/passwd").is_none());
+    }
+
+    #[test]
+    fn a_broken_feed_reports_the_parse_failure_with_its_key() {
+        let line = parse_feed("<rss><channel><item>").unwrap_err();
+        assert_eq!(line.key, "feeds.parseFailed");
+        assert!(line.text.starts_with("feed parse failed: "), "{}", line.text);
+        let v = failed(line);
+        assert_eq!(v["errorKey"], "feeds.parseFailed");
+        assert!(v["error"].as_str().unwrap().starts_with("feed parse failed: "));
+        assert!(v["errorArgs"]["error"].is_string());
     }
 
     /// The allowlist is the whole of the guard here - `bridge_feed` takes a name from the

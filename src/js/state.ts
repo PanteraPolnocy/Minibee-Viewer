@@ -4,6 +4,8 @@
 const BeeState = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const listeners = new Map();
 
   const state = {
@@ -278,7 +280,15 @@ const BeeState = (function () {
     emit('chat', msg);
   }
 
-  const DEFAULT_SESSION_TITLES = { group: 'Group chat', conference: 'Conference' };
+  // The stub title a session chat carries until the grid names it (the core
+  // sends none): the one in the UI language. The English one stays
+  // recognised as well, so a title given before a switch from English still
+  // counts as a placeholder.
+  function defaultSessionTitle(type) {
+    return type === 'conference'
+      ? t('im.conference')
+      : t('im.groupChat');
+  }
 
   // A base64 session bucket decodes to binary (UUIDs and flags), whereas a real
   // group name that just happens to be alphanumeric decodes to printable ASCII.
@@ -300,16 +310,16 @@ const BeeState = (function () {
 
   function isDefaultSessionTitle(title) {
     const text = String(title || '').trim();
-    return !text || text === DEFAULT_SESSION_TITLES.group ||
-      text === DEFAULT_SESSION_TITLES.conference || looksLikeUuid(text) ||
-      looksLikeBase64Bucket(text);
+    return !text ||
+      text === defaultSessionTitle('group') || text === defaultSessionTitle('conference') ||
+      text === BeeI18n.en('im.groupChat') || text === BeeI18n.en('im.conference') ||
+      looksLikeUuid(text) || looksLikeBase64Bucket(text);
   }
 
   function ensureKeyedSession(sessionId, info) {
     if (!sessionId || state.imSessions[sessionId]) return sessionId;
     const type = (info && info.type) || 'group';
-    const title = (info && info.title) ||
-      (type === 'conference' ? DEFAULT_SESSION_TITLES.conference : DEFAULT_SESSION_TITLES.group);
+    const title = (info && info.title) || defaultSessionTitle(type);
     state.imSessions[sessionId] = {
       id: sessionId,
       type: type,
@@ -599,6 +609,7 @@ const BeeState = (function () {
     setSessionMuted: setSessionMuted,
     renameSession: renameSession,
     setSessionType: setSessionType,
+    isDefaultSessionTitle: isDefaultSessionTitle,
     refreshImSessionPresence: refreshImSessionPresence,
     resolveParticipantPresence: resolveParticipantPresence,
     get: get,

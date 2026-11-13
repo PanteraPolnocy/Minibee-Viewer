@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "types:sync": "node scripts/sync-types.mjs",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "lang:check": "node scripts/sync-lang.mjs",
     "release:notes": "node scripts/update-release-notes.mjs",
     "version:sync": "node scripts/sync-version.mjs",
     "version:check": "node scripts/sync-version.mjs --check"

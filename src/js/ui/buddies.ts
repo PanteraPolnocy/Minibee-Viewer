@@ -4,6 +4,8 @@
 const BeeBuddies = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let filter = '';
   let onlineOnly = false;
 
@@ -30,9 +32,9 @@ const BeeBuddies = (function () {
 
   function rightsLabel(buddy) {
     const parts = [];
-    if (buddy.rightsGiven & 1) parts.push('map');
-    if (buddy.rightsGiven & 2) parts.push('edit');
-    return parts.length ? parts.join(', ') : 'none';
+    if (buddy.rightsGiven & 1) parts.push(t('people.rightMap'));
+    if (buddy.rightsGiven & 2) parts.push(t('people.rightEdit'));
+    return parts.length ? parts.join(', ') : t('interact.permNone');
   }
 
   function renderItem(buddy) {
@@ -40,8 +42,10 @@ const BeeBuddies = (function () {
     li.className = 'entity-item';
     li.dataset.id = buddy.id;
     const names = nameLines(buddy);
-    const status = buddy.online ? 'Online' : 'Offline';
+    const status = buddy.online ? t('common.online') : t('common.offline');
     const notes = notesFor(buddy) ? ' - ' + notesFor(buddy) : '';
+    const profileLabel = BeeUtils.escapeHtml(t('common.profile'));
+    const imLabel = BeeUtils.escapeHtml(t('common.sendIm'));
 
     li.innerHTML =
       '<div class="entity-item__avatar' + (buddy.online ? ' entity-item__avatar--online' : '') +
@@ -55,10 +59,12 @@ const BeeBuddies = (function () {
         '<div class="entity-item__sub">' + BeeUtils.escapeHtml(status + notes) + '</div>' +
       '</div>' +
       '<div class="entity-item__actions">' +
-        '<button type="button" class="icon-btn" data-action="profile" title="Profile" aria-label="Profile">' +
+        '<button type="button" class="icon-btn" data-action="profile" title="' + profileLabel +
+          '" aria-label="' + profileLabel + '">' +
           iconProfile() +
         '</button>' +
-        '<button type="button" class="icon-btn" data-action="im" title="Send IM" aria-label="Send IM">' +
+        '<button type="button" class="icon-btn" data-action="im" title="' + imLabel +
+          '" aria-label="' + imLabel + '">' +
           '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6l8 5 8-5v12z"/></svg>' +
         '</button>' +
       '</div>';
@@ -101,7 +107,7 @@ const BeeBuddies = (function () {
   function copyToClipboard(text, what) {
     if (!text || !navigator.clipboard) return;
     navigator.clipboard.writeText(text).then(function () {
-      BeeUtils.showToast(what + ' copied', 'success');
+      BeeUtils.showToast(t('common.copiedWhat', { what: what }), 'success');
     }).catch(function () {});
   }
 
@@ -111,38 +117,45 @@ const BeeBuddies = (function () {
     menu.hidden = false;
 
     const buddyNames = nameLines(buddy);
+    const offlineTitle = t('im.residentOffline');
     const actions = [
-      { label: 'Send IM', fn: function () { BeeIm.startImWith(buddy); } },
-      { label: 'Copy name', fn: function () { copyToClipboard(buddyNames.title || buddy.name || '', 'Name'); } },
-      { label: 'Copy UUID', fn: function () { copyToClipboard(buddy.id, 'UUID'); } },
-      { label: 'Start conference...', fn: function () {
+      { label: t('common.sendIm'), fn: function () { BeeIm.startImWith(buddy); } },
+      { label: t('common.copyName'),
+        fn: function () { copyToClipboard(buddyNames.title || buddy.name || '', t('common.name')); } },
+      { label: t('common.copyUuid'),
+        fn: function () { copyToClipboard(buddy.id, t('common.uuid')); } },
+      { label: t('people.startConference'), fn: function () {
         if (BeeIm && typeof BeeIm.openConferenceDialog === 'function') {
           BeeIm.openConferenceDialog([buddy.id]);
         }
       } },
-      { label: 'Profile', fn: function () { BeeProfile.openAvatar(buddy.id, { agent: buddy }); } },
-      { label: 'Teleport offer', fn: function () { BeeTeleportUI.offerTo(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
-      { label: 'Teleport request', fn: function () { BeeTeleportUI.requestFrom(buddy.id, buddy.name, buddy); }, disabled: !buddy.online },
-      { label: 'Remove friend', fn: async function () {
+      { label: t('common.profile'), fn: function () { BeeProfile.openAvatar(buddy.id, { agent: buddy }); } },
+      { label: t('teleport.offer'),
+        fn: function () { BeeTeleportUI.offerTo(buddy.id, buddy.name, buddy); },
+        disabled: !buddy.online, disabledTitle: offlineTitle },
+      { label: t('teleport.request'),
+        fn: function () { BeeTeleportUI.requestFrom(buddy.id, buddy.name, buddy); },
+        disabled: !buddy.online, disabledTitle: offlineTitle },
+      { label: t('profile.removeFriend'), fn: async function () {
         const names = nameLines(buddy);
-        const label = names.title || buddy.name || 'this friend';
+        const label = names.title || buddy.name || t('people.thisFriend');
         const ok = await BeeUtils.confirm({
-          title: 'Remove friend?',
-          message: 'Remove ' + label + ' from your friends list?',
-          confirmLabel: 'Remove',
+          title: t('profile.removeFriendTitle'),
+          message: t('profile.removeFriendMessage', { name: label }),
+          confirmLabel: t('common.remove'),
           danger: true
         });
         if (!ok) return;
         BeeTransport.removeFriendship(buddy.id).then(function (result) {
           if (result && result.sent) {
-            BeeUtils.showToast('Friend removed.', 'success');
+            BeeUtils.showToast(t('profile.friendRemoved'), 'success');
           } else if (result && result.notFriend) {
-            BeeUtils.showToast('Not on your friends list.', 'warning');
+            BeeUtils.showToast(t('profile.notOnFriendsList'), 'warning');
           } else {
-            BeeUtils.showToast('Could not remove friend.', 'warning');
+            BeeUtils.showToast(t('profile.removeFriendFailed'), 'warning');
           }
         }).catch(function () {
-          BeeUtils.showToast('Could not remove friend.', 'warning');
+          BeeUtils.showToast(t('profile.removeFriendFailed'), 'warning');
         });
       }, danger: true }
     ];
@@ -154,9 +167,7 @@ const BeeBuddies = (function () {
       if (action.danger) btn.dataset.danger = 'true';
       if (action.disabled) {
         btn.disabled = true;
-        if (action.label.indexOf('Teleport') === 0) {
-          btn.title = 'Resident is offline';
-        }
+        if (action.disabledTitle) btn.title = action.disabledTitle;
       }
       btn.addEventListener('click', function () {
         menu.hidden = true;
@@ -204,7 +215,8 @@ const BeeBuddies = (function () {
       const empty = document.createElement('li');
       empty.className = 'entity-item';
       empty.style.cursor = 'default';
-      empty.innerHTML = '<div class="entity-item__sub">No buddies match your filter.</div>';
+      empty.innerHTML = '<div class="entity-item__sub">' +
+        BeeUtils.escapeHtml(t('people.noMatch')) + '</div>';
       list.appendChild(empty);
       return;
     }
@@ -252,10 +264,10 @@ const BeeBuddies = (function () {
       const empty = document.createElement('li');
       empty.className = 'entity-item';
       empty.style.cursor = 'default';
-      empty.innerHTML = '<div class="entity-item__sub">' +
-        (blockedFilter ? 'Nobody blocked matches your filter.'
-          : blockedAsked ? 'You have not blocked anyone.'
-            : 'Press Refresh to load your block list.') + '</div>';
+      const msg = blockedFilter ? t('people.noBlockedMatch')
+        : blockedAsked ? t('people.nobodyBlocked')
+          : t('people.pressRefresh');
+      empty.innerHTML = '<div class="entity-item__sub">' + BeeUtils.escapeHtml(msg) + '</div>';
       list.appendChild(empty);
       return;
     }
@@ -270,14 +282,14 @@ const BeeBuddies = (function () {
       li.innerHTML =
         '<div class="entity-item__body">' +
           '<div class="entity-item__name">' + BeeUtils.escapeHtml(labelFor(person)) + '</div>' +
-          '<div class="entity-item__sub">Blocked</div>' +
+          '<div class="entity-item__sub">' + BeeUtils.escapeHtml(t('people.blocked')) + '</div>' +
         '</div>';
       const actions = document.createElement('div');
       actions.className = 'entity-item__actions';
       const profile = document.createElement('button');
       profile.type = 'button';
       profile.className = 'btn btn--ghost btn--sm';
-      profile.textContent = 'Profile';
+      profile.textContent = t('common.profile');
       profile.addEventListener('click', function (e) {
         e.stopPropagation();
         BeeProfile.openAvatar(person.id);
@@ -287,7 +299,7 @@ const BeeBuddies = (function () {
       const unblockBtn = document.createElement('button');
       unblockBtn.type = 'button';
       unblockBtn.className = 'btn btn--secondary btn--sm';
-      unblockBtn.textContent = 'Unblock';
+      unblockBtn.textContent = t('profile.unblock');
       unblockBtn.addEventListener('click', function (e) {
         e.stopPropagation();
         unblock(person.id, labelFor(person));
@@ -339,7 +351,7 @@ const BeeBuddies = (function () {
         if (!id) return [];
         const name = host.dataset.label || '';
         return [{
-          label: 'Unblock',
+          label: t('profile.unblock'),
           action: function () { unblock(id, name); }
         }];
       });
@@ -361,8 +373,9 @@ const BeeBuddies = (function () {
     BeeTransport.on('mute-list', function (data) {
       blocked = (data && data.people) || [];
       blockedAsked = true;
-      if (data && data.error && typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-        BeeUtils.showToast(data.error, 'warning');
+      const error = BeeI18n.field(data, 'error');
+      if (error && typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
+        BeeUtils.showToast(error, 'warning');
       }
       renderBlocked();
     });
@@ -405,6 +418,12 @@ const BeeBuddies = (function () {
       }
     });
 
+    // A language switch repaints both lists in the new words.
+    BeeI18n.onChange(function () {
+      render();
+      renderBlocked();
+    });
+
     BeeState.on('reset', function () {
       filter = '';
       onlineOnly = typeof BeeSettings !== 'undefined' ? !!BeeSettings.get('buddiesOnlineOnly') : false;
@@ -437,7 +456,7 @@ const BeeBuddies = (function () {
     if (!id || typeof BeeBridge === 'undefined') return Promise.resolve(false);
     return BeeBridge.invoke('sl_block_agent', { agentId: id, name: wireName(id, name) })
       .then(function () {
-        BeeUtils.showToast('Blocked ' + (name || 'resident') + '.', 'success');
+        BeeUtils.showToast(t('people.blockedToast', { name: name || t('common.resident') }), 'success');
         // The sim stores the list but never echoes an addition back, so our own
         // copy becomes the truth the moment the message goes out - insert and
         // render, so the list reflects the write straight away.
@@ -455,7 +474,7 @@ const BeeBuddies = (function () {
         return true;
       })
       .catch(function (err) {
-        BeeUtils.showToast(BeeUtils.errText(err) || 'Could not block that resident.', 'warning');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('people.blockFailed'), 'warning');
         return false;
       });
   }
@@ -464,7 +483,7 @@ const BeeBuddies = (function () {
     if (!id || typeof BeeBridge === 'undefined') return Promise.resolve(false);
     return BeeBridge.invoke('sl_unblock_agent', { agentId: id, name: wireName(id, name) })
       .then(function () {
-        BeeUtils.showToast('Unblocked ' + (name || 'resident') + '.', 'success');
+        BeeUtils.showToast(t('people.unblockedToast', { name: name || t('common.resident') }), 'success');
         // Same as block(): our copy is the truth once the removal is sent, and a
         // refresh here would race the sim's write and resurrect the row.
         blocked = blocked.filter(function (p) {
@@ -474,7 +493,7 @@ const BeeBuddies = (function () {
         return true;
       })
       .catch(function (err) {
-        BeeUtils.showToast(BeeUtils.errText(err) || 'Could not unblock that resident.', 'warning');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('people.unblockFailed'), 'warning');
         return false;
       });
   }

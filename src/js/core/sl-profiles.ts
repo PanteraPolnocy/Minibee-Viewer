@@ -9,6 +9,8 @@
 const BeeProfiles = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
 
   const profiles = new Map();       // id -> avatar profile
@@ -94,16 +96,22 @@ const BeeProfiles = (function () {
     return 'unknown';
   }
 
+  // "Jan 5, 2010 (16 years)": the born-on date in the UI language's date
+  // format, with the age in days, months or years after it.
   function formatBornLabel(bornOn, hideAge) {
-    if (!bornOn || hideAge) return hideAge ? 'Age hidden' : '';
+    if (!bornOn || hideAge) return hideAge ? t('profile.ageHidden') : '';
     const date = new Date(bornOn);
     if (Number.isNaN(date.getTime())) return String(bornOn);
     const ageDays = Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
     let ageLabel;
-    if (ageDays < 30) ageLabel = ageDays + ' days';
-    else if (ageDays < 365) ageLabel = Math.floor(ageDays / 30) + ' months';
-    else { const y = Math.floor(ageDays / 365); ageLabel = y + ' year' + (y === 1 ? '' : 's'); }
-    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) +
+    if (ageDays < 30) {
+      ageLabel = t('profile.ageDays', { count: ageDays });
+    } else if (ageDays < 365) {
+      ageLabel = t('profile.ageMonths', { count: Math.floor(ageDays / 30) });
+    } else {
+      ageLabel = t('profile.ageYears', { count: Math.floor(ageDays / 365) });
+    }
+    return date.toLocaleDateString(BeeI18n.dateLocale(), { year: 'numeric', month: 'short', day: 'numeric' }) +
       (ageLabel ? ' (' + ageLabel + ')' : '');
   }
 
@@ -316,8 +324,9 @@ const BeeProfiles = (function () {
   function getGroupTitles(id) { return groupTitlesMap.get(normId(id)) || null; }
   function getGroupNotices(id) { return groupNotices.get(normId(id)) || null; }
   function getGroupNoticeDetail(noticeId) { return noticeDetails.get(normId(noticeId)) || null; }
-  // Remember how the user answered a notice attachment ('Kept' / 'Discarded'),
-  // so a repaint - or a re-read of the notice - doesn't offer the buttons again.
+  // Remember how the user answered a notice attachment - the token 'kept' or
+  // 'discarded', which the profile puts into words when it paints - so a
+  // repaint, or a re-read of the notice, doesn't offer the buttons again.
   function markGroupNoticeAttachment(noticeId, response) {
     const key = normId(noticeId);
     const cur = noticeDetails.get(key);

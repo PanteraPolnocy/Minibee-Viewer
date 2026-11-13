@@ -13,6 +13,8 @@
 const BeeSLBridge = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
 
   let started = false;
@@ -30,7 +32,8 @@ const BeeSLBridge = (function () {
     return String(id || '').toLowerCase();
   }
 
-  // These events are forwarded to the BeeTransport bus untouched.
+  // These events are forwarded to the BeeTransport bus untouched (BeeBridge
+  // has already put the core's keyed lines in the UI language).
   const PASSTHROUGH = [
     'connected', 'disconnected', 'session-lost', 'caps-status', 'region', 'position', 'parcel',
     'chat', 'event', 'im', 'im-typing', 'im-roster', 'im-session-force-close', 'im-session-remap', 'im-session-started',
@@ -244,7 +247,7 @@ const BeeSLBridge = (function () {
       const h = await invoke('bridge_health');
       if (!h || !h.ok) throw new Error('unavailable');
     } catch (_e) {
-      throw new Error('Minibee backend unavailable. Run the Minibee app (npm run tauri dev), not a plain browser.');
+      throw new Error(t('login.backendUnavailable'));
     }
     if (!started) { await bindEvents(); started = true; }
 
@@ -282,7 +285,7 @@ const BeeSLBridge = (function () {
       if (c.type === 'update') {
         // The server wants a newer viewer, so surface its message (it carries
         // the version / update guidance) instead of routing to the TOS/MFA UI.
-        throw new Error(c.message || 'This viewer is out of date and must be updated to log in.');
+        throw new Error(c.message || t('login.outdated'));
       }
       if (c.type === 'error') {
         // A rejected token is the only failure that condemns the submitted MFA
@@ -291,9 +294,10 @@ const BeeSLBridge = (function () {
         if (session.token) {
           session.token = '';
           session.mfaHash = '';
-          throw new Error('Authenticator code rejected. Generate a new code and try again.');
+          throw new Error(t('login.mfaRejected'));
         }
-        throw new Error(c.message || 'Login failed.');
+        // The grid's own words for a refusal; ours only when it sent none.
+        throw new Error(c.message || t('login.failed'));
       }
       if (c.type === 'mfa' && session.storedMfa) {
         // The password was right (a wrong one fails as 'key' before this) and
@@ -304,22 +308,22 @@ const BeeSLBridge = (function () {
         BeeUtils.storageRemove(storageKey);
       }
       const onChallenge = credentials.onChallenge;
-      if (!onChallenge) throw new Error('Login requires user interaction (TOS/MFA).');
+      if (!onChallenge) throw new Error(t('login.needsInteraction'));
       const answer = await onChallenge({ type: c.type, message: c.message, attempt: attempt });
-      if (!answer || answer.action === 'decline') throw new Error('Login cancelled.');
+      if (!answer || answer.action === 'decline') throw new Error(t('login.cancelled'));
       if (c.type === 'tos') { session.agreeToTos = true; session.token = ''; continue; }
       if (c.type === 'critical') { session.readCritical = true; session.token = ''; continue; }
       if (c.type === 'mfa') {
         const token = String(answer.token || '').replace(/\s/g, '');
-        if (!token) throw new Error('Authenticator code required.');
+        if (!token) throw new Error(t('login.mfaRequired'));
         session.token = token;
         session.rememberMfa = answer.rememberMfa !== false;
         continue;
       }
-      throw new Error(c.message || 'Login failed.');
+      throw new Error(c.message || t('login.failed'));
     }
     if (!resp || !resp.classified || !resp.classified.ok || !resp.parsed) {
-      throw new Error('Login failed after multiple attempts.');
+      throw new Error(t('login.failedRepeatedly'));
     }
     lastGrid = credentials.grid || 'agni';
     return finishSession(resp, lastGrid);
@@ -330,8 +334,10 @@ const BeeSLBridge = (function () {
   async function finishSession(resp, grid) {
     const data = resp.parsed;
     const caps = (resp.seedCaps && resp.seedCaps.ok && resp.seedCaps.caps) || {};
+    // A stub until the first ParcelProperties lands. It has no name: the top
+    // bar shows a stub as "Land" and the Land tab skips it (stub: true).
     const parcel = {
-      localId: 0, name: 'Current parcel', desc: '', area: 0, primsUsed: 0, primsTotal: 0,
+      localId: 0, name: '', desc: '', area: 0, primsUsed: 0, primsTotal: 0,
       ownerId: data.agent.id, ownerName: data.agent.displayName, canEdit: true, access: 0,
       pushRestricted: false, allowBuild: false, allowScripts: true, musicUrl: '', mediaUrl: '', stub: true
     };
@@ -374,7 +380,7 @@ const BeeSLBridge = (function () {
     if (!started) { await bindEvents(); started = true; }
     const resp = await invoke('bridge_relogin');
     if (!resp || !resp.classified || !resp.classified.ok || !resp.parsed) {
-      throw new Error('Reconnect failed.');
+      throw new Error(t('login.reconnectFailed'));
     }
     // The core seals the replayed login's hash too, so a remembered record
     // stays current if the grid rotated it.
@@ -467,7 +473,11 @@ const BeeSLBridge = (function () {
     // The sim never sends an "already friends" reply, but we know our own
     // roster, so short-circuit locally to satisfy the UI's alreadyFriend branch.
     if (isBuddy(destId)) return Promise.resolve({ sent: false, alreadyFriend: true });
-    return sent('sl_offer_friendship', { toId: destId, message: message || '' });
+    // The recipient reads the offer in our language, as the full viewer sends it.
+    return sent('sl_offer_friendship', {
+      toId: destId,
+      message: message || t('people.friendshipOfferMessage')
+    });
   }
   function removeFriendship(destId) {
     // Mirror offerFriendship's local short-circuit: the sim sends no "not a
@@ -520,13 +530,14 @@ const BeeSLBridge = (function () {
   }
   function startConference(agentIds, title) {
     const tempId = BeeUtils.uuid();
+    const label = title || t('im.conference');
     // Open the tab SYNCHRONOUSLY (before the cap POST) so it already exists when
     // the sim's ChatterBoxSessionStartReply arrives to remap temp->real id.
     // Otherwise the remap runs first, no-ops, and the roster spawns a 2nd tab.
-    BeeTransport.emit('im-session-open', { sessionId: tempId, type: 'conference', title: title || 'Conference' });
+    BeeTransport.emit('im-session-open', { sessionId: tempId, type: 'conference', title: label });
     invoke('sl_chat_session_start_conference', { tempSessionId: tempId, agentIds: agentIds || [] })
       .catch(function () { /* the start reply / force-close will surface any failure */ });
-    return { sessionId: tempId, type: 'conference', title: title || 'Conference' };
+    return { sessionId: tempId, type: 'conference', title: label };
   }
   function inviteToSession(sessionId, agentIds) {
     return invoke('sl_chat_session_invite', { sessionId: sessionId, agentIds: agentIds || [] }).then(function () { return { sent: true }; });
@@ -708,7 +719,7 @@ const BeeSLBridge = (function () {
   // --- teleport ---
 
   async function teleportTo(loc) {
-    if (!loc) throw new Error('No destination');
+    if (!loc) throw new Error(t('teleport.noDestination'));
     let target = loc;
     // Resolve to grid coords first, so we never aim at grid (0,0) - the void:
     //  - a string (SLURL / "Region/x/y/z" / bare name), e.g. one from the
@@ -740,7 +751,9 @@ const BeeSLBridge = (function () {
   }
   // A teleport *request* ("please TP me to you") is answered by offering a lure.
   function acceptTeleportRequest(request, message) {
-    return invoke('sl_send_teleport_offer', { toId: (request && request.fromId) || '', message: message || 'Join me' });
+    return invoke('sl_send_teleport_offer', {
+      toId: (request && request.fromId) || '', message: message || t('teleport.joinMe')
+    });
   }
   function declineTeleportRequest(request) {
     // A decline goes back to the requester as an IM (dialog 24).
@@ -800,9 +813,11 @@ const BeeSLBridge = (function () {
       const num = function (i, dflt) { const n = parseFloat(parts[i]); return Number.isFinite(n) ? n : dflt; };
       local = { x: num(1, 128), y: num(2, 128), z: num(3, 25) };
     }
-    if (!regionName) throw new Error('Enter a region name or SLURL');
+    if (!regionName) throw new Error(t('teleport.enterRegion'));
     const info = await BeeBridge.regionByName(regionName);
-    if (!info || (info.x == null && info.gridX == null)) throw new Error('Region not found: ' + regionName);
+    if (!info || (info.x == null && info.gridX == null)) {
+      throw new Error(t('teleport.regionNotFound', { region: regionName }));
+    }
     const gridX = info.gridX != null ? info.gridX : info.x;
     const gridY = info.gridY != null ? info.gridY : info.y;
     return { regionName: regionName, gridX: gridX, gridY: gridY, x: local.x, y: local.y, z: local.z };

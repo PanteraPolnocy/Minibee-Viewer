@@ -1,5 +1,5 @@
 ﻿<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" class="i18n-pending">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -13,7 +13,7 @@
   <div id="app" class="app">
 
     <!-- Login screen -->
-    <section id="screen-login" class="screen screen--active" aria-label="Login">
+    <section id="screen-login" class="screen screen--active" data-i18n-aria-label="login.screen">
       <div class="login-shell">
         <div class="login-side-decor" aria-hidden="true">
         <svg class="login-side-decor__svg login-side-decor__svg--left" viewBox="0 -50 280 980" preserveAspectRatio="xMinYMin slice">
@@ -96,21 +96,21 @@
           <span class="login-logo__mark">MB</span>
         </div>
         <h1>Minibee Viewer</h1>
-        <p class="login-sub">A lightweight buzz into the infinite grid</p>
-        <p class="login-credit">Brought to you by Pantera Północy</p>
-        <p id="login-version" class="login-version" aria-label="Viewer version"></p>
+        <p class="login-sub" data-i18n="login.tagline"></p>
+        <p class="login-credit" data-i18n="login.credit"></p>
+        <p id="login-version" class="login-version" data-i18n-aria-label="login.versionLabel"></p>
       </div>
       <form id="login-form" class="login-form" autocomplete="on">
         <label class="field">
-          <span>Username</span>
-          <input type="text" id="login-username" name="username" placeholder="username or First Last" required autocomplete="username">
+          <span data-i18n="login.username"></span>
+          <input type="text" id="login-username" name="username" data-i18n-placeholder="login.usernamePlaceholder" required autocomplete="username">
         </label>
         <label class="field">
-          <span>Password</span>
-          <input type="password" id="login-password" name="password" placeholder="Password" required autocomplete="current-password">
+          <span data-i18n="login.password"></span>
+          <input type="password" id="login-password" name="password" data-i18n-placeholder="login.password" required autocomplete="current-password">
         </label>
         <label class="field">
-          <span>Grid</span>
+          <span data-i18n="login.grid"></span>
           <select id="login-grid" name="grid">
             <option value="agni" selected>Second Life (Agni)</option>
             <option value="aditi">Second Life (Aditi / Beta)</option>
@@ -118,64 +118,64 @@
         </label>
         <label class="field field--checkbox">
           <input type="checkbox" id="login-remember" name="remember" checked>
-          <span>Remember credentials locally</span>
+          <span data-i18n="login.remember"></span>
         </label>
         <p id="login-error" class="login-error" role="alert" hidden></p>
-        <button type="submit" class="btn btn--primary btn--block" id="login-submit">Log In</button>
-        <button type="button" class="btn btn--ghost btn--block" id="login-forget" hidden>Forget saved login &amp; MFA token</button>
+        <button type="submit" class="btn btn--primary btn--block" id="login-submit" data-i18n="login.submit"></button>
+        <button type="button" class="btn btn--ghost btn--block" id="login-forget" hidden data-i18n="login.forget"></button>
       </form>
-      <p class="login-footnote">Use your SL username (e.g. bobsmith12) or legacy First Last.<br>Display names do not work here.</p>
-      <p class="login-footnote login-footnote--legal">Minibee is a third-party viewer. This software is not provided or supported by Linden Lab, the makers of Second Life.</p>
+      <p class="login-footnote" data-i18n-html="login.footnote"></p>
+      <p class="login-footnote login-footnote--legal" data-i18n="login.legal"></p>
         </div>
       </div>
     </section>
 
     <!-- Main viewer shell -->
-    <section id="screen-main" class="screen" hidden aria-label="Viewer">
+    <section id="screen-main" class="screen" hidden data-i18n-aria-label="topbar.viewerScreen">
       <header class="top-bar">
         <div class="top-bar__left">
           <div class="top-bar__identity">
             <div class="top-bar__name-row">
-              <span id="status-dot" class="status-dot status-dot--offline" title="Connection status"></span>
-              <button type="button" id="agent-name" class="top-bar__name" disabled>Agent</button>
+              <span id="status-dot" class="status-dot status-dot--offline" data-i18n-title="topbar.connectionStatus"></span>
+              <button type="button" id="agent-name" class="top-bar__name" disabled data-i18n="topbar.agent"></button>
             </div>
             <div id="agent-group-lines" class="top-bar__group-lines">
-              <span id="agent-group-title" class="top-bar__group-title">No active group title</span>
+              <span id="agent-group-title" class="top-bar__group-title" data-i18n="topbar.noGroupTitle"></span>
               <span id="agent-group-name" class="top-bar__group-name" hidden></span>
             </div>
           </div>
         </div>
         <div class="top-bar__center">
           <span id="parcel-line" class="top-bar__parcel">-</span>
-          <span id="region-name" class="top-bar__region">Offline</span>
+          <span id="region-name" class="top-bar__region" data-i18n="common.offline"></span>
         </div>
         <div class="top-bar__right">
-          <button type="button" id="btn-location-menu" class="icon-btn top-bar__location" title="Location" aria-label="Location menu" aria-expanded="false">
+          <button type="button" id="btn-location-menu" class="icon-btn top-bar__location" data-i18n-title="topbar.location" data-i18n-aria-label="topbar.locationMenu" aria-expanded="false">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>
           </button>
           <div id="voice-bar" class="parcel-music-bar" hidden>
-            <button type="button" id="btn-voice" class="icon-btn top-bar__voice" title="Join voice (nearby chat)" aria-label="Voice">
+            <button type="button" id="btn-voice" class="icon-btn top-bar__voice" data-i18n-title="topbar.joinVoice" data-i18n-aria-label="topbar.voice">
               <svg id="voice-icon-off" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3 3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>
               <svg id="voice-icon-on" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" hidden><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg>
             </button>
-            <input type="range" id="voice-volume" class="parcel-music-bar__volume" min="0" max="100" step="1" value="80" title="Voice volume" aria-label="Voice volume" hidden>
+            <input type="range" id="voice-volume" class="parcel-music-bar__volume" min="0" max="100" step="1" value="80" data-i18n-title="topbar.voiceVolume" data-i18n-aria-label="topbar.voiceVolume" hidden>
           </div>
           <div id="parcel-music" class="parcel-music-bar" hidden>
-            <button type="button" id="parcel-music-toggle" class="icon-btn parcel-music-bar__toggle" aria-pressed="false" title="Play parcel music">
+            <button type="button" id="parcel-music-toggle" class="icon-btn parcel-music-bar__toggle" aria-pressed="false" data-i18n-title="topbar.playParcelMusic">
               <svg id="parcel-music-icon-off" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M4.27 3 3 4.27l9 9v.28c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4v-1.73L19.73 21 21 19.73 4.27 3zM14 7h4V3h-6v5.18l2 2z"/></svg>
               <svg id="parcel-music-icon-on" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" hidden><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
             </button>
-            <input type="range" id="parcel-music-volume" class="parcel-music-bar__volume" min="0" max="100" step="1" value="50" title="Parcel music volume" aria-label="Parcel music volume">
+            <input type="range" id="parcel-music-volume" class="parcel-music-bar__volume" min="0" max="100" step="1" value="50" data-i18n-title="topbar.parcelMusicVolume" data-i18n-aria-label="topbar.parcelMusicVolume">
             <span id="parcel-music-now" class="sr-only" aria-live="polite"></span>
           </div>
           <div id="top-bar-stats" class="top-bar__stats" hidden>
-            <button type="button" id="balance-badge" class="status-chip status-chip--balance" title="Linden dollar balance">L$ -</button>
-            <span id="slt-clock" class="status-chip status-chip--time" title="Second Life Time (US Pacific)">--:-- SLT</span>
+            <button type="button" id="balance-badge" class="status-chip status-chip--balance" data-i18n-title="topbar.balanceTitle">L$ -</button>
+            <span id="slt-clock" class="status-chip status-chip--time" data-i18n-title="topbar.sltTitle">--:-- SLT</span>
           </div>
-          <div id="net-meter" class="net-meter" title="Network traffic" hidden aria-hidden="true">
+          <div id="net-meter" class="net-meter" data-i18n-title="topbar.networkTraffic" hidden aria-hidden="true">
             <span id="net-meter-bar" class="net-meter__bar"></span>
           </div>
-          <button type="button" id="btn-bee-menu" class="icon-btn top-bar__bee" title="Session" aria-label="Session menu" aria-expanded="false">
+          <button type="button" id="btn-bee-menu" class="icon-btn top-bar__bee" data-i18n-title="topbar.session" data-i18n-aria-label="topbar.sessionMenu" aria-expanded="false">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
               <path fill="currentColor" opacity="0.5" d="M9 8C7.3 6.1 4.9 5.9 3.9 6.8c-1 1-.4 3.3 1.5 4.6.9.6 1.9 1 2.6 1 .2-1.6.5-3.1 1-4.4z"/>
               <path fill="currentColor" opacity="0.5" d="M15 8c1.7-1.9 4.1-2.1 5.1-1.2 1 1 .4 3.3-1.5 4.6-.9.6-1.9 1-2.6 1-.2-1.6-.5-3.1-1-4.4z"/>
@@ -183,115 +183,115 @@
               <path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M10.2 6.4 8.9 4.1M13.8 6.4 15.1 4.1"/>
             </svg>
           </button>
-          <button type="button" id="btn-theme" class="icon-btn" title="Switch to light mode" aria-label="Toggle light/dark theme">
+          <button type="button" id="btn-theme" class="icon-btn" data-i18n-title="topbar.switchToLight" data-i18n-aria-label="topbar.toggleTheme">
             <svg id="theme-icon-moon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8A9.084 9.084 0 0 0 12 3z"/></svg>
             <svg id="theme-icon-sun" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" hidden><path fill="currentColor" d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5 1.09 2.26L16 3.27l.73 2.41L19 6.18l-.36 2.45L21 9.5l-2.36 1.12.36 2.45-2.27.5-1.09 2.26L12 14.77l-1.64 1.06-1.09-2.26-2.27-.5.36-2.45L3 9.5l2.27-.87-.36-2.45 2.27-.5L8 3.27l2.91.73L12 2z"/></svg>
           </button>
-          <span id="fps-badge" class="badge" title="Sim FPS">-- FPS</span>
-          <button type="button" id="btn-logout" class="icon-btn" title="Log out" aria-label="Log out">
+          <span id="fps-badge" class="badge" data-i18n-title="topbar.simFps">-- FPS</span>
+          <button type="button" id="btn-logout" class="icon-btn" data-i18n-title="common.logOut" data-i18n-aria-label="common.logOut">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.59L17 17l5-5-5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
           </button>
         </div>
       </header>
 
       <!-- Session popup behind the top-bar bee (narrow screens). -->
-      <div id="bee-menu" class="bee-menu" hidden role="dialog" aria-label="Session">
+      <div id="bee-menu" class="bee-menu" hidden role="dialog" data-i18n-aria-label="topbar.session">
         <div class="bee-menu__row">
-          <span class="bee-menu__label">Balance</span>
-          <button type="button" id="bee-menu-balance" class="bee-menu__value bee-menu__value--action" title="Linden dollar balance">L$ &mdash;</button>
+          <span class="bee-menu__label" data-i18n="menu.balance"></span>
+          <button type="button" id="bee-menu-balance" class="bee-menu__value bee-menu__value--action" data-i18n-title="topbar.balanceTitle">L$ &mdash;</button>
         </div>
         <div class="bee-menu__row">
-          <span class="bee-menu__label">SL time</span>
+          <span class="bee-menu__label" data-i18n="menu.slTime"></span>
           <span id="bee-menu-slt" class="bee-menu__value">--:-- SLT</span>
         </div>
         <div class="bee-menu__row">
-          <span class="bee-menu__label">Sim FPS</span>
+          <span class="bee-menu__label" data-i18n="topbar.simFps"></span>
           <span id="bee-menu-fps" class="bee-menu__value">--</span>
         </div>
         <div class="bee-menu__row">
-          <span class="bee-menu__label">Network</span>
+          <span class="bee-menu__label" data-i18n="menu.network"></span>
           <span id="bee-menu-net" class="bee-menu__value">&mdash;</span>
         </div>
         <div class="bee-menu__row bee-menu__row--stack">
-          <span class="bee-menu__label">Traffic since launch</span>
+          <span class="bee-menu__label" data-i18n="menu.trafficSinceLaunch"></span>
           <span id="bee-menu-net-total" class="bee-menu__value">&mdash;</span>
         </div>
-        <button type="button" id="bee-menu-logout" class="btn btn--secondary btn--sm bee-menu__logout">Log out</button>
+        <button type="button" id="bee-menu-logout" class="btn btn--secondary btn--sm bee-menu__logout" data-i18n="common.logOut"></button>
       </div>
 
       <!-- Location popup behind the top-bar pin (narrow screens). -->
-      <div id="location-menu" class="bee-menu location-menu" hidden role="dialog" aria-label="Location">
+      <div id="location-menu" class="bee-menu location-menu" hidden role="dialog" data-i18n-aria-label="topbar.location">
         <div class="bee-menu__row bee-menu__row--stack">
-          <span class="bee-menu__label">Parcel</span>
+          <span class="bee-menu__label" data-i18n="menu.parcel"></span>
           <span id="location-menu-parcel" class="bee-menu__value">&mdash;</span>
         </div>
         <div class="bee-menu__row bee-menu__row--stack">
-          <span class="bee-menu__label">Region</span>
+          <span class="bee-menu__label" data-i18n="menu.region"></span>
           <span id="location-menu-region" class="bee-menu__value">&mdash;</span>
         </div>
-        <button type="button" id="location-menu-land" class="btn btn--secondary btn--sm">Land info</button>
-        <button type="button" id="location-menu-map" class="btn btn--secondary btn--sm">World map</button>
+        <button type="button" id="location-menu-land" class="btn btn--secondary btn--sm" data-i18n="menu.landInfo"></button>
+        <button type="button" id="location-menu-map" class="btn btn--secondary btn--sm" data-i18n="map.worldMap"></button>
       </div>
 
       <div class="main-body">
-        <aside class="app-sidebar" aria-label="Navigation">
-          <nav class="bottom-nav side-nav" role="tablist" aria-label="Main navigation">
+        <aside class="app-sidebar" data-i18n-aria-label="nav.navigation">
+          <nav class="bottom-nav side-nav" role="tablist" data-i18n-aria-label="nav.mainNavigation">
             <button type="button" class="bottom-nav__item bottom-nav__item--active" data-tab="chat" role="tab" aria-selected="true" aria-controls="panel-chat">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
-              <span>Chat</span>
+              <span data-i18n="nav.chat"></span>
               <span id="badge-chat" class="nav-badge" hidden></span>
             </button>
             <button type="button" class="bottom-nav__item" data-tab="im" role="tab" aria-selected="false" aria-controls="panel-im">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
-              <span>IM</span>
+              <span data-i18n="nav.im"></span>
               <span id="badge-im" class="nav-badge" hidden></span>
             </button>
-            <button type="button" class="bottom-nav__item" data-tab="interact" role="tab" aria-selected="false" aria-controls="panel-interact" title="Nearby objects and avatar actions">
+            <button type="button" class="bottom-nav__item" data-tab="interact" role="tab" aria-selected="false" aria-controls="panel-interact" data-i18n-title="nav.interactTitle">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9 11.24V7.5a2.5 2.5 0 0 1 5 0v3.74c1.21-.81 2-2.18 2-3.74a4.5 4.5 0 1 0-9 0c0 1.56.79 2.93 2 3.74zm9.84 4.63-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6a1.5 1.5 0 0 0-3 0v10.74l-3.44-.72a1 1 0 0 0-1.04 1.6l3.05 3.4c.38.42.92.66 1.49.66h6.28c.99 0 1.79-.71 1.95-1.68l.6-3.58a1.5 1.5 0 0 0-.8-1.63z"/></svg>
-              <span>Interact</span>
+              <span data-i18n="nav.interact"></span>
             </button>
             <button type="button" class="bottom-nav__item" data-tab="events" role="tab" aria-selected="false" aria-controls="panel-events">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z"/></svg>
-              <span>Events</span>
+              <span data-i18n="nav.events"></span>
               <span id="badge-events" class="nav-badge" hidden></span>
             </button>
             <button type="button" class="bottom-nav__item" data-tab="buddies" role="tab" aria-selected="false" aria-controls="panel-buddies">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-              <span>People</span>
+              <span data-i18n="nav.people"></span>
             </button>
             <button type="button" class="bottom-nav__item" data-tab="search" role="tab" aria-selected="false" aria-controls="panel-search">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-              <span>Search</span>
+              <span data-i18n="common.search"></span>
             </button>
             <button type="button" class="bottom-nav__item" data-tab="radar" role="tab" aria-selected="false" aria-controls="panel-radar">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm0-14c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4z"/></svg>
-              <span>Radar</span>
-              <span id="badge-radar" class="nav-dot" hidden aria-label="New nearby avatars"></span>
+              <span data-i18n="nav.radar"></span>
+              <span id="badge-radar" class="nav-dot" hidden data-i18n-aria-label="nav.radarBadge"></span>
             </button>
             <button type="button" class="bottom-nav__item" data-tab="map" role="tab" aria-selected="false" aria-controls="panel-map">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
-              <span>Map</span>
+              <span data-i18n="nav.map"></span>
             </button>
             <button type="button" class="bottom-nav__item" data-tab="land" role="tab" aria-selected="false" aria-controls="panel-land">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3zm0 2.84L18 12h-2v6h-2v-6H10v6H8v-6H6l6-6.16z"/></svg>
-              <span>Land</span>
-              <span id="badge-land" class="nav-dot" hidden aria-label="Updated parcel data"></span>
+              <span data-i18n="nav.land"></span>
+              <span id="badge-land" class="nav-dot" hidden data-i18n-aria-label="nav.landBadge"></span>
             </button>
-            <button type="button" class="bottom-nav__item" data-tab="destinations" role="tab" aria-selected="false" aria-controls="panel-destinations" title="Destination Guide">
+            <button type="button" class="bottom-nav__item" data-tab="destinations" role="tab" aria-selected="false" aria-controls="panel-destinations" data-i18n-title="dest.guide">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/></svg>
-              <span>Guide</span>
+              <span data-i18n="nav.guide"></span>
             </button>
-            <button type="button" class="bottom-nav__item" data-tab="scripts" role="tab" aria-selected="false" aria-controls="panel-scripts" title="LSL scripts">
+            <button type="button" class="bottom-nav__item" data-tab="scripts" role="tab" aria-selected="false" aria-controls="panel-scripts" data-i18n-title="scripts.panel">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>
-              <span>Scripts</span>
+              <span data-i18n="nav.scripts"></span>
             </button>
-            <button type="button" class="bottom-nav__item" data-tab="notecards" role="tab" aria-selected="false" aria-controls="panel-notecards" title="Notecards">
+            <button type="button" class="bottom-nav__item" data-tab="notecards" role="tab" aria-selected="false" aria-controls="panel-notecards" data-i18n-title="notecards.panel">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h9l6-6V5c0-1.1-.9-2-2-2zm-6 16v-5h5l-5 5zM7 8h10v2H7V8zm0 4h6v2H7v-2z"/></svg>
-              <span>Notes</span>
+              <span data-i18n="nav.notes"></span>
             </button>
-            <button type="button" class="bottom-nav__item" data-tab="news" role="tab" aria-selected="false" aria-controls="panel-news" title="News, calendar, grid status and blogs">
+            <button type="button" class="bottom-nav__item" data-tab="news" role="tab" aria-selected="false" aria-controls="panel-news" data-i18n-title="nav.newsTitle">
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M20 3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H4V5h16v14zM6 7h6v6H6V7zm7 0h5v2h-5V7zm0 3h5v2h-5v-2zM6 14h12v2H6v-2z"/></svg>
-              <span>News</span>
+              <span data-i18n="nav.news"></span>
             </button>
             <button type="button" class="bottom-nav__item" data-tab="settings" role="tab" aria-selected="false" aria-controls="panel-settings">
               <svg class="nav-bee" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -300,7 +300,7 @@
                 <path fill="currentColor" fill-rule="evenodd" d="M12 8a4.2 6 0 0 1 0 12 4.2 6 0 0 1 0-12Zm-3.9 4.6h7.8v1.2H8.1Zm.6 2.8h6.6v1.2H8.7Z"/>
                 <path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M10.2 6.4 8.9 4.1M13.8 6.4 15.1 4.1"/>
               </svg>
-              <span>Bee</span>
+              <span data-i18n="nav.bee"></span>
             </button>
           </nav>
         </aside>
@@ -309,14 +309,14 @@
           <div id="session-lost-blocker" class="session-lost-blocker" hidden aria-hidden="true">
             <div class="session-lost-dialog" role="alertdialog" aria-modal="true" aria-labelledby="session-lost-title" aria-describedby="session-lost-reason">
               <div class="session-lost-dialog__header">
-                <h2 id="session-lost-title" class="session-lost-dialog__title">Connection lost</h2>
-                <button type="button" id="session-lost-dismiss" class="icon-btn session-lost-dialog__close" title="Close" aria-label="Close">&#10005;</button>
+                <h2 id="session-lost-title" class="session-lost-dialog__title" data-i18n="session.connectionLost"></h2>
+                <button type="button" id="session-lost-dismiss" class="icon-btn session-lost-dialog__close" data-i18n-title="common.close" data-i18n-aria-label="common.close">&#10005;</button>
               </div>
-              <p id="session-lost-reason" class="session-lost-dialog__body">Disconnected from the simulator.</p>
-              <p class="session-lost-dialog__hint">Close this dialog to browse tabs and copy chat or log history. Grid actions stay disabled until you log out and sign in again. The Log out button will pulse as a reminder.</p>
+              <p id="session-lost-reason" class="session-lost-dialog__body" data-i18n="session.disconnected"></p>
+              <p class="session-lost-dialog__hint" data-i18n="session.hint"></p>
               <div class="session-lost-dialog__actions">
-                <button type="button" id="session-lost-login" class="btn btn--primary">Return to Login</button>
-                <button type="button" class="btn btn--ghost session-lost-dialog__browse" data-session-lost-dismiss>Browse offline</button>
+                <button type="button" id="session-lost-login" class="btn btn--primary" data-i18n="session.returnToLogin"></button>
+                <button type="button" class="btn btn--ghost session-lost-dialog__browse" data-session-lost-dismiss data-i18n="session.browseOffline"></button>
               </div>
             </div>
           </div>
@@ -324,111 +324,106 @@
           <main id="panel-container" class="panel-container">
 
         <!-- Nearby chat -->
-        <div id="panel-chat" class="panel panel--active" data-panel="chat" role="tabpanel" aria-label="Nearby chat">
+        <div id="panel-chat" class="panel panel--active" data-panel="chat" role="tabpanel" data-i18n-aria-label="chat.panel">
           <div class="chat-body">
             <div id="chat-messages" class="message-list" role="log" aria-live="polite" aria-relevant="additions"></div>
             <!-- Optional "nearby people" strip (setting chatRadarPanel); BeeRadar shows it on wide screens only. -->
-            <aside id="chat-radar" class="chat-radar" aria-label="Nearby people" hidden>
+            <aside id="chat-radar" class="chat-radar" data-i18n-aria-label="chat.nearbyPeople" hidden>
               <div class="chat-radar__head">
-                <span>Nearby</span>
+                <span data-i18n="chat.nearby"></span>
                 <span id="chat-radar-count" class="chat-radar__count">0</span>
               </div>
               <div id="chat-radar-list" class="chat-radar__list"></div>
             </aside>
           </div>
           <form id="chat-form" class="composer">
-            <textarea id="chat-input" class="composer__input" rows="1" placeholder="Say something..." maxlength="1024" autocomplete="off"></textarea>
+            <textarea id="chat-input" class="composer__input" rows="1" data-i18n-placeholder="chat.inputPlaceholder" maxlength="1024" autocomplete="off"></textarea>
             <div class="composer__actions">
-              <button type="button" id="chat-radar-toggle" class="icon-btn chat-radar-toggle" title="Nearby people" aria-label="Toggle nearby people" aria-pressed="false">
+              <button type="button" id="chat-radar-toggle" class="icon-btn chat-radar-toggle" data-i18n-title="chat.nearbyPeople" data-i18n-aria-label="chat.toggleNearbyPeople" aria-pressed="false">
                 <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
               </button>
-              <label class="sr-only" for="chat-volume">Chat volume</label>
-              <select id="chat-volume" class="composer__volume" aria-label="Chat volume">
-                <option value="normal">Say</option>
-                <option value="whisper">Whisper</option>
-                <option value="shout">Shout</option>
+              <label class="sr-only" for="chat-volume" data-i18n="chat.volume"></label>
+              <select id="chat-volume" class="composer__volume" data-i18n-aria-label="chat.volume">
+                <option value="normal" data-i18n="chat.say"></option>
+                <option value="whisper" data-i18n="chat.whisper"></option>
+                <option value="shout" data-i18n="chat.shout"></option>
               </select>
-              <button type="submit" class="btn btn--primary composer__send" aria-label="Send message">Send</button>
+              <button type="submit" class="btn btn--primary composer__send" data-i18n-aria-label="chat.sendMessage" data-i18n="common.send"></button>
             </div>
           </form>
         </div>
 
         <!-- Instant messages -->
-        <div id="panel-im" class="panel" data-panel="im" role="tabpanel" aria-label="Instant messages" hidden>
+        <div id="panel-im" class="panel" data-panel="im" role="tabpanel" data-i18n-aria-label="im.panel" hidden>
           <div class="im-layout">
             <div class="im-sessions-pane">
-              <div class="im-subtabs" role="tablist" aria-label="Conversation kinds">
-                <button type="button" class="im-subtab im-subtab--active" data-im-sub="residents" role="tab" aria-selected="true">People<span class="im-subtab__badge" hidden></span></button>
-                <button type="button" class="im-subtab" data-im-sub="sessions" role="tab" aria-selected="false">Groups<span class="im-subtab__badge" hidden></span></button>
+              <div class="im-subtabs" role="tablist" data-i18n-aria-label="im.conversationKinds">
+                <button type="button" class="im-subtab im-subtab--active" data-im-sub="residents" role="tab" aria-selected="true"><span data-i18n="im.people"></span><span class="im-subtab__badge" hidden></span></button>
+                <button type="button" class="im-subtab" data-im-sub="sessions" role="tab" aria-selected="false"><span data-i18n="im.groups"></span><span class="im-subtab__badge" hidden></span></button>
               </div>
               <div class="im-sessions__toolbar">
-                <button type="button" id="im-new-conference" class="im-new-btn" title="Start a group conference chat">
+                <button type="button" id="im-new-conference" class="im-new-btn" data-i18n-title="im.newConferenceTitle">
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-                  <span>New conference</span>
+                  <span data-i18n="im.newConference"></span>
                 </button>
               </div>
-              <aside id="im-sessions" class="im-sessions" aria-label="Conversations"></aside>
+              <aside id="im-sessions" class="im-sessions" data-i18n-aria-label="im.conversations"></aside>
             </div>
             <div id="im-thread" class="im-thread">
               <header class="im-thread__header">
-                <button type="button" id="im-back" class="icon-btn im-back" aria-label="Back to conversations">
+                <button type="button" id="im-back" class="icon-btn im-back" data-i18n-aria-label="im.backToConversations">
                   <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
                 </button>
                 <div class="im-thread__title">
-                  <button type="button" id="im-thread-name" class="im-thread__name" disabled>Conversation</button>
+                  <button type="button" id="im-thread-name" class="im-thread__name" disabled data-i18n="im.conversation"></button>
                   <span id="im-thread-status" class="im-thread__status"></span>
                 </div>
                 <div class="im-thread__actions">
-                  <button type="button" id="im-call" class="icon-btn im-action-btn" title="Start voice call" aria-label="Start voice call" hidden>
+                  <button type="button" id="im-call" class="icon-btn im-action-btn" data-i18n-title="im.startVoiceCall" data-i18n-aria-label="im.startVoiceCall" hidden>
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg>
                   </button>
-                  <button type="button" id="im-members" class="icon-btn im-action-btn" title="Show members" aria-label="Toggle member list" hidden>
+                  <button type="button" id="im-members" class="icon-btn im-action-btn" data-i18n-title="im.showMembers" data-i18n-aria-label="im.toggleMemberList" hidden>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
                   </button>
-                  <button type="button" id="im-invite" class="icon-btn im-action-btn" title="Invite to conference" aria-label="Invite participants" hidden>
+                  <button type="button" id="im-invite" class="icon-btn im-action-btn" data-i18n-title="im.inviteToConference" data-i18n-aria-label="im.inviteParticipants" hidden>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                   </button>
-                  <button type="button" id="im-mute-session" class="icon-btn im-action-btn" title="Mute notifications" aria-label="Mute session notifications" aria-pressed="false" hidden>
+                  <button type="button" id="im-mute-session" class="icon-btn im-action-btn" data-i18n-title="im.muteNotifications" data-i18n-aria-label="im.muteSessionNotifications" aria-pressed="false" hidden>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
                   </button>
-                  <button type="button" id="im-close" class="icon-btn im-action-btn" title="Close conversation" aria-label="Close conversation" disabled>
+                  <button type="button" id="im-close" class="icon-btn im-action-btn" data-i18n-title="im.closeConversation" data-i18n-aria-label="im.closeConversation" disabled>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                   </button>
-                  <button type="button" id="im-profile" class="icon-btn im-action-btn" title="Profile" aria-label="Profile">
+                  <button type="button" id="im-profile" class="icon-btn im-action-btn" data-i18n-title="common.profile" data-i18n-aria-label="common.profile">
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                   </button>
-                  <button type="button" id="im-pay" class="icon-btn im-action-btn" title="Pay L$" aria-label="Pay L$" disabled>
+                  <button type="button" id="im-pay" class="icon-btn im-action-btn" data-i18n-title="currency.pay" data-i18n-aria-label="currency.pay" disabled>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>
                   </button>
-                  <button type="button" id="im-friend" class="icon-btn im-action-btn" title="Offer friendship" aria-label="Offer friendship" disabled>
+                  <button type="button" id="im-friend" class="icon-btn im-action-btn" data-i18n-title="im.offerFriendship" data-i18n-aria-label="im.offerFriendship" disabled>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                   </button>
-                  <button type="button" id="im-tp-offer" class="icon-btn im-action-btn" title="Offer teleport" aria-label="Offer teleport" disabled>
+                  <button type="button" id="im-tp-offer" class="icon-btn im-action-btn" data-i18n-title="im.offerTeleport" data-i18n-aria-label="im.offerTeleport" disabled>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z"/></svg>
                     <span class="im-action-btn__label">TP</span>
                   </button>
-                  <button type="button" id="im-tp-request" class="icon-btn im-action-btn" title="Request teleport" aria-label="Request teleport" disabled>
+                  <button type="button" id="im-tp-request" class="icon-btn im-action-btn" data-i18n-title="im.requestTeleport" data-i18n-aria-label="im.requestTeleport" disabled>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2a2 2 0 0 1 4 0c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg>
                     <span class="im-action-btn__label">TP?</span>
                   </button>
-                  <button type="button" id="im-block" class="icon-btn im-action-btn" title="Block resident" aria-label="Block resident" disabled>
+                  <button type="button" id="im-block" class="icon-btn im-action-btn" data-i18n-title="im.blockResident" data-i18n-aria-label="im.blockResident" disabled>
                     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 2c1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.9 7.9 0 0 1 4 12c0-4.42 3.58-8 8-8zm0 16c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.9 7.9 0 0 1 20 12c0 4.42-3.58 8-8 8z"/></svg>
                   </button>
                 </div>
               </header>
               <div id="im-empty" class="im-thread__empty">
-                <p>Select a conversation or start a new IM from
-                  <button type="button" class="im-tab-link" data-tab-link="buddies">People</button>,
-                  <button type="button" class="im-tab-link" data-tab-link="radar">Radar</button>
-                  or
-                  <button type="button" class="im-tab-link" data-tab-link="search">Search</button>.
-                </p>
+                <p data-i18n-html="im.emptyHint"></p>
               </div>
               <div id="im-thread-body" class="im-thread__body" hidden>
                 <div id="im-messages" class="message-list message-list--im" role="log" aria-live="polite"></div>
-                <aside id="im-roster" class="im-roster" aria-label="Session members" hidden>
+                <aside id="im-roster" class="im-roster" data-i18n-aria-label="im.sessionMembers" hidden>
                   <div class="im-roster__head">
-                    <span>Members</span>
+                    <span data-i18n="im.membersHeading"></span>
                     <span id="im-roster-count" class="im-roster__count">0</span>
                   </div>
                   <div id="im-roster-list" class="im-roster__list"></div>
@@ -439,9 +434,9 @@
                 <span id="im-typing-text" class="im-typing__text"></span>
               </div>
               <form id="im-form" class="composer composer--disabled">
-                <textarea id="im-input" class="composer__input" rows="1" placeholder="Type a message..." maxlength="1024" autocomplete="off" disabled></textarea>
+                <textarea id="im-input" class="composer__input" rows="1" data-i18n-placeholder="im.inputPlaceholder" maxlength="1024" autocomplete="off" disabled></textarea>
                 <div class="composer__actions">
-                  <button type="submit" class="btn btn--primary composer__send" aria-label="Send IM" disabled>Send</button>
+                  <button type="submit" class="btn btn--primary composer__send" data-i18n-aria-label="common.sendIm" disabled data-i18n="common.send"></button>
                 </div>
               </form>
             </div>
@@ -449,54 +444,54 @@
         </div>
 
         <!-- Events feed -->
-        <div id="panel-events" class="panel" data-panel="events" role="tabpanel" aria-label="Events" hidden>
-          <div class="events-subtabs" role="tablist" aria-label="Event categories">
-            <button type="button" class="events-subtab events-subtab--active" data-events-sub="all" role="tab" aria-selected="true">All</button>
-            <button type="button" class="events-subtab" data-events-sub="notices" role="tab" aria-selected="false">Notices<span class="events-subtab__badge" hidden></span></button>
-            <button type="button" class="events-subtab" data-events-sub="offers" role="tab" aria-selected="false">Offers<span class="events-subtab__badge" hidden></span></button>
-            <button type="button" class="events-subtab" data-events-sub="scripts" role="tab" aria-selected="false">Scripts<span class="events-subtab__badge" hidden></span></button>
-            <button type="button" class="events-subtab" data-events-sub="payments" role="tab" aria-selected="false">Money<span class="events-subtab__badge" hidden></span></button>
+        <div id="panel-events" class="panel" data-panel="events" role="tabpanel" data-i18n-aria-label="nav.events" hidden>
+          <div class="events-subtabs" role="tablist" data-i18n-aria-label="events.categories">
+            <button type="button" class="events-subtab events-subtab--active" data-events-sub="all" role="tab" aria-selected="true" data-i18n="events.all"></button>
+            <button type="button" class="events-subtab" data-events-sub="notices" role="tab" aria-selected="false"><span data-i18n="events.notices"></span><span class="events-subtab__badge" hidden></span></button>
+            <button type="button" class="events-subtab" data-events-sub="offers" role="tab" aria-selected="false"><span data-i18n="events.offers"></span><span class="events-subtab__badge" hidden></span></button>
+            <button type="button" class="events-subtab" data-events-sub="scripts" role="tab" aria-selected="false"><span data-i18n="events.scripts"></span><span class="events-subtab__badge" hidden></span></button>
+            <button type="button" class="events-subtab" data-events-sub="payments" role="tab" aria-selected="false"><span data-i18n="events.money"></span><span class="events-subtab__badge" hidden></span></button>
           </div>
           <div id="event-messages" class="message-list message-list--events" role="log" aria-live="polite" aria-relevant="additions" hidden></div>
-          <p id="events-empty" class="events-empty">Script dialogs, payment notices, and other prompts appear here.</p>
+          <p id="events-empty" class="events-empty" data-i18n="events.empty"></p>
         </div>
 
         <!-- People: friends, and the block list -->
-        <div id="panel-buddies" class="panel" data-panel="buddies" role="tabpanel" aria-label="People" hidden>
-          <div class="settings-tabs" role="tablist" aria-label="People sections">
-            <button type="button" class="settings-tab settings-tab--active" data-people-tab="friends" role="tab" aria-selected="true">Friends</button>
-            <button type="button" class="settings-tab" data-people-tab="blocked" role="tab" aria-selected="false">Blocked</button>
+        <div id="panel-buddies" class="panel" data-panel="buddies" role="tabpanel" data-i18n-aria-label="nav.people" hidden>
+          <div class="settings-tabs" role="tablist" data-i18n-aria-label="people.sections">
+            <button type="button" class="settings-tab settings-tab--active" data-people-tab="friends" role="tab" aria-selected="true" data-i18n="people.friends"></button>
+            <button type="button" class="settings-tab" data-people-tab="blocked" role="tab" aria-selected="false" data-i18n="people.blocked"></button>
           </div>
 
-          <div id="people-pane-friends" class="settings-pane" role="region" aria-label="Friends">
+          <div id="people-pane-friends" class="settings-pane" role="region" data-i18n-aria-label="people.friends">
             <div class="panel-toolbar">
-              <input type="search" id="buddies-search" class="toolbar-search" placeholder="Search friends..." autocomplete="off">
+              <input type="search" id="buddies-search" class="toolbar-search" data-i18n-placeholder="people.searchPlaceholder" autocomplete="off">
               <label class="toggle">
                 <input type="checkbox" id="buddies-online-only">
-                <span>Online only</span>
+                <span data-i18n="people.onlineOnly"></span>
               </label>
             </div>
             <ul id="buddies-list" class="entity-list" role="list"></ul>
           </div>
 
-          <div id="people-pane-blocked" class="settings-pane" role="region" aria-label="Blocked" hidden>
+          <div id="people-pane-blocked" class="settings-pane" role="region" data-i18n-aria-label="people.blocked" hidden>
             <div class="panel-toolbar">
-              <input type="search" id="blocked-search" class="toolbar-search" placeholder="Search blocked people..." autocomplete="off">
-              <button type="button" id="blocked-refresh" class="btn btn--secondary btn--sm">Refresh</button>
+              <input type="search" id="blocked-search" class="toolbar-search" data-i18n-placeholder="people.searchBlockedPlaceholder" autocomplete="off">
+              <button type="button" id="blocked-refresh" class="btn btn--secondary btn--sm" data-i18n="common.refresh"></button>
             </div>
             <ul id="blocked-list" class="entity-list" role="list"></ul>
           </div>
         </div>
 
         <!-- Search (people, places, groups) -->
-        <div id="panel-search" class="panel" data-panel="search" role="tabpanel" aria-label="Search" hidden>
+        <div id="panel-search" class="panel" data-panel="search" role="tabpanel" data-i18n-aria-label="common.search" hidden>
           <div class="panel-toolbar panel-toolbar--wrap">
-            <input type="search" id="search-input" class="toolbar-search" placeholder="Search people by username..." autocomplete="off" minlength="3">
-            <button type="button" id="search-run" class="btn btn--primary btn--sm search-run-btn">Search</button>
-            <div class="search-kind-tabs" role="tablist" aria-label="Search category">
-              <button type="button" class="search-kind search-kind--active" data-kind="avatars" role="tab" aria-selected="true">People</button>
-              <button type="button" class="search-kind" data-kind="places" role="tab" aria-selected="false">Places</button>
-              <button type="button" class="search-kind" data-kind="groups" role="tab" aria-selected="false">Groups</button>
+            <input type="search" id="search-input" class="toolbar-search" data-i18n-placeholder="search.peoplePlaceholder" autocomplete="off" minlength="3">
+            <button type="button" id="search-run" class="btn btn--primary btn--sm search-run-btn" data-i18n="common.search"></button>
+            <div class="search-kind-tabs" role="tablist" data-i18n-aria-label="search.category">
+              <button type="button" class="search-kind search-kind--active" data-kind="avatars" role="tab" aria-selected="true" data-i18n="search.people"></button>
+              <button type="button" class="search-kind" data-kind="places" role="tab" aria-selected="false" data-i18n="search.places"></button>
+              <button type="button" class="search-kind" data-kind="groups" role="tab" aria-selected="false" data-i18n="search.groups"></button>
             </div>
           </div>
           <p id="search-status" class="search-status" aria-live="polite"></p>
@@ -504,64 +499,64 @@
         </div>
 
         <!-- Radar (nearby avatars) -->
-        <div id="panel-radar" class="panel" data-panel="radar" role="tabpanel" aria-label="Radar" hidden>
+        <div id="panel-radar" class="panel" data-panel="radar" role="tabpanel" data-i18n-aria-label="radar.panel" hidden>
           <div class="panel-toolbar panel-toolbar--wrap">
-            <input type="search" id="radar-search" class="toolbar-search" placeholder="Filter nearby..." autocomplete="off">
+            <input type="search" id="radar-search" class="toolbar-search" data-i18n-placeholder="radar.filterPlaceholder" autocomplete="off">
             <label class="field field--inline">
-              <span>Range</span>
+              <span data-i18n="radar.range"></span>
               <input type="range" id="radar-range" min="16" max="256" value="96" step="8">
               <output id="radar-range-label" for="radar-range">96m</output>
             </label>
             <label class="toggle">
               <input type="checkbox" id="radar-alert" checked>
-              <span>Alerts</span>
+              <span data-i18n="radar.alerts"></span>
             </label>
           </div>
           <div class="radar-stats">
-            <span id="radar-count" class="badge">0 nearby</span>
+            <span id="radar-count" class="badge" data-i18n="radar.countInitial"></span>
             <span id="radar-region" class="badge badge--muted"></span>
           </div>
           <ul id="radar-list" class="entity-list entity-list--radar" role="list"></ul>
         </div>
 
         <!-- World map -->
-        <div id="panel-map" class="panel panel--map" data-panel="map" role="tabpanel" aria-label="World map" hidden>
+        <div id="panel-map" class="panel panel--map" data-panel="map" role="tabpanel" data-i18n-aria-label="map.worldMap" hidden>
           <div id="map-viewport" class="map-viewport">
             <div class="map-stage">
-              <div id="map-canvas" class="map-canvas" role="img" aria-label="World map"></div>
+              <div id="map-canvas" class="map-canvas" role="img" data-i18n-aria-label="map.worldMap"></div>
             </div>
           </div>
-          <button type="button" id="map-tools-toggle" class="icon-btn map-tools-toggle" title="Show map controls" aria-label="Show map controls" aria-expanded="false" aria-controls="map-sidebar-tools">
+          <button type="button" id="map-tools-toggle" class="icon-btn map-tools-toggle" data-i18n-title="map.showControls" data-i18n-aria-label="map.showControls" aria-expanded="false" aria-controls="map-sidebar-tools">
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
           </button>
-          <aside id="map-sidebar-tools" class="map-sidebar-tools" aria-label="Map controls">
+          <aside id="map-sidebar-tools" class="map-sidebar-tools" data-i18n-aria-label="map.controls">
             <form id="map-form" class="map-form map-form--sidebar">
-              <label class="sr-only" for="map-location-input">Location</label>
+              <label class="sr-only" for="map-location-input" data-i18n="map.location"></label>
               <textarea id="map-location-input" class="map-location-input" rows="3"
-                placeholder="SLURL, maps URL, or region name..." autocomplete="off" spellcheck="false"></textarea>
-              <button type="submit" class="btn btn--primary btn--block btn--sm">Show on map</button>
+                data-i18n-placeholder="map.locationPlaceholder" autocomplete="off" spellcheck="false"></textarea>
+              <button type="submit" class="btn btn--primary btn--block btn--sm" data-i18n="map.showOnMap"></button>
             </form>
             <p id="map-info" class="map-info"></p>
-            <div class="map-controls" aria-label="Map navigation">
-              <button type="button" id="map-pan-n" class="map-pan-btn" title="Pan north" aria-label="Pan north">N</button>
-              <button type="button" id="map-pan-w" class="map-pan-btn" title="Pan west" aria-label="Pan west">W</button>
-              <button type="button" id="map-center-self" class="map-pan-btn map-pan-btn--center" title="Center on avatar" aria-label="Center on avatar">@</button>
-              <button type="button" id="map-pan-e" class="map-pan-btn" title="Pan east" aria-label="Pan east">E</button>
-              <button type="button" id="map-pan-s" class="map-pan-btn" title="Pan south" aria-label="Pan south">S</button>
+            <div class="map-controls" data-i18n-aria-label="map.navigation">
+              <button type="button" id="map-pan-n" class="map-pan-btn" data-i18n-title="map.panNorth" data-i18n-aria-label="map.panNorth">N</button>
+              <button type="button" id="map-pan-w" class="map-pan-btn" data-i18n-title="map.panWest" data-i18n-aria-label="map.panWest">W</button>
+              <button type="button" id="map-center-self" class="map-pan-btn map-pan-btn--center" data-i18n-title="map.centerOnAvatar" data-i18n-aria-label="map.centerOnAvatar">@</button>
+              <button type="button" id="map-pan-e" class="map-pan-btn" data-i18n-title="map.panEast" data-i18n-aria-label="map.panEast">E</button>
+              <button type="button" id="map-pan-s" class="map-pan-btn" data-i18n-title="map.panSouth" data-i18n-aria-label="map.panSouth">S</button>
             </div>
             <div class="map-actions">
-              <button type="button" id="map-teleport" class="btn btn--primary btn--block">Teleport Here</button>
-              <button type="button" id="map-teleport-home" class="btn btn--ghost btn--block btn--sm">Teleport Home</button>
-              <button type="button" id="map-open-guide" class="btn btn--ghost btn--block btn--sm">Destination Guide</button>
+              <button type="button" id="map-teleport" class="btn btn--primary btn--block" data-i18n="map.teleportHere"></button>
+              <button type="button" id="map-teleport-home" class="btn btn--ghost btn--block btn--sm" data-i18n="map.teleportHome"></button>
+              <button type="button" id="map-open-guide" class="btn btn--ghost btn--block btn--sm" data-i18n="dest.guide"></button>
             </div>
-            <section class="map-landmarks" aria-label="Landmarks">
+            <section class="map-landmarks" data-i18n-aria-label="landmarks.title">
               <div class="map-landmarks__head">
-                <h3 class="map-landmarks__title">Landmarks</h3>
-                <button type="button" id="map-landmarks-refresh" class="icon-btn map-landmarks__refresh" title="Reload landmarks" aria-label="Reload landmarks">
+                <h3 class="map-landmarks__title" data-i18n="landmarks.title"></h3>
+                <button type="button" id="map-landmarks-refresh" class="icon-btn map-landmarks__refresh" data-i18n-title="landmarks.reload" data-i18n-aria-label="landmarks.reload">
                   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
                 </button>
               </div>
-              <input type="search" id="map-landmarks-filter" class="map-landmarks__filter" placeholder="Filter landmarks..." autocomplete="off" spellcheck="false" aria-label="Filter landmarks">
+              <input type="search" id="map-landmarks-filter" class="map-landmarks__filter" data-i18n-placeholder="landmarks.filterPlaceholder" autocomplete="off" spellcheck="false" data-i18n-aria-label="landmarks.filter">
               <p id="map-landmarks-status" class="map-landmarks__status" hidden></p>
               <ul id="map-landmarks" class="map-landmarks__list" role="list"></ul>
             </section>
@@ -569,118 +564,118 @@
         </div>
 
         <!-- Land (parcel management) -->
-        <div id="panel-land" class="panel" data-panel="land" role="tabpanel" aria-label="Land management" hidden>
+        <div id="panel-land" class="panel" data-panel="land" role="tabpanel" data-i18n-aria-label="land.panel" hidden>
           <div id="land-summary" class="land-summary"></div>
-          <div class="land-tabs" role="tablist" aria-label="Land sections">
-            <button type="button" class="land-tab land-tab--active" data-land-tab="general" role="tab" aria-selected="true">General</button>
-            <button type="button" class="land-tab" data-land-tab="objects" role="tab" aria-selected="false">Objects</button>
-            <button type="button" class="land-tab" data-land-tab="options" role="tab" aria-selected="false">Options</button>
-            <button type="button" class="land-tab" data-land-tab="media" role="tab" aria-selected="false">Media</button>
-            <button type="button" class="land-tab" data-land-tab="audio" role="tab" aria-selected="false">Audio</button>
-            <button type="button" class="land-tab" data-land-tab="access" role="tab" aria-selected="false">Access</button>
-            <button type="button" class="land-tab" data-land-tab="covenant" role="tab" aria-selected="false">Covenant</button>
-            <button type="button" class="land-tab" data-land-tab="environment" role="tab" aria-selected="false">Environment</button>
-            <button type="button" class="land-tab" data-land-tab="experiences" role="tab" aria-selected="false">Experiences</button>
+          <div class="land-tabs" role="tablist" data-i18n-aria-label="land.sections">
+            <button type="button" class="land-tab land-tab--active" data-land-tab="general" role="tab" aria-selected="true" data-i18n="land.general"></button>
+            <button type="button" class="land-tab" data-land-tab="objects" role="tab" aria-selected="false" data-i18n="land.objects"></button>
+            <button type="button" class="land-tab" data-land-tab="options" role="tab" aria-selected="false" data-i18n="land.options"></button>
+            <button type="button" class="land-tab" data-land-tab="media" role="tab" aria-selected="false" data-i18n="land.media"></button>
+            <button type="button" class="land-tab" data-land-tab="audio" role="tab" aria-selected="false" data-i18n="land.audio"></button>
+            <button type="button" class="land-tab" data-land-tab="access" role="tab" aria-selected="false" data-i18n="land.access"></button>
+            <button type="button" class="land-tab" data-land-tab="covenant" role="tab" aria-selected="false" data-i18n="land.covenant"></button>
+            <button type="button" class="land-tab" data-land-tab="environment" role="tab" aria-selected="false" data-i18n="land.environment"></button>
+            <button type="button" class="land-tab" data-land-tab="experiences" role="tab" aria-selected="false" data-i18n="land.experiences"></button>
           </div>
           <form id="land-form" class="land-form">
             <div class="land-pane land-pane--active" data-land-pane="general" role="tabpanel">
               <fieldset class="land-section">
-                <legend>Parcel</legend>
+                <legend data-i18n="land.parcel"></legend>
                 <label class="field">
-                  <span>Name</span>
+                  <span data-i18n="common.name"></span>
                   <input type="text" id="land-name" maxlength="63">
                 </label>
                 <label class="field">
-                  <span>Parcel UUID</span>
+                  <span data-i18n="land.parcelUuid"></span>
                   <input type="text" id="land-uuid" readonly>
                 </label>
                 <label class="field">
-                  <span>Description</span>
+                  <span data-i18n="land.description"></span>
                   <textarea id="land-desc" rows="3" maxlength="255"></textarea>
                 </label>
                 <div class="field-row">
                   <label class="field">
-                    <span>Area (m&sup2;)</span>
+                    <span data-i18n="land.area"></span>
                     <input type="text" id="land-area" readonly>
                   </label>
                   <label class="field">
-                    <span>Traffic</span>
+                    <span data-i18n="land.traffic"></span>
                     <input type="text" id="land-traffic" readonly>
                   </label>
                 </div>
                 <div class="field-row">
                   <label class="field">
-                    <span>Owner</span>
+                    <span data-i18n="land.owner"></span>
                     <input type="text" id="land-owner" readonly>
                   </label>
                   <label class="field">
-                    <span>Group</span>
+                    <span data-i18n="land.group"></span>
                     <div class="field-with-action">
                       <input type="text" id="land-group" readonly>
-                      <button type="button" id="land-group-chat" class="btn btn--ghost land-group-chat" title="Open group chat" hidden>Chat</button>
+                      <button type="button" id="land-group-chat" class="btn btn--ghost land-group-chat" data-i18n-title="land.openGroupChat" hidden data-i18n="land.groupChat"></button>
                     </div>
                   </label>
                 </div>
                 <div class="field-row">
                   <label class="field">
-                    <span>Type</span>
+                    <span data-i18n="land.type"></span>
                     <input type="text" id="land-region-type" readonly>
                   </label>
                   <label class="field">
-                    <span>Rating</span>
+                    <span data-i18n="land.rating"></span>
                     <input type="text" id="land-region-rating" readonly>
                   </label>
                 </div>
                 <div class="field-row">
                   <label class="field">
-                    <span>Claim date</span>
+                    <span data-i18n="land.claimDate"></span>
                     <input type="text" id="land-claim-date" readonly>
                   </label>
                   <label class="field">
-                    <span>Sale</span>
+                    <span data-i18n="land.sale"></span>
                     <input type="text" id="land-sale-state" readonly>
                   </label>
                 </div>
                 <div id="land-money-actions" class="land-money-actions">
-                  <button type="button" id="land-buy" class="btn btn--primary btn--sm" hidden>Buy parcel...</button>
-                  <button type="button" id="land-buy-pass" class="btn btn--secondary btn--sm" hidden>Buy pass...</button>
-                  <button type="button" id="land-deed" class="btn btn--secondary btn--sm" hidden>Deed to group...</button>
-                  <button type="button" id="land-abandon" class="btn btn--secondary btn--sm btn--danger" hidden>Abandon land...</button>
+                  <button type="button" id="land-buy" class="btn btn--primary btn--sm" hidden data-i18n="land.buyParcel"></button>
+                  <button type="button" id="land-buy-pass" class="btn btn--secondary btn--sm" hidden data-i18n="land.buyPassAction"></button>
+                  <button type="button" id="land-deed" class="btn btn--secondary btn--sm" hidden data-i18n="land.deedToGroup"></button>
+                  <button type="button" id="land-abandon" class="btn btn--secondary btn--sm btn--danger" hidden data-i18n="land.abandonLand"></button>
                 </div>
               </fieldset>
             </div>
             <div class="land-pane" data-land-pane="objects" role="tabpanel" hidden>
               <fieldset class="land-section">
-                <legend>Prims</legend>
+                <legend data-i18n="land.prims"></legend>
                 <label class="field">
-                  <span>Region capacity</span>
+                  <span data-i18n="land.regionCapacity"></span>
                   <input type="text" id="land-region-prims" readonly>
                 </label>
                 <label class="field">
-                  <span>Prims on parcel</span>
+                  <span data-i18n="land.primsOnParcel"></span>
                   <input type="text" id="land-prims" readonly>
                 </label>
                 <label class="field">
-                  <span>Parcel owner</span>
+                  <span data-i18n="land.parcelOwner"></span>
                   <input type="text" id="land-prims-owner" readonly>
                 </label>
                 <label class="field">
-                  <span>Group</span>
+                  <span data-i18n="land.group"></span>
                   <input type="text" id="land-prims-group" readonly>
                 </label>
                 <label class="field">
-                  <span>Other residents</span>
+                  <span data-i18n="land.otherResidents"></span>
                   <input type="text" id="land-prims-other" readonly>
                 </label>
                 <label class="field">
-                  <span>Autoreturn other residents' objects (minutes, 0 = off)</span>
+                  <span data-i18n="land.autoreturn"></span>
                   <input type="number" id="land-autoreturn" min="0" step="1" inputmode="numeric">
                 </label>
               </fieldset>
               <fieldset class="land-section">
-                <legend>Object owners</legend>
+                <legend data-i18n="land.objectOwners"></legend>
                 <div class="land-owners-head">
-                  <button type="button" id="land-owners-refresh" class="btn btn--ghost btn--sm">Refresh list</button>
+                  <button type="button" id="land-owners-refresh" class="btn btn--ghost btn--sm" data-i18n="land.refreshList"></button>
                   <span id="land-owners-status" class="field-hint"></span>
                 </div>
                 <ul id="land-owners-list" class="land-owners-list"></ul>
@@ -688,334 +683,334 @@
             </div>
             <div class="land-pane" data-land-pane="options" role="tabpanel" hidden>
               <fieldset class="land-section">
-                <legend>Permissions</legend>
+                <legend data-i18n="land.permissions"></legend>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-fly">
-                  <span>Allow flying</span>
+                  <span data-i18n="land.allowFlying"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-build-everyone">
-                  <span>Allow building (everyone)</span>
+                  <span data-i18n="land.allowBuildingEveryone"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-build-group">
-                  <span>Allow building (group)</span>
+                  <span data-i18n="land.allowBuildingGroup"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-scripts-everyone">
-                  <span>Allow scripts (everyone)</span>
+                  <span data-i18n="land.allowScriptsEveryone"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-scripts-group">
-                  <span>Allow scripts (group)</span>
+                  <span data-i18n="land.allowScriptsGroup"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-push">
-                  <span>Push restricted</span>
+                  <span data-i18n="land.pushRestricted"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-safe">
-                  <span>Safe (no damage)</span>
+                  <span data-i18n="land.safe"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-search">
-                  <span>Show in search</span>
+                  <span data-i18n="land.showInSearch"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-mature">
-                  <span>Moderate content</span>
+                  <span data-i18n="land.moderateContent"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-see-avs">
-                  <span>Avatars on other parcels can see and chat with avatars here</span>
+                  <span data-i18n="land.seeAvatars"></span>
                 </label>
                 <label class="field">
-                  <span class="field__label">Category</span>
+                  <span class="field__label" data-i18n="land.category"></span>
                   <select id="land-category">
-                    <option value="0">Any category</option>
-                    <option value="1">Linden Location</option>
-                    <option value="2">Adult</option>
-                    <option value="3">Arts &amp; Culture</option>
-                    <option value="4">Business</option>
-                    <option value="5">Educational</option>
-                    <option value="6">Gaming</option>
-                    <option value="7">Hangout</option>
-                    <option value="8">Newcomer Friendly</option>
-                    <option value="9">Parks &amp; Nature</option>
-                    <option value="10">Residential</option>
-                    <option value="11">Shopping</option>
-                    <option value="12">Stage</option>
-                    <option value="13">Other</option>
-                    <option value="14">Rental</option>
+                    <option value="0" data-i18n="land.categoryAny"></option>
+                    <option value="1" data-i18n="land.categoryLinden"></option>
+                    <option value="2" data-i18n="land.categoryAdult"></option>
+                    <option value="3" data-i18n="land.categoryArts"></option>
+                    <option value="4" data-i18n="land.categoryBusiness"></option>
+                    <option value="5" data-i18n="land.categoryEducational"></option>
+                    <option value="6" data-i18n="land.categoryGaming"></option>
+                    <option value="7" data-i18n="land.categoryHangout"></option>
+                    <option value="8" data-i18n="land.categoryNewcomer"></option>
+                    <option value="9" data-i18n="land.categoryParks"></option>
+                    <option value="10" data-i18n="land.categoryResidential"></option>
+                    <option value="11" data-i18n="land.categoryShopping"></option>
+                    <option value="12" data-i18n="land.categoryStage"></option>
+                    <option value="13" data-i18n="land.categoryOther"></option>
+                    <option value="14" data-i18n="land.categoryRental"></option>
                   </select>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-terraform">
-                  <span>Allow terraforming</span>
+                  <span data-i18n="land.allowTerraforming"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-entry-all">
-                  <span>Allow object entry (everyone)</span>
+                  <span data-i18n="land.allowEntryEveryone"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-entry-group">
-                  <span>Allow object entry (group)</span>
+                  <span data-i18n="land.allowEntryGroup"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-deed-allow">
-                  <span>Allow deeding to group</span>
+                  <span data-i18n="land.allowDeeding"></span>
                 </label>
               </fieldset>
               <fieldset class="land-section">
-                <legend>Landing point</legend>
+                <legend data-i18n="land.landingPoint"></legend>
                 <div class="land-snapshot-row">
                   <img id="land-snapshot" class="land-snapshot" alt="" hidden>
                   <label class="field">
-                    <span>Coordinates</span>
+                    <span data-i18n="land.coordinates"></span>
                     <input type="text" id="land-landing" readonly>
                   </label>
                 </div>
                 <label class="field">
-                  <span>Teleport routing</span>
+                  <span data-i18n="land.teleportRouting"></span>
                   <select id="land-landing-type">
-                    <option value="0">Blocked</option>
-                    <option value="1">Landing point</option>
-                    <option value="2">Anywhere</option>
+                    <option value="0" data-i18n="land.routingBlocked"></option>
+                    <option value="1" data-i18n="land.landingPoint"></option>
+                    <option value="2" data-i18n="land.routingAnywhere"></option>
                   </select>
                 </label>
                 <div class="field-row">
-                  <button type="button" id="land-landing-set" class="btn btn--secondary btn--sm">Set to my position</button>
-                  <button type="button" id="land-landing-clear" class="btn btn--ghost btn--sm">Clear</button>
+                  <button type="button" id="land-landing-set" class="btn btn--secondary btn--sm" data-i18n="land.setToMyPosition"></button>
+                  <button type="button" id="land-landing-clear" class="btn btn--ghost btn--sm" data-i18n="land.clear"></button>
                 </div>
               </fieldset>
             </div>
             <div class="land-pane" data-land-pane="media" role="tabpanel" hidden>
               <fieldset class="land-section">
-                <legend>Media</legend>
+                <legend data-i18n="land.media"></legend>
                 <label class="field">
-                  <span>Media type</span>
+                  <span data-i18n="land.mediaType"></span>
                   <input type="text" id="land-media-type" readonly>
                 </label>
                 <label class="field">
-                  <span>Media URL</span>
+                  <span data-i18n="land.mediaUrl"></span>
                   <input type="url" id="land-media" placeholder="https://">
                 </label>
                 <label class="field">
-                  <span>Description</span>
+                  <span data-i18n="land.description"></span>
                   <input type="text" id="land-media-desc" readonly>
                 </label>
               </fieldset>
             </div>
             <div class="land-pane" data-land-pane="audio" role="tabpanel" hidden>
               <fieldset class="land-section">
-                <legend>Audio</legend>
+                <legend data-i18n="land.audio"></legend>
                 <label class="field">
-                  <span>Music URL</span>
+                  <span data-i18n="land.musicUrl"></span>
                   <input type="url" id="land-music" placeholder="https://">
                 </label>
-                <p class="field-hint">Playback controls appear in the top bar when this parcel streams music.</p>
+                <p class="field-hint" data-i18n="land.musicHint"></p>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-sound-local">
-                  <span>Restrict gesture and object sounds to this parcel</span>
+                  <span data-i18n="land.restrictSounds"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-av-sounds-all">
-                  <span>Avatar sounds: everyone</span>
+                  <span data-i18n="land.avatarSoundsEveryone"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-av-sounds-group">
-                  <span>Avatar sounds: group</span>
+                  <span data-i18n="land.avatarSoundsGroup"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-voice">
-                  <span>Voice enabled</span>
+                  <span data-i18n="land.voiceEnabled"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-voice-estate">
-                  <span>Use the estate's voice channel</span>
+                  <span data-i18n="land.estateVoice"></span>
                 </label>
               </fieldset>
             </div>
             <div class="land-pane" data-land-pane="access" role="tabpanel" hidden>
               <fieldset class="land-section">
-                <legend>Who may visit</legend>
+                <legend data-i18n="land.whoMayVisit"></legend>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-access-public">
-                  <span>Public access (anyone may visit)</span>
+                  <span data-i18n="land.publicAccess"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-access-group">
-                  <span>Always allow the parcel group</span>
+                  <span data-i18n="land.allowParcelGroup"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-deny-anon">
-                  <span>Require payment info on file</span>
+                  <span data-i18n="land.requirePaymentInfo"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-deny-unverified">
-                  <span>Require age verification</span>
+                  <span data-i18n="land.requireAgeVerification"></span>
                 </label>
                 <label class="field field--checkbox">
                   <input type="checkbox" id="land-sell-passes">
-                  <span>Sell passes</span>
+                  <span data-i18n="land.sellPasses"></span>
                 </label>
                 <div class="field-row">
                   <label class="field">
-                    <span>Pass price (L$)</span>
+                    <span data-i18n="land.passPrice"></span>
                     <input type="number" id="land-pass-price" min="0" step="1" inputmode="numeric">
                   </label>
                   <label class="field">
-                    <span>Pass hours</span>
+                    <span data-i18n="land.passHours"></span>
                     <input type="number" id="land-pass-hours" min="0" step="0.25" inputmode="decimal">
                   </label>
                 </div>
-                <p class="field-hint">Access changes save with Apply Changes. The lists below save immediately.</p>
+                <p class="field-hint" data-i18n="land.accessHint"></p>
               </fieldset>
               <fieldset class="land-section">
-                <legend>Allowed residents</legend>
+                <legend data-i18n="land.allowedResidents"></legend>
                 <div class="land-list-add">
-                  <input type="text" id="land-allow-add-id" placeholder="Resident UUID" aria-label="Resident UUID to allow">
-                  <button type="button" id="land-allow-add" class="btn btn--secondary btn--sm">Add</button>
+                  <input type="text" id="land-allow-add-id" data-i18n-placeholder="land.residentUuidPlaceholder" data-i18n-aria-label="land.residentUuidToAllow">
+                  <button type="button" id="land-allow-add" class="btn btn--secondary btn--sm" data-i18n="common.add"></button>
                 </div>
                 <ul id="land-allow-list" class="land-owners-list"></ul>
               </fieldset>
               <fieldset class="land-section">
-                <legend>Banned residents</legend>
+                <legend data-i18n="land.bannedResidents"></legend>
                 <div class="land-list-add">
-                  <input type="text" id="land-ban-add-id" placeholder="Resident UUID" aria-label="Resident UUID to ban">
-                  <input type="number" id="land-ban-hours" min="0" step="1" placeholder="Hours (0 = forever)" aria-label="Ban duration in hours" class="land-ban-hours">
-                  <button type="button" id="land-ban-add" class="btn btn--secondary btn--sm">Ban</button>
+                  <input type="text" id="land-ban-add-id" data-i18n-placeholder="land.residentUuidPlaceholder" data-i18n-aria-label="land.residentUuidToBan">
+                  <input type="number" id="land-ban-hours" min="0" step="1" data-i18n-placeholder="land.banHoursPlaceholder" data-i18n-aria-label="land.banDuration" class="land-ban-hours">
+                  <button type="button" id="land-ban-add" class="btn btn--secondary btn--sm" data-i18n="land.ban"></button>
                 </div>
                 <ul id="land-ban-list" class="land-owners-list"></ul>
               </fieldset>
             </div>
             <div class="land-pane" data-land-pane="covenant" role="tabpanel" hidden>
               <fieldset class="land-section">
-                <legend>Estate</legend>
+                <legend data-i18n="chat.estate"></legend>
                 <div class="field-row">
                   <label class="field">
-                    <span>Estate</span>
+                    <span data-i18n="chat.estate"></span>
                     <input type="text" id="land-estate-name" readonly>
                   </label>
                   <label class="field">
-                    <span>Owner</span>
+                    <span data-i18n="land.owner"></span>
                     <input type="text" id="land-estate-owner" readonly>
                   </label>
                 </div>
                 <div class="field-row">
                   <label class="field">
-                    <span>Last changed</span>
+                    <span data-i18n="land.lastChanged"></span>
                     <input type="text" id="land-covenant-date" readonly>
                   </label>
                   <label class="field">
-                    <span>Land rules</span>
+                    <span data-i18n="land.landRules"></span>
                     <input type="text" id="land-estate-rules" readonly>
                   </label>
                 </div>
               </fieldset>
               <fieldset class="land-section">
-                <legend>Covenant</legend>
-                <textarea id="land-covenant-text" rows="10" readonly placeholder="Loading covenant..."></textarea>
+                <legend data-i18n="land.covenant"></legend>
+                <textarea id="land-covenant-text" rows="10" readonly data-i18n-placeholder="land.loadingCovenant"></textarea>
               </fieldset>
             </div>
             <div class="land-pane" data-land-pane="environment" role="tabpanel" hidden>
               <fieldset class="land-section">
-                <legend>Environment</legend>
+                <legend data-i18n="land.environment"></legend>
                 <div id="land-env-summary" class="land-env-summary">
-                  <p class="field-hint">Loading environment...</p>
+                  <p class="field-hint" data-i18n="land.loadingEnvironment"></p>
                 </div>
-                <button type="button" id="land-env-refresh" class="btn btn--ghost btn--sm">Refresh</button>
+                <button type="button" id="land-env-refresh" class="btn btn--ghost btn--sm" data-i18n="common.refresh"></button>
               </fieldset>
             </div>
             <div class="land-pane" data-land-pane="experiences" role="tabpanel" hidden>
               <fieldset class="land-section">
-                <legend>Allowed experiences</legend>
+                <legend data-i18n="land.allowedExperiences"></legend>
                 <ul id="land-exp-allow-list" class="land-owners-list"></ul>
               </fieldset>
               <fieldset class="land-section">
-                <legend>Blocked experiences</legend>
+                <legend data-i18n="land.blockedExperiences"></legend>
                 <ul id="land-exp-block-list" class="land-owners-list"></ul>
               </fieldset>
               <p id="land-exp-note" class="field-hint"></p>
             </div>
             <div class="land-actions">
-              <button type="button" id="land-refresh" class="btn btn--ghost">Refresh</button>
-              <button type="submit" class="btn btn--primary" id="land-apply">Apply Changes</button>
+              <button type="button" id="land-refresh" class="btn btn--ghost" data-i18n="common.refresh"></button>
+              <button type="submit" class="btn btn--primary" id="land-apply" data-i18n="land.applyChanges"></button>
             </div>
           </form>
         </div>
 
         <!-- LSL script editor: inventory scripts on the left, source on the right. -->
-        <div id="panel-scripts" class="panel panel--scripts" data-panel="scripts" role="tabpanel" aria-label="LSL scripts" hidden>
+        <div id="panel-scripts" class="panel panel--scripts" data-panel="scripts" role="tabpanel" data-i18n-aria-label="scripts.panel" hidden>
           <div class="scripts-layout">
-            <aside class="scripts-list" aria-label="Script inventory">
+            <aside class="scripts-list" data-i18n-aria-label="scripts.inventory">
               <div class="scripts-list__head">
-                <h3 class="scripts-list__title">My Scripts</h3>
+                <h3 class="scripts-list__title" data-i18n="scripts.myScripts"></h3>
                 <div class="scripts-list__tools">
-                  <button type="button" id="scripts-new" class="icon-btn scripts-list__refresh" title="New script" aria-label="New script">
+                  <button type="button" id="scripts-new" class="icon-btn scripts-list__refresh" data-i18n-title="scripts.newScript" data-i18n-aria-label="scripts.newScript">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
                   </button>
-                  <button type="button" id="scripts-refresh" class="icon-btn scripts-list__refresh" title="Reload scripts" aria-label="Reload scripts">
+                  <button type="button" id="scripts-refresh" class="icon-btn scripts-list__refresh" data-i18n-title="scripts.reload" data-i18n-aria-label="scripts.reload">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
                   </button>
                 </div>
               </div>
-              <input type="search" id="scripts-filter" class="scripts-list__filter" placeholder="Filter scripts..." autocomplete="off">
+              <input type="search" id="scripts-filter" class="scripts-list__filter" data-i18n-placeholder="scripts.filterPlaceholder" autocomplete="off">
               <p id="scripts-status" class="scripts-list__status" hidden></p>
               <ul id="scripts-items" class="scripts-list__items"></ul>
             </aside>
-            <section class="script-editor" aria-label="Script editor">
+            <section class="script-editor" data-i18n-aria-label="scripts.editor">
               <div class="script-editor__head">
-                <button type="button" id="script-back" class="icon-btn script-editor__back" title="Back to script list" aria-label="Back to script list">
+                <button type="button" id="script-back" class="icon-btn script-editor__back" data-i18n-title="scripts.backToList" data-i18n-aria-label="scripts.backToList">
                   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
                 </button>
                 <div class="script-editor__titles">
-                  <h3 id="script-name" class="script-editor__name">No script open</h3>
+                  <h3 id="script-name" class="script-editor__name" data-i18n="scripts.noScriptOpen"></h3>
                   <span id="script-state" class="script-editor__state"></span>
                 </div>
-                <button type="button" id="script-find-open" class="icon-btn script-editor__tool" title="Find in script (Ctrl+F)" aria-label="Find in script" hidden>
+                <button type="button" id="script-find-open" class="icon-btn script-editor__tool" data-i18n-title="scripts.findTitle" data-i18n-aria-label="scripts.find" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                 </button>
-                <button type="button" id="script-format" class="icon-btn script-editor__tool" title="Format script (re-indent)" aria-label="Format script" hidden>
+                <button type="button" id="script-format" class="icon-btn script-editor__tool" data-i18n-title="scripts.formatTitle" data-i18n-aria-label="scripts.format" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 5h18v2H3V5zm4 4h14v2H7V9zm-4 4h18v2H3v-2zm4 4h14v2H7v-2z"/></svg>
                 </button>
-                <button type="button" id="script-copy-ids" class="icon-btn script-editor__tool" title="UUIDs and creator" aria-label="UUIDs and creator" hidden>
+                <button type="button" id="script-copy-ids" class="icon-btn script-editor__tool" data-i18n-title="scripts.uuidsAndCreator" data-i18n-aria-label="scripts.uuidsAndCreator" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
                 </button>
-                <button type="button" id="script-send" class="icon-btn script-editor__tool" title="Send to a resident" aria-label="Send this script to a resident" hidden>
+                <button type="button" id="script-send" class="icon-btn script-editor__tool" data-i18n-title="give.title" data-i18n-aria-label="scripts.sendToResident" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                 </button>
-                <button type="button" id="script-rename" class="icon-btn script-editor__rename" title="Rename script" aria-label="Rename script" hidden>
+                <button type="button" id="script-rename" class="icon-btn script-editor__rename" data-i18n-title="scripts.rename" data-i18n-aria-label="scripts.rename" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
                 </button>
-                <label class="script-editor__target" title="Compile for the Mono runtime (off = LSL2)">
+                <label class="script-editor__target" data-i18n-title="scripts.monoTitle">
                   <input type="checkbox" id="script-mono" checked> Mono
                 </label>
-                <button type="button" id="script-save" class="btn btn--primary btn--sm" disabled>Save</button>
+                <button type="button" id="script-save" class="btn btn--primary btn--sm" disabled data-i18n="common.save"></button>
               </div>
               <div class="script-editor__body" id="script-editor-body" hidden>
                 <div id="script-find" class="script-find" hidden>
-                  <input type="search" id="script-find-input" class="script-find__input" placeholder="Find... (:123 jumps to a line)" autocomplete="off" aria-label="Find in script">
+                  <input type="search" id="script-find-input" class="script-find__input" data-i18n-placeholder="scripts.findPlaceholder" autocomplete="off" data-i18n-aria-label="scripts.find">
                   <span id="script-find-count" class="script-find__count"></span>
-                  <button type="button" id="script-find-prev" class="icon-btn script-find__btn" title="Previous match" aria-label="Previous match">
+                  <button type="button" id="script-find-prev" class="icon-btn script-find__btn" data-i18n-title="scripts.previousMatch" data-i18n-aria-label="scripts.previousMatch">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
                   </button>
-                  <button type="button" id="script-find-next" class="icon-btn script-find__btn" title="Next match" aria-label="Next match">
+                  <button type="button" id="script-find-next" class="icon-btn script-find__btn" data-i18n-title="scripts.nextMatch" data-i18n-aria-label="scripts.nextMatch">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
                   </button>
-                  <button type="button" id="script-find-close" class="icon-btn script-find__btn" title="Close find" aria-label="Close find">
+                  <button type="button" id="script-find-close" class="icon-btn script-find__btn" data-i18n-title="scripts.closeFind" data-i18n-aria-label="scripts.closeFind">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                   </button>
                 </div>
                 <div class="script-editor__scroll">
                   <pre id="script-highlight" class="script-editor__highlight" aria-hidden="true"></pre>
                   <pre id="script-gutter" class="script-editor__gutter" aria-hidden="true"></pre>
-                  <textarea id="script-input" class="script-editor__input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="LSL source"></textarea>
+                  <textarea id="script-input" class="script-editor__input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" data-i18n-aria-label="scripts.lslSource"></textarea>
                 </div>
                 <div id="script-signature" class="script-editor__signature" hidden>
                   <div class="script-signature__row">
                     <span id="script-signature-text" class="script-signature__text"></span>
-                    <button type="button" id="script-doc-toggle" class="script-signature__toggle" title="Show description" aria-label="Show description" aria-expanded="false" aria-controls="script-doc" hidden>
+                    <button type="button" id="script-doc-toggle" class="script-signature__toggle" data-i18n-title="scripts.showDescription" data-i18n-aria-label="scripts.showDescription" aria-expanded="false" aria-controls="script-doc" hidden>
                       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
                     </button>
                   </div>
@@ -1024,85 +1019,85 @@
                 <div id="script-complete" class="script-editor__complete" hidden></div>
                 <div id="script-diagnostics" class="script-editor__diagnostics" hidden></div>
               </div>
-              <p id="script-editor-empty" class="script-editor__empty">Pick a script to view or edit it.</p>
+              <p id="script-editor-empty" class="script-editor__empty" data-i18n="scripts.pickHint"></p>
             </section>
           </div>
         </div>
 
         <!-- Notecards: inventory notecards on the left, plain text on the right. -->
-        <div id="panel-notecards" class="panel panel--scripts" data-panel="notecards" role="tabpanel" aria-label="Notecards" hidden>
+        <div id="panel-notecards" class="panel panel--scripts" data-panel="notecards" role="tabpanel" data-i18n-aria-label="notecards.panel" hidden>
           <div class="scripts-layout">
-            <aside class="scripts-list" aria-label="Notecard inventory">
+            <aside class="scripts-list" data-i18n-aria-label="notecards.inventory">
               <div class="scripts-list__head">
-                <h3 class="scripts-list__title">My Notecards</h3>
+                <h3 class="scripts-list__title" data-i18n="notecards.myNotecards"></h3>
                 <div class="scripts-list__tools">
-                  <button type="button" id="notecards-new" class="icon-btn scripts-list__refresh" title="New notecard" aria-label="New notecard">
+                  <button type="button" id="notecards-new" class="icon-btn scripts-list__refresh" data-i18n-title="notecards.newNotecard" data-i18n-aria-label="notecards.newNotecard">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
                   </button>
-                  <button type="button" id="notecards-refresh" class="icon-btn scripts-list__refresh" title="Reload notecards" aria-label="Reload notecards">
+                  <button type="button" id="notecards-refresh" class="icon-btn scripts-list__refresh" data-i18n-title="notecards.reload" data-i18n-aria-label="notecards.reload">
                     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
                   </button>
                 </div>
               </div>
-              <input type="search" id="notecards-filter" class="scripts-list__filter" placeholder="Filter notecards..." autocomplete="off">
+              <input type="search" id="notecards-filter" class="scripts-list__filter" data-i18n-placeholder="notecards.filterPlaceholder" autocomplete="off">
               <p id="notecards-status" class="scripts-list__status" hidden></p>
               <ul id="notecards-items" class="scripts-list__items"></ul>
             </aside>
-            <section class="script-editor" aria-label="Notecard editor">
+            <section class="script-editor" data-i18n-aria-label="notecards.editor">
               <div class="script-editor__head">
-                <button type="button" id="notecard-back" class="icon-btn script-editor__back" title="Back to notecard list" aria-label="Back to notecard list">
+                <button type="button" id="notecard-back" class="icon-btn script-editor__back" data-i18n-title="notecards.backToList" data-i18n-aria-label="notecards.backToList">
                   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
                 </button>
                 <div class="script-editor__titles">
-                  <h3 id="notecard-name" class="script-editor__name">No notecard open</h3>
+                  <h3 id="notecard-name" class="script-editor__name" data-i18n="notecards.noNotecardOpen"></h3>
                   <span id="notecard-state" class="script-editor__state"></span>
                 </div>
-                <button type="button" id="notecard-copy-ids" class="icon-btn script-editor__tool" title="UUIDs and creator" aria-label="UUIDs and creator" hidden>
+                <button type="button" id="notecard-copy-ids" class="icon-btn script-editor__tool" data-i18n-title="scripts.uuidsAndCreator" data-i18n-aria-label="scripts.uuidsAndCreator" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
                 </button>
-                <button type="button" id="notecard-send" class="icon-btn script-editor__tool" title="Send to a resident" aria-label="Send this notecard to a resident" hidden>
+                <button type="button" id="notecard-send" class="icon-btn script-editor__tool" data-i18n-title="give.title" data-i18n-aria-label="notecards.sendToResident" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                 </button>
-                <button type="button" id="notecard-rename" class="icon-btn script-editor__rename" title="Rename notecard" aria-label="Rename notecard" hidden>
+                <button type="button" id="notecard-rename" class="icon-btn script-editor__rename" data-i18n-title="notecards.rename" data-i18n-aria-label="notecards.rename" hidden>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
                 </button>
-                <button type="button" id="notecard-save" class="btn btn--primary btn--sm" disabled>Save</button>
+                <button type="button" id="notecard-save" class="btn btn--primary btn--sm" disabled data-i18n="common.save"></button>
               </div>
               <div class="script-editor__body" id="notecard-editor-body" hidden>
                 <div class="script-editor__scroll">
-                  <textarea id="notecard-input" class="notecard-editor__input" autocapitalize="sentences" autocomplete="off" aria-label="Notecard text"></textarea>
+                  <textarea id="notecard-input" class="notecard-editor__input" autocapitalize="sentences" autocomplete="off" data-i18n-aria-label="notecards.text"></textarea>
                 </div>
               </div>
-              <p id="notecard-editor-empty" class="script-editor__empty">Pick a notecard to read or edit it.</p>
+              <p id="notecard-editor-empty" class="script-editor__empty" data-i18n="notecards.pickHint"></p>
             </section>
           </div>
         </div>
 
         <!-- Destination Guide feeds -->
-        <div id="panel-destinations" class="panel" data-panel="destinations" role="tabpanel" aria-label="Destination Guide" hidden>
-          <div id="dest-feedbar" class="dest-feedbar" role="tablist" aria-label="Destination feeds"></div>
+        <div id="panel-destinations" class="panel" data-panel="destinations" role="tabpanel" data-i18n-aria-label="dest.guide" hidden>
+          <div id="dest-feedbar" class="dest-feedbar" role="tablist" data-i18n-aria-label="dest.feeds"></div>
           <div id="dest-status" class="dest-status"></div>
           <div id="dest-content" class="dest-content"></div>
         </div>
 
         <!-- Interactions: what's around you, and what your avatar can do. -->
-        <div id="panel-interact" class="panel" data-panel="interact" role="tabpanel" aria-label="Interactions" hidden>
+        <div id="panel-interact" class="panel" data-panel="interact" role="tabpanel" data-i18n-aria-label="interact.panel" hidden>
           <div class="interact-avatar-bar">
-            <span class="interact-avatar-bar__state">Currently
-              <strong id="interact-state">standing</strong></span>
+            <span class="interact-avatar-bar__state"><span data-i18n="interact.currently"></span>
+              <strong id="interact-state" data-i18n="interact.stateStanding"></strong></span>
             <div class="interact-avatar-bar__actions">
-              <button type="button" class="btn btn--secondary btn--sm" id="interact-sit-ground">Sit on ground</button>
-              <button type="button" class="btn btn--secondary btn--sm" id="interact-stand">Stand up</button>
-              <button type="button" class="btn btn--secondary btn--sm" id="interact-fly">Fly</button>
-              <button type="button" class="btn btn--secondary btn--sm" id="interact-stop-fly">Stop flying</button>
+              <button type="button" class="btn btn--secondary btn--sm" id="interact-sit-ground" data-i18n="interact.sitOnGround"></button>
+              <button type="button" class="btn btn--secondary btn--sm" id="interact-stand" data-i18n="interact.standUp"></button>
+              <button type="button" class="btn btn--secondary btn--sm" id="interact-fly" data-i18n="interact.fly"></button>
+              <button type="button" class="btn btn--secondary btn--sm" id="interact-stop-fly" data-i18n="interact.stopFlying"></button>
             </div>
           </div>
 
-          <div id="interact-pane-objects" class="settings-pane" role="region" aria-label="Objects nearby">
+          <div id="interact-pane-objects" class="settings-pane" role="region" data-i18n-aria-label="interact.objectsNearby">
             <div class="objects-controls">
               <input type="search" id="objects-filter" class="objects-filter"
-                placeholder="Filter by name or owner" aria-label="Filter objects by name or owner">
-              <select id="objects-range" class="objects-range" aria-label="How far to look">
+                data-i18n-placeholder="interact.filterPlaceholder" data-i18n-aria-label="interact.filterLabel">
+              <select id="objects-range" class="objects-range" data-i18n-aria-label="interact.rangeLabel">
                 <option value="16">16 m</option>
                 <option value="32" selected>32 m</option>
                 <option value="48">48 m</option>
@@ -1112,25 +1107,25 @@
                 <option value="256">256 m</option>
                 <option value="384">384 m</option>
               </select>
-              <div class="objects-filters" role="group" aria-label="Object list filters">
+              <div class="objects-filters" role="group" data-i18n-aria-label="interact.listFilters">
                 <label class="toggle">
                   <input type="checkbox" id="objects-include-attachments">
-                  <span>Include attachments</span>
+                  <span data-i18n="interact.includeAttachments"></span>
                 </label>
                 <label class="toggle">
                   <input type="checkbox" id="objects-include-physical" checked>
-                  <span>Include physical</span>
+                  <span data-i18n="interact.includePhysical"></span>
                 </label>
               </div>
-              <button type="button" id="objects-refresh" class="btn btn--secondary btn--sm objects-load">Load</button>
+              <button type="button" id="objects-refresh" class="btn btn--secondary btn--sm objects-load" data-i18n="interact.load"></button>
             </div>
-            <p class="objects-count" id="objects-title">Nearby objects</p>
-            <div class="objects-table" role="table" aria-label="Nearby objects">
+            <p class="objects-count" id="objects-title" data-i18n="interact.nearbyObjects"></p>
+            <div class="objects-table" role="table" data-i18n-aria-label="interact.nearbyObjects">
               <div class="objects-row objects-row--head" role="row">
                 <span class="objects-cell objects-cell--expand" aria-hidden="true"></span>
-                <button type="button" class="objects-cell objects-sort objects-cell--num objects-sort--active" data-objects-sort="distance" role="columnheader">Distance</button>
-                <button type="button" class="objects-cell objects-sort" data-objects-sort="name" role="columnheader">Name</button>
-                <button type="button" class="objects-cell objects-sort" data-objects-sort="owner" role="columnheader">Owner</button>
+                <button type="button" class="objects-cell objects-sort objects-cell--num objects-sort--active" data-objects-sort="distance" role="columnheader" data-i18n="interact.distance"></button>
+                <button type="button" class="objects-cell objects-sort" data-objects-sort="name" role="columnheader" data-i18n="common.name"></button>
+                <button type="button" class="objects-cell objects-sort" data-objects-sort="owner" role="columnheader" data-i18n="interact.owner"></button>
               </div>
               <div id="objects-rows"></div>
             </div>
@@ -1138,66 +1133,66 @@
         </div>
 
         <!-- News. -->
-        <div id="panel-news" class="panel" data-panel="news" role="tabpanel" aria-label="News" hidden>
-          <div class="settings-tabs" role="tablist" aria-label="News sections">
-            <button type="button" class="settings-tab settings-tab--active" data-news-tab="linden" role="tab" aria-selected="true">Linden News</button>
-            <button type="button" class="settings-tab" data-news-tab="calendar" role="tab" aria-selected="false">Calendar</button>
-            <button type="button" class="settings-tab" data-news-tab="status" role="tab" aria-selected="false">Grid Status</button>
-            <button type="button" class="settings-tab" data-news-tab="blogs" role="tab" aria-selected="false">Blogger Network</button>
+        <div id="panel-news" class="panel" data-panel="news" role="tabpanel" data-i18n-aria-label="nav.news" hidden>
+          <div class="settings-tabs" role="tablist" data-i18n-aria-label="news.sections">
+            <button type="button" class="settings-tab settings-tab--active" data-news-tab="linden" role="tab" aria-selected="true" data-i18n="news.linden"></button>
+            <button type="button" class="settings-tab" data-news-tab="calendar" role="tab" aria-selected="false" data-i18n="news.calendar"></button>
+            <button type="button" class="settings-tab" data-news-tab="status" role="tab" aria-selected="false" data-i18n="news.gridStatus"></button>
+            <button type="button" class="settings-tab" data-news-tab="blogs" role="tab" aria-selected="false" data-i18n="news.bloggerNetwork"></button>
           </div>
 
-          <div id="news-pane-linden" class="settings-pane news-pane" role="tabpanel" aria-label="Linden News">
+          <div id="news-pane-linden" class="settings-pane news-pane" role="tabpanel" data-i18n-aria-label="news.linden">
             <div class="panel-toolbar">
-              <span class="badge">Second Life blog</span>
-              <button type="button" class="btn btn--ghost btn--sm" data-news-refresh="linden">Refresh</button>
+              <span class="badge" data-i18n="news.slBlog"></span>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-refresh="linden" data-i18n="common.refresh"></button>
             </div>
             <div id="news-list-linden" class="news-list"></div>
           </div>
 
-          <div id="news-pane-calendar" class="settings-pane news-frame-pane" role="tabpanel" aria-label="Calendar" hidden>
+          <div id="news-pane-calendar" class="settings-pane news-frame-pane" role="tabpanel" data-i18n-aria-label="news.calendar" hidden>
             <div class="panel-toolbar">
-              <span class="badge">Second Life calendar</span>
-              <button type="button" class="btn btn--ghost btn--sm" data-news-open="https://calendar.google.com/calendar/u/0/newembed?src=c_kphtklo9degke40dpk7nr6cclc@group.calendar.google.com">Open in browser</button>
+              <span class="badge" data-i18n="news.slCalendar"></span>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-open="https://calendar.google.com/calendar/u/0/newembed?src=c_kphtklo9degke40dpk7nr6cclc@group.calendar.google.com" data-i18n="news.openInBrowser"></button>
             </div>
             <div id="news-frame-calendar" class="news-frame"></div>
           </div>
 
-          <div id="news-pane-status" class="settings-pane news-pane" role="tabpanel" aria-label="Grid Status" hidden>
+          <div id="news-pane-status" class="settings-pane news-pane" role="tabpanel" data-i18n-aria-label="news.gridStatus" hidden>
             <div class="panel-toolbar">
-              <span class="badge">Grid status history</span>
-              <button type="button" class="btn btn--ghost btn--sm" data-news-refresh="status">Refresh</button>
+              <span class="badge" data-i18n="news.gridStatusHistory"></span>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-refresh="status" data-i18n="common.refresh"></button>
             </div>
             <div id="news-list-status" class="news-list"></div>
           </div>
 
-          <div id="news-pane-blogs" class="settings-pane news-pane" role="tabpanel" aria-label="Blogger Network" hidden>
+          <div id="news-pane-blogs" class="settings-pane news-pane" role="tabpanel" data-i18n-aria-label="news.bloggerNetwork" hidden>
             <div class="panel-toolbar">
-              <span class="badge">Blogger network</span>
-              <button type="button" class="btn btn--ghost btn--sm" data-news-refresh="blogs">Refresh</button>
-              <button type="button" class="btn btn--ghost btn--sm" data-news-open="https://www.inoreader.com/stream/user/1003852272/tag/Second%20Life%20Bloggers/view/html?cs=m">Open in browser</button>
+              <span class="badge" data-i18n="news.bloggerNetworkBadge"></span>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-refresh="blogs" data-i18n="common.refresh"></button>
+              <button type="button" class="btn btn--ghost btn--sm" data-news-open="https://www.inoreader.com/stream/user/1003852272/tag/Second%20Life%20Bloggers/view/html?cs=m" data-i18n="news.openInBrowser"></button>
             </div>
             <div id="news-list-blogs" class="news-list"></div>
           </div>
         </div>
 
         <!-- Settings (preferences, about, help, readme, license) -->
-        <div id="panel-settings" class="panel" data-panel="settings" role="tabpanel" aria-label="Settings" hidden>
-          <div class="settings-tabs" role="tablist" aria-label="Settings sections">
-            <button type="button" class="settings-tab settings-tab--active" data-settings-tab="prefs" role="tab" aria-selected="true" aria-controls="settings-pane-prefs">Settings</button>
-            <button type="button" class="settings-tab" data-settings-tab="about" role="tab" aria-selected="false" aria-controls="settings-pane-about">About Minibee</button>
-            <button type="button" class="settings-tab" data-settings-tab="packages" role="tab" aria-selected="false" aria-controls="settings-pane-packages">Packages</button>
-            <button type="button" class="settings-tab" data-settings-tab="help" role="tab" aria-selected="false" aria-controls="settings-pane-help">Help</button>
+        <div id="panel-settings" class="panel" data-panel="settings" role="tabpanel" data-i18n-aria-label="settings.title" hidden>
+          <div class="settings-tabs" role="tablist" data-i18n-aria-label="settings.sections">
+            <button type="button" class="settings-tab settings-tab--active" data-settings-tab="prefs" role="tab" aria-selected="true" aria-controls="settings-pane-prefs" data-i18n="settings.title"></button>
+            <button type="button" class="settings-tab" data-settings-tab="about" role="tab" aria-selected="false" aria-controls="settings-pane-about" data-i18n="about.tab"></button>
+            <button type="button" class="settings-tab" data-settings-tab="packages" role="tab" aria-selected="false" aria-controls="settings-pane-packages" data-i18n="settings.packages"></button>
+            <button type="button" class="settings-tab" data-settings-tab="help" role="tab" aria-selected="false" aria-controls="settings-pane-help" data-i18n="settings.help"></button>
             <button type="button" class="settings-tab" data-settings-tab="readme" role="tab" aria-selected="false" aria-controls="settings-pane-readme">README</button>
-            <button type="button" class="settings-tab" data-settings-tab="license" role="tab" aria-selected="false" aria-controls="settings-pane-license">License</button>
-            <button type="button" class="settings-tab" data-settings-tab="privacy" role="tab" aria-selected="false" aria-controls="settings-pane-privacy">Privacy</button>
+            <button type="button" class="settings-tab" data-settings-tab="license" role="tab" aria-selected="false" aria-controls="settings-pane-license" data-i18n="settings.license"></button>
+            <button type="button" class="settings-tab" data-settings-tab="privacy" role="tab" aria-selected="false" aria-controls="settings-pane-privacy" data-i18n="settings.privacy"></button>
           </div>
 
-          <div id="settings-pane-prefs" class="settings-pane" role="tabpanel" aria-label="Viewer settings">
-            <p class="settings-note">Everything you change here is applied across the viewer immediately.</p>
+          <div id="settings-pane-prefs" class="settings-pane" role="tabpanel" data-i18n-aria-label="settings.viewerSettings">
+            <p class="settings-note" data-i18n="settings.note"></p>
             <div id="settings-controls" class="settings-controls"></div>
           </div>
 
-          <div id="settings-pane-about" class="settings-pane" role="tabpanel" aria-label="About Minibee" hidden>
+          <div id="settings-pane-about" class="settings-pane" role="tabpanel" data-i18n-aria-label="about.tab" hidden>
             <div class="about-card">
               <div class="login-hero about-hero">
                 <div class="login-logo" aria-hidden="true">
@@ -1222,13 +1217,13 @@
                 </div>
                 <h2 id="about-name" class="about-name">Minibee Viewer</h2>
                 <p id="about-catchphrase" class="login-sub"></p>
-                <p id="about-version" class="login-version" aria-label="Viewer version"></p>
+                <p id="about-version" class="login-version" data-i18n-aria-label="login.versionLabel"></p>
               </div>
               <dl class="about-meta">
-                <dt>Contact</dt><dd id="about-contact"></dd>
-                <dt>Support</dt><dd id="about-support"></dd>
-                <dt>Privacy</dt><dd id="about-privacy"></dd>
-                <dt>Source</dt><dd id="about-source"></dd>
+                <dt data-i18n="about.contact"></dt><dd id="about-contact"></dd>
+                <dt data-i18n="about.support"></dt><dd id="about-support"></dd>
+                <dt data-i18n="settings.privacy"></dt><dd id="about-privacy"></dd>
+                <dt data-i18n="about.source"></dt><dd id="about-source"></dd>
               </dl>
               <hr class="about-hr">
               <dl class="about-meta about-meta--mono" id="about-build"></dl>
@@ -1236,14 +1231,14 @@
               <dl class="about-meta about-meta--mono" id="about-system"></dl>
               <hr class="about-hr">
               <dl class="about-meta about-meta--mono">
-                <dt>Chat logs</dt><dd id="about-chatlogs">&mdash;</dd>
+                <dt data-i18n="logs.title"></dt><dd id="about-chatlogs">&mdash;</dd>
               </dl>
               <div class="about-actions">
                 <span id="about-update-status" class="about-action-status" role="status" aria-live="polite"></span>
                 <span id="about-copy-status" class="about-action-status" role="status" aria-live="polite"></span>
                 <div class="about-actions__buttons">
-                  <button type="button" id="about-check-update" class="btn btn--ghost btn--sm" hidden>Check for updates</button>
-                  <button type="button" id="about-copy" class="btn btn--ghost btn--sm">Copy all</button>
+                  <button type="button" id="about-check-update" class="btn btn--ghost btn--sm" hidden data-i18n="about.checkForUpdates"></button>
+                  <button type="button" id="about-copy" class="btn btn--ghost btn--sm" data-i18n="about.copyAll"></button>
                 </div>
               </div>
               <p id="about-disclaimer" class="about-disclaimer"></p>
@@ -1251,25 +1246,25 @@
             </div>
           </div>
 
-          <div id="settings-pane-packages" class="settings-pane" role="tabpanel" aria-label="Packages" hidden>
+          <div id="settings-pane-packages" class="settings-pane" role="tabpanel" data-i18n-aria-label="settings.packages" hidden>
             <p id="settings-packages-note" class="settings-note"></p>
-            <div id="settings-packages" class="packages-list" tabindex="0">Loading...</div>
+            <div id="settings-packages" class="packages-list" tabindex="0" data-i18n="common.loading"></div>
           </div>
 
-          <div id="settings-pane-help" class="settings-pane" role="tabpanel" aria-label="Help" hidden>
-            <pre id="settings-help" class="settings-doc" tabindex="0">Loading...</pre>
+          <div id="settings-pane-help" class="settings-pane" role="tabpanel" data-i18n-aria-label="settings.help" hidden>
+            <pre id="settings-help" class="settings-doc" tabindex="0" data-i18n="common.loading"></pre>
           </div>
 
           <div id="settings-pane-readme" class="settings-pane" role="tabpanel" aria-label="README" hidden>
-            <pre id="settings-readme" class="settings-doc" tabindex="0">Loading...</pre>
+            <pre id="settings-readme" class="settings-doc" tabindex="0" data-i18n="common.loading"></pre>
           </div>
 
-          <div id="settings-pane-license" class="settings-pane" role="tabpanel" aria-label="License" hidden>
-            <pre id="settings-license" class="settings-doc" tabindex="0">Loading...</pre>
+          <div id="settings-pane-license" class="settings-pane" role="tabpanel" data-i18n-aria-label="settings.license" hidden>
+            <pre id="settings-license" class="settings-doc" tabindex="0" data-i18n="common.loading"></pre>
           </div>
 
-          <div id="settings-pane-privacy" class="settings-pane" role="tabpanel" aria-label="Privacy" hidden>
-            <pre id="settings-privacy" class="settings-doc" tabindex="0">Loading...</pre>
+          <div id="settings-pane-privacy" class="settings-pane" role="tabpanel" data-i18n-aria-label="settings.privacy" hidden>
+            <pre id="settings-privacy" class="settings-doc" tabindex="0" data-i18n="common.loading"></pre>
           </div>
         </div>
 
@@ -1286,12 +1281,12 @@
         <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2 1 21h22L12 2zm0 5 7.53 13H4.47L12 7zm-1 4v4h2v-4h-2zm0 5v2h2v-2h-2z"/></svg>
       </span>
       <span class="caps-banner__text">
-        <strong id="caps-banner-title" class="caps-banner__title">Some region features unavailable</strong>
+        <strong id="caps-banner-title" class="caps-banner__title" data-i18n="caps.title"></strong>
         <span id="caps-banner-detail" class="caps-banner__detail"></span>
       </span>
       <span class="caps-banner__actions">
-        <button type="button" id="caps-banner-relog" class="btn btn--ghost btn--sm caps-banner__relog">Relog</button>
-        <button type="button" id="caps-banner-dismiss" class="icon-btn caps-banner__close" aria-label="Dismiss">
+        <button type="button" id="caps-banner-relog" class="btn btn--ghost btn--sm caps-banner__relog" data-i18n="caps.relog"></button>
+        <button type="button" id="caps-banner-dismiss" class="icon-btn caps-banner__close" data-i18n-aria-label="caps.dismiss">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
       </span>
@@ -1303,26 +1298,26 @@
     <!-- Teleport-progress lock dialog (BeeTeleportProgress) -->
     <dialog id="teleport-progress-dialog" class="login-challenge tp-progress-dialog">
       <div class="login-challenge__body tp-progress">
-        <h2 class="login-challenge__title">Teleporting</h2>
-        <p id="teleport-progress-label" class="login-challenge__text">Requesting teleport...</p>
+        <h2 class="login-challenge__title" data-i18n="teleport.progressTitle"></h2>
+        <p id="teleport-progress-label" class="login-challenge__text" data-i18n="teleport.requesting"></p>
         <div class="tp-progress__track"><div id="teleport-progress-bar" class="tp-progress__bar"></div></div>
       </div>
     </dialog>
 
     <!-- Chat log manager (opened from Bee -> About -> Chat logs) -->
     <dialog id="log-manager-dialog" class="pay-dialog log-manager">
-      <h2 class="pay-dialog__title">Chat logs</h2>
+      <h2 class="pay-dialog__title" data-i18n="logs.title"></h2>
       <div id="log-manager-list" class="log-manager__list"></div>
       <div class="pay-dialog__actions">
-        <button type="button" class="btn btn--ghost" id="log-manager-close">Close</button>
+        <button type="button" class="btn btn--ghost" id="log-manager-close" data-i18n="common.close"></button>
       </div>
     </dialog>
 
     <!-- Buy-L$ progress lock (BeeCurrency): blocks the UI while a purchase runs -->
     <dialog id="currency-progress-dialog" class="login-challenge tp-progress-dialog">
       <div class="login-challenge__body tp-progress">
-        <h2 class="login-challenge__title">Buying L$</h2>
-        <p class="login-challenge__text">Your purchase is being processed...</p>
+        <h2 class="login-challenge__title" data-i18n="currency.buyingTitle"></h2>
+        <p class="login-challenge__text" data-i18n="currency.processing"></p>
         <div class="tp-progress__track"><div class="tp-progress__bar tp-progress__bar--busy"></div></div>
       </div>
     </dialog>
@@ -1330,17 +1325,17 @@
     <!-- Reusable confirmation dialog (BeeUtils.confirm / BeeUtils.prompt) -->
     <dialog id="confirm-dialog" class="login-challenge confirm-dialog">
       <div class="login-challenge__body">
-        <h2 id="confirm-title" class="login-challenge__title">Please confirm</h2>
+        <h2 id="confirm-title" class="login-challenge__title" data-i18n="dialog.pleaseConfirm"></h2>
         <p id="confirm-message" class="login-challenge__text"></p>
         <label id="confirm-input-wrap" class="field confirm-dialog__field" hidden>
           <input type="text" id="confirm-input" maxlength="255" autocomplete="off">
         </label>
         <label id="confirm-select-wrap" class="field confirm-dialog__field" hidden>
-          <select id="confirm-select" class="settings-control__select confirm-dialog__select" aria-label="Your choice"></select>
+          <select id="confirm-select" class="settings-control__select confirm-dialog__select" data-i18n-aria-label="dialog.yourChoice"></select>
         </label>
         <div class="login-challenge__actions">
-          <button type="button" class="btn btn--ghost" id="confirm-cancel">Cancel</button>
-          <button type="button" class="btn btn--primary" id="confirm-ok">Confirm</button>
+          <button type="button" class="btn btn--ghost" id="confirm-cancel" data-i18n="common.cancel"></button>
+          <button type="button" class="btn btn--primary" id="confirm-ok" data-i18n="common.confirm"></button>
         </div>
       </div>
     </dialog>
@@ -1348,54 +1343,54 @@
     <!-- Login challenge (TOS, critical, MFA) -->
     <dialog id="login-challenge" class="login-challenge">
       <form id="login-challenge-form" method="dialog">
-        <h2 id="challenge-title">Action required</h2>
+        <h2 id="challenge-title" data-i18n="login.challengeTitle"></h2>
         <div id="challenge-body" class="login-challenge__body"></div>
         <div id="challenge-mfa-fields" class="login-challenge__mfa" hidden>
           <label class="field">
-            <span>Authenticator code</span>
+            <span data-i18n="login.mfaCode"></span>
             <input type="text" id="challenge-mfa-token" inputmode="numeric" autocomplete="one-time-code" maxlength="16" placeholder="000000">
           </label>
           <label class="field field--checkbox">
             <input type="checkbox" id="challenge-mfa-remember" checked>
-            <span>Remember this device</span>
+            <span data-i18n="login.rememberDevice"></span>
           </label>
         </div>
         <div class="login-challenge__actions">
-          <button type="button" class="btn btn--ghost" id="challenge-decline">Cancel</button>
-          <button type="submit" class="btn btn--primary" id="challenge-accept">Continue</button>
+          <button type="button" class="btn btn--ghost" id="challenge-decline" data-i18n="common.cancel"></button>
+          <button type="submit" class="btn btn--primary" id="challenge-accept" data-i18n="common.continue"></button>
         </div>
       </form>
     </dialog>
 
     <dialog id="teleport-prompt" class="teleport-prompt">
       <form id="teleport-prompt-form" method="dialog">
-        <h2 id="teleport-title" class="teleport-prompt__title">Teleport</h2>
+        <h2 id="teleport-title" class="teleport-prompt__title" data-i18n="teleport.teleport"></h2>
         <p id="teleport-body" class="teleport-prompt__body"></p>
         <p id="teleport-note" class="teleport-prompt__note" hidden></p>
         <label id="teleport-reply-wrap" class="field" hidden>
-          <span>Reply message</span>
-          <input type="text" id="teleport-reply" maxlength="255" value="Come on over.">
+          <span data-i18n="teleport.replyMessage"></span>
+          <input type="text" id="teleport-reply" maxlength="255" data-i18n-value="teleport.replyDefault">
         </label>
         <div class="teleport-prompt__actions">
-          <button type="button" class="btn btn--ghost" id="teleport-decline">Decline</button>
-          <button type="submit" class="btn btn--primary" id="teleport-accept">Accept</button>
+          <button type="button" class="btn btn--ghost" id="teleport-decline" data-i18n="common.decline"></button>
+          <button type="submit" class="btn btn--primary" id="teleport-accept" data-i18n="common.accept"></button>
         </div>
       </form>
     </dialog>
 
     <dialog id="landmark-dialog" class="teleport-prompt landmark-dialog">
       <form id="landmark-form" method="dialog">
-        <h2 class="teleport-prompt__title">Teleport to landmark</h2>
+        <h2 class="teleport-prompt__title" data-i18n="landmarks.teleportTitle"></h2>
         <p id="landmark-name" class="landmark-dialog__name"></p>
         <dl class="landmark-dialog__details">
-          <dt>Place</dt>
+          <dt data-i18n="landmarks.place"></dt>
           <dd id="landmark-place">&mdash;</dd>
           <dt>SLURL</dt>
-          <dd id="landmark-slurl" class="landmark-dialog__slurl">Looking up destination...</dd>
+          <dd id="landmark-slurl" class="landmark-dialog__slurl" data-i18n="landmarks.lookingUp"></dd>
         </dl>
         <div class="teleport-prompt__actions">
-          <button type="button" class="btn btn--ghost" id="landmark-cancel">Cancel</button>
-          <button type="submit" class="btn btn--primary" id="landmark-teleport">Teleport</button>
+          <button type="button" class="btn btn--ghost" id="landmark-cancel" data-i18n="common.cancel"></button>
+          <button type="submit" class="btn btn--primary" id="landmark-teleport" data-i18n="teleport.teleport"></button>
         </div>
       </form>
     </dialog>
@@ -1404,16 +1399,16 @@
       <form method="dialog" class="profile-dialog__shell">
         <header class="profile-dialog__header">
           <div class="profile-dialog__headings">
-            <h2 id="profile-title" class="profile-dialog__title">Profile</h2>
+            <h2 id="profile-title" class="profile-dialog__title" data-i18n="common.profile"></h2>
             <p id="profile-subtitle" class="profile-dialog__subtitle"></p>
           </div>
-          <button type="button" id="profile-close" class="icon-btn profile-dialog__close" aria-label="Close profile">
+          <button type="button" id="profile-close" class="icon-btn profile-dialog__close" data-i18n-aria-label="profile.close">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
           </button>
         </header>
         <div id="profile-actions" class="profile-dialog__actions"></div>
         <div class="profile-dialog__body">
-          <p id="profile-loading" class="profile-dialog__loading">Loading profile...</p>
+          <p id="profile-loading" class="profile-dialog__loading" data-i18n="profile.loading"></p>
           <div id="profile-content" class="profile-dialog__content" hidden></div>
         </div>
       </form>
@@ -1421,7 +1416,7 @@
 
     <dialog id="profile-image-dialog" class="profile-image-dialog">
       <form method="dialog" class="profile-image-dialog__shell">
-        <button type="button" id="profile-image-close" class="icon-btn profile-image-dialog__close" aria-label="Close image">
+        <button type="button" id="profile-image-close" class="icon-btn profile-image-dialog__close" data-i18n-aria-label="profile.closeImage">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
         <img id="profile-image-full" class="profile-image-dialog__img" alt="">
@@ -1430,158 +1425,158 @@
 
     <dialog id="pay-dialog" class="pay-dialog">
       <form id="pay-form" method="dialog">
-        <h2 class="pay-dialog__title">Pay L$</h2>
+        <h2 class="pay-dialog__title" data-i18n="currency.pay"></h2>
         <p id="pay-target-name" class="pay-dialog__target"></p>
         <label class="field">
-          <span>Amount</span>
+          <span data-i18n="currency.amount"></span>
           <input type="number" id="pay-amount" min="1" step="1" required inputmode="numeric">
         </label>
         <label class="field">
-          <span>Note (optional)</span>
+          <span data-i18n="currency.noteOptional"></span>
           <input type="text" id="pay-note" maxlength="127" autocomplete="off">
         </label>
         <div class="pay-dialog__actions">
-          <button type="button" class="btn btn--ghost" id="pay-cancel">Cancel</button>
-          <button type="submit" class="btn btn--primary" id="pay-submit">Send</button>
+          <button type="button" class="btn btn--ghost" id="pay-cancel" data-i18n="common.cancel"></button>
+          <button type="submit" class="btn btn--primary" id="pay-submit" data-i18n="common.send"></button>
         </div>
       </form>
     </dialog>
 
     <dialog id="buy-currency-dialog" class="pay-dialog buy-currency-dialog">
       <form id="buy-currency-form" method="dialog">
-        <h2 class="pay-dialog__title">Buy L$</h2>
+        <h2 class="pay-dialog__title" data-i18n="currency.buyTitle"></h2>
         <div class="buy-currency__rows">
           <div class="buy-currency__row">
-            <span>You now have</span>
+            <span data-i18n="currency.youNowHave"></span>
             <span id="buy-currency-balance" class="buy-currency__amount">L$ &mdash;</span>
           </div>
           <div class="buy-currency__row">
-            <label for="buy-currency-amount">Choose amount to buy</label>
+            <label for="buy-currency-amount" data-i18n="currency.chooseAmount"></label>
             <span class="buy-currency__entry">
               <span aria-hidden="true">L$</span>
               <input type="number" id="buy-currency-amount" min="1" step="1" inputmode="numeric" placeholder="0" autocomplete="off">
             </span>
           </div>
           <div class="buy-currency__row">
-            <span>Approx. cost</span>
+            <span data-i18n="currency.approxCost"></span>
             <span id="buy-currency-estimate" class="buy-currency__amount buy-currency__amount--estimate">&mdash;</span>
           </div>
           <div class="buy-currency__row">
-            <span>Your new balance will be</span>
+            <span data-i18n="currency.newBalance"></span>
             <span id="buy-currency-total" class="buy-currency__amount">L$ &mdash;</span>
           </div>
         </div>
-        <p id="buy-currency-note" class="buy-currency__hint" hidden>Re-enter the amount to see the latest exchange rate.</p>
+        <p id="buy-currency-note" class="buy-currency__hint" hidden data-i18n="currency.reenterNote"></p>
         <p id="buy-currency-links" class="buy-currency__hint" hidden>
-          <button type="button" class="buy-currency__link" id="buy-currency-payment-link">Payment method</button>
+          <button type="button" class="buy-currency__link" id="buy-currency-payment-link" data-i18n="currency.paymentMethod"></button>
           <span aria-hidden="true">&middot;</span>
-          <button type="button" class="buy-currency__link" id="buy-currency-history-link">Currency history</button>
+          <button type="button" class="buy-currency__link" id="buy-currency-history-link" data-i18n="currency.history"></button>
         </p>
         <p id="buy-currency-status" class="buy-currency__status" hidden></p>
         <div class="pay-dialog__actions">
-          <button type="button" class="btn btn--ghost" id="buy-currency-cancel">Cancel</button>
-          <button type="submit" class="btn btn--primary" id="buy-currency-submit" disabled>Buy now</button>
+          <button type="button" class="btn btn--ghost" id="buy-currency-cancel" data-i18n="common.cancel"></button>
+          <button type="submit" class="btn btn--primary" id="buy-currency-submit" disabled data-i18n="currency.buyNow"></button>
         </div>
       </form>
     </dialog>
 
     <dialog id="buy-currency-password-dialog" class="pay-dialog">
       <form id="buy-currency-password-form" method="dialog">
-        <h2 class="pay-dialog__title">Confirm purchase</h2>
+        <h2 class="pay-dialog__title" data-i18n="currency.confirmPurchase"></h2>
         <p id="buy-currency-password-text" class="pay-dialog__target"></p>
         <label class="field">
-          <span>Account password</span>
+          <span data-i18n="currency.accountPassword"></span>
           <input type="password" id="buy-currency-password" autocomplete="current-password">
         </label>
         <div class="pay-dialog__actions">
-          <button type="button" class="btn btn--ghost" id="buy-currency-password-cancel">Cancel</button>
-          <button type="submit" class="btn btn--primary">Confirm</button>
+          <button type="button" class="btn btn--ghost" id="buy-currency-password-cancel" data-i18n="common.cancel"></button>
+          <button type="submit" class="btn btn--primary" data-i18n="common.confirm"></button>
         </div>
       </form>
     </dialog>
 
     <dialog id="report-abuse-dialog" class="pay-dialog">
       <form id="report-abuse-form" method="dialog">
-        <h2 class="pay-dialog__title">Report abuse</h2>
+        <h2 class="pay-dialog__title" data-i18n="abuse.title"></h2>
         <p id="report-abuse-target" class="pay-dialog__target"></p>
         <label class="field">
-          <span>Category</span>
+          <span data-i18n="abuse.category"></span>
           <select id="report-abuse-category"></select>
         </label>
         <label class="field">
-          <span>Summary</span>
-          <input type="text" id="report-abuse-summary" maxlength="120" autocomplete="off" placeholder="What happened, in one line">
+          <span data-i18n="abuse.summary"></span>
+          <input type="text" id="report-abuse-summary" maxlength="120" autocomplete="off" data-i18n-placeholder="abuse.summaryPlaceholder">
         </label>
         <label class="field">
-          <span>Details</span>
-          <textarea id="report-abuse-details" rows="5" maxlength="4000" placeholder="When, where, and anything that helps the moderators"></textarea>
+          <span data-i18n="abuse.details"></span>
+          <textarea id="report-abuse-details" rows="5" maxlength="4000" data-i18n-placeholder="abuse.detailsPlaceholder"></textarea>
         </label>
-        <p class="field-hint">The report goes to the grid's moderation team. The person being reported is not notified.</p>
+        <p class="field-hint" data-i18n="abuse.hint"></p>
         <div class="pay-dialog__actions">
-          <button type="button" class="btn btn--ghost" id="report-abuse-cancel">Cancel</button>
-          <button type="submit" class="btn btn--primary" id="report-abuse-submit">Send report</button>
+          <button type="button" class="btn btn--ghost" id="report-abuse-cancel" data-i18n="common.cancel"></button>
+          <button type="submit" class="btn btn--primary" id="report-abuse-submit" data-i18n="abuse.send"></button>
         </div>
       </form>
     </dialog>
 
     <dialog id="conference-dialog" class="pay-dialog conference-dialog">
       <form id="conference-form" method="dialog">
-        <h2 class="pay-dialog__title" id="conference-dialog-title">New conference chat</h2>
+        <h2 class="pay-dialog__title" id="conference-dialog-title" data-i18n="conference.title"></h2>
         <label class="field" id="conference-title-field">
-          <span>Filter contacts</span>
-          <input type="text" id="conference-title" maxlength="63" autocomplete="off" placeholder="Filter by name or username">
+          <span data-i18n="conference.filterContacts"></span>
+          <input type="text" id="conference-title" maxlength="63" autocomplete="off" data-i18n-placeholder="conference.filterPlaceholder">
         </label>
-        <p class="conference-dialog__hint">Select people to invite:</p>
-        <div id="conference-picker" class="conference-picker" role="group" aria-label="Select participants"></div>
+        <p class="conference-dialog__hint" data-i18n="conference.selectPeople"></p>
+        <div id="conference-picker" class="conference-picker" role="group" data-i18n-aria-label="conference.selectParticipants"></div>
         <div class="pay-dialog__actions">
-          <button type="button" class="btn btn--ghost" id="conference-cancel">Cancel</button>
-          <button type="submit" class="btn btn--primary" id="conference-submit">Start</button>
+          <button type="button" class="btn btn--ghost" id="conference-cancel" data-i18n="common.cancel"></button>
+          <button type="submit" class="btn btn--primary" id="conference-submit" data-i18n="common.start"></button>
         </div>
       </form>
     </dialog>
 
     <dialog id="region-restart-dialog" class="pay-dialog region-restart-dialog">
-      <h2 class="pay-dialog__title region-restart-dialog__title">Region restart imminent</h2>
+      <h2 class="pay-dialog__title region-restart-dialog__title" data-i18n="restart.title"></h2>
       <p id="region-restart-text" class="region-restart-dialog__text"></p>
-      <p class="region-restart-dialog__hint">Teleport somewhere else now, or you will be logged out when the region goes down.</p>
+      <p class="region-restart-dialog__hint" data-i18n="restart.hint"></p>
       <div class="pay-dialog__actions">
-        <button type="button" class="btn btn--secondary" id="region-restart-map">Open map</button>
-        <button type="button" class="btn btn--primary" id="region-restart-ok">Understood</button>
+        <button type="button" class="btn btn--secondary" id="region-restart-map" data-i18n="restart.openMap"></button>
+        <button type="button" class="btn btn--primary" id="region-restart-ok" data-i18n="restart.understood"></button>
       </div>
     </dialog>
 
     <dialog id="group-invite-dialog" class="pay-dialog">
       <form id="group-invite-form" method="dialog">
-        <h2 class="pay-dialog__title">Invite to group</h2>
+        <h2 class="pay-dialog__title" data-i18n="groups.inviteTitle"></h2>
         <p id="group-invite-target" class="pay-dialog__target"></p>
         <label class="field">
-          <span>Group</span>
+          <span data-i18n="groups.group"></span>
           <select id="group-invite-select"></select>
         </label>
         <div class="pay-dialog__actions">
-          <button type="button" class="btn btn--ghost" id="group-invite-cancel">Cancel</button>
-          <button type="submit" class="btn btn--primary" id="group-invite-submit">Send invitation</button>
+          <button type="button" class="btn btn--ghost" id="group-invite-cancel" data-i18n="common.cancel"></button>
+          <button type="submit" class="btn btn--primary" id="group-invite-submit" data-i18n="groups.sendInvitation"></button>
         </div>
       </form>
     </dialog>
 
     <dialog id="give-dialog" class="pay-dialog conference-dialog give-dialog">
       <form id="give-form" method="dialog">
-        <h2 class="pay-dialog__title">Send to a resident</h2>
+        <h2 class="pay-dialog__title" data-i18n="give.title"></h2>
         <p id="give-item-name" class="pay-dialog__target"></p>
-        <div class="give-sources" role="tablist" aria-label="Where to pick the recipient from">
-          <button type="button" class="search-kind give-source search-kind--active" data-give-source="friends" role="tab" aria-selected="true">Friends</button>
-          <button type="button" class="search-kind give-source" data-give-source="nearby" role="tab" aria-selected="false">Nearby</button>
-          <button type="button" class="search-kind give-source" data-give-source="search" role="tab" aria-selected="false">Search</button>
+        <div class="give-sources" role="tablist" data-i18n-aria-label="give.sources">
+          <button type="button" class="search-kind give-source search-kind--active" data-give-source="friends" role="tab" aria-selected="true" data-i18n="give.friends"></button>
+          <button type="button" class="search-kind give-source" data-give-source="nearby" role="tab" aria-selected="false" data-i18n="give.nearby"></button>
+          <button type="button" class="search-kind give-source" data-give-source="search" role="tab" aria-selected="false" data-i18n="common.search"></button>
         </div>
         <label class="field">
-          <span id="give-filter-label">Filter</span>
-          <input type="text" id="give-filter" maxlength="63" autocomplete="off" placeholder="Filter by name or username">
+          <span id="give-filter-label" data-i18n="give.filter"></span>
+          <input type="text" id="give-filter" maxlength="63" autocomplete="off" data-i18n-placeholder="conference.filterPlaceholder">
         </label>
-        <div id="give-picker" class="conference-picker give-picker" role="radiogroup" aria-label="Choose a recipient"></div>
+        <div id="give-picker" class="conference-picker give-picker" role="radiogroup" data-i18n-aria-label="give.chooseRecipient"></div>
         <div class="pay-dialog__actions">
-          <button type="button" class="btn btn--ghost" id="give-cancel">Cancel</button>
-          <button type="submit" class="btn btn--primary" id="give-submit" disabled>Send</button>
+          <button type="button" class="btn btn--ghost" id="give-cancel" data-i18n="common.cancel"></button>
+          <button type="submit" class="btn btn--primary" id="give-submit" disabled data-i18n="common.send"></button>
         </div>
       </form>
     </dialog>
@@ -1596,6 +1591,7 @@
 
   </div>
 
+  <script src="js/i18n.js"></script>
   <script src="js/utils.js"></script>
   <script src="js/version.js"></script>
   <script src="js/state.js"></script>

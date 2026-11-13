@@ -8,8 +8,10 @@ use std::time::Duration;
 use once_cell::sync::Lazy;
 use reqwest::redirect::Policy;
 use reqwest::{Method, Url};
+use serde_json::json;
 
 use crate::bridge::util::normalize_seed_url;
+use crate::uitext::ui_err;
 
 /// Clients pooled by (user agent, DNS pin), most recently used last. Reusing a
 /// client keeps its connection pool alive, so repeat calls to the same host -
@@ -98,13 +100,15 @@ pub async fn guard_url_pin(url: &str) -> Result<Option<(String, SocketAddr)>, St
     // fetch proceed against an address we never vetted.
     let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), port))
         .await
-        .map_err(|e| format!("could not resolve target host {host}: {e}"))?
+        .map_err(|e| {
+            ui_err("err.targetHostUnresolved", json!({ "host": host, "error": e.to_string() }))
+        })?
         .collect();
     if addrs.is_empty() {
-        return Err(format!("target host {host} resolved to no addresses"));
+        return Err(ui_err("err.targetHostNoAddresses", json!({ "host": host })));
     }
     if let Some(bad) = addrs.iter().find(|a| ip_is_private(&a.ip())) {
-        return Err(format!("target resolves to a private/loopback address: {}", bad.ip()));
+        return Err(ui_err("err.targetPrivateAddress", json!({ "ip": bad.ip().to_string() })));
     }
     let addr = addrs.iter().find(|a| a.is_ipv4()).or_else(|| addrs.first()).copied();
     Ok(addr.map(|a| (host, a)))
@@ -190,14 +194,14 @@ fn chunk_fits(so_far: usize, chunk: usize, cap: u64) -> bool {
 async fn read_body_capped(mut resp: reqwest::Response, cap: u64) -> Result<Vec<u8>, String> {
     let declared = resp.content_length();
     if !declared_length_ok(declared, cap) {
-        return Err(format!("Response too large ({} bytes, limit {cap})", declared.unwrap_or(0)));
+        return Err(ui_err("err.responseTooLargeDeclared", json!({ "bytes": declared.unwrap_or(0), "limit": cap })));
     }
     // Preallocate from the declared size, but never let a header alone make
     // us reserve tens of MB for a body that may never come.
     let mut out = Vec::with_capacity(declared.unwrap_or(0).min(1 << 20) as usize);
     while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
         if !chunk_fits(out.len(), chunk.len(), cap) {
-            return Err(format!("Response too large (over {cap} bytes)"));
+            return Err(ui_err("err.responseTooLargeStreamed", json!({ "limit": cap })));
         }
         out.extend_from_slice(&chunk);
     }
@@ -318,7 +322,7 @@ pub async fn exchange(
     loop {
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if remaining.is_zero() {
-            return Err("Proxy timeout".into());
+            return Err(ui_err("err.proxyTimeout", json!({})));
         }
         let m = Method::from_bytes(method_upper.as_bytes()).unwrap_or(Method::GET);
         let mut req = client.request(m, &cur_url).timeout(remaining);
@@ -330,7 +334,10 @@ pub async fn exchange(
             req = req.header("Content-Type", content_type).body(payload.to_string());
         }
 
-        let resp = req.send().await.map_err(|e| format!("Proxy HTTP error: {e}"))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| ui_err("err.proxyHttpError", json!({ "error": e.to_string() })))?;
         let status = resp.status();
         let effective_url = resp.url().to_string();
         let ctype = resp
@@ -356,7 +363,7 @@ pub async fn exchange(
                     // (login servers, general caps) are free to follow cross-host public
                     // redirects - each hop is still SSRF-guarded by guard_url below.
                     if is_simhost(o) && !o.eq_ignore_ascii_case(n) && !is_simhost(n) {
-                        return Err(format!("simhost redirect left the sim ({o} -> {n})"));
+                        return Err(ui_err("err.simhostRedirectLeftSim", json!({ "from": o, "to": n })));
                     }
                 }
                 // Re-run the SSRF guard on the redirect target (this resolves

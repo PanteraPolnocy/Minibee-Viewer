@@ -13,9 +13,50 @@ use crate::bridge::state::{viewer_identity_for_product, AppState};
 use crate::bridge::util::{normalize_seed_url, normalize_sim_ip, trim_quotes};
 use crate::bridge::{circuit, login, map, proxy};
 use crate::codec;
+use crate::uitext::{ui_err, UiText};
 use crate::urlmatch;
 
 type Cmd = Result<Value, String>;
+
+/// The rejection every command gives without a live session.
+fn no_active_session() -> String {
+    ui_err("err.noActiveSession", json!({}))
+}
+
+/// A circuit that has not finished its handshake yet.
+fn session_not_ready() -> String {
+    ui_err("err.sessionNotReady", json!({}))
+}
+
+fn no_object() -> String {
+    ui_err("err.noObject", json!({}))
+}
+
+fn no_resident() -> String {
+    ui_err("err.noResident", json!({}))
+}
+
+fn no_group() -> String {
+    ui_err("err.noGroup", json!({}))
+}
+
+fn no_item() -> String {
+    ui_err("err.noItem", json!({}))
+}
+
+fn no_parcel_selected() -> String {
+    ui_err("err.noParcelSelected", json!({}))
+}
+
+/// The form's LocalID is not the parcel the circuit is standing on.
+fn land_data_stale() -> String {
+    ui_err("err.landDataStale", json!({}))
+}
+
+/// No ParcelProperties has landed yet.
+fn no_parcel_data() -> String {
+    ui_err("err.noParcelData", json!({}))
+}
 
 fn gs(v: &Value, key: &str) -> String {
     match v.get(key) {
@@ -84,28 +125,11 @@ pub async fn app_about() -> Cmd {
     let mut about = viewer_identity_for_product(&channel_base);
     let about_obj = about
         .as_object_mut()
-        .ok_or_else(|| "about payload".to_string())?;
+        .ok_or_else(|| ui_err("err.aboutUnavailable", json!({})))?;
     about_obj.insert("name".into(), json!(name));
-    // The Google Play build is a different binary (no L$ purchase); the About
-    // subtab says so next to the name, and so does the Copy-all report.
-    about_obj.insert(
-        "edition".into(),
-        if crate::bridge::platform::play_store_build() { json!("Google Play edition") } else { Value::Null },
-    );
-    // The same sentence sits on the login screen (index.html).
-    about_obj.insert(
-        "disclaimer".into(),
-        json!("This software is not provided or supported by Linden Lab, the makers of Second Life."),
-    );
-    about_obj.insert("dedication".into(), json!("Dedicated to Panther Maurer."));
-    about_obj.insert(
-        "catchphrase".into(),
-        json!(or(field(&bundle, "longDescription"), "A lightweight buzz into the infinite grid.")),
-    );
-    about_obj.insert(
-        "description".into(),
-        json!(or(field(&bundle, "shortDescription"), "Minimalist client for Second Life")),
-    );
+    // The bundle's own blurb, as tauri.conf.json has it (the store listing's
+    // words; the About tab shows the keyed catchphrase instead).
+    about_obj.insert("description".into(), json!(field(&bundle, "shortDescription")));
     about_obj.insert("author".into(), json!(or(field(&bundle, "publisher"), env!("CARGO_PKG_AUTHORS"))));
     about_obj.insert("homepage".into(), json!(homepage));
     // Contact is the author's in-world profile, not the repo: the About subtab
@@ -150,6 +174,29 @@ pub async fn app_about() -> Cmd {
             "memProcess": mem_proc,
         }),
     );
+    // The lines below carry their keys beside them (editionKey, ...), the way
+    // the About subtab reads them.
+    //
+    // The Google Play build is a different binary (no L$ purchase); the About
+    // subtab says so next to the name, and so does the Copy-all report.
+    if crate::bridge::platform::play_store_build() {
+        UiText::new("about.editionGooglePlay", json!({})).fields(&mut about, "edition");
+    } else {
+        about["edition"] = Value::Null;
+    }
+    // The same sentence sits on the login screen (index.html).
+    UiText::new("about.disclaimer", json!({}))
+    .fields(&mut about, "disclaimer");
+    UiText::new("about.dedication", json!({ "name": "Panther Maurer" }))
+        .fields(&mut about, "dedication");
+    // The catchphrase is the bundle's longDescription (tauri.conf.json), the
+    // same line as here; the key beside it is for its translation.
+    UiText::new("about.catchphrase", json!({}))
+        .fields(&mut about, "catchphrase");
+    let bundled = field(&bundle, "longDescription");
+    if !bundled.is_empty() {
+        about["catchphrase"] = json!(bundled);
+    }
     Ok(about)
 }
 
@@ -173,22 +220,31 @@ fn mem_snapshot() -> (u64, u64, u64) {
 /// Deliberately says nothing about where else to buy: in the Google Play
 /// edition, pointing at another way to pay for virtual currency is itself
 /// against the store's payments policy.
-const BUY_UNAVAILABLE_NOTICE: &str =
-    "Buying Linden Dollars is not available in this edition of Minibee. Your balance still works normally everywhere in the app.";
+fn buy_unavailable_notice() -> UiText {
+    UiText::new("currency.buyUnavailableNotice", json!({}))
+}
 
 /// Which edition this binary is: the Google Play AAB reports playStore=true
 /// and ships without the Buy L$ flow (Play policy: virtual currency must go
 /// through the store's own billing). The frontend reads `canBuyCurrency` for
-/// every Buy L$ entry point and shows `buyNotice` in their place.
+/// every Buy L$ entry point and shows `buyNotice` (with its key beside it) in
+/// their place.
 #[tauri::command]
 pub fn app_distribution() -> Cmd {
-    let play = crate::bridge::platform::play_store_build();
-    Ok(json!({
+    Ok(distribution(crate::bridge::platform::play_store_build()))
+}
+
+fn distribution(play: bool) -> Value {
+    let mut out = json!({
         "ok": true,
         "playStore": play,
         "canBuyCurrency": !play,
-        "buyNotice": if play { Value::String(BUY_UNAVAILABLE_NOTICE.into()) } else { Value::Null },
-    }))
+        "buyNotice": Value::Null,
+    });
+    if play {
+        buy_unavailable_notice().fields(&mut out, "buyNotice");
+    }
+    out
 }
 
 /// Markers in the bundled Markdown around text that must not reach the
@@ -441,11 +497,11 @@ pub async fn bridge_proxy(state: State<'_, Arc<AppState>>, params: Value) -> Cmd
     };
     let raw_url = gs(&params, "url");
     if raw_url.is_empty() {
-        return Err("url required".into());
+        return Err(ui_err("err.urlRequired", json!({})));
     }
     let url = normalize_seed_url(&raw_url);
     if let Some(reason) = proxy::egress_block_reason(&url) {
-        return Err(format!("Proxy target refused: {reason}"));
+        return Err(ui_err("err.proxyTargetRefused", json!({ "reason": reason })));
     }
     let is_post = method == "POST";
     let payload = if is_post { gs(&params, "body") } else { String::new() };
@@ -558,7 +614,7 @@ pub async fn bridge_map_tile(
 ) -> Cmd {
     let level = level.clamp(1, 8);
     if !(0..=65535).contains(&x) || !(0..=65535).contains(&y) {
-        return Err("invalid tile coordinates".into());
+        return Err(ui_err("err.invalidTileCoordinates", json!({})));
     }
     let server = server.unwrap_or_else(|| "https://map.secondlife.com/".into());
     map::fetch_map_tile(state.inner(), level, x, y, &server).await
@@ -567,7 +623,7 @@ pub async fn bridge_map_tile(
 #[tauri::command]
 pub async fn bridge_map_region(state: State<'_, Arc<AppState>>, x: i64, y: i64) -> Cmd {
     if !(0..=65535).contains(&x) || !(0..=65535).contains(&y) {
-        return Err("invalid grid coordinates".into());
+        return Err(ui_err("err.invalidGridCoordinates", json!({})));
     }
     Ok(map::fetch_region_by_grid(state.inner(), x, y).await)
 }
@@ -575,7 +631,7 @@ pub async fn bridge_map_region(state: State<'_, Arc<AppState>>, x: i64, y: i64) 
 #[tauri::command]
 pub async fn bridge_map_regions(state: State<'_, Arc<AppState>>, tiles: String) -> Cmd {
     if tiles.trim().is_empty() {
-        return Err("tiles required".into());
+        return Err(ui_err("err.tilesRequired", json!({})));
     }
     Ok(map::fetch_regions_by_grid_batch(state.inner(), &tiles).await)
 }
@@ -583,7 +639,7 @@ pub async fn bridge_map_regions(state: State<'_, Arc<AppState>>, tiles: String) 
 #[tauri::command]
 pub async fn bridge_region_by_name(state: State<'_, Arc<AppState>>, name: String) -> Cmd {
     if name.trim().is_empty() {
-        return Err("region name required".into());
+        return Err(ui_err("err.regionNameRequired", json!({})));
     }
     Ok(map::fetch_region_by_name(state.inner(), &name).await)
 }
@@ -628,13 +684,26 @@ fn vstr(s: &str) -> Value {
     json!(B64.encode(format!("{s}\0").as_bytes()))
 }
 
-/// A trimmed, lowercased, non-null UUID, or an error naming what was missing.
+/// A trimmed, lowercased, non-null UUID, or an error naming what was missing
+/// (see `missing` for the nouns).
 fn require_uuid(raw: &str, what: &str) -> Result<String, String> {
     let id = raw.trim().to_ascii_lowercase();
     if !crate::bridge::inventory::is_uuid(&id) || crate::bridge::inventory::is_zero_uuid(&id) {
-        return Err(format!("No {what}"));
+        return Err(missing(what));
     }
     Ok(id)
+}
+
+/// "No {what}" - each noun `require_uuid` is asked about spelled out in full,
+/// so a translation can decline it.
+fn missing(what: &str) -> String {
+    match what {
+        "group" => no_group(),
+        "item" => no_item(),
+        "invitation" => ui_err("err.noInvitation", json!({})),
+        "trash folder" => ui_err("err.noTrashFolder", json!({})),
+        _ => ui_err("err.noSuchThing", json!({ "what": what })),
+    }
 }
 
 /// An L$ amount the wire can carry. MoneyData.Amount and the parcel prices are
@@ -643,7 +712,7 @@ fn require_uuid(raw: &str, what: &str) -> Result<String, String> {
 /// number. `min` is 1 for a payment and 0 for a price that may mean "not for sale".
 fn linden_amount(amount: i64, min: i64) -> Result<i64, String> {
     if amount < min || amount > i32::MAX as i64 {
-        return Err(format!("L$ amount must be between {min} and {}", i32::MAX));
+        return Err(ui_err("err.lindenAmountRange", json!({ "min": min, "max": i32::MAX })));
     }
     Ok(amount)
 }
@@ -660,8 +729,8 @@ fn detach_all_sessions(state: &AppState) -> Vec<Arc<circuit::Session>> {
 pub(crate) fn active_ids(
     state: &AppState,
 ) -> Result<(std::sync::Arc<crate::bridge::circuit::Session>, String, String), String> {
-    let s = state.active().ok_or("No active session")?;
-    let (a, sess) = s.agent_ids().ok_or("Session not ready")?;
+    let s = state.active().ok_or_else(no_active_session)?;
+    let (a, sess) = s.agent_ids().ok_or_else(session_not_ready)?;
     Ok((s, a, sess))
 }
 
@@ -782,7 +851,9 @@ async fn inventory_move(
     object_id: &str,
     folder_id: &str,
 ) -> Result<(), String> {
-    let cap = session.cap("InventoryAPIv3").ok_or("Inventory update capability unavailable")?;
+    let cap = session.cap("InventoryAPIv3").ok_or_else(|| {
+        ui_err("err.inventoryUpdateCapUnavailable", json!({}))
+    })?;
     let body = format!(
         "<?xml version=\"1.0\"?><llsd><map><key>parent_id</key><uuid>{folder_id}</uuid></map></llsd>"
     );
@@ -812,10 +883,10 @@ async fn inventory_move(
             return Ok(());
         }
         if ex.status != 404 {
-            return Err(format!("HTTP {} body={:.200}", ex.status, ex.body));
+            return Err(ui_err("err.inventoryMoveFailed", json!({ "status": ex.status })));
         }
     }
-    Err("HTTP 404 as item and as category".into())
+    Err(ui_err("err.inventoryMoveNotFound", json!({})))
 }
 
 /// Answer an inventory offer (from a resident, an object's script, or a group
@@ -837,7 +908,7 @@ pub async fn sl_inventory_offer_respond(
 ) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if from_id.is_empty() || from_id == ZERO_UUID {
-        return Err("No offerer".into());
+        return Err(ui_err("err.noOfferer", json!({})));
     }
     let group_notice = kind.as_deref() == Some("group-notice");
     let task = from_task.unwrap_or(false);
@@ -845,7 +916,7 @@ pub async fn sl_inventory_offer_respond(
     let bucket = if (task || group_notice) && accept {
         let root = state.inv_root.lock().unwrap().clone();
         if root.is_empty() {
-            return Err("No inventory root folder known".into());
+            return Err(ui_err("err.noInventoryRoot", json!({})));
         }
         json!(B64.encode(uuid_bytes(&root)))
     } else {
@@ -878,7 +949,10 @@ pub async fn sl_inventory_offer_respond(
             tokio::spawn(async move {
                 match inventory_move(&state, &session, &item, &trash).await {
                     Ok(()) => crate::dlog!("inventory: declined offer {item} moved to Trash"),
-                    Err(e) => crate::dlog!("inventory: could not move declined offer {item} to Trash: {e}"),
+                    Err(e) => crate::dlog!(
+                        "inventory: could not move declined offer {item} to Trash: {}",
+                        crate::uitext::plain(&e)
+                    ),
                 }
             });
         }
@@ -950,14 +1024,14 @@ pub async fn sl_inventory_give(
     let (s, agent, sess) = active_ids(&state)?;
     let to = to_id.trim().to_ascii_lowercase();
     if to.is_empty() || to == ZERO_UUID {
-        return Err("No recipient".into());
+        return Err(ui_err("err.noRecipient", json!({})));
     }
     if to == agent.to_ascii_lowercase() {
-        return Err("You cannot offer an item to yourself".into());
+        return Err(ui_err("err.cannotOfferToYourself", json!({})));
     }
     let item = item_id.trim().to_ascii_lowercase();
     if !crate::bridge::inventory::is_uuid(&item) || crate::bridge::inventory::is_zero_uuid(&item) {
-        return Err("No item".into());
+        return Err(no_item());
     }
     let tx = crate::bridge::circuit::gen_id();
     s.send_encoded(
@@ -1045,7 +1119,7 @@ pub async fn sl_group_save_title(state: State<'_, Arc<AppState>>, group_id: Stri
     // role_id may legitimately be the zero UUID (the default "Everyone" title), but
     // the group itself must be real.
     if group_id.is_empty() || group_id == ZERO_UUID {
-        return Err("No group for title".into());
+        return Err(ui_err("err.noGroupForTitle", json!({})));
     }
     s.send_encoded(
         "GroupTitleUpdate",
@@ -1190,7 +1264,7 @@ fn places_query_flags(requested: Option<i64>, level: Maturity) -> i64 {
 #[tauri::command]
 pub async fn sl_set_max_maturity(level: String) -> Cmd {
     let Some(parsed) = Maturity::parse(&level) else {
-        return Err(format!("unknown maturity level: {level}"));
+        return Err(ui_err("err.unknownMaturityLevel", json!({ "level": level })));
     };
     crate::bridge::session::set_max_maturity(parsed);
     Ok(json!({ "ok": true, "level": level }))
@@ -1232,8 +1306,9 @@ async fn await_dir_results(s: &Arc<crate::bridge::circuit::Session>, query_id: &
 
 /// Trim the overflow sentinel off and shape the reply the search UI renders.
 /// `note` is the line shown under the result count while maturity bands are
-/// left out (see `maturity_hidden_note`); people searches have none.
-fn dir_result_payload(query_id: &str, mut rows: Vec<Value>, status: u64, start: i64, note: Option<String>) -> Value {
+/// left out (see `maturity_hidden_line`); people searches have none. Both it
+/// and `statusText` carry their keys beside them (noteKey, statusTextArgs, ...).
+fn dir_result_payload(query_id: &str, mut rows: Vec<Value>, status: u64, start: i64, note: Option<UiText>) -> Value {
     let has_more = rows.len() > DIR_PAGE;
     rows.truncate(DIR_PAGE);
     let mut payload = json!({
@@ -1243,27 +1318,31 @@ fn dir_result_payload(query_id: &str, mut rows: Vec<Value>, status: u64, start: 
         "hasMore": has_more,
         "nextStart": start + DIR_PAGE as i64,
         "status": status,
-        "statusText": dir_status_text(status),
+        "statusText": "",
     });
-    if let Some(note) = note {
-        payload["note"] = json!(note);
+    if let Some(line) = dir_status_line(status) {
+        line.fields(&mut payload, "statusText");
+    }
+    if let Some(line) = note {
+        line.fields(&mut payload, "note");
     }
     payload
 }
 
-/// Human-readable reason when the sim answers with a status instead of rows.
-/// The bit layout is shared by the places/events/classifieds replies;
-/// DirPeopleReply carries no StatusData, so 0 is the norm.
-fn dir_status_text(status: u64) -> &'static str {
-    if status & (1 << 0) != 0 {
-        "The search query contained a banned word."
+/// Human-readable reason when the sim answers with a status instead of rows;
+/// None when there is nothing to explain. The bit layout is shared by the
+/// places/events/classifieds replies; DirPeopleReply carries no StatusData,
+/// so 0 is the norm.
+fn dir_status_line(status: u64) -> Option<UiText> {
+    Some(if status & (1 << 0) != 0 {
+        UiText::new("search.statusBannedWord", json!({}))
     } else if status & (1 << 1) != 0 {
-        "The search text is too short."
+        UiText::new("search.statusTooShort", json!({}))
     } else if status & (1 << 3) != 0 {
-        "Search is disabled on this grid."
+        UiText::new("search.statusDisabled", json!({}))
     } else {
-        ""
-    }
+        return None;
+    })
 }
 
 #[tauri::command]
@@ -1283,7 +1362,7 @@ pub async fn sl_search_groups(state: State<'_, Arc<AppState>>, query: String, st
     )
     .await;
     let (rows, status) = await_dir_results(&s, &query_id).await;
-    let note = crate::bridge::session::maturity_hidden_note(level, "groups");
+    let note = crate::bridge::session::maturity_hidden_line(level, "groups");
     Ok(dir_result_payload(&query_id, rows, status, start, note))
 }
 
@@ -1313,7 +1392,7 @@ pub async fn sl_search_places(
     )
     .await;
     let (rows, status) = await_dir_results(&s, &query_id).await;
-    let note = crate::bridge::session::maturity_hidden_note(level, "places");
+    let note = crate::bridge::session::maturity_hidden_line(level, "places");
     Ok(dir_result_payload(&query_id, rows, status, start, note))
 }
 
@@ -1329,7 +1408,7 @@ pub async fn sl_group_invite(
 ) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if group_id.is_empty() || group_id == ZERO_UUID {
-        return Err("No group".into());
+        return Err(no_group());
     }
     let role = role_id
         .filter(|r| !r.trim().is_empty())
@@ -1340,7 +1419,7 @@ pub async fn sl_group_invite(
         .map(|id| json!({ "InviteeID": id, "RoleID": role }))
         .collect();
     if invites.is_empty() {
-        return Err("No invitees".into());
+        return Err(ui_err("err.noInvitees", json!({})));
     }
     let count = invites.len();
     s.send_encoded(
@@ -1375,7 +1454,7 @@ pub async fn sl_group_request_titles(state: State<'_, Arc<AppState>>, group_id: 
 pub async fn sl_group_notices_request(state: State<'_, Arc<AppState>>, group_id: String) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if group_id.is_empty() || group_id == ZERO_UUID {
-        return Err("No group".into());
+        return Err(no_group());
     }
     s.send_encoded(
         "GroupNoticesListRequest",
@@ -1395,7 +1474,7 @@ pub async fn sl_group_notices_request(state: State<'_, Arc<AppState>>, group_id:
 pub async fn sl_group_notice_request(state: State<'_, Arc<AppState>>, notice_id: String) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if notice_id.is_empty() || notice_id == ZERO_UUID {
-        return Err("No notice".into());
+        return Err(ui_err("err.noNotice", json!({})));
     }
     s.send_encoded(
         "GroupNoticeRequest",
@@ -1695,7 +1774,7 @@ async fn request_object_batch(
 /// is open and the nearby list is worth answering.
 #[tauri::command]
 pub async fn sl_object_scan(state: State<'_, Arc<AppState>>, enable: bool) -> Cmd {
-    let s = state.active().ok_or("No active session")?;
+    let s = state.active().ok_or_else(no_active_session)?;
     s.set_object_scan(enable);
     if enable {
         let caps_state = state.inner().clone();
@@ -1854,7 +1933,7 @@ pub async fn sl_nearby_objects(
 pub async fn sl_object_details(state: State<'_, Arc<AppState>>, object_id: String) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if object_id.is_empty() || object_id == ZERO_UUID {
-        return Err("No object".into());
+        return Err(no_object());
     }
     request_object_props(&s, &agent, &sess, &object_id).await;
     Ok(json!({ "ok": true }))
@@ -1872,7 +1951,7 @@ pub async fn sl_object_pay(
     const TRANS_PAY_OBJECT: i64 = 5008;
     let (s, agent, sess) = active_ids(&state)?;
     if object_id.is_empty() || object_id == ZERO_UUID {
-        return Err("No object".into());
+        return Err(no_object());
     }
     // Zero amount is rejected; pay the absolute value (i64::MIN has none, and
     // is out of range anyway).
@@ -1901,7 +1980,7 @@ pub async fn sl_object_pay(
 pub async fn sl_request_pay_price(state: State<'_, Arc<AppState>>, object_id: String) -> Cmd {
     let (s, _agent, _sess) = active_ids(&state)?;
     if object_id.is_empty() || object_id == ZERO_UUID {
-        return Err("No object".into());
+        return Err(no_object());
     }
     s.send_encoded(
         "RequestPayPrice",
@@ -1919,7 +1998,7 @@ pub async fn sl_request_pay_price(state: State<'_, Arc<AppState>>, object_id: St
 pub async fn sl_object_select(state: State<'_, Arc<AppState>>, local_id: u32) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if local_id == 0 {
-        return Err("No object".into());
+        return Err(no_object());
     }
     s.send_encoded(
         "ObjectSelect",
@@ -1987,7 +2066,7 @@ pub async fn sl_object_touch(state: State<'_, Arc<AppState>>, local_id: u32) -> 
 pub async fn sl_object_sit(app: AppHandle, state: State<'_, Arc<AppState>>, object_id: String) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if object_id.is_empty() || object_id == ZERO_UUID {
-        return Err("No object".into());
+        return Err(no_object());
     }
     s.set_sit_pending(true);
     s.send_encoded(
@@ -2006,14 +2085,15 @@ pub async fn sl_object_sit(app: AppHandle, state: State<'_, Arc<AppState>>, obje
         tokio::time::sleep(Duration::from_secs(10)).await;
         if me.is_sit_pending() && !me.is_sitting() {
             me.set_sit_pending(false);
-            let _ = app.emit(
-                "minibee-viewer://sit-state",
-                crate::bridge::events::payload(crate::bridge::events::SitState {
-                    sitting: false,
-                    object_id: String::new(),
-                    error: Some("Could not sit there - the object did not respond.".into()),
-                }),
-            );
+            let line = UiText::new("interact.sitNoResponse", json!({}));
+            let mut verdict = crate::bridge::events::payload(crate::bridge::events::SitState {
+                sitting: false,
+                object_id: String::new(),
+                error: Some(line.text.clone()),
+            });
+            // The key rides beside the struct's own `error` (errorKey, errorArgs).
+            line.fields(&mut verdict, "error");
+            let _ = app.emit("minibee-viewer://sit-state", verdict);
         }
     });
     Ok(json!({ "ok": true, "pending": true }))
@@ -2070,11 +2150,11 @@ pub async fn sl_teleport_to(
 #[tauri::command]
 pub async fn sl_teleport_to_agent(state: State<'_, Arc<AppState>>, agent_id: String) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
-    let (grid_x, grid_y, region_name, pos) = s
-        .resident_teleport_target(&agent_id)
-        .ok_or("No known position for that resident yet.")?;
+    let (grid_x, grid_y, region_name, pos) = s.resident_teleport_target(&agent_id).ok_or_else(|| {
+        ui_err("err.noKnownPositionForResident", json!({}))
+    })?;
     if grid_x == 0 && grid_y == 0 {
-        return Err("The region location isn't known yet.".into());
+        return Err(ui_err("err.regionLocationUnknown", json!({})));
     }
     stand_before_teleport(&s, &agent, &sess).await;
     s.clear_objects_for_teleport(grid_x, grid_y);
@@ -2098,10 +2178,10 @@ pub async fn sl_teleport_to_agent(state: State<'_, Arc<AppState>>, agent_id: Str
 
 #[tauri::command]
 pub fn sl_current_slurl(state: State<'_, Arc<AppState>>) -> Cmd {
-    let s = state.active().ok_or("No active session")?;
+    let s = state.active().ok_or_else(no_active_session)?;
     let region = s.region_name();
     if region.is_empty() {
-        return Err("The region name isn't known yet.".into());
+        return Err(ui_err("err.regionNameUnknown", json!({})));
     }
     let pos = s.last_position().unwrap_or([128.0, 128.0, 25.0]);
     let slurl = format!(
@@ -2187,10 +2267,10 @@ pub async fn sl_block_agent(
 ) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if agent_id.is_empty() || agent_id == ZERO_UUID {
-        return Err("No resident".into());
+        return Err(no_resident());
     }
     if agent_id.eq_ignore_ascii_case(&agent) {
-        return Err("You cannot block yourself".into());
+        return Err(ui_err("err.cannotBlockYourself", json!({})));
     }
     let label = name.unwrap_or_default();
     // Lindens can't be blocked - but only where Lindens exist, and judged by the
@@ -2199,7 +2279,7 @@ pub async fn sl_block_agent(
     let linden_grid = state.currency.lock().unwrap().as_ref().map_or(false, |c| c.linden_grid);
     let check = s.cached_name_of(&agent_id).unwrap_or_else(|| label.clone());
     if linden_grid && is_linden_name(&check) {
-        return Err("Linden Lab employees cannot be blocked".into());
+        return Err(ui_err("err.lindensCannotBeBlocked", json!({})));
     }
     s.send_encoded(
         "UpdateMuteListEntry",
@@ -2236,7 +2316,7 @@ pub async fn sl_unblock_agent(
 ) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if agent_id.is_empty() || agent_id == ZERO_UUID {
-        return Err("No resident".into());
+        return Err(no_resident());
     }
     s.send_encoded(
         "RemoveMuteListEntry",
@@ -2257,7 +2337,7 @@ pub async fn sl_unblock_agent(
 /// Group membership only covers our own groups; other keys need a UUIDGroupNameRequest.
 #[tauri::command]
 pub async fn sl_resolve_group_names(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Cmd {
-    let s = state.active().ok_or("No active session")?;
+    let s = state.active().ok_or_else(no_active_session)?;
     if ids.is_empty() {
         return Ok(json!({ "ok": true }));
     }
@@ -2349,7 +2429,7 @@ pub async fn sl_fetch_covenant_text(state: State<'_, Arc<AppState>>) -> Cmd {
 pub async fn sl_request_parcel_access(state: State<'_, Arc<AppState>>, local_id: i64, flags: u32) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if local_id <= 0 {
-        return Err("No parcel selected".into());
+        return Err(no_parcel_selected());
     }
     let mut flags = flags;
     // Experience lists only exist where the region speaks experiences.
@@ -2404,18 +2484,18 @@ pub async fn sl_update_parcel_access(
 ) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if local_id <= 0 {
-        return Err("No parcel selected".into());
+        return Err(no_parcel_selected());
     }
     // Guard: only ever touch the parcel we're standing on (the UI can't ask
     // about anything else), so a stale LocalID can't rewrite a stranger's list.
     match s.parcel_snapshot() {
         Some(snap) if snap.local_id == local_id => {}
-        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+        _ => return Err(land_data_stale()),
     }
     // Exactly one list kind per update - the sim groups chunks by
     // TransactionID and applies the wholesale replacement per kind.
     if flags.count_ones() != 1 {
-        return Err("One list at a time".into());
+        return Err(ui_err("err.oneListAtATime", json!({})));
     }
     const CHUNK: usize = 48; // PARCEL_MAX_ENTRIES_PER_PACKET
     const MAX_ENTRIES: usize = 300; // PARCEL_MAX_ACCESS_LIST
@@ -2476,13 +2556,13 @@ pub async fn sl_update_parcel_access(
 pub async fn sl_request_parcel_object_owners(state: State<'_, Arc<AppState>>, local_id: i64) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if local_id <= 0 {
-        return Err("No parcel selected".into());
+        return Err(no_parcel_selected());
     }
     // Same staleness guard as the other parcel commands: a LocalID from a
     // parcel we have since walked off would list another parcel's owners.
     match s.parcel_snapshot() {
         Some(snap) if snap.local_id == local_id => {}
-        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+        _ => return Err(land_data_stale()),
     }
     s.send_encoded(
         "ParcelObjectOwnersRequest",
@@ -2507,11 +2587,11 @@ pub async fn sl_parcel_return_objects(
 ) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if local_id <= 0 {
-        return Err("No parcel selected".into());
+        return Err(no_parcel_selected());
     }
     match s.parcel_snapshot() {
         Some(snap) if snap.local_id == local_id => {}
-        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+        _ => return Err(land_data_stale()),
     }
     let mut owners: Vec<Value> = owner_ids
         .iter()
@@ -2543,13 +2623,13 @@ pub async fn sl_parcel_return_objects(
 pub async fn sl_parcel_set_autoreturn(state: State<'_, Arc<AppState>>, local_id: i64, minutes: i64) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if local_id <= 0 {
-        return Err("No parcel selected".into());
+        return Err(no_parcel_selected());
     }
     // Autoreturn is a write: never apply it to whichever parcel now owns a
     // LocalID the form captured somewhere else.
     match s.parcel_snapshot() {
         Some(snap) if snap.local_id == local_id => {}
-        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+        _ => return Err(land_data_stale()),
     }
     s.send_encoded(
         "ParcelSetOtherCleanTime",
@@ -2568,21 +2648,21 @@ pub async fn sl_parcel_buy(state: State<'_, Arc<AppState>>, local_id: i64) -> Cm
     let (s, agent, sess) = active_ids(&state)?;
     let snap = s
         .parcel_snapshot()
-        .ok_or("No parcel data - refresh the Land tab first.")?;
+        .ok_or_else(no_parcel_data)?;
     if snap.local_id != local_id || local_id <= 0 {
-        return Err("The land data on screen is stale - refresh the Land tab first.".into());
+        return Err(land_data_stale());
     }
     let has_auth_buyer = !snap.auth_buyer_id.is_empty() && snap.auth_buyer_id != ZERO_UUID;
     // For-sale means the flag AND a real price (or a named buyer); the flag
     // alone is not enough to let a purchase through.
     if !snap.for_sale || (snap.sale_price <= 0 && !has_auth_buyer) {
-        return Err("This parcel is not for sale.".into());
+        return Err(ui_err("err.parcelNotForSale", json!({})));
     }
     if snap.owner_id.eq_ignore_ascii_case(&agent) {
-        return Err("You already own this parcel.".into());
+        return Err(ui_err("err.alreadyOwnParcel", json!({})));
     }
     if has_auth_buyer && !snap.auth_buyer_id.eq_ignore_ascii_case(&agent) {
-        return Err("This parcel is reserved for a different buyer.".into());
+        return Err(ui_err("err.parcelReservedForOtherBuyer", json!({})));
     }
     s.send_encoded(
         "ParcelBuy",
@@ -2606,7 +2686,7 @@ pub async fn sl_parcel_release(state: State<'_, Arc<AppState>>, local_id: i64) -
     let (s, agent, sess) = active_ids(&state)?;
     match s.parcel_snapshot() {
         Some(snap) if snap.local_id == local_id && local_id > 0 => {}
-        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+        _ => return Err(land_data_stale()),
     }
     s.send_encoded(
         "ParcelRelease",
@@ -2624,11 +2704,11 @@ pub async fn sl_parcel_release(state: State<'_, Arc<AppState>>, local_id: i64) -
 pub async fn sl_parcel_deed_to_group(state: State<'_, Arc<AppState>>, local_id: i64, group_id: String) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if group_id.is_empty() || group_id == ZERO_UUID {
-        return Err("No group selected".into());
+        return Err(ui_err("err.noGroupSelected", json!({})));
     }
     match s.parcel_snapshot() {
         Some(snap) if snap.local_id == local_id && local_id > 0 => {}
-        _ => return Err("The land data on screen is stale - refresh the Land tab first.".into()),
+        _ => return Err(land_data_stale()),
     }
     s.send_encoded(
         "ParcelDeedToGroup",
@@ -2648,15 +2728,15 @@ pub async fn sl_parcel_buy_pass(state: State<'_, Arc<AppState>>, local_id: i64) 
     let (s, agent, sess) = active_ids(&state)?;
     let snap = s
         .parcel_snapshot()
-        .ok_or("No parcel data - refresh the Land tab first.")?;
+        .ok_or_else(no_parcel_data)?;
     if snap.local_id != local_id || local_id <= 0 {
-        return Err("The land data on screen is stale - refresh the Land tab first.".into());
+        return Err(land_data_stale());
     }
     if !snap.sell_passes {
-        return Err("This parcel does not sell passes.".into());
+        return Err(ui_err("err.parcelSellsNoPasses", json!({})));
     }
     if snap.owner_id.eq_ignore_ascii_case(&agent) {
-        return Err("This is your own parcel.".into());
+        return Err(ui_err("err.ownParcel", json!({})));
     }
     s.send_encoded(
         "ParcelBuyPass",
@@ -2789,7 +2869,13 @@ pub async fn sl_send_teleport_request(state: State<'_, Arc<AppState>>, to_id: St
 pub async fn sl_offer_friendship(state: State<'_, Arc<AppState>>, to_id: String, message: String) -> Cmd {
     // A friendship offer goes out as IM dialog 38 (IM_FRIENDSHIP_OFFERED). The recipient
     // accepts or declines via AcceptFriendship/DeclineFriendship, keyed on the IM's ID.
-    let msg = if message.is_empty() { "Will you be my friend?".to_string() } else { message };
+    // The interface sends the line in its own language; this stand-in is
+    // for a caller that sends none.
+    let msg = if message.is_empty() {
+        UiText::new("people.friendshipOfferMessage", json!({})).text
+    } else {
+        message
+    };
     sl_im_send(state, to_id, Some(ZERO_UUID.to_string()), Some(38), msg, Some(false)).await
 }
 
@@ -2937,7 +3023,7 @@ pub async fn sl_reply_script_permission(state: State<'_, Arc<AppState>>, task_id
 pub async fn sl_save_notes(state: State<'_, Arc<AppState>>, target_id: String, notes: String) -> Cmd {
     let (s, agent, sess) = active_ids(&state)?;
     if target_id.is_empty() || target_id == ZERO_UUID {
-        return Err("No target for notes".into());
+        return Err(ui_err("err.noNotesTarget", json!({})));
     }
     if s.cap("AgentProfile").is_some() {
         crate::bridge::caps::save_avatar_notes(state.inner(), &s, &target_id, &notes).await?;
@@ -3109,7 +3195,11 @@ mod tests {
         assert_eq!(linden_amount(0, 0), Ok(0));
         assert!(linden_amount(-1, 0).is_err());
         // One past S32: the codec's `as i32` would have made this L$-2147483648.
-        assert!(linden_amount(i32::MAX as i64 + 1, 1).is_err());
+        let past = linden_amount(i32::MAX as i64 + 1, 1).unwrap_err();
+        assert_eq!(crate::uitext::plain(&past), "L$ amount must be between 1 and 2147483647");
+        let line = UiText::decode(&past).unwrap();
+        assert_eq!(line.key, "err.lindenAmountRange");
+        assert_eq!(line.args, json!({ "min": 1, "max": i32::MAX }));
         assert!(linden_amount(i32::MAX as i64 + 1, 0).is_err());
         assert!(linden_amount(i64::MAX, 1).is_err());
         // The object-pay path takes the absolute value first; i64::MIN has none.
@@ -3123,9 +3213,33 @@ mod tests {
             require_uuid("  AA000000-0000-0000-0000-000000000001 ", "group"),
             Ok("aa000000-0000-0000-0000-000000000001".to_string())
         );
-        assert_eq!(require_uuid("", "group"), Err("No group".to_string()));
-        assert_eq!(require_uuid(ZERO_UUID, "invitation"), Err("No invitation".to_string()));
-        assert!(require_uuid("not-a-uuid", "item").is_err());
+        // Each noun is a line of its own, keyed, with the English still inside.
+        let group = require_uuid("", "group").unwrap_err();
+        assert_eq!(crate::uitext::plain(&group), "No group");
+        assert_eq!(UiText::decode(&group).unwrap().key, "err.noGroup");
+        let invitation = require_uuid(ZERO_UUID, "invitation").unwrap_err();
+        assert_eq!(crate::uitext::plain(&invitation), "No invitation");
+        assert_eq!(UiText::decode(&invitation).unwrap().key, "err.noInvitation");
+        let item = require_uuid("not-a-uuid", "item").unwrap_err();
+        assert_eq!(UiText::decode(&item).unwrap().key, "err.noItem");
+        assert_eq!(UiText::decode(&require_uuid("", "trash folder").unwrap_err()).unwrap().key, "err.noTrashFolder");
+        // A noun nobody spelled out still reads as English.
+        assert_eq!(crate::uitext::plain(&require_uuid("", "thing").unwrap_err()), "No thing");
+    }
+
+    #[test]
+    fn the_play_edition_reports_its_buy_notice_with_its_key() {
+        let play = distribution(true);
+        assert_eq!(play["playStore"], true);
+        assert_eq!(play["canBuyCurrency"], false);
+        assert!(play["buyNotice"].as_str().unwrap().starts_with("Buying Linden Dollars is not available"));
+        assert_eq!(play["buyNoticeKey"], "currency.buyUnavailableNotice");
+        assert_eq!(play["buyNoticeArgs"], json!({}));
+        // Every other edition: no notice, and no key to translate.
+        let other = distribution(false);
+        assert_eq!(other["canBuyCurrency"], true);
+        assert!(other["buyNotice"].is_null());
+        assert!(other.get("buyNoticeKey").is_none());
     }
 
     #[test]
@@ -3172,12 +3286,22 @@ mod tests {
 
     #[test]
     fn dir_status_texts() {
-        assert!(dir_status_text(1 << 0).contains("banned"));
-        assert!(dir_status_text(1 << 1).contains("short"));
-        assert!(dir_status_text(1 << 3).contains("disabled"));
+        let banned = dir_status_line(1 << 0).unwrap();
+        assert!(banned.text.contains("banned"));
+        assert_eq!(banned.key, "search.statusBannedWord");
+        assert!(dir_status_line(1 << 1).unwrap().text.contains("short"));
+        assert!(dir_status_line(1 << 3).unwrap().text.contains("disabled"));
         // FOUNDNONE (1 << 2) is just an empty result, not an error message.
-        assert_eq!(dir_status_text(1 << 2), "");
-        assert_eq!(dir_status_text(0), "");
+        assert!(dir_status_line(1 << 2).is_none());
+        assert!(dir_status_line(0).is_none());
+        // On the payload the line sits beside its key; without one the field is "".
+        let p = dir_result_payload("q1", rows(0), 1 << 1, 0, None);
+        assert_eq!(p["statusText"], "The search text is too short.");
+        assert_eq!(p["statusTextKey"], "search.statusTooShort");
+        assert_eq!(p["statusTextArgs"], json!({}));
+        let quiet = dir_result_payload("q1", rows(0), 0, 0, None);
+        assert_eq!(quiet["statusText"], "");
+        assert!(quiet.get("statusTextKey").is_none());
     }
 
     #[test]
@@ -3205,10 +3329,14 @@ mod tests {
 
     #[test]
     fn dir_result_payload_carries_the_maturity_note_only_when_given() {
-        let with = dir_result_payload("q1", Vec::new(), 0, 0, Some("hidden".into()));
-        assert_eq!(with["note"], "hidden");
+        let note = crate::bridge::session::maturity_hidden_line(Maturity::Moderate, "groups");
+        let with = dir_result_payload("q1", Vec::new(), 0, 0, note);
+        assert_eq!(with["note"], "Adult-rated groups are hidden (Bee -> Settings -> Search).");
+        assert_eq!(with["noteKey"], "search.hiddenAdultGroups");
+        assert_eq!(with["noteArgs"], json!({}));
         let without = dir_result_payload("q1", Vec::new(), 0, 0, None);
         assert!(without.get("note").is_none());
+        assert!(without.get("noteKey").is_none());
     }
 
     #[test]
@@ -3271,13 +3399,13 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
     // Never send an update for a parcel we don't actually have (LocalID 0) - that
     // would be a bogus ParcelPropertiesUpdate against whatever parcel 0 happens to be.
     if gi("localId") <= 0 {
-        return Err("No parcel selected".into());
+        return Err(no_parcel_selected());
     }
     // A LocalID is only unique within its region. A baseline captured before a
     // teleport must not be applied in the new region - it would overwrite an
     // unrelated parcel that happens to share the id.
     if parcel_region_mismatch(&g("regionId"), &s.region_id()) {
-        return Err("The land data on screen is from another region - refresh the Land tab first.".into());
+        return Err(ui_err("err.landDataOtherRegion", json!({})));
     }
     // And within a region: the engine's own snapshot is the authority on which
     // parcel we are actually standing on. Walking onto a neighbouring parcel
@@ -3286,7 +3414,7 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
     // checked this; a full parcel save is the one that can lose more.
     if let Some(snap) = s.parcel_snapshot() {
         if snap.local_id != gi("localId") {
-            return Err("The land data on screen is stale - refresh the Land tab first.".into());
+            return Err(land_data_stale());
         }
     }
     // Fold the edited checkbox booleans back onto the parcel's CURRENT flags. The UI
@@ -3296,8 +3424,10 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
     let baseline = parcel.get("parcelFlags").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     let folded_flags = crate::bridge::session::fold_parcel_flags(baseline, &parcel);
     // Both prices ride S32 fields; 0 is a legitimate "not for sale" / "no pass".
-    let sale_price = linden_amount(gi("salePrice"), 0).map_err(|e| format!("Sale price: {e}"))?;
-    let pass_price = linden_amount(gi("passPrice"), 0).map_err(|e| format!("Pass price: {e}"))?;
+    let sale_price = linden_amount(gi("salePrice"), 0)
+        .map_err(|e| ui_err("err.salePriceInvalid", json!({ "error": crate::uitext::plain(&e) })))?;
+    let pass_price = linden_amount(gi("passPrice"), 0)
+        .map_err(|e| ui_err("err.passPriceInvalid", json!({ "error": crate::uitext::plain(&e) })))?;
     // Landing point: round-trip the EXACT UserLocation/UserLookAt vectors the
     // sim gave us (the parcel event carries them since 0.9.0). The old path
     // rebuilt them from the rounded display values (whole metres, whole
@@ -3375,6 +3505,11 @@ pub async fn sl_update_parcel(state: State<'_, Arc<AppState>>, parcel: Value) ->
 
 // --- Circuit commands -------------------------------------------------------
 
+/// A session id no circuit in the shared state answers to.
+fn unknown_circuit_session() -> String {
+    ui_err("err.unknownCircuitSession", json!({}))
+}
+
 #[tauri::command]
 pub async fn sl_open_circuit(
     app: AppHandle,
@@ -3404,7 +3539,7 @@ pub async fn sl_start_session(app: AppHandle, state: State<'_, Arc<AppState>>, p
     let session_uuid = gs(&params, "sessionId");
     let circuit_code = params.get("circuitCode").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     if agent_id.is_empty() || session_uuid.is_empty() || circuit_code == 0 {
-        return Err("agentId, sessionId and circuitCode are required".into());
+        return Err(ui_err("err.sessionParamsRequired", json!({})));
     }
 
     let caps_map: std::collections::HashMap<String, String> = params
@@ -3515,10 +3650,10 @@ pub async fn sl_retarget(
     sim_port: u16,
 ) -> Cmd {
     let ip = normalize_sim_ip(&json!(sim_ip));
-    let session = state.session(&session_id).ok_or("Unknown circuit session")?;
+    let session = state.session(&session_id).ok_or_else(unknown_circuit_session)?;
     let addr = format!("{}:{}", ip, sim_port)
         .parse()
-        .map_err(|_| "Invalid sim_ip or sim_port".to_string())?;
+        .map_err(|_| ui_err("err.invalidSimAddress", json!({})))?;
     session.retarget(addr);
     Ok(json!({
         "ok": true,
@@ -3535,11 +3670,11 @@ pub async fn sl_send(
     blocks: Value,
     reliable: Option<bool>,
 ) -> Cmd {
-    let session = state.session(&session_id).ok_or("Unknown circuit session")?;
+    let session = state.session(&session_id).ok_or_else(unknown_circuit_session)?;
     let (seq, sent) = session
         .send_message(&state.registry, &name, &blocks, reliable.unwrap_or(false))
         .await
-        .ok_or_else(|| format!("Unknown or unencodable message: {name}"))?;
+        .ok_or_else(|| ui_err("err.unencodableMessage", json!({ "name": name })))?;
     Ok(json!({ "seq": seq, "bytesSent": sent }))
 }
 
@@ -3552,10 +3687,12 @@ pub async fn sl_send_raw(
     sim_ip: Option<String>,
     sim_port: Option<u16>,
 ) -> Cmd {
-    let session = state.session(&session_id).ok_or("Unknown circuit session")?;
-    let bytes = B64.decode(packet.as_bytes()).map_err(|_| "Invalid base64 packet".to_string())?;
+    let session = state.session(&session_id).ok_or_else(unknown_circuit_session)?;
+    let bytes = B64
+        .decode(packet.as_bytes())
+        .map_err(|_| ui_err("err.invalidBase64Packet", json!({})))?;
     if bytes.is_empty() {
-        return Err("Empty packet".into());
+        return Err(ui_err("err.emptyPacket", json!({})));
     }
     // Optional per-send target override, for a teleport handoff to another sim.
     let sent = if let (Some(ip), Some(port)) = (sim_ip, sim_port) {

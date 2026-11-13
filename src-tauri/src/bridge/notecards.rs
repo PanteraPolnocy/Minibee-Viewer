@@ -14,8 +14,14 @@ use crate::bridge::proxy;
 use crate::bridge::scripts;
 use crate::bridge::state::AppState;
 use crate::codec;
+use crate::uitext::ui_err;
 
 type Cmd = Result<Value, String>;
+
+/// The rejection every notecard command gives without a live session.
+fn no_active_session() -> String {
+    ui_err("err.noActiveSession", json!({}))
+}
 
 /// The grid caps a notecard asset at 64 KiB; refuse anything bigger up front
 /// so the failure is instant and explained.
@@ -62,14 +68,16 @@ pub fn wrap_notecard(text: &str) -> String {
 
 #[tauri::command]
 pub async fn sl_notecards_list(state: State<'_, Arc<AppState>>) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
-    let (agent, _) = session.agent_ids().ok_or("Session not ready")?;
+    let session = state.active().ok_or_else(no_active_session)?;
+    let (agent, _) = session
+        .agent_ids()
+        .ok_or_else(|| ui_err("err.sessionNotReady", json!({})))?;
     let roots = state.notecard_folders.lock().unwrap().clone();
     if roots.is_empty() {
         return Ok(json!({ "ok": true, "notecards": [], "noFolder": true }));
     }
     if session.cap("FetchInventoryDescendents2").is_none() {
-        return Err("Inventory capability unavailable".into());
+        return Err(ui_err("err.inventoryCapUnavailable", json!({})));
     }
     let items = inventory::collect_folder_items(state.inner(), &session, &roots, &agent).await;
     Ok(json!({ "ok": true, "notecards": notecard_rows(&items) }))
@@ -87,7 +95,7 @@ pub async fn sl_notecard_source(state: State<'_, Arc<AppState>>, item_id: String
 pub async fn sl_notecard_create(state: State<'_, Arc<AppState>>, name: String) -> Cmd {
     let folder = state.notecard_folders.lock().unwrap().first().cloned().unwrap_or_default();
     if folder.is_empty() {
-        return Err("No Notecards folder in this inventory".into());
+        return Err(ui_err("err.noNotecardsFolder", json!({})));
     }
     scripts::create_inventory_item(&state, &name, &folder, AT_NOTECARD).await
 }
@@ -96,29 +104,35 @@ pub async fn sl_notecard_create(state: State<'_, Arc<AppState>>, name: String) -
 /// uploader URL, and the wrapped text is posted there.
 #[tauri::command]
 pub async fn sl_notecard_save(state: State<'_, Arc<AppState>>, item_id: String, text: String) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let item_id = item_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&item_id) || inventory::is_zero_uuid(&item_id) {
-        return Err("Not a notecard".into());
+        return Err(ui_err("err.notANotecard", json!({})));
     }
     if text.len() > MAX_NOTECARD_BYTES {
-        return Err("Notecard is too large (64 KB limit)".into());
+        return Err(ui_err("err.notecardTooLarge", json!({})));
     }
     if session.cap("UpdateNotecardAgentInventory").is_none() {
-        return Err("Notecard upload capability unavailable".into());
+        return Err(ui_err("err.notecardUploadCapUnavailable", json!({})));
     }
     let body = format!("<?xml version=\"1.0\"?><llsd><map><key>item_id</key><uuid>{item_id}</uuid></map></llsd>");
     let first = inventory::cap_post(state.inner(), &session, "UpdateNotecardAgentInventory", &body)
         .await
-        .ok_or("The notecard update request failed")?;
+        .ok_or_else(|| ui_err("err.notecardUpdateRequestFailed", json!({})))?;
     let uploader = first.get("uploader").and_then(|v| v.as_str()).unwrap_or("");
     if uploader.is_empty() {
+        // The sim's own explanation passes through as it came; only the
+        // silence gets our words.
         let msg = first
             .get("message")
             .or_else(|| first.get("error"))
             .and_then(|v| v.as_str())
-            .unwrap_or("The sim refused the notecard update");
-        return Err(msg.to_string());
+            .unwrap_or("");
+        return Err(if msg.is_empty() {
+            ui_err("err.simRefusedNotecardUpdate", json!({}))
+        } else {
+            msg.to_string()
+        });
     }
     let (pin, _) = proxy::simhost_pin(uploader, "").await;
     let ex = proxy::exchange(
@@ -134,7 +148,7 @@ pub async fn sl_notecard_save(state: State<'_, Arc<AppState>>, item_id: String, 
     )
     .await?;
     if !(200..300).contains(&ex.status) {
-        return Err(format!("Notecard upload failed (HTTP {})", ex.status));
+        return Err(ui_err("err.notecardUploadFailedHttp", json!({ "status": ex.status })));
     }
     let result = codec::llsd::parse(&ex.body, &ex.content_type).unwrap_or(Value::Null);
     let uploaded = result.get("state").and_then(|v| v.as_str()).unwrap_or("") == "complete";

@@ -5,6 +5,8 @@
 const BeeMap = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const TILE_PX_MIN = 80;
   const TILE_PX_MAX = 256;
   const MAP_LEVEL = 1;
@@ -33,7 +35,6 @@ const BeeMap = (function () {
   // The last renderTiles() geometry, so overlay-only refreshes can redraw
   // markers without refetching tiles.
   let lastLayout = null;
-  const TELEPORT_BTN_LABEL = 'Teleport Here';
   let mapTeleportBusy = false;
   let mapTeleportPct = 0;
   // On phones the controls slide over the map instead of sitting beside it.
@@ -54,7 +55,7 @@ const BeeMap = (function () {
     if (!panel) return;
     panel.classList.toggle('panel--map--tools-open', !!open);
     if (btn) {
-      const label = open ? 'Hide map controls' : 'Show map controls';
+      const label = open ? t('map.hideControls') : t('map.showControls');
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
       btn.setAttribute('aria-label', label);
       btn.title = label;
@@ -71,8 +72,8 @@ const BeeMap = (function () {
     if (typeof BeeTeleportUI !== 'undefined' && BeeTeleportUI.formatProgressLabel) {
       return BeeTeleportUI.formatProgressLabel(message, mapTeleportPct, fallbackShort);
     }
-    const text = String(message || fallbackShort || 'Teleporting');
-    return { text: text, pct: mapTeleportPct || 50, short: fallbackShort || 'Teleporting' };
+    const text = String(message || fallbackShort || t('map.teleporting'));
+    return { text: text, pct: mapTeleportPct || 50, short: fallbackShort || t('map.teleporting') };
   }
 
   function applyMapTeleportProgress(message, fallbackShort) {
@@ -134,7 +135,7 @@ const BeeMap = (function () {
     const info = el('map-info');
     if (!info) return;
     if (!selection) {
-      info.textContent = 'Tap the map to pick coordinates, or paste a SLURL / region name.';
+      info.textContent = t('map.pickHint');
       return;
     }
     info.textContent = BeeSlurl.formatLocation(selection);
@@ -759,7 +760,7 @@ const BeeMap = (function () {
     const localY = BeeUtils.clamp((1 - ((e.clientY - rect.top) / rect.height)) * 256, 0, 255.9);
     const gridX = parseInt(tile.dataset.gridX, 10);
     const gridY = parseInt(tile.dataset.gridY, 10);
-    const regionName = getRegionName(gridX, gridY) || ('Region ' + gridX + ',' + gridY);
+    const regionName = getRegionName(gridX, gridY) || t('map.regionAt', { x: gridX, y: gridY });
     const z = selection && selection.z !== undefined ? selection.z : 25;
     setSelection({
       regionName: regionName,
@@ -777,12 +778,14 @@ const BeeMap = (function () {
 
   function regionErrorMessage(err, regionName) {
     const name = String(regionName || '').trim();
-    const msg = err && err.message ? String(err.message) : '';
+    const msg = BeeUtils.errText(err);
     if (/unknown region|region not found/i.test(msg)) return msg;
     if (name && (/not found|timed out|could not resolve|parse/i.test(msg) || !msg)) {
-      return 'Unknown region: ' + name;
+      return t('map.unknownRegion', { name: name });
     }
-    return msg || (name ? 'Unknown region: ' + name : 'Could not resolve location');
+    if (msg) return msg;
+    return name ? t('map.unknownRegion', { name: name })
+      : t('map.resolveFailed');
   }
 
   async function goToInput() {
@@ -795,7 +798,7 @@ const BeeMap = (function () {
     const info = el('map-info');
     const infoPrev = info ? info.textContent : '';
     if (needsLookup && info) {
-      info.textContent = 'Looking up region...';
+      info.textContent = t('map.lookingUp');
     }
     try {
       const loc = await BeeTransport.resolveLocation(text);
@@ -808,7 +811,7 @@ const BeeMap = (function () {
     } catch (err) {
       const badName = parsed && parsed.regionName ? parsed.regionName : text;
       if (needsLookup && info) {
-        info.textContent = infoPrev || 'Unknown region.';
+        info.textContent = infoPrev || t('map.unknownRegionShort');
       }
       if (selection && needsLookup && parsed && parsed.regionName &&
           selection.regionName &&
@@ -819,12 +822,16 @@ const BeeMap = (function () {
     }
   }
 
+  function teleportBtnLabel() {
+    return t('map.teleportHere');
+  }
+
   function setTeleportButtonState(busy, label) {
     const tpBtn = el<HTMLButtonElement>('map-teleport');
     const homeBtn = el<HTMLButtonElement>('map-teleport-home');
     if (tpBtn) {
       tpBtn.disabled = !!busy;
-      tpBtn.textContent = busy ? (label || 'Teleporting...') : (label || TELEPORT_BTN_LABEL);
+      tpBtn.textContent = busy ? (label || t('map.teleportingBusy')) : (label || teleportBtnLabel());
       tpBtn.classList.toggle('map-teleport--busy', !!busy);
       tpBtn.setAttribute('aria-busy', busy ? 'true' : 'false');
     }
@@ -837,12 +844,12 @@ const BeeMap = (function () {
   function resetTeleportButton() {
     mapTeleportBusy = false;
     mapTeleportPct = 0;
-    setTeleportButtonState(false, TELEPORT_BTN_LABEL);
+    setTeleportButtonState(false, teleportBtnLabel());
   }
 
   function beginMapTeleport(message) {
     mapTeleportBusy = true;
-    applyMapTeleportProgress(message || 'requesting', 'Requesting');
+    applyMapTeleportProgress(message || 'requesting', t('map.stageRequesting'));
   }
 
   async function teleportSelection() {
@@ -851,7 +858,7 @@ const BeeMap = (function () {
     const text = input ? input.value.trim() : '';
     let target = selection;
     if (!target && !text) {
-      BeeUtils.showToast('Select a destination on the map first', 'warning');
+      BeeUtils.showToast(t('map.selectFirst'), 'warning');
       return;
     }
     beginMapTeleport('requesting');
@@ -872,17 +879,17 @@ const BeeMap = (function () {
       }
     } else if (!target) {
       resetTeleportButton();
-      BeeUtils.showToast('Select a destination on the map first', 'warning');
+      BeeUtils.showToast(t('map.selectFirst'), 'warning');
       return;
     }
     try {
       const loc = await BeeTransport.teleportTo(target);
       setSelection(loc);
-      applyMapTeleportProgress('starting', 'Starting');
+      applyMapTeleportProgress('starting', t('map.stageStarting'));
       revealMapOnPhone();
     } catch (err) {
       resetTeleportButton();
-      BeeUtils.showToast(err.message || 'Teleport failed', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('teleport.failed'), 'error');
     }
   }
 
@@ -893,11 +900,11 @@ const BeeMap = (function () {
       // The command only acks the request; being already home surfaces as the
       // benign "could not teleport closer" teleport-finish, not a return field.
       await BeeTransport.teleportHome();
-      applyMapTeleportProgress('starting', 'Starting');
+      applyMapTeleportProgress('starting', t('map.stageStarting'));
       revealMapOnPhone();
     } catch (err) {
       resetTeleportButton();
-      BeeUtils.showToast(err.message || 'Teleport home failed', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('map.teleportHomeFailed'), 'error');
     }
   }
 
@@ -912,7 +919,7 @@ const BeeMap = (function () {
       ? input
       : BeeSlurl.parse(String(input || '').trim());
     if (!parsed) {
-      BeeUtils.showToast('Could not parse SLURL', 'error');
+      BeeUtils.showToast(t('map.parseFailed'), 'error');
       return;
     }
     BeeNavigation.switchTab('map');
@@ -1089,7 +1096,7 @@ const BeeMap = (function () {
     BeeTransport.on('teleport-started', function (loc) {
       if (!loc || loc.gridX === undefined || loc.gridY === undefined) return;
       if (mapTeleportBusy) {
-        applyMapTeleportProgress('starting', 'Starting');
+        applyMapTeleportProgress('starting', t('map.stageStarting'));
       }
       if (loc.regionName && !isPlaceholderRegionName(loc.regionName)) {
         applyRegionInfo(loc.gridX, loc.gridY, loc.regionName, undefined, 'state');
@@ -1106,7 +1113,7 @@ const BeeMap = (function () {
     });
     BeeTransport.on('teleport-progress', function (data) {
       if (!mapTeleportBusy) return;
-      applyMapTeleportProgress(data && data.message, 'Teleporting');
+      applyMapTeleportProgress(data && data.message, t('map.teleporting'));
     });
     BeeTransport.on('region', function (data) {
       if (!data || !data.name || data.handshakeOnly) return;
@@ -1137,7 +1144,7 @@ const BeeMap = (function () {
     });
     BeeTransport.on('teleport-finish', function (data) {
       if (mapTeleportBusy) {
-        applyMapTeleportProgress('arriving', 'Arriving');
+        applyMapTeleportProgress('arriving', t('map.stageArriving'));
         window.setTimeout(resetTeleportButton, 400);
       } else {
         resetTeleportButton();
@@ -1153,7 +1160,7 @@ const BeeMap = (function () {
         centerOn(data.gridX, data.gridY);
         setSelection({
           regionName: data.regionName || getRegionName(data.gridX, data.gridY) ||
-            ('Region ' + data.gridX + ', ' + data.gridY),
+            t('map.regionAt', { x: data.gridX, y: data.gridY }),
           gridX: data.gridX, gridY: data.gridY
         }, true);
       } else if (data && data.region) {
@@ -1185,6 +1192,14 @@ const BeeMap = (function () {
         }
       }
       renderTiles();
+    });
+
+    // A language switch: the hint, the tools toggle's label and the idle
+    // teleport button hold this module's words between renders.
+    BeeI18n.onChange(function () {
+      updateInfo();
+      setToolsOpen(toolsOpen());
+      if (!mapTeleportBusy) setTeleportButtonState(false, teleportBtnLabel());
     });
 
     updateInfo();

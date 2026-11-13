@@ -217,10 +217,10 @@ class ConnectionService : Service() {
             if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
                 val channel = NotificationChannel(
                     CHANNEL_ID,
-                    "Connection",
+                    getString(R.string.channel_connection),
                     NotificationManager.IMPORTANCE_LOW
                 )
-                channel.description = "Keeps Minibee connected to Second Life."
+                channel.description = getString(R.string.channel_connection_desc)
                 channel.setShowBadge(false)
                 mgr.createNotificationChannel(channel)
             }
@@ -346,7 +346,7 @@ class ConnectionService : Service() {
                 Notification.Builder(context).setDefaults(Notification.DEFAULT_SOUND)
             }
             builder
-                .setContentTitle("New IM")
+                .setContentTitle(context.getString(R.string.notif_new_im))
                 .setContentText(text)
                 .setStyle(Notification.BigTextStyle().bigText(text))
                 .setSmallIcon(android.R.drawable.stat_notify_chat)
@@ -383,10 +383,10 @@ class ConnectionService : Service() {
             if (mgr.getNotificationChannel(MESSAGES_CHANNEL_ID) != null) return
             val channel = NotificationChannel(
                 MESSAGES_CHANNEL_ID,
-                "Messages",
+                context.getString(R.string.channel_messages),
                 NotificationManager.IMPORTANCE_DEFAULT
             )
-            channel.description = "New instant messages while Minibee is not on screen."
+            channel.description = context.getString(R.string.channel_messages_desc)
             channel.setShowBadge(true)
             mgr.createNotificationChannel(channel)
         }
@@ -418,13 +418,15 @@ class ConnectionService : Service() {
                 @Suppress("DEPRECATION")
                 Notification.Builder(context)
             }
-            val text = when {
-                unreadIms == 1 -> "1 unread IM"
-                unreadIms > 1 -> "$unreadIms unread IMs"
-                else -> "Staying connected to Second Life"
+            // Texts come from the string resources, so they follow the
+            // device language (values-pl and so on).
+            val text = if (unreadIms > 0) {
+                context.resources.getQuantityString(R.plurals.notif_unread_ims, unreadIms, unreadIms)
+            } else {
+                context.getString(R.string.notif_connected)
             }
             builder
-                .setContentTitle("Minibee-Viewer")
+                .setContentTitle(context.getString(R.string.app_name))
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setContentIntent(tap)
@@ -440,7 +442,7 @@ class ConnectionService : Service() {
                             context,
                             if (musicPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
                         ),
-                        if (musicPlaying) "Stop music" else "Play music",
+                        context.getString(if (musicPlaying) R.string.action_stop_music else R.string.action_play_music),
                         servicePending(context, ACTION_MUSIC, 1)
                     ).build()
                 )
@@ -449,7 +451,7 @@ class ConnectionService : Service() {
                 builder.addAction(
                     Notification.Action.Builder(
                         Icon.createWithResource(context, android.R.drawable.ic_btn_speak_now),
-                        if (voiceMuted) "Unmute mic" else "Mute mic",
+                        context.getString(if (voiceMuted) R.string.action_unmute_mic else R.string.action_mute_mic),
                         servicePending(context, ACTION_VOICE, 2)
                     ).build()
                 )

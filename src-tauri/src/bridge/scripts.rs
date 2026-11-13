@@ -15,8 +15,24 @@ use crate::bridge::inventory::{self, AT_LSL_TEXT};
 use crate::bridge::proxy;
 use crate::bridge::state::AppState;
 use crate::codec;
+use crate::uitext::ui_err;
 
 type Cmd = Result<Value, String>;
+
+/// The rejection every script command gives without a live session.
+fn no_active_session() -> String {
+    ui_err("err.noActiveSession", json!({}))
+}
+
+/// An item id that is not a real, non-nil UUID.
+fn not_an_inventory_item() -> String {
+    ui_err("err.notAnInventoryItem", json!({}))
+}
+
+/// A source past `MAX_SOURCE_BYTES`.
+fn script_too_large() -> String {
+    ui_err("err.scriptTooLarge", json!({}))
+}
 
 /// The compiler enforces a much smaller source limit; this only stops a runaway
 /// frontend from shipping megabytes at the sim.
@@ -53,14 +69,16 @@ pub fn script_rows(items: &[Value]) -> Vec<Value> {
 
 #[tauri::command]
 pub async fn sl_scripts_list(state: State<'_, Arc<AppState>>) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
-    let (agent, _) = session.agent_ids().ok_or("Session not ready")?;
+    let session = state.active().ok_or_else(no_active_session)?;
+    let (agent, _) = session
+        .agent_ids()
+        .ok_or_else(|| ui_err("err.sessionNotReady", json!({})))?;
     let roots = state.script_folders.lock().unwrap().clone();
     if roots.is_empty() {
         return Ok(json!({ "ok": true, "scripts": [], "noFolder": true }));
     }
     if session.cap("FetchInventoryDescendents2").is_none() {
-        return Err("Inventory capability unavailable".into());
+        return Err(ui_err("err.inventoryCapUnavailable", json!({})));
     }
     let items = inventory::collect_folder_items(state.inner(), &session, &roots, &agent).await;
     Ok(json!({ "ok": true, "scripts": script_rows(&items) }))
@@ -80,7 +98,7 @@ pub(crate) async fn request_item_source(
     let (s, agent, sess) = crate::commands::active_ids(state)?;
     let item_id = item_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&item_id) || inventory::is_zero_uuid(&item_id) {
-        return Err("Not an inventory item".into());
+        return Err(not_an_inventory_item());
     }
     const CHANNEL_ASSET: i64 = 2; // LLTCT_ASSET
     const SOURCE_SIM_INV_ITEM: i64 = 3; // LLTST_SIM_INV_ITEM
@@ -132,7 +150,7 @@ fn vstr(s: &str) -> Value {
 fn clean_item_name(name: &str) -> Result<String, String> {
     let mut name: String = name.trim().chars().filter(|c| !c.is_control()).collect();
     if name.is_empty() {
-        return Err("A name is required".into());
+        return Err(ui_err("err.nameRequired", json!({})));
     }
     while name.len() > 63 {
         name.pop();
@@ -181,7 +199,7 @@ pub(crate) async fn create_inventory_item(
 pub async fn sl_script_create(state: State<'_, Arc<AppState>>, name: String) -> Cmd {
     let folder = state.script_folders.lock().unwrap().first().cloned().unwrap_or_default();
     if folder.is_empty() {
-        return Err("No Scripts folder in this inventory".into());
+        return Err(ui_err("err.noScriptsFolder", json!({})));
     }
     create_inventory_item(&state, &name, &folder, AT_LSL_TEXT).await
 }
@@ -189,13 +207,15 @@ pub async fn sl_script_create(state: State<'_, Arc<AppState>>, name: String) -> 
 /// Rename an inventory item over the AIS inventory cap (a PATCH of `name`).
 #[tauri::command]
 pub async fn sl_script_rename(state: State<'_, Arc<AppState>>, item_id: String, name: String) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let item_id = item_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&item_id) || inventory::is_zero_uuid(&item_id) {
-        return Err("Not an inventory item".into());
+        return Err(not_an_inventory_item());
     }
     let name = clean_item_name(&name)?;
-    let cap = session.cap("InventoryAPIv3").ok_or("Inventory update capability unavailable")?;
+    let cap = session
+        .cap("InventoryAPIv3")
+        .ok_or_else(|| ui_err("err.inventoryUpdateCapUnavailable", json!({})))?;
     let url = format!("{}/item/{item_id}", cap.trim_end_matches('/'));
     let body = format!(
         "<?xml version=\"1.0\"?><llsd><map><key>name</key><string>{}</string></map></llsd>",
@@ -211,7 +231,7 @@ pub async fn sl_script_rename(state: State<'_, Arc<AppState>>, item_id: String, 
     let ex = proxy::exchange(&state.ua, "PATCH", &url, &body, "application/llsd+xml", &headers, pin, Duration::from_secs(30), true).await?;
     if !(200..300).contains(&ex.status) {
         crate::dlog!("scripts: rename HTTP {} body={:.200}", ex.status, ex.body);
-        return Err(format!("Rename failed (HTTP {})", ex.status));
+        return Err(ui_err("err.renameFailedHttp", json!({ "status": ex.status })));
     }
     Ok(json!({ "ok": true, "name": name }))
 }
@@ -242,21 +262,21 @@ pub async fn sl_script_save(
     text: String,
     target: Option<String>,
 ) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let item_id = item_id.trim().to_ascii_lowercase();
     if !inventory::is_uuid(&item_id) || inventory::is_zero_uuid(&item_id) {
-        return Err("Not a script".into());
+        return Err(ui_err("err.notAScript", json!({})));
     }
     if text.len() > MAX_SOURCE_BYTES {
-        return Err("Script is too large".into());
+        return Err(script_too_large());
     }
     let target = match target.as_deref() {
         None | Some("mono") => "mono",
         Some("lsl2") => "lsl2",
-        Some(_) => return Err("Unknown script target".into()),
+        Some(_) => return Err(ui_err("err.unknownScriptTarget", json!({}))),
     };
     if session.cap("UpdateScriptAgent").is_none() {
-        return Err("Script upload capability unavailable".into());
+        return Err(ui_err("err.scriptUploadCapUnavailable", json!({})));
     }
     let body = format!(
         "<?xml version=\"1.0\"?><llsd><map>\
@@ -266,15 +286,21 @@ pub async fn sl_script_save(
     );
     let first = inventory::cap_post(state.inner(), &session, "UpdateScriptAgent", &body)
         .await
-        .ok_or("The script update request failed")?;
+        .ok_or_else(|| ui_err("err.scriptUpdateRequestFailed", json!({})))?;
     let uploader = first.get("uploader").and_then(|v| v.as_str()).unwrap_or("");
     if uploader.is_empty() {
+        // The sim's own explanation passes through as it came; only the
+        // silence gets our words.
         let msg = first
             .get("message")
             .or_else(|| first.get("error"))
             .and_then(|v| v.as_str())
-            .unwrap_or("The sim refused the script update");
-        return Err(msg.to_string());
+            .unwrap_or("");
+        return Err(if msg.is_empty() {
+            ui_err("err.simRefusedScriptUpdate", json!({}))
+        } else {
+            msg.to_string()
+        });
     }
     let (pin, _) = proxy::simhost_pin(uploader, "").await;
     let ex = proxy::exchange(
@@ -290,7 +316,7 @@ pub async fn sl_script_save(
     )
     .await?;
     if !(200..300).contains(&ex.status) {
-        return Err(format!("Script upload failed (HTTP {})", ex.status));
+        return Err(ui_err("err.scriptUploadFailedHttp", json!({ "status": ex.status })));
     }
     let result = codec::llsd::parse(&ex.body, &ex.content_type).unwrap_or(Value::Null);
     let compiled = result.get("compiled").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -452,7 +478,7 @@ fn read_syntax_cache(path: &std::path::Path) -> Option<(Value, bool)> {
 /// week - the file barely ever changes, and it is over a megabyte to fetch.
 #[tauri::command]
 pub async fn sl_lsl_language(app: tauri::AppHandle, state: State<'_, Arc<AppState>>) -> Cmd {
-    let session = state.active().ok_or("No active session")?;
+    let session = state.active().ok_or_else(no_active_session)?;
     let Some(cap) = session.cap("LSLSyntax") else {
         return Ok(fallback_language());
     };
@@ -575,7 +601,7 @@ pub fn format_lsl(src: &str) -> String {
 #[tauri::command]
 pub fn sl_lsl_format(text: String) -> Cmd {
     if text.len() > MAX_SOURCE_BYTES {
-        return Err("Script is too large".into());
+        return Err(script_too_large());
     }
     Ok(json!({ "ok": true, "text": format_lsl(&text) }))
 }
@@ -605,7 +631,9 @@ mod tests {
     fn item_names_are_cleaned_and_capped() {
         assert_eq!(clean_item_name("  My Script  ").unwrap(), "My Script");
         assert_eq!(clean_item_name("a\tb\nc").unwrap(), "abc");
-        assert!(clean_item_name("   ").is_err());
+        let empty = clean_item_name("   ").unwrap_err();
+        assert_eq!(crate::uitext::plain(&empty), "A name is required");
+        assert_eq!(crate::uitext::UiText::decode(&empty).unwrap().key, "err.nameRequired");
         let long = "x".repeat(100);
         assert_eq!(clean_item_name(&long).unwrap().len(), 63);
         // Multi-byte characters get cut on a boundary, not mid-codepoint.

@@ -1,4 +1,22 @@
 <resources>
     <string name="app_name">"Minibee-Viewer"</string>
     <string name="main_activity_title">"Minibee-Viewer"</string>
+
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">Connection</string>
+    <string name="channel_connection_desc">Keeps Minibee connected to Second Life.</string>
+    <string name="notif_connected">Staying connected to Second Life</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%d unread IM</item>
+        <item quantity="other">%d unread IMs</item>
+    </plurals>
+    <string name="action_play_music">Play music</string>
+    <string name="action_stop_music">Stop music</string>
+    <string name="action_mute_mic">Mute mic</string>
+    <string name="action_unmute_mic">Unmute mic</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">Messages</string>
+    <string name="channel_messages_desc">New instant messages while Minibee is not on screen.</string>
+    <string name="notif_new_im">New IM</string>
 </resources>

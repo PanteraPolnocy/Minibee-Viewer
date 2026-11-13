@@ -7,13 +7,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::AppHandle;
 use tokio::task::JoinHandle;
 
 use crate::bridge::circuit::Session;
 use crate::bridge::proxy;
 use crate::codec;
+use crate::uitext::UiText;
 
 /// The sim is supposed to hold a poll open for ~20-30s. If a "no events" signal
 /// (timeout, 499, 5xx, or empty body) comes back sooner than that, we treat it as a
@@ -286,11 +287,10 @@ fn spawn(
             crate::bridge::caps::emit_caps_status(&app, None, "eventqueue");
         } else {
             crate::dlog!("eventqueue: gave up and the circuit is silent -> session-lost");
-            session.emit_live(
-                &app,
-                "session-lost",
-                serde_json::json!({ "reason": "Lost connection to the region." }),
-            );
+            let mut lost = json!({});
+            UiText::new("session.lostConnection", json!({}))
+                .fields(&mut lost, "reason");
+            session.emit_live(&app, "session-lost", lost);
         }
     })
 }

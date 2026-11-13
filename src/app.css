@@ -87,6 +87,12 @@ body {
   touch-action: manipulation;
 }
 
+/* The markup carries language-file keys, not words: hold the page back
+   until BeeI18n has filled it (a fraction of a second at startup). */
+.i18n-pending .app {
+  visibility: hidden;
+}
+
 .app {
   width: 100%;
   min-height: 100dvh;

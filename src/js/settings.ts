@@ -67,7 +67,11 @@ const BeeSettings = (function () {
     maturityAsked: { type: 'boolean', default: false },
     // 'system' follows the device's light/dark preference (and tracks changes
     // to it); the other two are fixed.
-    theme: { type: 'string', default: 'dark', choices: ['dark', 'light', 'system'] }
+    theme: { type: 'string', default: 'dark', choices: ['dark', 'light', 'system'] },
+    // UI language: a code BeeI18n.languages() lists (one dictionary file per
+    // language under lang/). English needs no file and is the default on
+    // every device; a switch takes effect without a restart.
+    language: { type: 'string', default: 'en', choices: ['en', 'pl'] }
   };
 
   const OBJECTS_RANGE_CHOICES = [16, 32, 48, 64, 96, 128, 256, 384];
@@ -179,7 +183,9 @@ const BeeSettings = (function () {
     if (sun) sun.hidden = value !== 'light';
     if (moon) moon.hidden = value === 'light';
     if (btn) {
-      btn.title = value === 'light' ? 'Switch to dark mode' : 'Switch to light mode';
+      btn.title = value === 'light'
+        ? BeeI18n.t('topbar.switchToDark')
+        : BeeI18n.t('topbar.switchToLight');
       btn.setAttribute('aria-label', btn.title);
     }
   }

@@ -4,10 +4,19 @@
  * Bee -> Settings. When on, private IMs land in avatars/<username>.txt and
  * group or conference lines in groups/<title>.txt, next to the app's other data
  * (never the OS cache). Writing is fire-and-forget; a failed write must never
- * break chat.
+ * break chat. What goes into the files (the line format, "Me", "Unknown",
+ * the file names) stays English whatever the UI language: a file is a
+ * record, not a screen. Only the question asked on screen is translated.
  */
 const BeeChatLogs = (function () {
   'use strict';
+
+  const t = BeeI18n.t;
+
+  // The nearby-chat transcript's file name on disk. An identifier, not
+  // wording: it stays the same in every UI language, so switching languages
+  // never starts a second file (the log manager labels it in the UI language).
+  const LOCAL_LOG_NAME = 'Nearby Chat';
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
 
@@ -93,16 +102,16 @@ const BeeChatLogs = (function () {
     entry.lines.push(line);
   }
 
-  // A group file must never be named by the placeholder title ("Group chat")
-  // that early messages arrive under - separate groups would merge into one
-  // file. The group-name cache, then the session id, beat that.
+  // A group file must never be named by the placeholder title (the "Group
+  // chat" stand-in early messages arrive under) - separate groups would merge
+  // into one file. The group-name cache, then the session id, beat that.
   function groupLogName(session) {
     const title = String(session.title || '').trim();
-    if (title && title !== 'Group chat' && title !== 'Conference' && !looksUuid(title)) return title;
+    if (title && !BeeState.isDefaultSessionTitle(title) && !looksUuid(title)) return title;
     const cached = typeof BeeTransport.getGroupName === 'function'
       ? BeeTransport.getGroupName(session.id)
       : '';
-    return cached || String(session.id || 'Group chat');
+    return cached || String(session.id || '');
   }
 
   function logIm(payload) {
@@ -115,7 +124,7 @@ const BeeChatLogs = (function () {
     const grouplike = session.type === 'group' || session.type === 'conference';
     // People and groups have their own switches.
     if (!BeeSettings.get(grouplike ? 'chatLogsGroups' : 'chatLogsAvatars')) return;
-    const who = String(msg.fromName || (msg.outgoing ? 'Me' : 'Unknown'));
+    const who = String(msg.fromName || (msg.outgoing ? t('logs.me') : t('common.unknown')));
     const line = '[' + stamp(msg.timestamp) + '] ' + who + ': ' + text;
     if (grouplike) {
       BeeTransport.chatLogAppend('groups', groupLogName(session), line).catch(function () {});
@@ -194,12 +203,10 @@ const BeeChatLogs = (function () {
     if (typeof BeeSettings === 'undefined' || BeeSettings.get('chatLogsAsked')) return;
     BeeSettings.set('chatLogsAsked', true);
     const keep = await BeeUtils.confirm({
-      title: 'Keep chat logs?',
-      message: 'Minibee can keep your IM conversations as plain text files on this device ' +
-        '(one file per person or group). It costs a little disk space and speed. ' +
-        'People and groups have separate switches in Bee -> Settings, any time.',
-      confirmLabel: 'Keep logs',
-      cancelLabel: 'No, thanks'
+      title: t('logs.askTitle'),
+      message: t('logs.askMessage'),
+      confirmLabel: t('logs.keep'),
+      cancelLabel: t('logs.noThanks')
     });
     BeeSettings.set('chatLogsAvatars', !!keep);
     BeeSettings.set('chatLogsGroups', !!keep);
@@ -218,9 +225,9 @@ const BeeChatLogs = (function () {
     }
     const text = String(msg.text || '');
     if (!text.trim()) return;
-    const who = String(msg.fromName || (msg.outgoing ? 'Me' : 'Unknown'));
+    const who = String(msg.fromName || (msg.outgoing ? t('logs.me') : t('common.unknown')));
     const line = '[' + stamp(msg.timestamp) + '] ' + who + ': ' + text;
-    BeeTransport.chatLogAppend('local', 'Nearby Chat', line).catch(function () {});
+    BeeTransport.chatLogAppend('local', LOCAL_LOG_NAME, line).catch(function () {});
   }
 
   function init() {

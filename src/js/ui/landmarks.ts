@@ -5,6 +5,8 @@
 const BeeLandmarks = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let rows = [];
   let loaded = false;
   let loading = false;
@@ -42,21 +44,21 @@ const BeeLandmarks = (function () {
       btn.type = 'button';
       btn.className = 'map-landmark';
       btn.dataset.assetId = r.assetId;
-      btn.textContent = r.name || 'Unnamed landmark';
+      btn.textContent = r.name || t('landmarks.unnamed');
       btn.title = btn.textContent;
       // Right-click: the shared menu offers this copy alongside "Open".
       btn.dataset.copy = btn.textContent;
-      btn.dataset.copyLabel = 'Copy landmark name';
+      btn.dataset.copyLabel = t('landmarks.copyName');
       li.appendChild(btn);
       list.appendChild(li);
     });
 
     let text = '';
-    if (loading) text = 'Loading landmarks...';
+    if (loading) text = t('landmarks.loading');
     else if (loadError) text = loadError;
-    else if (loaded && !rows.length) text = 'No landmarks yet.';
-    else if (loaded && !shown.length) text = 'No landmarks match.';
-    else if (!loaded && !BeeState.gridOnline()) text = 'Log in to see your landmarks.';
+    else if (loaded && !rows.length) text = t('landmarks.empty');
+    else if (loaded && !shown.length) text = t('landmarks.noMatch');
+    else if (!loaded && !BeeState.gridOnline()) text = t('landmarks.logIn');
     if (status) {
       status.textContent = text;
       status.hidden = !text;
@@ -74,7 +76,7 @@ const BeeLandmarks = (function () {
       rows = (fetched || []).slice().sort(byName);
       loaded = true;
     } catch (err) {
-      loadError = BeeUtils.errText(err) || 'Could not load landmarks.';
+      loadError = BeeUtils.errText(err) || t('landmarks.loadFailed');
     } finally {
       loading = false;
       render();
@@ -133,7 +135,7 @@ const BeeLandmarks = (function () {
       ? BeeSlurl.buildMapsUrl(regionName, pos)
       : (gridX && gridY
         ? BeeSlurl.formatLocation({ gridX: gridX, gridY: gridY, x: pos.x, y: pos.y, z: pos.z })
-        : 'Destination not known until you arrive.');
+        : t('landmarks.destinationUnknown'));
     setDetails(placeName || (regionName ? regionName : ''), slurl);
   }
 
@@ -143,14 +145,14 @@ const BeeLandmarks = (function () {
     const seq = ++openSeq;
     current = { row: row, target: null };
     const name = el('landmark-name');
-    if (name) name.textContent = row.name || 'Unnamed landmark';
-    setDetails('', 'Looking up destination...');
+    if (name) name.textContent = row.name || t('landmarks.unnamed');
+    setDetails('', t('landmarks.lookingUp'));
     if (!d.open) {
       try { d.showModal(); } catch (_e) { d.setAttribute('open', ''); }
     }
     resolve(row, seq).catch(function (err) {
       if (seq !== openSeq) return;
-      setDetails('', BeeUtils.errText(err) || 'Destination details unavailable.');
+      setDetails('', BeeUtils.errText(err) || t('landmarks.detailsUnavailable'));
     });
   }
 
@@ -165,10 +167,10 @@ const BeeLandmarks = (function () {
     }
     try {
       await BeeTransport.teleportToLandmark(row.assetId, target);
-      BeeUtils.showToast('Teleporting to ' + (row.name || 'landmark') + '...', 'success');
+      BeeUtils.showToast(t('landmarks.teleportingTo', { name: row.name || t('landmarks.landmark') }), 'success');
     } catch (err) {
       if (typeof BeeMap !== 'undefined') BeeMap.resetTeleportButton();
-      BeeUtils.showToast(BeeUtils.errText(err) || 'Teleport failed', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('teleport.failed'), 'error');
     }
   }
 
@@ -195,7 +197,7 @@ const BeeLandmarks = (function () {
         BeeContextMenu.register('.map-landmark', function (host) {
           const row = rows.find(function (r) { return r.assetId === host.dataset.assetId; });
           if (!row) return [];
-          return [{ label: 'Open landmark', action: function () { open(row); } }];
+          return [{ label: t('landmarks.open'), action: function () { open(row); } }];
         });
       }
     }
@@ -225,6 +227,8 @@ const BeeLandmarks = (function () {
       if (BeeState.get().activeTab === 'map') load(false);
       else render();
     });
+    // A language switch: the status line under the list is this module's.
+    BeeI18n.onChange(render);
     render();
   }
 

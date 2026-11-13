@@ -6,12 +6,14 @@
 const BeeNotecards = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const SOURCE_TIMEOUT_MS = 30000;
 
   let rows = [];
   let loaded = false;
   let loading = false;
-  let loadError = '';
+  let loadError = null; // what the last list fetch rejected with, until the next fetch
   let current = null; // { itemId, assetId, creatorId, lastOwnerId, name, savedText, dirty, hasEmbeds }
   let saving = false;
   let openSeq = 0;
@@ -48,19 +50,19 @@ const BeeNotecards = (function () {
         (current && current.itemId === r.itemId ? ' scripts-list__item--open' : '');
       btn.dataset.itemId = r.itemId;
       btn.dataset.copy = r.itemId;
-      btn.dataset.copyLabel = 'Copy item UUID';
-      btn.textContent = r.name || 'Unnamed notecard';
+      btn.dataset.copyLabel = t('scripts.copyItemUuid');
+      btn.textContent = r.name || t('notecards.unnamed');
       btn.title = btn.textContent;
       li.appendChild(btn);
       list.appendChild(li);
     });
 
     let text = '';
-    if (loading) text = 'Loading notecards...';
-    else if (loadError) text = loadError;
-    else if (loaded && !rows.length) text = 'No notecards yet.';
-    else if (loaded && !shown.length) text = 'No notecards match.';
-    else if (!loaded && !BeeState.gridOnline()) text = 'Log in to see your notecards.';
+    if (loading) text = t('notecards.loading');
+    else if (loadError) text = BeeUtils.errText(loadError) || t('notecards.loadFailed');
+    else if (loaded && !rows.length) text = t('notecards.none');
+    else if (loaded && !shown.length) text = t('notecards.noMatch');
+    else if (!loaded && !BeeState.gridOnline()) text = t('notecards.logInToSee');
     if (status) {
       status.textContent = text;
       status.hidden = !text;
@@ -71,14 +73,16 @@ const BeeNotecards = (function () {
     if (loading || (loaded && !force)) return;
     if (!BeeState.gridOnline()) return;
     loading = true;
-    loadError = '';
+    loadError = null;
     renderList();
     try {
       const fetched = await BeeTransport.listNotecards();
       rows = fetched || [];
       loaded = true;
     } catch (err) {
-      loadError = BeeUtils.errText(err) || 'Could not load notecards.';
+      // Kept as it came: the list renders its words in whatever language is
+      // current, so a switch repaints the failure too.
+      loadError = err || new Error('');
     } finally {
       loading = false;
       renderList();
@@ -87,17 +91,36 @@ const BeeNotecards = (function () {
 
   // --- editor ---
 
-  function setStatus(text, kind?) {
+  // The editor's state line by id, translated as it is painted, so a
+  // language switch repaints the same state. The lines shared with the
+  // Scripts tab use its keys.
+  const STATUS_LINES = {
+    loading: function () { return t('common.loading'); },
+    saved: function () { return t('scripts.statusSaved'); },
+    modified: function () { return t('scripts.statusModified'); },
+    loadFailed: function () { return t('scripts.statusLoadFailed'); },
+    saving: function () { return t('profile.saving'); },
+    saveFailed: function () { return t('notecards.statusSaveFailed'); }
+  };
+  let status = { id: '', kind: '' };
+
+  function paintStatus() {
     const state = el('notecard-state');
     if (!state) return;
-    state.textContent = text || '';
-    state.className = 'script-editor__state' + (kind ? ' script-editor__state--' + kind : '');
+    const line = STATUS_LINES[status.id];
+    state.textContent = line ? line() : '';
+    state.className = 'script-editor__state' + (status.kind ? ' script-editor__state--' + status.kind : '');
+  }
+
+  function setStatus(id, kind?) {
+    status = { id: id || '', kind: kind || '' };
+    paintStatus();
   }
 
   function markDirty() {
     if (!current || current.dirty) return;
     current.dirty = true;
-    setStatus('Modified', 'dirty');
+    setStatus('modified', 'dirty');
     const save = el<HTMLButtonElement>('notecard-save');
     if (save) save.disabled = false;
   }
@@ -140,14 +163,14 @@ const BeeNotecards = (function () {
     if (draft === null || !input) return;
     input.value = draft;
     markDirty();
-    BeeUtils.showToast('Restored unsaved changes', 'info');
+    BeeUtils.showToast(t('scripts.draftRestored'), 'info');
   }
 
   // Offer a notecard to another resident through the shared recipient picker.
   // Notecards are inventory asset type 7.
   function sendToResident(row) {
     if (!row || !row.itemId || typeof BeeGive === 'undefined') return;
-    BeeGive.open({ itemId: row.itemId, assetType: 7, name: row.name || 'Notecard' });
+    BeeGive.open({ itemId: row.itemId, assetType: 7, name: row.name || t('notecards.notecard') });
   }
 
   function setEditorOpen(open) {
@@ -164,11 +187,11 @@ const BeeNotecards = (function () {
       const existing = sourceWaiters.get(itemId);
       if (existing) {
         clearTimeout(existing.timer);
-        existing.reject(new Error('Superseded'));
+        existing.reject(new Error(t('scripts.superseded')));
       }
       const timer = setTimeout(function () {
         sourceWaiters.delete(itemId);
-        reject(new Error('The notecard download timed out.'));
+        reject(new Error(t('notecards.downloadTimedOut')));
       }, SOURCE_TIMEOUT_MS);
       sourceWaiters.set(itemId, { resolve: resolve, reject: reject, timer: timer });
     });
@@ -181,21 +204,21 @@ const BeeNotecards = (function () {
   async function createNew() {
     if (!BeeState.gridOnline()) return;
     const name = await BeeUtils.prompt({
-      title: 'New notecard',
-      message: 'Name for the new notecard:',
-      confirmLabel: 'Create',
-      value: 'New Note'
+      title: t('notecards.newNotecard'),
+      message: t('notecards.newNamePrompt'),
+      confirmLabel: t('scripts.create'),
+      value: t('notecards.defaultName')
     });
     if (name === null || !name.trim()) return;
     try {
       const wait = new Promise<any>(function (resolve, reject) {
         if (createWaiter) {
           clearTimeout(createWaiter.timer);
-          createWaiter.reject(new Error('Superseded'));
+          createWaiter.reject(new Error(t('scripts.superseded')));
         }
         const timer = setTimeout(function () {
           createWaiter = null;
-          reject(new Error('The sim did not confirm the new notecard.'));
+          reject(new Error(t('notecards.createTimedOut')));
         }, 15000);
         createWaiter = { resolve: resolve, reject: reject, timer: timer };
       });
@@ -213,19 +236,19 @@ const BeeNotecards = (function () {
       rows.push(row);
       sortRows();
       renderList();
-      BeeUtils.showToast('Notecard created.', 'success');
+      BeeUtils.showToast(t('notecards.created'), 'success');
       open(row);
     } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not create the notecard.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('notecards.createFailed'), 'error');
     }
   }
 
   async function renameCurrent() {
     if (!current) return;
     const name = await BeeUtils.prompt({
-      title: 'Rename notecard',
-      message: 'New name:',
-      confirmLabel: 'Rename',
+      title: t('notecards.rename'),
+      message: t('scripts.renamePrompt'),
+      confirmLabel: t('scripts.renameAction'),
       value: current.name || ''
     });
     if (name === null || !name.trim() || name.trim() === current.name) return;
@@ -239,18 +262,18 @@ const BeeNotecards = (function () {
       if (row) row.name = finalName;
       sortRows();
       renderList();
-      BeeUtils.showToast('Notecard renamed.', 'success');
+      BeeUtils.showToast(t('notecards.renamed'), 'success');
     } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not rename the notecard.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('notecards.renameFailed'), 'error');
     }
   }
 
   async function open(row) {
     if (current && current.dirty) {
       const ok = await BeeUtils.confirm({
-        title: 'Discard changes?',
-        message: '"' + (current.name || 'This notecard') + '" has unsaved changes.',
-        confirmLabel: 'Discard',
+        title: t('scripts.discardTitle'),
+        message: t('scripts.discardMessage', { name: current.name || t('notecards.thisNotecard') }),
+        confirmLabel: t('scripts.discard'),
         danger: true
       });
       if (!ok) return;
@@ -263,7 +286,7 @@ const BeeNotecards = (function () {
       if (btn) btn.hidden = false;
     });
     const name = el('notecard-name');
-    if (name) name.textContent = row.name || 'Unnamed notecard';
+    if (name) name.textContent = row.name || t('notecards.unnamed');
     const save = el<HTMLButtonElement>('notecard-save');
     if (save) save.disabled = true;
     const input = el<HTMLTextAreaElement>('notecard-input');
@@ -271,13 +294,13 @@ const BeeNotecards = (function () {
       input.value = '';
       input.disabled = true;
     }
-    setStatus('Loading...');
+    setStatus('loading');
     setEditorOpen(true);
     renderList();
     // A brand-new notecard has no asset yet; there is nothing to download.
     if (isZeroId(row.assetId)) {
       if (input) input.disabled = false;
-      setStatus('Saved');
+      setStatus('saved');
       restoreDraft(input, pendingDraft(row.itemId, ''));
       return;
     }
@@ -292,12 +315,12 @@ const BeeNotecards = (function () {
         input.value = got.text;
         input.disabled = false;
       }
-      setStatus('Saved');
+      setStatus('saved');
       restoreDraft(input, pendingDraft(row.itemId, got.text));
     } catch (err) {
       if (seq !== openSeq) return;
-      setStatus('Load failed', 'error');
-      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not load the notecard.', 'error');
+      setStatus('loadFailed', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('notecards.openFailed'), 'error');
     }
   }
 
@@ -307,9 +330,9 @@ const BeeNotecards = (function () {
     // A text-only save drops any items embedded in the original notecard.
     if (current.hasEmbeds) {
       const ok = await BeeUtils.confirm({
-        title: 'Notecard has attachments',
-        message: 'This notecard carries embedded inventory items. Saving from here keeps the text but removes those items. Save anyway?',
-        confirmLabel: 'Save without items',
+        title: t('notecards.embedsTitle'),
+        message: t('notecards.embedsMessage'),
+        confirmLabel: t('notecards.saveWithoutItems'),
         danger: true
       });
       if (!ok) return;
@@ -319,7 +342,7 @@ const BeeNotecards = (function () {
     saving = true;
     const btn = el<HTMLButtonElement>('notecard-save');
     if (btn) btn.disabled = true;
-    setStatus('Saving...');
+    setStatus('saving');
     try {
       const res = await BeeTransport.saveNotecard(itemId, text);
       // The round trip takes seconds and the editor may have moved on to
@@ -333,16 +356,16 @@ const BeeNotecards = (function () {
         // Anything typed during the upload is still unsaved, so dirty follows
         // the textarea rather than the moment Save was pressed.
         current.dirty = input.value !== text;
-        if (current.dirty) setStatus('Modified', 'dirty');
-        else setStatus('Saved', 'ok');
-        BeeUtils.showToast('Notecard saved.', 'success');
+        if (current.dirty) setStatus('modified', 'dirty');
+        else setStatus('saved', 'ok');
+        BeeUtils.showToast(t('notecards.saved'), 'success');
       } else {
-        setStatus('Save failed', 'error');
-        BeeUtils.showToast('The notecard save failed.', 'error');
+        setStatus('saveFailed', 'error');
+        BeeUtils.showToast(t('notecards.saveFailed'), 'error');
       }
     } catch (err) {
-      if (current && current.itemId === itemId) setStatus('Save failed', 'error');
-      BeeUtils.showToast(BeeUtils.errText(err) || 'The notecard save failed.', 'error');
+      if (current && current.itemId === itemId) setStatus('saveFailed', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('notecards.saveFailed'), 'error');
     } finally {
       saving = false;
       if (btn && current && current.dirty) btn.disabled = false;
@@ -353,17 +376,17 @@ const BeeNotecards = (function () {
     rows = [];
     loaded = false;
     loading = false;
-    loadError = '';
+    loadError = null;
     current = null;
     openSeq++;
     sourceWaiters.forEach(function (w) {
       clearTimeout(w.timer);
-      w.reject(new Error('Session ended'));
+      w.reject(new Error(t('session.ended')));
     });
     sourceWaiters.clear();
     if (createWaiter) {
       clearTimeout(createWaiter.timer);
-      createWaiter.reject(new Error('Session ended'));
+      createWaiter.reject(new Error(t('session.ended')));
       createWaiter = null;
     }
     ['notecard-rename', 'notecard-copy-ids', 'notecard-send'].forEach(function (id) {
@@ -400,10 +423,10 @@ const BeeNotecards = (function () {
         const creatorKnown = /^[0-9a-f]{8}-/i.test(String(row.creatorId || '')) &&
           !/^0+(-0+)*$/.test(String(row.creatorId || '').replace(/-/g, ''));
         return [
-          { label: 'Open notecard', action: function () { void open(row); } },
-          { label: 'Send to a resident...', action: function () { sendToResident(row); } },
+          { label: t('notecards.open'), action: function () { void open(row); } },
+          { label: t('scripts.sendToResidentMenu'), action: function () { sendToResident(row); } },
           {
-            label: 'Creator profile',
+            label: t('interact.creatorProfile'),
             disabled: !creatorKnown,
             action: function () {
               if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) BeeProfile.openAvatar(row.creatorId);
@@ -466,7 +489,10 @@ const BeeNotecards = (function () {
       sourceWaiters.delete(data.itemId);
       clearTimeout(waiter.timer);
       if (data.ok) waiter.resolve({ text: String(data.text || ''), hasEmbeds: !!data.hasEmbeds });
-      else waiter.reject(new Error(data.error || 'The notecard could not be downloaded.'));
+      else {
+        waiter.reject(new Error(BeeI18n.field(data, 'error') ||
+          t('notecards.downloadFailed')));
+      }
     });
 
     BeeState.on('reset', reset);
@@ -480,6 +506,14 @@ const BeeNotecards = (function () {
       if (document.visibilityState === 'hidden') stashDraft();
     });
     window.addEventListener('pagehide', stashDraft);
+    // A language switch: the list, the state line and the open notecard's
+    // heading are painted again in the new words.
+    BeeI18n.onChange(function () {
+      renderList();
+      paintStatus();
+      const name = el('notecard-name');
+      if (name && current) name.textContent = current.name || t('notecards.unnamed');
+    });
     renderList();
   }
 

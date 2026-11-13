@@ -20,6 +20,7 @@ use tokio::task::JoinHandle;
 use crate::bridge::session::{self, Action, SessionState};
 use crate::codec;
 use crate::codec::template::Registry;
+use crate::uitext::{ui_err, UiText};
 
 /// A reliable send still waiting on its ack: the framed bytes, when we last sent it (ms), and the attempt count.
 type Pending = (Vec<u8>, u64, u8);
@@ -294,11 +295,10 @@ impl Session {
         self.probing.store(false, Ordering::SeqCst);
         if dead {
             crate::dlog!("circuit: no answer after a network change, reporting the session lost");
-            self.emit_live(
-                &app,
-                "session-lost",
-                json!({ "reason": "The network changed and the region stopped answering." }),
-            );
+            let mut lost = json!({});
+            UiText::new("session.networkChanged", json!({}))
+            .fields(&mut lost, "reason");
+            self.emit_live(&app, "session-lost", lost);
         }
     }
 
@@ -1403,10 +1403,12 @@ pub async fn open(
     sim_port: u16,
     engine: Option<EngineInit>,
 ) -> Result<(String, Arc<Session>, u16), String> {
-    let target = resolve_target(sim_ip, sim_port).await.ok_or("Invalid sim_ip or sim_port")?;
+    let target = resolve_target(sim_ip, sim_port)
+        .await
+        .ok_or_else(|| ui_err("err.invalidSimAddress", json!({})))?;
     let socket = UdpSocket::bind("0.0.0.0:0")
         .await
-        .map_err(|e| format!("socket bind failed: {e}"))?;
+        .map_err(|e| ui_err("err.socketBindFailed", json!({ "error": e.to_string() })))?;
     let local_port = socket.local_addr().map(|a| a.port()).unwrap_or(0);
     let udp = Arc::new(socket);
 
@@ -1510,8 +1512,10 @@ fn spawn_net_meter(app: AppHandle, session: Arc<Session>) -> JoinHandle<()> {
             }
             was_quiet = quiet;
             // The label and the log-scaled bar level ship precomputed; the
-            // frontend only turns them into pixels. The shape is the NetRate
-            // struct, which is also what generates the frontend's type.
+            // frontend only turns them into pixels (and the totals into its
+            // own language). The shape is the NetRate struct, which is also
+            // what generates the frontend's type.
+            let totals = crate::bridge::netmeter::totals_line();
             session.emit_live(
                 &app,
                 "net-rate",
@@ -1526,7 +1530,9 @@ fn spawn_net_meter(app: AppHandle, session: Arc<Session>) -> JoinHandle<()> {
                     level: crate::bridge::netmeter::rate_level(in_bps + out_bps),
                     in_total: now_in,
                     out_total: now_out,
-                    totals_label: crate::bridge::netmeter::totals_label(),
+                    totals_label: totals.text,
+                    totals_label_key: totals.key,
+                    totals_label_args: totals.args,
                 }),
             );
         }
@@ -1546,11 +1552,10 @@ fn spawn_watchdog(app: AppHandle, session: Arc<Session>) -> JoinHandle<()> {
             tokio::time::sleep(Duration::from_secs(15)).await;
             let last = session.last_inbound.load(Ordering::Relaxed);
             if mono_ms().saturating_sub(last) > HEARTBEAT_TIMEOUT_MS {
-                session.emit_live(
-                    &app,
-                    "session-lost",
-                    json!({ "reason": "Lost connection to the region (no response)." }),
-                );
+                let mut lost = json!({});
+                UiText::new("session.lostConnectionNoResponse", json!({}))
+                .fields(&mut lost, "reason");
+                session.emit_live(&app, "session-lost", lost);
                 break;
             }
         }

@@ -9,6 +9,8 @@
 const BeeSettingsUI = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const DEFAULT_TAB = 'prefs';
   const PANES = {
     prefs: 'settings-pane-prefs',
@@ -21,75 +23,113 @@ const BeeSettingsUI = (function () {
   };
 
   // Interactive preference controls, grouped for display. Numeric bounds and
-  // steps come from BeeSettings.SCHEMA, so this list stays in sync with the schema.
+  // steps come from BeeSettings.SCHEMA, so this list stays in sync with the
+  // schema. The table exists before the dictionary is loaded, so its wording
+  // sits in functions that translate as the controls are built.
   const GROUPS = [
-    { section: 'Appearance', items: [
-      { key: 'theme', label: 'Theme', kind: 'select',
-        options: [['dark', 'Dark'], ['light', 'Light'], ['system', 'System (follow device)']] }
+    { section: function () { return t('settings.sectionAppearance'); }, items: [
+      // The language names stay in their own language (BeeI18n.languages),
+      // so this one list is a plain array.
+      { key: 'language', label: function () { return t('settings.language'); }, kind: 'select',
+        options: BeeI18n.languages() },
+      { key: 'theme', label: function () { return t('settings.theme'); }, kind: 'select',
+        options: function () {
+          return [['dark', t('settings.themeDark')], ['light', t('settings.themeLight')],
+            ['system', t('settings.themeSystem')]];
+        } }
     ] },
-    { section: 'Connection', items: [
-      { key: 'autoReconnect', label: 'Auto-reconnect after disconnect', kind: 'toggle' },
-      { key: 'dataSaver', label: 'Data saver (objects within 48 m only, slower object stream)', kind: 'toggle' }
+    { section: function () { return t('settings.sectionConnection'); }, items: [
+      { key: 'autoReconnect', kind: 'toggle',
+        label: function () { return t('settings.autoReconnect'); } },
+      { key: 'dataSaver', kind: 'toggle',
+        label: function () { return t('settings.dataSaver'); } }
     ] },
-    { section: 'Notifications', items: [
-      { key: 'imSound', label: 'Sound for new IMs (silent while that conversation is on screen)', kind: 'toggle' },
-      { key: 'imSoundGroups', label: 'Sound for group chats too', kind: 'toggle' }
+    { section: function () { return t('settings.sectionNotifications'); }, items: [
+      { key: 'imSound', kind: 'toggle',
+        label: function () { return t('settings.imSound'); } },
+      { key: 'imSoundGroups', kind: 'toggle',
+        label: function () { return t('settings.imSoundGroups'); } }
     ] },
-    { section: 'Nearby chat', items: [
-      { key: 'chatRadarPanel', label: 'Show nearby people beside the chat (wide screens)', kind: 'toggle' }
+    { section: function () { return t('settings.sectionNearbyChat'); }, items: [
+      { key: 'chatRadarPanel', kind: 'toggle',
+        label: function () { return t('settings.chatRadarPanel'); } }
     ] },
-    { section: 'Avatar', items: [
-      { key: 'autoSitAfterLogin', label: 'Sit on the ground after logging in', kind: 'toggle' }
+    { section: function () { return t('settings.sectionAvatar'); }, items: [
+      { key: 'autoSitAfterLogin', kind: 'toggle',
+        label: function () { return t('settings.autoSitAfterLogin'); } }
     ] },
-    { section: 'Radar', items: [
-      { key: 'radarRange', label: 'Range', kind: 'range', unit: 'm' },
-      { key: 'radarAlerts', label: 'Proximity alerts', kind: 'toggle' }
+    { section: function () { return t('settings.sectionRadar'); }, items: [
+      { key: 'radarRange', label: function () { return t('radar.range'); }, kind: 'range', unit: 'm' },
+      { key: 'radarAlerts', label: function () { return t('settings.radarAlerts'); }, kind: 'toggle' }
     ] },
-    { section: 'Buddies', items: [
-      { key: 'buddiesOnlineOnly', label: 'Show online friends only', kind: 'toggle' }
+    { section: function () { return t('settings.sectionBuddies'); }, items: [
+      { key: 'buddiesOnlineOnly', kind: 'toggle',
+        label: function () { return t('settings.buddiesOnlineOnly'); } }
     ] },
-    { section: 'Search', items: [
-      { key: 'maturity', label: 'Content to show (search results and the Destination Guide)', kind: 'select',
-        options: [['general', 'General'], ['moderate', 'General and Moderate'],
-          ['adult', 'General, Moderate and Adult']] }
+    { section: function () { return t('settings.sectionSearch'); }, items: [
+      { key: 'maturity', kind: 'select',
+        label: function () { return t('settings.maturity'); },
+        options: function () {
+          return [['general', t('settings.maturityGeneral')],
+            ['moderate', t('settings.maturityModerate')],
+            ['adult', t('settings.maturityAdult')]];
+        } }
     ] },
-    { section: 'Destination guide', items: [
-      { key: 'destFeed', label: 'Default feed', kind: 'select',
-        options: [['mobile', 'Mobile'], ['popular', 'Popular'], ['new', 'New'],
-          ['editor', 'Editor'], ['events', 'Events']] }
+    { section: function () { return t('settings.sectionDestinations'); }, items: [
+      { key: 'destFeed', label: function () { return t('settings.destFeed'); }, kind: 'select',
+        options: function () {
+          return [['mobile', t('settings.feedMobile')], ['popular', t('settings.feedPopular')],
+            ['new', t('settings.feedNew')], ['editor', t('settings.feedEditor')],
+            ['events', t('settings.feedEvents')]];
+        } }
     ] },
-    { section: 'Voice', items: [
-      { key: 'voiceEnabled', label: 'Voice chat (experimental)', kind: 'toggle' },
-      { key: 'voiceVolume', label: 'Volume', kind: 'range', unit: '%' },
-      { key: 'voiceMicVolume', label: 'Microphone volume', kind: 'range', unit: '%' },
-      { key: 'voiceMicDevice', label: 'Microphone', kind: 'select', missingLabel: 'Saved microphone (unavailable)',
+    { section: function () { return t('settings.sectionVoice'); }, items: [
+      { key: 'voiceEnabled', kind: 'toggle',
+        label: function () { return t('settings.voiceEnabled'); } },
+      { key: 'voiceVolume', label: function () { return t('settings.volume'); }, kind: 'range', unit: '%' },
+      { key: 'voiceMicVolume', kind: 'range', unit: '%',
+        label: function () { return t('settings.voiceMicVolume'); } },
+      { key: 'voiceMicDevice', label: function () { return t('settings.voiceMicDevice'); }, kind: 'select',
+        missingLabel: function () { return t('settings.savedMicUnavailable'); },
         optionsFn: function () {
           return (typeof window.BeeVoice !== 'undefined' && window.BeeVoice)
             ? window.BeeVoice.listDevices('audioinput')
-            : Promise.resolve([['', 'System default']]);
+            : Promise.resolve([['', t('voice.systemDefault')]]);
         } },
-      { key: 'voiceOutputDevice', label: 'Output device', kind: 'select', missingLabel: 'Saved output (unavailable)',
+      { key: 'voiceOutputDevice', kind: 'select',
+        label: function () { return t('settings.voiceOutputDevice'); },
+        missingLabel: function () { return t('settings.savedOutputUnavailable'); },
         optionsFn: function () {
           return (typeof window.BeeVoice !== 'undefined' && window.BeeVoice)
             ? window.BeeVoice.listDevices('audiooutput')
-            : Promise.resolve([['', 'System default']]);
+            : Promise.resolve([['', t('voice.systemDefault')]]);
         } }
     ] },
-    { section: 'Chat logs', items: [
-      { key: 'chatLogsAvatars', label: 'Keep IM logs (people)', kind: 'toggle' },
-      { key: 'chatLogsGroups', label: 'Keep IM logs (groups and conferences)', kind: 'toggle' },
-      { key: 'chatLogsLocal', label: 'Keep nearby chat log', kind: 'toggle' }
+    { section: function () { return t('settings.sectionChatLogs'); }, items: [
+      { key: 'chatLogsAvatars', kind: 'toggle',
+        label: function () { return t('settings.chatLogsAvatars'); } },
+      { key: 'chatLogsGroups', kind: 'toggle',
+        label: function () { return t('settings.chatLogsGroups'); } },
+      { key: 'chatLogsLocal', kind: 'toggle',
+        label: function () { return t('settings.chatLogsLocal'); } }
     ] },
-    { section: 'Parcel music', items: [
-      { key: 'parcelMusicEnabled', label: 'Auto-play stream', kind: 'toggle' },
-      { key: 'parcelMusicVolume', label: 'Volume', kind: 'range', unit: '%' }
+    { section: function () { return t('settings.sectionParcelMusic'); }, items: [
+      { key: 'parcelMusicEnabled', kind: 'toggle',
+        label: function () { return t('settings.parcelMusicEnabled'); } },
+      { key: 'parcelMusicVolume', label: function () { return t('settings.volume'); }, kind: 'range', unit: '%' }
     ] },
-    { section: 'Interact', items: [
-      { key: 'objectsRange', label: 'Nearby objects range', kind: 'select',
-        options: [['16', '16 m'], ['32', '32 m'], ['48', '48 m'], ['64', '64 m'],
-          ['96', '96 m'], ['128', '128 m'], ['256', '256 m'], ['384', '384 m']] },
-      { key: 'objectsIncludeAttachments', label: 'Include attachments', kind: 'toggle' },
-      { key: 'objectsIncludePhysical', label: 'Include physical', kind: 'toggle' }
+    { section: function () { return t('settings.sectionInteract'); }, items: [
+      { key: 'objectsRange', kind: 'select',
+        label: function () { return t('settings.objectsRange'); },
+        options: function () {
+          return ['16', '32', '48', '64', '96', '128', '256', '384'].map(function (v) {
+            return [v, t('units.metres', { value: v })];
+          });
+        } },
+      { key: 'objectsIncludeAttachments', kind: 'toggle',
+        label: function () { return t('interact.includeAttachments'); } },
+      { key: 'objectsIncludePhysical', kind: 'toggle',
+        label: function () { return t('interact.includePhysical'); } }
     ] }
   ];
 
@@ -101,7 +141,7 @@ const BeeSettingsUI = (function () {
 
   function invoke(cmd) {
     if (typeof BeeBridge === 'undefined' || typeof BeeBridge.invoke !== 'function') {
-      return Promise.reject(new Error('Native bridge unavailable'));
+      return Promise.reject(new Error(t('updater.bridgeUnavailable')));
     }
     return BeeBridge.invoke(cmd);
   }
@@ -131,7 +171,9 @@ const BeeSettingsUI = (function () {
 
   function formatValue(item, value) {
     if (!item.unit) return String(value);
-    return item.unit === '%' ? String(value) + '%' : String(value) + ' ' + item.unit;
+    if (item.unit === '%') return t('units.percent', { value: value });
+    if (item.unit === 'm') return t('units.metres', { value: value });
+    return String(value) + ' ' + item.unit;
   }
 
   function buildRow(item) {
@@ -140,7 +182,7 @@ const BeeSettingsUI = (function () {
     const id = 'set-' + item.key;
     const label = document.createElement('label');
     label.className = 'settings-control__label';
-    label.textContent = item.label;
+    label.textContent = item.label();
     label.setAttribute('for', id);
     const current = BeeSettings.get(item.key);
 
@@ -173,16 +215,22 @@ const BeeSettingsUI = (function () {
         if (current !== undefined && !Array.from(select.options).some(function (o) { return o.value === String(current); })) {
           const o = document.createElement('option');
           o.value = String(current);
-          o.textContent = item.missingLabel || 'Saved choice (unavailable)';
+          o.textContent = item.missingLabel
+            ? item.missingLabel()
+            : t('settings.savedChoiceUnavailable');
           select.appendChild(o);
         }
         select.value = String(current);
       };
       if (item.optionsFn) {
-        fill([['', 'Loading...']]);
-        Promise.resolve(item.optionsFn()).then(fill).catch(function () { fill([['', 'System default']]); });
+        fill([['', t('common.loading')]]);
+        Promise.resolve(item.optionsFn()).then(fill).catch(function () {
+          fill([['', t('voice.systemDefault')]]);
+        });
       } else {
-        fill(item.options);
+        // A list of translated labels is a function; the language list is
+        // the plain array it always was.
+        fill(typeof item.options === 'function' ? item.options() : item.options);
       }
       select.addEventListener('change', function () {
         BeeSettings.set(item.key, select.value);
@@ -229,7 +277,7 @@ const BeeSettingsUI = (function () {
       section.className = 'settings-group';
       const title = document.createElement('h3');
       title.className = 'settings-group__title';
-      title.textContent = group.section;
+      title.textContent = group.section();
       section.appendChild(title);
       group.items.forEach(function (item) {
         if (schemaOf(item.key)) section.appendChild(buildRow(item));
@@ -273,24 +321,37 @@ const BeeSettingsUI = (function () {
   function fmtBuildDate(epoch) {
     const n = Number(epoch);
     if (!Number.isFinite(n) || n <= 0) return '';
-    try { return new Date(n * 1000).toLocaleString(); } catch (_e) { return ''; }
+    try { return new Date(n * 1000).toLocaleString(BeeI18n.dateLocale()); } catch (_e) { return ''; }
   }
 
+  // "release (debug) · opt 3": the profile, then the flags that matter.
   function buildSummary(b) {
-    return (b.profile || 'unknown') + (b.debugAssertions ? ' (debug)' : '') +
-      (b.optLevel ? ' · opt ' + b.optLevel : '');
+    const parts = [b.profile || t('about.profileUnknown')];
+    if (b.debugAssertions) parts.push(t('about.debugAssertions'));
+    if (b.optLevel) parts.push('· ' + t('about.optLevel', { level: b.optLevel }));
+    return parts.join(' ');
+  }
+
+  // A byte count as a figure and its unit: GB from a gigabyte up, MB below.
+  // Null when there is nothing usable.
+  function bytesParts(n) {
+    const b = Number(n);
+    if (!Number.isFinite(b) || b <= 0) return null;
+    const gb = b / (1024 * 1024 * 1024);
+    if (gb >= 1) return { value: gb.toFixed(1), unit: 'GB' };
+    return { value: (b / (1024 * 1024)).toFixed(0), unit: 'MB' };
   }
 
   function fmtBytes(n) {
-    const b = Number(n);
-    if (!Number.isFinite(b) || b <= 0) return '-';
-    const gb = b / (1024 * 1024 * 1024);
-    if (gb >= 1) return gb.toFixed(1) + ' GB';
-    return (b / (1024 * 1024)).toFixed(0) + ' MB';
+    const p = bytesParts(n);
+    if (!p) return '-';
+    return p.unit === 'GB'
+      ? t('units.gb', { value: p.value })
+      : t('units.mb', { value: p.value });
   }
 
   function memText(used, total) {
-    return fmtBytes(used) + ' / ' + fmtBytes(total) + ' used';
+    return t('about.memoryUsed', { used: fmtBytes(used), total: fmtBytes(total) });
   }
 
   // Refresh the used-memory figure every 5s while the About tab is open, and
@@ -312,17 +373,18 @@ const BeeSettingsUI = (function () {
 
   function fmtLogSize(b) {
     return b >= 1024 * 1024
-      ? (b / (1024 * 1024)).toFixed(1) + ' MB'
-      : Math.max(1, Math.round(b / 1024)) + ' KB';
+      ? t('units.mb', { value: (b / (1024 * 1024)).toFixed(1) })
+      : t('units.kb', { value: Math.max(1, Math.round(b / 1024)) });
   }
 
   // --- Log manager: list and delete the chat log files -----------------------
 
-  const LOG_KIND_LABELS = {
-    local: 'Nearby chat',
-    avatars: 'IM logs (people)',
-    groups: 'Group and conference logs'
-  };
+  // The kinds of log file, in the order the manager lists them.
+  const LOG_KINDS = [
+    { kind: 'local', label: function () { return t('logs.kindLocal'); } },
+    { kind: 'avatars', label: function () { return t('logs.kindAvatars'); } },
+    { kind: 'groups', label: function () { return t('logs.kindGroups'); } }
+  ];
 
   function openLogManager() {
     const d = document.getElementById('log-manager-dialog') as HTMLDialogElement | null;
@@ -333,17 +395,17 @@ const BeeSettingsUI = (function () {
 
   async function deleteLogs(agent, kind, name, what) {
     const ok = await BeeUtils.confirm({
-      title: 'Delete log files?',
-      message: 'Delete ' + what + '? The text files are removed from this device permanently.',
-      confirmLabel: 'Delete',
+      title: t('logs.deleteTitle'),
+      message: t('logs.deleteMessage', { what: what }),
+      confirmLabel: t('logs.delete'),
       danger: true
     });
     if (!ok) return;
     try {
       await BeeBridge.invoke('chat_log_delete', { agent: agent || '', kind: kind, name: name || null });
-      BeeUtils.showToast('Deleted.', 'success');
+      BeeUtils.showToast(t('logs.deleted'), 'success');
     } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not delete the log.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('logs.deleteFailed'), 'error');
     }
     void renderLogManager();
     updateChatLogUsage();
@@ -352,7 +414,7 @@ const BeeSettingsUI = (function () {
   // Section titles for the log manager: the resolved avatar name when the
   // cache knows it, the raw account id otherwise.
   function accountLabel(agent, me) {
-    if (!agent) return 'Older shared logs';
+    if (!agent) return t('logs.olderShared');
     let label = '';
     if (typeof BeeTransport !== 'undefined' && BeeTransport.getCachedNameInfo) {
       const info = BeeTransport.getCachedNameInfo(agent);
@@ -361,7 +423,11 @@ const BeeSettingsUI = (function () {
     if (!label && typeof BeeTransport !== 'undefined' && BeeTransport.queueNameResolve && BeeState.gridOnline()) {
       BeeTransport.queueNameResolve(agent); // a names-updated event re-renders
     }
-    if (agent === me) return label ? label + ' (this account)' : 'This account';
+    if (agent === me) {
+      return label
+        ? t('logs.namedThisAccount', { name: label })
+        : t('logs.thisAccount');
+    }
     return label || agent;
   }
 
@@ -378,18 +444,18 @@ const BeeSettingsUI = (function () {
   async function renderLogManager() {
     const list = document.getElementById('log-manager-list');
     if (!list) return;
-    logManagerNote(list, 'Loading...');
+    logManagerNote(list, t('common.loading'));
     let logs = [];
     try {
       const res = await BeeBridge.invoke('chat_log_list');
       logs = (res && res.logs) || [];
     } catch (_e) {
-      logManagerNote(list, 'The log list is unavailable.');
+      logManagerNote(list, t('logs.listUnavailable'));
       return;
     }
     list.innerHTML = '';
     if (!logs.length) {
-      logManagerNote(list, 'No log files on this device.');
+      logManagerNote(list, t('logs.noneOnDevice'));
       return;
     }
     // One section per account ("" marks files from before logs were split per
@@ -417,21 +483,25 @@ const BeeSettingsUI = (function () {
   }
 
   function renderLogKinds(list, agent, logs) {
-    Object.keys(LOG_KIND_LABELS).forEach(function (kind) {
+    LOG_KINDS.forEach(function (entry) {
+      const kind = entry.kind;
       const rows = logs.filter(function (l) { return l.kind === kind; });
       if (!rows.length) return;
+      const kindLabel = entry.label();
       const head = document.createElement('div');
       head.className = 'log-manager__head';
       const title = document.createElement('span');
       title.className = 'log-manager__kind';
-      title.textContent = LOG_KIND_LABELS[kind] + ' (' + rows.length + ')';
+      title.textContent = t('logs.kindCount', { kind: kindLabel, count: rows.length });
       head.appendChild(title);
       const all = document.createElement('button');
       all.type = 'button';
       all.className = 'btn btn--ghost btn--sm';
-      all.textContent = 'Delete all';
+      all.textContent = t('logs.deleteAll');
       all.addEventListener('click', function () {
-        void deleteLogs(agent, kind, null, 'ALL ' + LOG_KIND_LABELS[kind].toLowerCase() + ' files in this section');
+        // The section's own label, as written: lowercasing it would mangle
+        // "IM" and words in other languages.
+        void deleteLogs(agent, kind, null, t('logs.allInSection', { kind: kindLabel }));
       });
       head.appendChild(all);
       list.appendChild(head);
@@ -444,7 +514,9 @@ const BeeSettingsUI = (function () {
         // the name resolved); show the username instead when the name cache
         // knows it - files are by username, so the list reads the same way -
         // and ask it to find out when it doesn't yet.
-        let display = l.name;
+        // The nearby-chat file has one fixed name on disk in every language;
+        // it reads as the section does.
+        let display = kind === 'local' ? t('logs.nearbyChatFile') : l.name;
         const isUuidName = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(l.name);
         if (isUuidName && typeof BeeTransport !== 'undefined') {
           if (kind === 'avatars') {
@@ -472,9 +544,9 @@ const BeeSettingsUI = (function () {
         const del = document.createElement('button');
         del.type = 'button';
         del.className = 'btn btn--ghost btn--sm';
-        del.textContent = 'Delete';
+        del.textContent = t('logs.delete');
         del.addEventListener('click', function () {
-          void deleteLogs(agent, l.kind, l.name, 'the log for "' + l.name + '"');
+          void deleteLogs(agent, l.kind, l.name, t('logs.theLogFor', { name: l.name }));
         });
         row.appendChild(name);
         row.appendChild(size);
@@ -493,16 +565,16 @@ const BeeSettingsUI = (function () {
       cell.textContent = '-';
       return;
     }
-    cell.textContent = 'Checking...';
+    cell.textContent = t('updater.checking');
     BeeTransport.chatLogUsage().then(function (u) {
       if (!u || !u.ok) {
         cell.textContent = '-';
         return;
       }
       const files = Number(u.files) || 0;
-      let label = 'No log files';
+      let label = t('logs.noFiles');
       if (files) {
-        label = fmtLogSize(Number(u.bytes) || 0) + ' in ' + files + (files === 1 ? ' file' : ' files');
+        label = t('logs.usage', { size: fmtLogSize(Number(u.bytes) || 0), count: files });
       }
       // A link into the log manager, where files can be inspected and deleted.
       cell.innerHTML = '';
@@ -510,7 +582,7 @@ const BeeSettingsUI = (function () {
       link.href = '#';
       link.className = 'settings-link';
       link.textContent = label;
-      link.title = 'Manage and delete log files';
+      link.title = t('logs.manageTitle');
       link.addEventListener('click', function (e) {
         e.preventDefault();
         openLogManager();
@@ -574,110 +646,117 @@ const BeeSettingsUI = (function () {
     loaded.about = true;
     invoke('app_about').then(function (info) {
       aboutInfo = info || {};
-      const data = aboutInfo;
-      setText('about-name', data.name || 'Minibee Viewer');
-      // The Google Play build announces itself under the name (the core
-      // knows which binary this is).
-      const nameEl = document.getElementById('about-name');
-      if (nameEl && data.edition) {
-        const edition = document.createElement('span');
-        edition.className = 'about-name__edition';
-        edition.textContent = String(data.edition);
-        nameEl.appendChild(edition);
-      }
-      setText('about-catchphrase', data.catchphrase || '');
-      setText('about-version', data.displayVersion || '');
-      setText('about-disclaimer', data.disclaimer || '');
-      setText('about-dedication', data.dedication || '');
-      const contact = document.getElementById('about-contact');
-      if (contact) {
-        contact.innerHTML = '';
-        const person = data.contact || {};
-        if (person.agentId) {
-          const link = document.createElement('a');
-          link.href = '#';
-          link.className = 'settings-link';
-          link.textContent = person.label || person.agentId;
-          link.title = 'Open in-world profile';
-          link.addEventListener('click', function (e) {
-            e.preventDefault();
-            if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) {
-              BeeProfile.openAvatar(person.agentId);
-            }
-          });
-          contact.appendChild(link);
-        } else {
-          contact.textContent = '-';
-        }
-      }
-      const support = data.support || {};
-      const supportEl = document.getElementById('about-support');
-      if (supportEl) {
-        supportEl.innerHTML = '';
-        if (support.issues) {
-          linkCell(supportEl, 'GitHub Issues', support.issues);
-        } else {
-          supportEl.textContent = '-';
-        }
-        if (support.discussions) {
-          if (supportEl.childNodes.length) supportEl.appendChild(document.createTextNode(' · '));
-          const link = document.createElement('a');
-          link.href = support.discussions;
-          link.className = 'settings-link';
-          link.textContent = 'Discussions';
-          link.addEventListener('click', function (e) {
-            e.preventDefault();
-            openExternal(support.discussions);
-          });
-          supportEl.appendChild(link);
-        }
-      }
-      linkToSettingsTab(document.getElementById('about-privacy'), 'Privacy policy', 'privacy');
-      linkCell(document.getElementById('about-source'), 'Source code', data.sourceUrl || data.homepage);
-      const b = data.build || {};
-      const updateBtn = document.getElementById('about-check-update');
-      if (updateBtn && typeof BeeUpdater !== 'undefined' && BeeUpdater.available) {
-        BeeUpdater.available().then(function (canUpdate) {
-          updateBtn.hidden = !canUpdate;
-        });
-      }
-      const buildDl = document.getElementById('about-build');
-      if (buildDl) {
-        buildDl.innerHTML = '';
-        metaRow(buildDl, 'Build', buildSummary(b));
-        metaRow(buildDl, 'LTO', b.lto ? 'Enabled' : 'Disabled');
-        metaRow(buildDl, 'Built', fmtBuildDate(b.buildEpoch));
-        metaRow(buildDl, 'Compiler', b.rustc);
-        metaRow(buildDl, 'Target', b.target);
-        if (b.host && b.host !== b.target) metaRow(buildDl, 'Build host', b.host);
-      }
-      const s = data.system || {};
-      const sysDl = document.getElementById('about-system');
-      if (sysDl) {
-        sysDl.innerHTML = '';
-        metaRow(sysDl, 'OS', s.osVersion || s.os);
-        metaRow(sysDl, 'Architecture', s.arch);
-        if (s.cpus) metaRow(sysDl, 'Logical CPUs', s.cpus);
-        // Memory rows get stable ids so the 5s poll can update just the values in place.
-        const dt = document.createElement('dt');
-        dt.textContent = 'Memory';
-        const dd = document.createElement('dd');
-        dd.id = 'about-mem';
-        dd.textContent = memText(s.memUsed, s.memTotal);
-        sysDl.appendChild(dt);
-        sysDl.appendChild(dd);
-        const dtp = document.createElement('dt');
-        dtp.textContent = 'Minibee memory';
-        const ddp = document.createElement('dd');
-        ddp.id = 'about-mem-proc';
-        ddp.textContent = fmtBytes(s.memProcess);
-        sysDl.appendChild(dtp);
-        sysDl.appendChild(ddp);
-      }
+      renderAbout(aboutInfo);
     }).catch(function () {
       loaded.about = false; // clear the flag so a later open can retry
-      setText('about-catchphrase', 'Could not load application info.');
+      setText('about-catchphrase', t('about.loadFailed'));
     });
+  }
+
+  // Paint the About pane from the core's payload. The lines the core wrote
+  // (edition, catchphrase, disclaimer, dedication) arrive with their keys, so
+  // they follow the UI language like everything else here.
+  function renderAbout(data) {
+    setText('about-name', data.name || t('about.appName'));
+    // The Google Play build announces itself under the name (the core
+    // knows which binary this is).
+    const nameEl = document.getElementById('about-name');
+    const edition = BeeI18n.field(data, 'edition');
+    if (nameEl && edition) {
+      const span = document.createElement('span');
+      span.className = 'about-name__edition';
+      span.textContent = edition;
+      nameEl.appendChild(span);
+    }
+    setText('about-catchphrase', BeeI18n.field(data, 'catchphrase'));
+    setText('about-version', data.displayVersion || '');
+    setText('about-disclaimer', BeeI18n.field(data, 'disclaimer'));
+    setText('about-dedication', BeeI18n.field(data, 'dedication'));
+    const contact = document.getElementById('about-contact');
+    if (contact) {
+      contact.innerHTML = '';
+      const person = data.contact || {};
+      if (person.agentId) {
+        const link = document.createElement('a');
+        link.href = '#';
+        link.className = 'settings-link';
+        link.textContent = person.label || person.agentId;
+        link.title = t('about.openProfile');
+        link.addEventListener('click', function (e) {
+          e.preventDefault();
+          if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) {
+            BeeProfile.openAvatar(person.agentId);
+          }
+        });
+        contact.appendChild(link);
+      } else {
+        contact.textContent = '-';
+      }
+    }
+    const support = data.support || {};
+    const supportEl = document.getElementById('about-support');
+    if (supportEl) {
+      supportEl.innerHTML = '';
+      if (support.issues) {
+        linkCell(supportEl, t('about.githubIssues'), support.issues);
+      } else {
+        supportEl.textContent = '-';
+      }
+      if (support.discussions) {
+        if (supportEl.childNodes.length) supportEl.appendChild(document.createTextNode(' · '));
+        const link = document.createElement('a');
+        link.href = support.discussions;
+        link.className = 'settings-link';
+        link.textContent = t('about.discussions');
+        link.addEventListener('click', function (e) {
+          e.preventDefault();
+          openExternal(support.discussions);
+        });
+        supportEl.appendChild(link);
+      }
+    }
+    linkToSettingsTab(document.getElementById('about-privacy'), t('about.privacyPolicy'), 'privacy');
+    linkCell(document.getElementById('about-source'), t('about.sourceCode'), data.sourceUrl || data.homepage);
+    const b = data.build || {};
+    const updateBtn = document.getElementById('about-check-update');
+    if (updateBtn && typeof BeeUpdater !== 'undefined' && BeeUpdater.available) {
+      BeeUpdater.available().then(function (canUpdate) {
+        updateBtn.hidden = !canUpdate;
+      });
+    }
+    const buildDl = document.getElementById('about-build');
+    if (buildDl) {
+      buildDl.innerHTML = '';
+      metaRow(buildDl, t('about.build'), buildSummary(b));
+      metaRow(buildDl, t('about.lto'), b.lto ? t('about.enabled') : t('about.disabled'));
+      metaRow(buildDl, t('about.built'), fmtBuildDate(b.buildEpoch));
+      metaRow(buildDl, t('about.compiler'), b.rustc);
+      metaRow(buildDl, t('about.target'), b.target);
+      if (b.host && b.host !== b.target) metaRow(buildDl, t('about.buildHost'), b.host);
+    }
+    const s = data.system || {};
+    const sysDl = document.getElementById('about-system');
+    if (sysDl) {
+      sysDl.innerHTML = '';
+      metaRow(sysDl, t('about.os'), s.osVersion || s.os);
+      metaRow(sysDl, t('about.architecture'), s.arch);
+      if (s.cpus) metaRow(sysDl, t('about.logicalCpus'), s.cpus);
+      // Memory rows get stable ids so the 5s poll can update just the values in place.
+      const dt = document.createElement('dt');
+      dt.textContent = t('about.memory');
+      const dd = document.createElement('dd');
+      dd.id = 'about-mem';
+      dd.textContent = memText(s.memUsed, s.memTotal);
+      sysDl.appendChild(dt);
+      sysDl.appendChild(dd);
+      const dtp = document.createElement('dt');
+      dtp.textContent = t('about.minibeeMemory');
+      const ddp = document.createElement('dd');
+      ddp.id = 'about-mem-proc';
+      ddp.textContent = fmtBytes(s.memProcess);
+      sysDl.appendChild(dtp);
+      sysDl.appendChild(ddp);
+    }
   }
 
   // --- Packages tab: what this build was compiled from ------------------------
@@ -698,20 +777,32 @@ const BeeSettingsUI = (function () {
 
   function templateCredit() {
     if (!packages) return '';
-    return 'Grid messages are read and written with Linden Lab\'s message template' +
-      (packages.templateVersion ? ' (version ' + packages.templateVersion + ')' : '') +
-      ', bundled verbatim.';
+    return packages.templateVersion
+      ? t('packages.templateCreditVersion', { version: packages.templateVersion })
+      : t('packages.templateCredit');
+  }
+
+  // "Label: value" and "Heading:" lines of the Copy all text.
+  function copyLine(label, value) {
+    return t('about.copyLine', { label: label, value: value });
+  }
+
+  function copyHeading(title) {
+    return t('about.copyHeading', { title: title });
   }
 
   function packagesText() {
     if (!packages) return '';
-    const lines = ['Packages:', templateCredit(), ''];
-    lines.push('Rust crates (' + packages.rust.length + '):');
-    packages.rust.forEach(function (p) { lines.push('  ' + p.name + ' ' + p.version); });
-    lines.push('');
-    lines.push('Build tools (' + packages.node.length + '):');
-    packages.node.forEach(function (p) { lines.push('  ' + p.name + ' ' + p.version); });
-    return lines.join('\n');
+    const section = function (title, rows) {
+      const out = [copyHeading(t('packages.sectionCount', { title: title, count: rows.length }))];
+      rows.forEach(function (p) { out.push('  ' + p.name + ' ' + p.version); });
+      return out;
+    };
+    return [copyHeading(t('settings.packages')), templateCredit(), '']
+      .concat(section(t('packages.rustCrates'), packages.rust))
+      .concat([''])
+      .concat(section(t('packages.buildTools'), packages.node))
+      .join('\n');
   }
 
   async function loadPackages() {
@@ -720,19 +811,24 @@ const BeeSettingsUI = (function () {
     try {
       await fetchPackages();
     } catch (_e) {
-      el.textContent = 'The package list is unavailable.';
+      el.textContent = t('packages.unavailable');
       return;
     }
     el.dataset.ready = '1';
+    renderPackages(el);
+  }
+
+  function renderPackages(el) {
     const note = document.getElementById('settings-packages-note');
     if (note) {
-      note.textContent = templateCredit() + ' Everything below went into compiling this build of the viewer.';
+      note.textContent = templateCredit() + ' ' +
+        t('packages.note');
     }
     el.innerHTML = '';
     const section = function (title, rows) {
       const head = document.createElement('div');
       head.className = 'packages-list__head';
-      head.textContent = title + ' (' + rows.length + ')';
+      head.textContent = t('packages.sectionCount', { title: title, count: rows.length });
       el.appendChild(head);
       rows.forEach(function (p) {
         const row = document.createElement('div');
@@ -748,8 +844,8 @@ const BeeSettingsUI = (function () {
         el.appendChild(row);
       });
     };
-    section('Rust crates', packages.rust);
-    section('Build tools', packages.node);
+    section(t('packages.rustCrates'), packages.rust);
+    section(t('packages.buildTools'), packages.node);
   }
 
   function fallbackCopy(text, done) {
@@ -767,6 +863,8 @@ const BeeSettingsUI = (function () {
     } catch (_e) { done(false); }
   }
 
+  // The clipboard gets what the About tab shows, in the same words, plus the
+  // package list: the details a bug report needs.
   async function copyAbout() {
     // The copy carries the full package list too; fetch it if the Packages
     // tab was never opened. A copy without it still beats no copy.
@@ -775,34 +873,36 @@ const BeeSettingsUI = (function () {
     const b = d.build || {};
     const s = d.system || {};
     const display = d.displayVersion || '';
+    const edition = BeeI18n.field(d, 'edition');
     const lines = [
-      (d.name || 'Minibee Viewer') + (display ? ' ' + display : '') + (d.edition ? ' (' + d.edition + ')' : ''),
-      d.channel ? ('Channel: ' + d.channel) : '',
-      d.disclaimer || '',
-      d.catchphrase || '',
-      d.dedication || '',
-      'Author: ' + (d.author || ''),
-      d.homepage ? 'Homepage: ' + d.homepage : '',
-      d.support && d.support.issues ? 'Support: ' + d.support.issues : '',
-      'Privacy: bundled (Bee -> Privacy)',
+      (d.name || t('about.appName')) + (display ? ' ' + display : '') +
+        (edition ? ' (' + edition + ')' : ''),
+      d.channel ? copyLine(t('about.channel'), d.channel) : '',
+      BeeI18n.field(d, 'disclaimer'),
+      BeeI18n.field(d, 'catchphrase'),
+      BeeI18n.field(d, 'dedication'),
+      copyLine(t('about.author'), d.author || ''),
+      d.homepage ? copyLine(t('about.homepage'), d.homepage) : '',
+      d.support && d.support.issues ? copyLine(t('about.support'), d.support.issues) : '',
+      copyLine(t('settings.privacy'), t('about.privacyBundled')),
       '',
-      'Build: ' + buildSummary(b),
-      'LTO: ' + (b.lto ? 'Enabled' : 'Disabled'),
-      'Built: ' + fmtBuildDate(b.buildEpoch),
-      'Compiler: ' + (b.rustc || ''),
-      'Target: ' + (b.target || ''),
-      (b.host && b.host !== b.target) ? 'Build host: ' + b.host : '',
+      copyLine(t('about.build'), buildSummary(b)),
+      copyLine(t('about.lto'), b.lto ? t('about.enabled') : t('about.disabled')),
+      copyLine(t('about.built'), fmtBuildDate(b.buildEpoch)),
+      copyLine(t('about.compiler'), b.rustc || ''),
+      copyLine(t('about.target'), b.target || ''),
+      (b.host && b.host !== b.target) ? copyLine(t('about.buildHost'), b.host) : '',
       '',
-      'OS: ' + (s.osVersion || s.os || '') + ' (' + (s.arch || '') + ')',
-      s.cpus ? 'Logical CPUs: ' + s.cpus : '',
-      (s.memTotal ? 'Memory: ' + memText(s.memUsed, s.memTotal) : ''),
-      (s.memProcess ? 'Minibee memory: ' + fmtBytes(s.memProcess) : '')
+      copyLine(t('about.os'), (s.osVersion || s.os || '') + ' (' + (s.arch || '') + ')'),
+      s.cpus ? copyLine(t('about.logicalCpus'), s.cpus) : '',
+      (s.memTotal ? copyLine(t('about.memory'), memText(s.memUsed, s.memTotal)) : ''),
+      (s.memProcess ? copyLine(t('about.minibeeMemory'), fmtBytes(s.memProcess)) : '')
     ].filter(function (l) { return l !== ''; });
     let text = lines.join('\n');
     const pk = packagesText();
     if (pk) text += '\n\n' + pk;
     const done = function (ok) {
-      setText('about-copy-status', ok ? 'Copied!' : 'Copy failed');
+      setText('about-copy-status', ok ? t('about.copied') : t('profile.copyFailed'));
       window.setTimeout(function () { setText('about-copy-status', ''); }, 2500);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -813,17 +913,25 @@ const BeeSettingsUI = (function () {
     }
   }
 
+  // The tab's name for a document the core serves, for the failure line.
+  function docLabel(name) {
+    if (name === 'help') return t('settings.help');
+    if (name === 'privacy') return t('settings.privacy');
+    if (name === 'license') return t('settings.license');
+    return 'README';
+  }
+
   function loadDoc(name, cmd, targetId) {
     if (loaded[name]) return;
     loaded[name] = true;
     const target = document.getElementById(targetId);
-    if (target) target.textContent = 'Loading...';
+    if (target) target.textContent = t('common.loading');
     invoke(cmd).then(function (result) {
       const text = result && typeof result.text === 'string' ? result.text : '';
-      if (target) target.textContent = text || 'No content.';
+      if (target) target.textContent = text || t('settings.noContent');
     }).catch(function () {
       loaded[name] = false; // clear the flag so the next open retries
-      if (target) target.textContent = 'Could not load ' + name + '.';
+      if (target) target.textContent = t('settings.docLoadFailed', { name: docLabel(name) });
     });
   }
 
@@ -892,6 +1000,18 @@ const BeeSettingsUI = (function () {
         syncControl(key);
       });
     }
+    // A language switch: the controls are rebuilt in the new words, and the
+    // panes painted once from data already fetched (About, Packages, the log
+    // manager when it is open) are painted again from that data.
+    BeeI18n.onChange(function () {
+      buildControls();
+      if (aboutInfo) renderAbout(aboutInfo);
+      if (activeTab === 'about') updateChatLogUsage();
+      const pk = document.getElementById('settings-packages');
+      if (pk && pk.dataset.ready === '1' && packages) renderPackages(pk);
+      const d = document.getElementById('log-manager-dialog') as HTMLDialogElement | null;
+      if (d && d.open) void renderLogManager();
+    });
   }
 
   return {

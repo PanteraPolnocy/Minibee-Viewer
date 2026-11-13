@@ -52,9 +52,16 @@ pub struct NetRate {
     /// Bytes sent since launch, likewise.
     #[ts(type = "number")]
     pub out_total: u64,
-    /// Ready-to-display totals with the circuit/HTTP split, e.g.
-    /// "Since launch: ↓ 120.4 MB  ↑ 8.1 MB (circuit ↓ 110.2 MB ↑ 7.0 MB, HTTP ↓ 10.2 MB ↑ 1.1 MB)".
+    /// Ready-to-display totals since launch with the circuit/HTTP split, in
+    /// English, e.g. "↓ 120.4 MB  ↑ 8.1 MB (circuit ↓ 110.2 MB ↑ 7.0 MB,
+    /// HTTP ↓ 10.2 MB ↑ 1.1 MB)"; the interface shows it in its own language
+    /// from the key and arguments beside it.
     pub totals_label: String,
+    /// The language-file key of `totals_label`.
+    pub totals_label_key: String,
+    /// The values `totals_label` interpolates (formatted sizes).
+    #[ts(type = "Record<string, string>")]
+    pub totals_label_args: Value,
 }
 
 /// Whether the avatar is seated, and on what (`sit-state`).
@@ -91,14 +98,18 @@ mod tests {
             level: 0.25,
             in_total: 120_000_000,
             out_total: 8_000_000,
-            totals_label: "Since launch: down 114.4 MB".into(),
+            totals_label: "down 114.4 MB".into(),
+            totals_label_key: "topbar.trafficTotals".into(),
+            totals_label_args: json!({ "down": "114.4 MB" }),
         });
         assert_eq!(
             v,
             json!({
                 "inBps": 1500, "outBps": 300, "label": "down 1.5 KB/s", "level": 0.25,
                 "inTotal": 120_000_000, "outTotal": 8_000_000,
-                "totalsLabel": "Since launch: down 114.4 MB",
+                "totalsLabel": "down 114.4 MB",
+                "totalsLabelKey": "topbar.trafficTotals",
+                "totalsLabelArgs": { "down": "114.4 MB" },
             })
         );
     }

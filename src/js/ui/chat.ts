@@ -4,6 +4,9 @@
 const BeeChat = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+  const th = BeeI18n.html;
+
   let resetChatInputHeight = function () {};
 
   const CHAT_TYPE_CLASS = {
@@ -11,6 +14,43 @@ const BeeChat = (function () {
     shout: 'msg__name--shout',
     system: 'msg__name--system'
   };
+
+  // What a script's text box receives when it is sent empty. A protocol
+  // value the script reads, not wording: it stays the same in every
+  // language, and the card shows it through choiceLabel().
+  const EMPTY_TEXT_REPLY = '(empty)';
+
+  // A card remembers its answer as a token ('ignored', 'accepted', ...): the
+  // state stays language-neutral and a language switch needs no re-saving.
+  // The token reads in the UI language here; a script dialog's own button
+  // label - the script's words - passes through as it is.
+  function choiceLabel(token) {
+    switch (String(token || '')) {
+      case 'ignored': return t('chat.choiceIgnored');
+      case 'openedPage': return t('chat.choiceOpenedPage');
+      case 'teleporting': return t('chat.choiceTeleporting');
+      case 'shownOnMap': return t('chat.choiceShownOnMap');
+      case 'accepted': return t('chat.choiceAccepted');
+      case 'declined': return t('chat.choiceDeclined');
+      case 'kept': return t('chat.choiceKept');
+      case 'discarded': return t('chat.choiceDiscarded');
+      case 'joined': return t('chat.choiceJoined');
+      case EMPTY_TEXT_REPLY: return t('chat.choiceEmpty');
+      default: return String(token || '');
+    }
+  }
+
+  function youChose(token) {
+    return t('chat.youChose', { choice: choiceLabel(token) });
+  }
+
+  // The note under an answered permission card; 'allowed' / 'denied' is the
+  // token the card stores.
+  function permissionNote(response) {
+    if (response === 'allowed') return t('chat.permissionAllowed');
+    if (response === 'denied') return t('chat.permissionDenied');
+    return '';
+  }
 
   function resolveScriptDialog(msg, el, responseLabel, sendReply?) {
     if (!msg || !msg.dialog || msg.dialog.resolved) return;
@@ -29,7 +69,7 @@ const BeeChat = (function () {
         });
         const note = el.querySelector('.script-dialog__response');
         if (note && responseLabel) {
-          note.textContent = 'You chose: ' + responseLabel;
+          note.textContent = youChose(responseLabel);
           note.hidden = false;
         }
       }
@@ -54,7 +94,7 @@ const BeeChat = (function () {
       finish();
     }).catch(function () {
       if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-        BeeUtils.showToast('Could not send script dialog reply.', 'warning');
+        BeeUtils.showToast(t('chat.dialogReplyFailed'), 'warning');
       }
     });
   }
@@ -62,7 +102,7 @@ const BeeChat = (function () {
   function resolveScriptPermission(msg, el, granted) {
     if (!msg || !msg.permission || msg.permission.resolved) return;
     const perm = msg.permission;
-    const responseLabel = granted ? 'Allowed' : 'Denied';
+    const responseLabel = granted ? 'allowed' : 'denied';
     const finish = function () {
       BeeState.patchMessage(msg.id, {
         permission: {
@@ -77,7 +117,7 @@ const BeeChat = (function () {
         });
         const note = el.querySelector('.script-dialog__response');
         if (note) {
-          note.textContent = 'You ' + responseLabel.toLowerCase() + ' this request.';
+          note.textContent = permissionNote(responseLabel);
           note.hidden = false;
         }
       }
@@ -94,7 +134,7 @@ const BeeChat = (function () {
       finish();
     }).catch(function () {
       if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-        BeeUtils.showToast('Could not send permission reply.', 'warning');
+        BeeUtils.showToast(t('chat.permissionReplyFailed'), 'warning');
       }
     });
   }
@@ -110,7 +150,9 @@ const BeeChat = (function () {
         submit.addEventListener('click', function () {
           if (dialog.resolved) return;
           const text = input.value;
-          resolveScriptDialog(msg, el, text || '(empty)').catch(function () {});
+          // The label is what the script receives as the reply, so it is
+          // not UI wording.
+          resolveScriptDialog(msg, el, text || EMPTY_TEXT_REPLY).catch(function () {});
         });
         input.addEventListener('keydown', function (e) {
           if (e.key === 'Enter' && !e.shiftKey) {
@@ -134,7 +176,7 @@ const BeeChat = (function () {
     if (ignore) {
       ignore.addEventListener('click', function () {
         if (dialog.resolved) return;
-        resolveScriptDialog(msg, el, 'Ignored', false).catch(function () {});
+        resolveScriptDialog(msg, el, 'ignored', false).catch(function () {});
       });
     }
   }
@@ -147,20 +189,20 @@ const BeeChat = (function () {
     el.dataset.id = msg.id;
 
     const ownerLine = dialog.isGroup
-      ? ('Group: ' + (dialog.ownerName || 'Unknown'))
-      : (dialog.ownerName ? ('Owner: ' + dialog.ownerName) : '');
+      ? t('chat.groupLine', { name: dialog.ownerName || t('common.unknown') })
+      : (dialog.ownerName ? t('chat.ownerLine', { name: dialog.ownerName }) : '');
 
     let actionsHtml = '';
     if (dialog.isTextBox) {
       actionsHtml =
-        '<label class="script-dialog__field-label">Your reply</label>' +
+        '<label class="script-dialog__field-label">' + t('chat.yourReply') + '</label>' +
         '<textarea class="script-dialog__input" rows="3" maxlength="512"' +
           (dialog.resolved ? ' disabled' : '') + '></textarea>' +
         '<div class="script-dialog__actions">' +
           '<button type="button" class="btn btn--primary script-dialog__submit"' +
-            (dialog.resolved ? ' disabled' : '') + '>Submit</button>' +
+            (dialog.resolved ? ' disabled' : '') + '>' + t('chat.submit') + '</button>' +
           '<button type="button" class="btn btn--ghost script-dialog__ignore"' +
-            (dialog.resolved ? ' disabled' : '') + '>Ignore</button>' +
+            (dialog.resolved ? ' disabled' : '') + '>' + t('chat.ignore') + '</button>' +
         '</div>';
     } else {
       const buttons = dialog.buttons || [];
@@ -174,23 +216,24 @@ const BeeChat = (function () {
       actionsHtml =
         (buttonHtml
           ? '<div class="script-dialog__actions script-dialog__actions--buttons">' + buttonHtml + '</div>'
-          : '<p class="script-dialog__hint">No buttons were provided. You can ignore this dialog.</p>') +
+          : '<p class="script-dialog__hint">' +
+            t('chat.noButtons') + '</p>') +
         '<button type="button" class="script-dialog__ignore script-dialog__ignore--link"' +
-          (dialog.resolved ? ' disabled' : '') + '>Ignore</button>';
+          (dialog.resolved ? ' disabled' : '') + '>' + t('chat.ignore') + '</button>';
     }
 
     const body = BeeUtils.escapeHtml(dialog.message || msg.text || '').replace(/\n/g, '<br>');
     const responseNote = dialog.resolved && dialog.response
-      ? ('You chose: ' + BeeUtils.escapeHtml(dialog.response))
+      ? BeeUtils.escapeHtml(youChose(dialog.response))
       : '';
 
     const oo = objectOwnerAttrs(dialog.ownerId, dialog.isGroup);
     el.innerHTML =
       '<div class="script-dialog__header">' +
-        '<span class="script-dialog__badge">Script</span>' +
+        '<span class="script-dialog__badge">' + t('chat.badgeScript') + '</span>' +
         '<div class="script-dialog__titles">' +
           '<span class="script-dialog__object' + oo.cls + '"' + oo.attrs + '>' +
-            BeeUtils.escapeHtml(dialog.objectName || msg.fromName || 'Object') + '</span>' +
+            BeeUtils.escapeHtml(dialog.objectName || msg.fromName || t('chat.object')) + '</span>' +
           (ownerLine ? '<span class="script-dialog__owner">' + BeeUtils.escapeHtml(ownerLine) + '</span>' : '') +
         '</div>' +
         '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
@@ -214,7 +257,7 @@ const BeeChat = (function () {
       cls: ' script-dialog__object--link',
       attrs: ' data-owner-id="' + BeeUtils.escapeHtml(id) + '"' +
         ' data-owner-group="' + (isGroup ? '1' : '0') + '"' +
-        ' title="View owner profile"'
+        ' title="' + BeeUtils.escapeHtml(t('chat.viewOwnerProfile')) + '"'
     };
   }
   function bindObjectOwner(el) {
@@ -249,7 +292,7 @@ const BeeChat = (function () {
         });
         const note = el.querySelector('.script-dialog__response');
         if (note && label) {
-          note.textContent = 'You chose: ' + label;
+          note.textContent = youChose(label);
           note.hidden = false;
         }
       }
@@ -263,31 +306,33 @@ const BeeChat = (function () {
         return opener.then(function (opened) {
           if (!opened) {
             if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-              BeeUtils.showToast('Blocked unsafe or invalid URL.', 'warning');
+              BeeUtils.showToast(t('chat.blockedUrl'), 'warning');
             }
             return;
           }
-          finish('Opened page');
+          finish('openedPage');
         });
       }
-      finish('Ignored');
+      finish('ignored');
       return Promise.resolve();
     }
 
     if (prompt.type === 'script-teleport') {
       if (action === 'teleport') {
         const pos = prompt.position || { x: 128, y: 128, z: 25 };
-        const regionName = prompt.regionName || 'Region';
+        // The core always names the region (a stand-in when the sim gave
+        // none); an empty name makes the teleport fail with its own message.
+        const regionName = prompt.regionName || '';
         return BeeTransport.teleportTo({
           regionName: regionName,
           x: pos.x,
           y: pos.y,
           z: pos.z
         }).then(function () {
-          finish('Teleporting');
+          finish('teleporting');
         }).catch(function (err) {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-            BeeUtils.showToast(err.message || 'Teleport failed', 'error');
+            BeeUtils.showToast(BeeUtils.errText(err) || t('teleport.failed'), 'error');
           }
         });
       }
@@ -295,16 +340,16 @@ const BeeChat = (function () {
         const pos = prompt.position || { x: 128, y: 128, z: 25 };
         if (typeof BeeMap !== 'undefined' && BeeMap.showLocation) {
           BeeMap.showLocation({
-            regionName: prompt.regionName || 'Region',
+            regionName: prompt.regionName || '',
             x: pos.x,
             y: pos.y,
             z: pos.z
           });
         }
-        finish('Shown on map');
+        finish('shownOnMap');
         return Promise.resolve();
       }
-      finish('Ignored');
+      finish('ignored');
       return Promise.resolve();
     }
 
@@ -312,24 +357,24 @@ const BeeChat = (function () {
       if (action === 'accept') {
         return BeeTransport.acceptCallingCard(prompt.transactionId).then(function (result) {
           if (!result || !result.sent) throw new Error('send failed');
-          finish('Accepted');
+          finish('accepted');
         }).catch(function () {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-            BeeUtils.showToast('Could not accept friendship offer.', 'warning');
+            BeeUtils.showToast(t('chat.acceptFriendshipFailed'), 'warning');
           }
         });
       }
       if (action === 'decline') {
         return BeeTransport.declineCallingCard(prompt.transactionId).then(function (result) {
           if (!result || !result.sent) throw new Error('send failed');
-          finish('Declined');
+          finish('declined');
         }).catch(function () {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-            BeeUtils.showToast('Could not decline friendship offer.', 'warning');
+            BeeUtils.showToast(t('chat.declineFriendshipFailed'), 'warning');
           }
         });
       }
-      finish('Ignored');
+      finish('ignored');
       return Promise.resolve();
     }
 
@@ -347,15 +392,15 @@ const BeeChat = (function () {
           // decline has to move that item to Trash itself, so it needs the id.
           itemId: prompt.itemId || null
         }).then(function () {
-          finish(action === 'accept' ? (fromNotice ? 'Kept' : 'Accepted')
-            : (fromNotice ? 'Discarded' : 'Declined'));
+          finish(action === 'accept' ? (fromNotice ? 'kept' : 'accepted')
+            : (fromNotice ? 'discarded' : 'declined'));
         }).catch(function () {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-            BeeUtils.showToast('Could not answer the inventory offer.', 'warning');
+            BeeUtils.showToast(t('chat.inventoryOfferFailed'), 'warning');
           }
         });
       }
-      finish('Ignored');
+      finish('ignored');
       return Promise.resolve();
     }
 
@@ -367,17 +412,17 @@ const BeeChat = (function () {
         // with over the IM path (the reference viewer needs a cap for those).
         if (!tx || /^0+$/.test(tx.replace(/-/g, ''))) {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-            BeeUtils.showToast('This invitation cannot be answered here - open the group profile to join.', 'warning', 6000);
+            BeeUtils.showToast(t('chat.inviteNotAnswerable'), 'warning', 6000);
           }
           return Promise.resolve();
         }
         const fee = Number(prompt.fee) || 0;
-        const groupLabel = prompt.groupName || 'this group';
+        const groupLabel = prompt.groupName || t('chat.thisGroup');
         const sure = (action === 'accept' && fee > 0 && typeof BeeUtils !== 'undefined' && BeeUtils.confirm)
           ? BeeUtils.confirm({
-              title: 'Join group?',
-              message: 'Joining ' + groupLabel + ' costs L$ ' + fee.toLocaleString('en-US') + '.',
-              confirmLabel: 'Join'
+              title: t('chat.joinGroupTitle'),
+              message: t('chat.joinCost', { name: groupLabel, fee: BeeI18n.formatNumber(fee) }),
+              confirmLabel: t('chat.join')
             })
           : Promise.resolve(true);
         return sure.then(function (ok) {
@@ -387,15 +432,15 @@ const BeeChat = (function () {
             transactionId: tx,
             accept: action === 'accept'
           }).then(function () {
-            finish(action === 'accept' ? 'Joined' : 'Declined');
+            finish(action === 'accept' ? 'joined' : 'declined');
           });
         }).catch(function () {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-            BeeUtils.showToast('Could not answer the group invitation.', 'warning');
+            BeeUtils.showToast(t('chat.groupInviteFailed'), 'warning');
           }
         });
       }
-      finish('Ignored');
+      finish('ignored');
       return Promise.resolve();
     }
 
@@ -403,24 +448,24 @@ const BeeChat = (function () {
       if (action === 'accept') {
         return BeeTransport.acceptFriendship(prompt.transactionId, prompt.fromId, prompt.fromName).then(function (result) {
           if (!result || !result.sent) throw new Error('send failed');
-          finish('Accepted');
+          finish('accepted');
         }).catch(function () {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-            BeeUtils.showToast('Could not accept friendship offer.', 'warning');
+            BeeUtils.showToast(t('chat.acceptFriendshipFailed'), 'warning');
           }
         });
       }
       if (action === 'decline') {
         return BeeTransport.declineFriendship(prompt.transactionId).then(function (result) {
           if (!result || !result.sent) throw new Error('send failed');
-          finish('Declined');
+          finish('declined');
         }).catch(function () {
           if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-            BeeUtils.showToast('Could not decline friendship offer.', 'warning');
+            BeeUtils.showToast(t('chat.declineFriendshipFailed'), 'warning');
           }
         });
       }
-      finish('Ignored');
+      finish('ignored');
       return Promise.resolve();
     }
 
@@ -508,32 +553,34 @@ const BeeChat = (function () {
     if (prompt.resolved) el.classList.add('msg--resolved');
     el.dataset.id = msg.id;
 
-    let badge = 'Prompt';
+    let badge = t('chat.badgePrompt');
     let badgeClass = '';
     let body = '';
     let actions = '';
 
     if (prompt.type === 'load-url') {
-      badge = 'Web';
+      badge = t('chat.badgeWeb');
       badgeClass = 'script-dialog__badge--web';
-      const ownerSuffix = prompt.ownerIsGroup ? ' (group)' : '';
       const ownerLine = prompt.ownerName
-        ? ('Owner: ' + prompt.ownerName + ownerSuffix)
-        : (prompt.ownerId ? 'Owner: (resolving name...)' : '');
+        ? (prompt.ownerIsGroup
+          ? t('chat.ownerGroupLine', { name: prompt.ownerName })
+          : t('chat.ownerLine', { name: prompt.ownerName }))
+        : (prompt.ownerId ? t('chat.ownerResolving') : '');
       const message = String(prompt.message || msg.text || '').trim();
       const url = String(prompt.url || '').trim();
       body =
         (message ? '<p class="script-dialog__body">' + BeeUtils.escapeHtml(message) + '</p>' : '') +
         (url
-          ? '<p class="interactive-prompt__url"><span class="interactive-prompt__url-label">URL:</span> ' +
+          ? '<p class="interactive-prompt__url"><span class="interactive-prompt__url-label">' +
+            t('chat.urlLabel') + '</span> ' +
             BeeUtils.escapeHtml(url) + '</p>'
           : '');
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
           '<button type="button" class="btn btn--primary interactive-prompt__open"' +
-            (prompt.resolved ? ' disabled' : '') + '>Open page</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.openPage') + '</button>' +
           '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
-            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.ignore') + '</button>' +
         '</div>';
       const ooUrl = objectOwnerAttrs(prompt.ownerId, prompt.ownerIsGroup);
       el.innerHTML =
@@ -541,7 +588,7 @@ const BeeChat = (function () {
           '<span class="script-dialog__badge ' + badgeClass + '">' + badge + '</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object' + ooUrl.cls + '"' + ooUrl.attrs + '>' +
-              BeeUtils.escapeHtml(prompt.objectName || msg.fromName || 'Object') + '</span>' +
+              BeeUtils.escapeHtml(prompt.objectName || msg.fromName || t('chat.object')) + '</span>' +
             (ownerLine ? '<span class="script-dialog__owner">' + BeeUtils.escapeHtml(ownerLine) + '</span>' : '') +
           '</div>' +
           '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
@@ -549,7 +596,7 @@ const BeeChat = (function () {
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? youChose(prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       bindObjectOwner(el);
@@ -557,174 +604,179 @@ const BeeChat = (function () {
     }
 
     if (prompt.type === 'script-teleport') {
-      badge = 'Map';
+      badge = t('chat.badgeMap');
       badgeClass = 'script-dialog__badge--map';
       const pos = prompt.position || { x: 128, y: 128, z: 25 };
-      const locationLine = (prompt.regionName || 'Region') + ' (' +
+      const locationLine = (prompt.regionName || t('chat.region')) + ' (' +
         Math.round(pos.x) + ', ' + Math.round(pos.y) + ', ' + Math.round(pos.z) + ')';
-      body = '<p class="script-dialog__body">Teleport to this location or show it on the map?</p>' +
+      body = '<p class="script-dialog__body">' +
+        t('chat.teleportQuestion') + '</p>' +
         '<p class="interactive-prompt__location">' + BeeUtils.escapeHtml(locationLine) + '</p>';
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
           '<button type="button" class="btn btn--primary interactive-prompt__teleport"' +
-            (prompt.resolved ? ' disabled' : '') + '>Teleport</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.teleport') + '</button>' +
           '<button type="button" class="btn btn--ghost interactive-prompt__show-map"' +
-            (prompt.resolved ? ' disabled' : '') + '>Show on map</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.showOnMap') + '</button>' +
           '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
-            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.ignore') + '</button>' +
         '</div>';
       el.innerHTML =
         '<div class="script-dialog__header">' +
           '<span class="script-dialog__badge ' + badgeClass + '">' + badge + '</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object">' +
-              BeeUtils.escapeHtml(prompt.objectName || msg.fromName || 'Object') + '</span>' +
+              BeeUtils.escapeHtml(prompt.objectName || msg.fromName || t('chat.object')) + '</span>' +
           '</div>' +
           '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? youChose(prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       return el;
     }
 
     if (prompt.type === 'calling-card') {
-      badge = 'Friend';
+      badge = t('chat.badgeFriend');
       badgeClass = 'script-dialog__badge--friend';
       body = '<p class="script-dialog__body">' +
-        BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone') +
-        ' has offered you a friendship card.</p>';
+        th('chat.callingCardOffer', { name: prompt.fromName || msg.fromName || t('chat.someone') }) +
+        '</p>';
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
           '<button type="button" class="btn btn--primary interactive-prompt__accept"' +
-            (prompt.resolved ? ' disabled' : '') + '>Accept</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('common.accept') + '</button>' +
           '<button type="button" class="btn btn--secondary interactive-prompt__decline"' +
-            (prompt.resolved ? ' disabled' : '') + '>Decline</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('common.decline') + '</button>' +
           '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
-            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.ignore') + '</button>' +
         '</div>';
       el.innerHTML =
         '<div class="script-dialog__header">' +
           '<span class="script-dialog__badge ' + badgeClass + '">' + badge + '</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object">' +
-              BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
+              BeeUtils.escapeHtml(prompt.fromName || msg.fromName || t('chat.resident')) + '</span>' +
           '</div>' +
           '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? youChose(prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       return el;
     }
 
     if (prompt.type === 'group-invitation') {
-      const inviter = BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone');
-      const group = BeeUtils.escapeHtml(prompt.groupName || 'a group');
+      const inviter = prompt.fromName || msg.fromName || t('chat.someone');
+      const group = prompt.groupName || t('chat.aGroup');
       const fee = Number(prompt.fee) || 0;
       const note = String(prompt.message || '').trim();
-      body = '<p class="script-dialog__body"><strong>' + inviter + '</strong> has invited you to join <strong>' +
-          group + '</strong>.' +
-          (fee > 0 ? ' Joining costs <strong>L$ ' + BeeUtils.escapeHtml(fee.toLocaleString('en-US')) + '</strong>.' : '') +
+      body = '<p class="script-dialog__body">' +
+          th('chat.groupInvite', { inviter: inviter, group: group }) +
+          (fee > 0
+            ? ' ' + th('chat.groupInviteFee', { fee: BeeI18n.formatNumber(fee) })
+            : '') +
         '</p>' +
         (note ? '<p class="script-dialog__body script-dialog__body--quote">' + BeeUtils.escapeHtml(note) + '</p>' : '');
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
           '<button type="button" class="btn btn--primary interactive-prompt__accept"' +
-            (prompt.resolved ? ' disabled' : '') + '>Join</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.join') + '</button>' +
           '<button type="button" class="btn btn--secondary interactive-prompt__decline"' +
-            (prompt.resolved ? ' disabled' : '') + '>Decline</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('common.decline') + '</button>' +
           '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
-            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.ignore') + '</button>' +
         '</div>';
       el.innerHTML =
         '<div class="script-dialog__header">' +
-          '<span class="script-dialog__badge script-dialog__badge--group">Group</span>' +
+          '<span class="script-dialog__badge script-dialog__badge--group">' + t('chat.badgeGroup') + '</span>' +
           '<div class="script-dialog__titles">' +
-            '<span class="script-dialog__object">' + group + '</span>' +
+            '<span class="script-dialog__object">' + BeeUtils.escapeHtml(group) + '</span>' +
           '</div>' +
           '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? youChose(prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       return el;
     }
 
     if (prompt.type === 'inventory-offer') {
-      const giver = BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone');
-      const item = BeeUtils.escapeHtml(prompt.itemName || 'an item');
+      const giver = prompt.fromName || msg.fromName || t('chat.someone');
+      const item = prompt.itemName || t('chat.anItem');
       const line = prompt.fromTask
-        ? 'The object <strong>' + giver + '</strong> has offered you <strong>' + item + '</strong>.'
-        : '<strong>' + giver + '</strong> has offered you <strong>' + item + '</strong>.';
+        ? th('chat.objectOffer', { giver: giver, item: item })
+        : th('chat.inventoryOffer', { giver: giver, item: item });
       body = '<p class="script-dialog__body">' + line + '</p>';
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
           '<button type="button" class="btn btn--primary interactive-prompt__accept"' +
-            (prompt.resolved ? ' disabled' : '') + '>Accept</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('common.accept') + '</button>' +
           '<button type="button" class="btn btn--secondary interactive-prompt__decline"' +
-            (prompt.resolved ? ' disabled' : '') + '>Decline</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('common.decline') + '</button>' +
           '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
-            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.ignore') + '</button>' +
         '</div>';
       el.innerHTML =
         '<div class="script-dialog__header">' +
-          '<span class="script-dialog__badge script-dialog__badge--item">Item</span>' +
+          '<span class="script-dialog__badge script-dialog__badge--item">' + t('chat.badgeItem') + '</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object">' +
-              BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
+              BeeUtils.escapeHtml(prompt.fromName || msg.fromName || t('chat.resident')) + '</span>' +
           '</div>' +
           '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? youChose(prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       return el;
     }
 
     if (prompt.type === 'friendship-offer') {
-      const who = BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Someone');
-      body = '<p class="script-dialog__body">' + who + ' has offered you friendship.</p>';
+      const who = prompt.fromName || msg.fromName || t('chat.someone');
+      body = '<p class="script-dialog__body">' +
+        th('chat.friendshipOffer', { name: who }) + '</p>';
       actions =
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
           '<button type="button" class="btn btn--primary interactive-prompt__accept"' +
-            (prompt.resolved ? ' disabled' : '') + '>Accept</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('common.accept') + '</button>' +
           '<button type="button" class="btn btn--secondary interactive-prompt__decline"' +
-            (prompt.resolved ? ' disabled' : '') + '>Decline</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('common.decline') + '</button>' +
           '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
-            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.ignore') + '</button>' +
         '</div>';
       el.innerHTML =
         '<div class="script-dialog__header">' +
-          '<span class="script-dialog__badge script-dialog__badge--friend">Friend</span>' +
+          '<span class="script-dialog__badge script-dialog__badge--friend">' + t('chat.badgeFriend') + '</span>' +
           '<div class="script-dialog__titles">' +
             '<span class="script-dialog__object">' +
-              BeeUtils.escapeHtml(prompt.fromName || msg.fromName || 'Resident') + '</span>' +
+              BeeUtils.escapeHtml(prompt.fromName || msg.fromName || t('chat.resident')) + '</span>' +
           '</div>' +
           '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
         '</div>' +
         body + actions +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? youChose(prompt.response) : '') +
         '</p>';
       bindInteractivePrompt(el, msg);
       return el;
     }
 
-    el.innerHTML = '<p class="msg__body">' + BeeUtils.escapeHtml(msg.text || 'Interactive prompt') + '</p>';
+    el.innerHTML = '<p class="msg__body">' +
+      BeeUtils.escapeHtml(BeeI18n.textOf(msg) || t('chat.interactivePrompt')) + '</p>';
     return el;
   }
 
@@ -758,33 +810,38 @@ const BeeChat = (function () {
     const lines = perm.lines || [];
     const listHtml = lines.length
       ? '<ul class="script-permission__list">' + lines.map(function (line) {
-        return '<li>' + BeeUtils.escapeHtml(line) + '</li>';
+        // Each line comes from the core with its key (BeeI18n.fromCore).
+        return '<li>' + BeeUtils.escapeHtml(BeeI18n.fromCore(line)) + '</li>';
       }).join('') + '</ul>'
-      : '<p class="script-dialog__hint">This object requested script permissions.</p>';
+      : '<p class="script-dialog__hint">' +
+        t('chat.permissionRequested') + '</p>';
 
-    const ownerLine = perm.objectOwner ? ('Owner: ' + perm.objectOwner) : '';
+    const ownerLine = perm.objectOwner ? t('chat.ownerLine', { name: perm.objectOwner }) : '';
     const responseNote = perm.resolved && perm.response
-      ? ('You ' + perm.response.toLowerCase() + ' this request.')
+      ? permissionNote(perm.response)
       : '';
 
     el.innerHTML =
       '<div class="script-dialog__header">' +
-        '<span class="script-dialog__badge script-dialog__badge--permission">Permission</span>' +
+        '<span class="script-dialog__badge script-dialog__badge--permission">' +
+          t('chat.badgePermission') + '</span>' +
         '<div class="script-dialog__titles">' +
-          '<span class="script-dialog__object">' + BeeUtils.escapeHtml(perm.objectName || msg.fromName || 'Object') + '</span>' +
+          '<span class="script-dialog__object">' +
+            BeeUtils.escapeHtml(perm.objectName || msg.fromName || t('chat.object')) + '</span>' +
           (ownerLine ? '<span class="script-dialog__owner">' + BeeUtils.escapeHtml(ownerLine) + '</span>' : '') +
         '</div>' +
         '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
       '</div>' +
       (perm.hasCaution
-        ? '<p class="script-permission__warning">Review carefully before allowing.</p>'
+        ? '<p class="script-permission__warning">' +
+          t('chat.permissionCaution') + '</p>'
         : '') +
       listHtml +
       '<div class="script-dialog__actions script-dialog__actions--buttons">' +
         '<button type="button" class="btn btn--primary script-permission__allow"' +
-          (perm.resolved ? ' disabled' : '') + '>Allow</button>' +
+          (perm.resolved ? ' disabled' : '') + '>' + t('chat.allow') + '</button>' +
         '<button type="button" class="btn btn--ghost script-permission__deny"' +
-          (perm.resolved ? ' disabled' : '') + '>Deny</button>' +
+          (perm.resolved ? ' disabled' : '') + '>' + t('chat.deny') + '</button>' +
       '</div>' +
       '<p class="script-dialog__response"' + (responseNote ? '' : ' hidden') + '>' +
         BeeUtils.escapeHtml(responseNote) + '</p>';
@@ -802,11 +859,13 @@ const BeeChat = (function () {
       : '';
     el.innerHTML =
       '<div class="msg__meta">' +
-        '<span class="msg__name msg__name--system">Payment</span>' +
+        '<span class="msg__name msg__name--system">' + t('chat.payment') + '</span>' +
         '<span class="msg__time">' + BeeUtils.escapeHtml(BeeUtils.formatTime(msg.timestamp)) + '</span>' +
       '</div>' +
-      '<p class="msg__body">' + BeeUtils.escapeHtml(msg.text) + '</p>' +
-      (balance ? '<p class="event-payment__balance">Balance: ' + BeeUtils.escapeHtml(balance) + '</p>' : '');
+      '<p class="msg__body">' + BeeUtils.escapeHtml(BeeI18n.textOf(msg)) + '</p>' +
+      (balance
+        ? '<p class="event-payment__balance">' + th('chat.balance', { balance: balance }) + '</p>'
+        : '');
     return el;
   }
 
@@ -824,7 +883,7 @@ const BeeChat = (function () {
 
     const label = document.createElement('span');
     label.className = 'msg__motd-label';
-    label.textContent = 'Message of the day';
+    label.textContent = t('chat.motd');
 
     const time = document.createElement('span');
     time.className = 'msg__time';
@@ -838,7 +897,7 @@ const BeeChat = (function () {
     bodyEl.className = 'msg__body';
     // The message of the day nearly always carries a URL, so it has to go
     // through the link scanner - plain text nodes would leave it unclickable.
-    BeeSlurl.appendLinkified(bodyEl, msg.text, { breaks: true });
+    BeeSlurl.appendLinkified(bodyEl, BeeI18n.textOf(msg), { breaks: true });
 
     el.appendChild(meta);
     el.appendChild(bodyEl);
@@ -866,19 +925,20 @@ const BeeChat = (function () {
     let attachment = '';
     if (prompt) {
       attachment =
-        '<p class="group-notice__attachment">Attachment: <strong>' +
-          BeeUtils.escapeHtml(prompt.itemName || 'item') + '</strong></p>' +
+        '<p class="group-notice__attachment">' +
+          th('chat.attachment', { item: prompt.itemName || t('chat.item') }) +
+        '</p>' +
         '<div class="script-dialog__actions script-dialog__actions--buttons">' +
           '<button type="button" class="btn btn--primary interactive-prompt__accept"' +
-            (prompt.resolved ? ' disabled' : '') + '>Keep</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.keep') + '</button>' +
           '<button type="button" class="btn btn--secondary interactive-prompt__decline"' +
-            (prompt.resolved ? ' disabled' : '') + '>Discard</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.discard') + '</button>' +
           '<button type="button" class="btn btn--ghost interactive-prompt__ignore"' +
-            (prompt.resolved ? ' disabled' : '') + '>Ignore</button>' +
+            (prompt.resolved ? ' disabled' : '') + '>' + t('chat.ignore') + '</button>' +
         '</div>' +
         '<p class="script-dialog__response"' +
           ((prompt.resolved && prompt.response) ? '' : ' hidden') + '>' +
-          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? ('You chose: ' + prompt.response) : '') +
+          BeeUtils.escapeHtml(prompt.resolved && prompt.response ? youChose(prompt.response) : '') +
         '</p>';
     }
 
@@ -887,7 +947,7 @@ const BeeChat = (function () {
 
     const badge = document.createElement('span');
     badge.className = 'script-dialog__badge script-dialog__badge--notice';
-    badge.textContent = 'Notice';
+    badge.textContent = t('chat.badgeNotice');
     header.appendChild(badge);
 
     const titles = document.createElement('div');
@@ -895,13 +955,13 @@ const BeeChat = (function () {
 
     const groupNode = document.createElement('span');
     groupNode.className = 'script-dialog__object group-notice__group';
-    groupNode.textContent = msg.groupName || 'Group notice';
+    groupNode.textContent = msg.groupName || t('chat.groupNotice');
     titles.appendChild(groupNode);
 
     if (sender) {
       const owner = document.createElement('span');
       owner.className = 'script-dialog__owner';
-      owner.textContent = 'From: ' + (msg.fromName || '');
+      owner.textContent = t('chat.fromLine', { name: msg.fromName || '' });
       titles.appendChild(owner);
     }
     header.appendChild(titles);
@@ -962,7 +1022,7 @@ const BeeChat = (function () {
     const groupEl = el.querySelector<HTMLElement>('.group-notice__group');
     if (groupEl && msg.groupId && typeof BeeProfile !== 'undefined') {
       groupEl.classList.add('msg__name--link');
-      groupEl.title = 'View group profile';
+      groupEl.title = t('chat.viewGroupProfile');
       groupEl.addEventListener('click', function () {
         BeeProfile.openGroup(msg.groupId);
       });
@@ -984,7 +1044,7 @@ const BeeChat = (function () {
 
     const name = document.createElement('span');
     name.className = 'msg__name msg__name--region';
-    name.textContent = String(msg.fromName || 'Estate');
+    name.textContent = String(msg.fromName || t('chat.estate'));
     const senderId = String(msg.fromId || '');
     const isAvatar = senderId && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(senderId);
     if (isAvatar) {
@@ -992,7 +1052,7 @@ const BeeChat = (function () {
       name.setAttribute('data-label', String(msg.fromName || ''));
       if (typeof BeeProfile !== 'undefined') {
         name.classList.add('msg__name--link');
-        name.title = 'View profile';
+        name.title = t('chat.viewProfile');
         name.addEventListener('click', function () {
           BeeProfile.openAvatar(senderId);
         });
@@ -1001,7 +1061,9 @@ const BeeChat = (function () {
 
     const label = document.createElement('span');
     label.className = 'msg__motd-label';
-    label.textContent = msg.scope === 'estate' ? 'Estate message' : 'Region message';
+    label.textContent = msg.scope === 'estate'
+      ? t('chat.estateMessage')
+      : t('chat.regionMessage');
 
     const time = document.createElement('span');
     time.className = 'msg__time';
@@ -1013,7 +1075,7 @@ const BeeChat = (function () {
 
     const bodyEl = document.createElement('p');
     bodyEl.className = 'msg__body';
-    BeeSlurl.appendLinkified(bodyEl, msg.text, { breaks: true });
+    BeeSlurl.appendLinkified(bodyEl, BeeI18n.textOf(msg), { breaks: true });
 
     el.appendChild(meta);
     el.appendChild(bodyEl);
@@ -1027,6 +1089,23 @@ const BeeChat = (function () {
   // posted before the name resolved carries
   // none; the link then starts as the placeholder BeeSlurl.refreshAppLinks
   // relabels the moment the name lands.
+  //
+  // The words come from the report's fields (`radar.event`, `radar.range`),
+  // not from the English `text` the core also sends, so they follow the UI
+  // language. A leave without a range is someone gone from the sweep
+  // altogether (left the region, logged out).
+  function radarLineText(msg) {
+    const radar = msg.radar;
+    if (!radar || !radar.event) return BeeI18n.textOf(msg);
+    const metres = radar.range == null ? null : Math.round(Number(radar.range));
+    if (radar.event === 'leave') {
+      return metres == null
+        ? t('radar.leftRegion')
+        : t('radar.leftRange', { metres: metres });
+    }
+    return t('radar.enteredRange', { metres: metres });
+  }
+
   function renderRadarLine(msg) {
     const el = document.createElement('div');
     el.className = 'msg msg--system msg--radar';
@@ -1052,11 +1131,14 @@ const BeeChat = (function () {
       link.setAttribute('data-slurl', url);
       if (seg) BeeSlurl.markAppLink(link, seg);
       else link.setAttribute('data-agent-link', id);
-      link.textContent = String(msg.fromName || '') || (seg && seg.label) || 'Resident profile';
+      // The last fallback is BeeSlurl's placeholder, the same line:
+      // refreshAppLinks finds the links still to relabel by that text.
+      link.textContent = String(msg.fromName || '') || (seg && seg.label) ||
+        t('slurl.residentProfile');
       body.appendChild(link);
       body.appendChild(document.createTextNode(' '));
     }
-    body.appendChild(document.createTextNode(String(msg.text || '')));
+    body.appendChild(document.createTextNode(radarLineText(msg)));
     el.appendChild(body);
     BeeSlurl.bindLinks(el);
     return el;
@@ -1105,7 +1187,9 @@ const BeeChat = (function () {
     if (isSystem) {
       const body = document.createElement('p');
       body.className = 'msg__body';
-      const segments = BeeSlurl.scanLinks(msg.text);
+      // A system line is the core's: its words come with a key where the
+      // core gave them one.
+      const segments = BeeSlurl.scanLinks(BeeI18n.textOf(msg));
       segments.forEach(function (seg) {
         if (seg.type === 'text') {
           body.appendChild(document.createTextNode(String(seg.text || '')));
@@ -1139,7 +1223,9 @@ const BeeChat = (function () {
     // "shouts"/"whispers" verb.
     const isEmote = !!msg.emote;
     if (isEmote) el.classList.add('msg--emote');
-    const label = isEmote ? '' : volume === 'whisper' ? 'whispers' : volume === 'shout' ? 'shouts' : '';
+    const label = isEmote ? ''
+      : volume === 'whisper' ? t('chat.whispers')
+        : volume === 'shout' ? t('chat.shouts') : '';
     const bodyText = isEmote
       ? String(msg.fromName || '') + String(msg.text || '').slice(3)
       : msg.text;
@@ -1218,7 +1304,7 @@ const BeeChat = (function () {
         // For an object, the name links through to its owner rather than to an
         // avatar profile keyed by the object's own UUID.
         nameEl.classList.add('msg__name--link');
-        nameEl.title = 'View owner profile';
+        nameEl.title = t('chat.viewOwnerProfile');
         nameEl.addEventListener('click', function () {
           // A group-owned object's owner is the group (object IMs say so).
           if (msg.ownerIsGroup && typeof BeeProfile.openGroup === 'function') BeeProfile.openGroup(msg.ownerId);
@@ -1226,7 +1312,7 @@ const BeeChat = (function () {
         });
       } else if (nameEl && !isObject && speakerId) {
         nameEl.classList.add('msg__name--link');
-        nameEl.title = 'View profile';
+        nameEl.title = t('chat.viewProfile');
         nameEl.addEventListener('click', function () {
           BeeProfile.openAvatar(speakerId);
         });
@@ -1326,6 +1412,12 @@ const BeeChat = (function () {
     BeeState.on('reset', function () {
       const list = document.getElementById('chat-messages');
       if (list) list.innerHTML = '';
+    });
+
+    // The transcript is rebuilt from the state whenever the tab opens; a
+    // language switch while it is on screen rebuilds it in the new words.
+    BeeI18n.onChange(function () {
+      if (BeeState.get().activeTab === 'chat') renderAll();
     });
 
     // A mention renders as "Resident profile" until the name arrives; the

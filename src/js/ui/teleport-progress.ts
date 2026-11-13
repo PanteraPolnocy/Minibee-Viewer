@@ -8,6 +8,8 @@
 const BeeTeleportProgress = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const MAX_MS = 120000; // mirrors the sim's teleport timeout; lets the lock release itself
   const STAGE = { requesting: 8, request: 8, starting: 25, start: 25, teleporting: 55, arriving: 92, arrive: 92 };
 
@@ -18,9 +20,9 @@ const BeeTeleportProgress = (function () {
 
   function humanize(message) {
     const key = String(message || '').toLowerCase();
-    if (!key || key.indexOf('request') >= 0) return 'Requesting teleport...';
-    if (key.indexOf('start') >= 0) return 'Starting teleport...';
-    if (key.indexOf('arriv') >= 0) return 'Arriving...';
+    if (!key || key.indexOf('request') >= 0) return t('teleport.progressRequesting');
+    if (key.indexOf('start') >= 0) return t('teleport.progressStarting');
+    if (key.indexOf('arriv') >= 0) return t('teleport.progressArriving');
     // Anything else the sim reports (e.g. "resolving", "downloading") passes straight through.
     return message.charAt(0).toUpperCase() + message.slice(1) + '...';
   }

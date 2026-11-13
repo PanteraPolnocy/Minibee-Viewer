@@ -89,7 +89,7 @@ Any future departure from standard protocol behaviour will be documented here be
 
 Open **Bee** in the nav (bee icon) for preferences and bundled docs:
 
-- **Settings** (sub-tab) - theme, radar range/alerts, buddies filter, content ratings for search and the Destination Guide (General and Moderate by default; the first login asks once), destination feed, parcel music, auto-reconnect, data saver, IM sounds, the optional nearby-people strip beside nearby chat, optional sit-on-ground after login. Changes apply everywhere immediately.
+- **Settings** (sub-tab) - UI language (English or Polish; the words live in `src/lang/<code>.json`, one file per language, and a switch applies without a restart), theme, radar range/alerts, buddies filter, content ratings for search and the Destination Guide (General and Moderate by default; the first login asks once), destination feed, parcel music, auto-reconnect, data saver, IM sounds, the optional nearby-people strip beside nearby chat, optional sit-on-ground after login. Changes apply everywhere immediately.
 - **About Minibee** - version, author, support links, **Check for updates** (desktop), **Copy all** for bug reports.
 - **Help** - the full user guide ([HELP.md](HELP.md)).
 - **README** / **License** / **Privacy** - bundled project docs.
@@ -271,12 +271,19 @@ build never type-checks: `tsc` is a separate gate.
 |------|---------|
 | Check types | `npm run typecheck` |
 | Regenerate the core's event types | `npm run types:sync` |
+| Check the language files against the sources | `npm run lang:check` |
 
 Event payload types are **generated from the Rust structs** in
 `src-tauri/src/bridge/events.rs`, so the interface checks against what the core
 actually sends rather than against an assumption about it. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for how to add one. Every file under
 `src/js` is type-checked - there are no opt-outs.
+
+**UI text lives in `src/lang/`**, one JSON file per language, never in the
+code: the frontend, the markup and the core name a line by key
+(`t('radar.range')`, `data-i18n="radar.range"`, `ui_err("err.noNotice", ...)`)
+and `en.json` is the English every other language falls back to. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the conventions and for adding a language.
 
 **Release build** (`npm run tauri build`) produces installers under `src-tauri/target/release/`:
 
@@ -297,7 +304,7 @@ CI also publishes builds on [GitHub Releases](https://github.com/PanteraPolnocy/
 
 Installed copies bundle `LICENSE`, `README.md`, `HELP.md`, and `PRIVACY.md` next to the app.
 
-Tests: `npm test` and `npm run test:rust`; types: `npm run typecheck`.
+Tests: `npm test` and `npm run test:rust`; types: `npm run typecheck`; language files: `npm run lang:check` (also part of `npm test`).
 
 Want to contribute? See **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 

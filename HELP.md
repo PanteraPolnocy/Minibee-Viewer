@@ -145,7 +145,7 @@ Open **Bee** in the nav. Sub-tabs:
 
 | Sub-tab | What |
 |---------|------|
-| Settings | Theme, auto-reconnect, data saver, IM sounds, nearby-people strip beside chat, sit after login, radar, buddies, search content ratings, voice, chat logs, guide feed, parcel music |
+| Settings | Language (English or Polish, applied at once), theme, auto-reconnect, data saver, IM sounds, nearby-people strip beside chat, sit after login, radar, buddies, search content ratings, voice, chat logs, guide feed, parcel music |
 | About | Version and edition (the Google Play build says so under the name), updates, chat-log disk usage, **Copy all** for bug reports (includes the package list) |
 | Packages | Everything this build was compiled from: Linden Lab's message template, every Rust crate, the build tools |
 | Help | This guide |

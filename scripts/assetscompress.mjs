@@ -71,4 +71,11 @@ for (const file of htmlFiles) {
   fs.writeFileSync(distPath, minifiedHtml, 'utf8');
 }
 
+// The language files ship without their indentation: one is read whole at
+// startup (two when the UI is not in English), so every byte counts.
+const langFiles = findFiles(path.join(DIST, 'lang'), ['.json']);
+for (const file of langFiles) {
+  fs.writeFileSync(file, JSON.stringify(JSON.parse(fs.readFileSync(file, 'utf8'))), 'utf8');
+}
+
 console.log(`[Build] Minification complete. Processed ${entryPoints.length} assets into dist/`);

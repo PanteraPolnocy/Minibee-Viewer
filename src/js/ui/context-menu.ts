@@ -4,6 +4,8 @@
 const BeeContextMenu = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let menu = null;
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -92,7 +94,7 @@ const BeeContextMenu = (function () {
       const d = el.dataset || {};
       if (d.copy && !seen.has('copy')) {
         seen.add('copy');
-        entries.push({ label: d.copyLabel || 'Copy', value: d.copy });
+        entries.push({ label: d.copyLabel || t('common.copy'), value: d.copy });
       }
       const agentId = d.agentId || d.avatarId || d.profileId;
       const anyId = agentId || d.groupId || d.objectId || d.id;
@@ -106,8 +108,8 @@ const BeeContextMenu = (function () {
           ? el.querySelector('.entity-item__name, .im-roster__name, #profile-title')
           : null;
         const label = (d.label || (nameNode ? nameNode.textContent : '') || '').trim();
-        if (label) entries.push({ label: 'Copy name', value: label });
-        entries.push({ label: 'Copy UUID', value: idish });
+        if (label) entries.push({ label: t('common.copyName'), value: label });
+        entries.push({ label: t('common.copyUuid'), value: idish });
       }
       el = el.parentElement;
     }
@@ -211,33 +213,33 @@ const BeeContextMenu = (function () {
     });
 
     if (editable) {
-      addItem('Cut', !!selection && inField, function () { cut(target); });
-      addItem('Copy', !!selection, function () { copyText(selection); });
-      addItem('Paste', true, function () { paste(target); });
-      addItem('Select all', true, function () {
+      addItem(t('menu.cut'), !!selection && inField, function () { cut(target); });
+      addItem(t('common.copy'), !!selection, function () { copyText(selection); });
+      addItem(t('menu.paste'), true, function () { paste(target); });
+      addItem(t('menu.selectAll'), true, function () {
         target.focus();
         if (target.select) target.select();
       });
     } else if (contextual.length) {
       // Something under the pointer knows what "copy" should mean here; a bare
       // disabled "Copy" would be noise next to it.
-      if (selection) addItem('Copy selection', true, function () { copyText(selection); });
+      if (selection) addItem(t('menu.copySelection'), true, function () { copyText(selection); });
       contextual.forEach(function (entry) {
         addItem(entry.label, true, function () {
           copyText(entry.value);
-          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) BeeUtils.showToast('Copied', 'success');
+          if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) BeeUtils.showToast(t('menu.copied'), 'success');
         });
       });
     } else if (!actions.length) {
       // Nothing contextual anywhere near the click: the bare page-copy.
-      addItem('Copy', !!selection, function () { copyText(selection); });
+      addItem(t('common.copy'), !!selection, function () { copyText(selection); });
     } else if (selection) {
-      addItem('Copy selection', true, function () { copyText(selection); });
+      addItem(t('menu.copySelection'), true, function () { copyText(selection); });
     }
 
     if (link) {
-      addItem('Copy link address', true, function () { copyText(link); });
-      addItem('Open link in browser', true, function () {
+      addItem(t('menu.copyLinkAddress'), true, function () { copyText(link); });
+      addItem(t('menu.openLinkInBrowser'), true, function () {
         if (typeof BeeSlurl !== 'undefined' && BeeSlurl.openExternalUrl) BeeSlurl.openExternalUrl(link);
         else window.open(link, '_blank', 'noopener,noreferrer');
       });
@@ -257,7 +259,7 @@ const BeeContextMenu = (function () {
     const id = d.agentId || d.avatarId || d.profileId || '';
     if (!UUID_RE.test(id)) return [];
     return [{
-      label: 'View profile',
+      label: t('menu.viewProfile'),
       action: function () {
         if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) BeeProfile.openAvatar(id);
       }
@@ -268,7 +270,7 @@ const BeeContextMenu = (function () {
     const id = d.groupId || (d.kind === 'group' ? d.agentId : '') || '';
     if (!UUID_RE.test(id)) return [];
     return [{
-      label: 'Group profile',
+      label: t('menu.groupProfile'),
       action: function () {
         if (typeof BeeProfile !== 'undefined' && BeeProfile.openGroup) BeeProfile.openGroup(id);
       }

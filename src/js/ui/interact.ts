@@ -5,6 +5,9 @@
 const BeeInteract = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+  const th = BeeI18n.html;
+
   let state = { sitting: false, flying: false };
 
   function invoke(cmd: string, args?: Record<string, unknown>) {
@@ -15,10 +18,10 @@ const BeeInteract = (function () {
   }
 
   function describe() {
-    if (state.sitting) return 'sitting';
-    if (sitPendingOn) return 'sitting down...';
-    if (state.flying) return 'flying';
-    return 'standing';
+    if (state.sitting) return t('interact.stateSitting');
+    if (sitPendingOn) return t('interact.stateSittingDown');
+    if (state.flying) return t('interact.stateFlying');
+    return t('interact.stateStanding');
   }
 
   function paint() {
@@ -43,13 +46,15 @@ const BeeInteract = (function () {
     paint();
   }
 
+  // `failure` returns the toast for a refused command, so it is worded in
+  // the language in use at the time it fails.
   function run(cmd, args, failure) {
     if (!BeeState.gridOnline()) {
-      BeeUtils.showToast('Not connected to the grid', 'warning');
+      BeeUtils.showToast(t('session.notConnected'), 'warning');
       return;
     }
     invoke(cmd, args).then(applyResult).catch(function () {
-      BeeUtils.showToast(failure, 'warning');
+      BeeUtils.showToast(failure(), 'warning');
     });
   }
 
@@ -89,7 +94,13 @@ const BeeInteract = (function () {
     invoke('sl_object_sit', { objectId: obj.id }).catch(function () {
       sitPendingOn = '';
       paint();
-      BeeUtils.showToast('Could not sit on that.', 'warning');
+      BeeUtils.showToast(t('interact.sitOnFailed'), 'warning');
+    });
+  }
+
+  function touchObject(obj) {
+    invoke('sl_object_touch', { localId: obj.localId }).catch(function () {
+      BeeUtils.showToast(t('interact.touchFailed'), 'warning');
     });
   }
 
@@ -127,7 +138,7 @@ const BeeInteract = (function () {
       return lines.subtitle ? lines.title + ' (' + lines.subtitle + ')' : lines.title;
     }
     const group = BeeTransport.getGroupName ? BeeTransport.getGroupName(id) : '';
-    return group || 'resolving...';
+    return group || t('interact.resolving');
   }
 
   function groupLabel(id) {
@@ -138,7 +149,7 @@ const BeeInteract = (function () {
       const cached = BeeProfiles.getGroupName(id);
       if (cached) return cached;
     }
-    return 'resolving...';
+    return t('interact.resolving');
   }
 
   function queueGroupResolve(ids) {
@@ -234,8 +245,8 @@ const BeeInteract = (function () {
       toggle.className = 'objects-expand' + (opts.expanded ? ' objects-expand--open' : '');
       toggle.setAttribute(
         'aria-label',
-        opts.expanded ? 'Hide linked prims' : 'Show ' + opts.childCount + ' linked prim' +
-          (opts.childCount === 1 ? '' : 's')
+        opts.expanded ? t('interact.hideLinked')
+          : t('interact.showLinked', { count: opts.childCount })
       );
       toggle.addEventListener('pointerdown', function (e) {
         e.stopPropagation();
@@ -253,12 +264,12 @@ const BeeInteract = (function () {
 
     const dist = document.createElement('span');
     dist.className = 'objects-cell objects-cell--num';
-    dist.textContent = obj.distance.toFixed(1) + ' m';
+    dist.textContent = t('units.metres', { value: obj.distance.toFixed(1) });
     row.appendChild(dist);
 
     const name = document.createElement('span');
     name.className = 'objects-cell';
-    name.textContent = obj.name || '(unnamed)';
+    name.textContent = obj.name || t('interact.unnamed');
     row.appendChild(name);
 
     const owner = document.createElement('span');
@@ -270,39 +281,51 @@ const BeeInteract = (function () {
     return row;
   }
 
+  function metres(value) {
+    return t('units.m', { value: value });
+  }
+
+  // Why the table is empty: the note under it, as markup for the <p>.
+  function emptyNote() {
+    if (!loaded) {
+      return th('interact.pressLoad');
+    }
+    if (filterText) {
+      return th('interact.noFilterMatch', { filter: filterText });
+    }
+    if (lastScan.cached > 0 && lastScan.tracked === 0) {
+      return th('interact.listedNotArrived', { count: lastScan.cached });
+    }
+    if (lastScan.pending > 0) {
+      return th('interact.stillNaming', { count: lastScan.pending, range: metres(range) });
+    }
+    if (!lastScan.interest360) {
+      return th('interact.noInterestList');
+    }
+    if (includeAttachments && lastScan.attachmentsTracked > 0 && lastScan.attachmentsInRange === 0) {
+      return th('interact.attachmentsOutOfRange', { count: lastScan.attachmentsTracked });
+    }
+    // The figures in the brackets are a list, each its own line.
+    const details = [
+      t('interact.scanTracked', { count: lastScan.tracked }),
+      t('interact.scanCached', { count: lastScan.cached })
+    ];
+    if (lastScan.nearest >= 0) {
+      details.push(t('interact.scanNearest', { distance: metres(lastScan.nearest.toFixed(0)) }));
+    }
+    if (lastScan.unresolvedParents > 0) {
+      details.push(t('interact.scanMissingParents', { count: lastScan.unresolvedParents }));
+    }
+    return th('interact.nothingWithin', { range: metres(range), details: details.join(', ') });
+  }
+
   function renderObjects() {
     const host = document.getElementById('objects-rows');
     if (!host) return;
     const shownRoots = visibleEntries();
     host.innerHTML = '';
     if (!shownRoots.length) {
-      host.innerHTML = !loaded
-        ? '<p class="settings-note">Press <strong>Load</strong> to list the objects around you.</p>'
-        : filterText
-          ? '<p class="settings-note">Nothing here matches "' + BeeUtils.escapeHtml(filterText) + '".</p>'
-            : lastScan.cached > 0 && lastScan.tracked === 0
-            ? '<p class="settings-note">The region listed ' + lastScan.cached +
-              ' object' + (lastScan.cached === 1 ? '' : 's') +
-              ' but none have arrived yet. Press <strong>Load</strong> again in a moment.</p>'
-            : lastScan.pending > 0
-              ? '<p class="settings-note">Still naming ' + lastScan.pending +
-                ' object' + (lastScan.pending === 1 ? '' : 's') +
-                ' within ' + range + 'm...</p>'
-              : !lastScan.interest360
-                ? '<p class="settings-note">This region did not grant the InterestList capability, ' +
-                  'so object updates may be incomplete. Try <strong>Load</strong> again after moving.</p>'
-                : includeAttachments && lastScan.attachmentsTracked > 0 && lastScan.attachmentsInRange === 0
-                ? '<p class="settings-note">The sim reported ' + lastScan.attachmentsTracked +
-                  ' worn attachment' + (lastScan.attachmentsTracked === 1 ? '' : 's') +
-                  ' but none are in range yet. Wait for radar updates, then press <strong>Load</strong> again.</p>'
-                : '<p class="settings-note">Nothing within ' + range + 'm (' + lastScan.tracked +
-                  ' tracked, ' + lastScan.cached + ' cached' +
-                  (lastScan.nearest >= 0 ? ', nearest ' + lastScan.nearest.toFixed(0) + 'm' : '') +
-                  (lastScan.unresolvedParents > 0
-                    ? ', ' + lastScan.unresolvedParents + ' missing parent link' +
-                      (lastScan.unresolvedParents === 1 ? '' : 's')
-                    : '') +
-                  '). Press <strong>Load</strong> again after a moment.</p>';
+      host.innerHTML = '<p class="settings-note">' + emptyNote() + '</p>';
       return;
     }
     shownRoots.forEach(function (root) {
@@ -324,12 +347,11 @@ const BeeInteract = (function () {
     if (title) {
       const totalRoots = entries.length;
       if (!totalRoots) {
-        title.textContent = 'Nearby objects';
+        title.textContent = t('interact.nearbyObjects');
       } else if (shownRoots.length !== totalRoots) {
-        title.textContent = 'Nearby objects (' + shownRoots.length + ' of ' + totalRoots +
-          ' roots within ' + range + 'm)';
+        title.textContent = t('interact.nearbyObjectsFiltered', { shown: shownRoots.length, count: totalRoots, range: metres(range) });
       } else {
-        title.textContent = 'Nearby objects (' + totalRoots + ' roots within ' + range + 'm)';
+        title.textContent = t('interact.nearbyObjectsCount', { count: totalRoots, range: metres(range) });
       }
     }
     document.querySelectorAll<HTMLElement>('[data-objects-sort]').forEach(function (btn) {
@@ -395,7 +417,7 @@ const BeeInteract = (function () {
       renderObjects();
       const pending = lastScan.pending;
       if (pending > 0) {
-        BeeUtils.showToast('Naming ' + pending + ' object' + (pending === 1 ? '' : 's') + '...', 'info');
+        BeeUtils.showToast(t('interact.naming', { count: pending }), 'info');
       }
       if (pending > 0 || entries.length === 0) {
         let followUpsLeft = 2;
@@ -422,7 +444,7 @@ const BeeInteract = (function () {
         finishLoad();
       }
     }).catch(function () {
-      BeeUtils.showToast('Could not read the nearby objects.', 'warning');
+      BeeUtils.showToast(t('interact.loadFailed'), 'warning');
       finishLoad();
     });
   }
@@ -453,41 +475,38 @@ const BeeInteract = (function () {
       else b.addEventListener('click', function () { menu.hidden = true; fn(); });
       menu.appendChild(b);
     };
-    add('Show details', true, function () { showDetails(obj); });
+    add(t('interact.showDetails'), true, function () { showDetails(obj); });
     // Touch and Pay only when the sim's flags say the object handles them.
     if (obj.canTouch) {
-      add('Touch', true, function () {
-        invoke('sl_object_touch', { localId: obj.localId })
-          .catch(function () { BeeUtils.showToast('Could not touch that.', 'warning'); });
-      });
+      add(t('interact.touch'), true, function () { touchObject(obj); });
     }
     // Sit on anything except worn attachments.
     if (!isAttachmentObject(obj)) {
-      add('Sit on', !(state.sitting && sittingOn === obj.id), function () {
+      add(t('interact.sitOn'), !(state.sitting && sittingOn === obj.id), function () {
         requestSit(obj);
       });
     }
     if (canPayNow(obj)) {
-      add('Pay...', true, function () { payObject(obj); });
+      add(t('interact.payMenu'), true, function () { payObject(obj); });
     }
     // Whoever it belongs to, and whoever made it, are people you may want to look up.
     if (obj.ownerId && !BeeProfiles.isZero(obj.ownerId)) {
-      add('Owner profile', true, function () { openProfile(obj.ownerId); });
+      add(t('interact.ownerProfile'), true, function () { openProfile(obj.ownerId); });
     }
     if (obj.creatorId && !BeeProfiles.isZero(obj.creatorId) && obj.creatorId !== obj.ownerId) {
-      add('Creator profile', true, function () { openProfile(obj.creatorId); });
+      add(t('interact.creatorProfile'), true, function () { openProfile(obj.creatorId); });
     }
     const copyItem = function (label, value, what) {
       if (!value) return;
       add(label, true, function () {
         if (!navigator.clipboard) return;
         navigator.clipboard.writeText(value).then(function () {
-          BeeUtils.showToast(what + ' copied', 'success');
+          BeeUtils.showToast(t('common.copiedWhat', { what: what }), 'success');
         }).catch(function () {});
       });
     };
-    copyItem('Copy name', obj.name, 'Name');
-    copyItem('Copy UUID', obj.id, 'UUID');
+    copyItem(t('common.copyName'), obj.name, t('common.name'));
+    copyItem(t('common.copyUuid'), obj.id, t('common.uuid'));
     menu.hidden = false;
     // At the pointer, the way the buddies and radar menus open, but kept on screen.
     const rect = menu.getBoundingClientRect();
@@ -508,10 +527,10 @@ const BeeInteract = (function () {
     if (decoded) return decoded;
     const m = Number(mask) || 0;
     const parts = [];
-    if (m & 0x00004000) parts.push('modify');
-    if (m & 0x00008000) parts.push('copy');
-    if (m & 0x00002000) parts.push('transfer');
-    return parts.length ? parts.join(', ') : 'none';
+    if (m & 0x00004000) parts.push(t('interact.permModify'));
+    if (m & 0x00008000) parts.push(t('interact.permCopy'));
+    if (m & 0x00002000) parts.push(t('interact.permTransfer'));
+    return parts.length ? parts.join(', ') : t('interact.permNone');
   }
 
   function detailRow(label, value) {
@@ -591,6 +610,10 @@ const BeeInteract = (function () {
   const detailProps = {}; // object id -> latest ObjectProperties(Family) reply
   const payPrices = {};   // object id -> PayPriceReply (suggested amounts)
 
+  function payLabel(amount) {
+    return t('interact.payAmount', { amount: BeeI18n.formatNumber(amount) });
+  }
+
   // Paying money always goes through an explicit confirmation naming the object and
   // the amount. Amounts come from the object itself (PayPriceReply) rather than being
   // typed, so there's no chance of a slipped digit.
@@ -599,11 +622,11 @@ const BeeInteract = (function () {
     if (!price) {
       // Ask, then let the reply reopen this with real choices.
       invoke('sl_request_pay_price', { objectId: obj.id }).catch(function () {});
-      BeeUtils.showToast('Asking the object what it charges...', 'info');
+      BeeUtils.showToast(t('interact.askingPrice'), 'info');
       return;
     }
     if (!price.payable) {
-      BeeUtils.showToast('This object is not asking for payment.', 'warning');
+      BeeUtils.showToast(t('interact.notPayable'), 'warning');
       return;
     }
     const amounts = [];
@@ -623,7 +646,7 @@ const BeeInteract = (function () {
     amounts.forEach(function (amount) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.textContent = 'Pay L$ ' + amount;
+      b.textContent = payLabel(amount);
       b.addEventListener('click', function () {
         menu.hidden = true;
         sendPay(obj, amount);
@@ -633,7 +656,7 @@ const BeeInteract = (function () {
     if (price.allowCustom) {
       const other = document.createElement('button');
       other.type = 'button';
-      other.textContent = 'Other amount...';
+      other.textContent = t('interact.otherAmount');
       other.addEventListener('click', function () {
         menu.hidden = true;
         askCustomAmount(obj);
@@ -667,20 +690,23 @@ const BeeInteract = (function () {
   async function sendPay(obj, amount) {
     const value = Math.floor(Number(amount));
     if (!Number.isFinite(value) || value < 1) {
-      BeeUtils.showToast('Enter an amount of L$ 1 or more.', 'warning');
+      BeeUtils.showToast(t('interact.amountMin'), 'warning');
       return;
     }
     const ok = await BeeUtils.confirm({
-      title: 'Pay this object?',
-      message: 'Pay L$ ' + value + ' to "' + (obj.name || 'object') + '"? This cannot be undone.',
-      confirmLabel: 'Pay L$ ' + value,
+      title: t('interact.payTitle'),
+      message: t('interact.payMessage',
+        { amount: BeeI18n.formatNumber(value), name: obj.name || t('interact.objectFallback') }),
+      confirmLabel: payLabel(value),
       danger: true
     });
     if (!ok) return;
     invoke('sl_object_pay', { objectId: obj.id, amount: value, objectName: obj.name || '' })
-      .then(function () { BeeUtils.showToast('Paid L$ ' + value + '.', 'success'); })
+      .then(function () {
+        BeeUtils.showToast(t('interact.paid', { amount: BeeI18n.formatNumber(value) }), 'success');
+      })
       .catch(function (err) {
-        BeeUtils.showToast((err && err.message) || 'Payment failed.', 'error');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('interact.payFailed'), 'error');
       });
   }
 
@@ -690,7 +716,7 @@ const BeeInteract = (function () {
     if (!Number.isFinite(n) || n <= 0) return '';
     const d = new Date(n * 1000);
     if (isNaN(d.getTime())) return '';
-    try { return d.toLocaleDateString(); } catch (_e) { return ''; }
+    try { return d.toLocaleDateString(BeeI18n.dateLocale()); } catch (_e) { return ''; }
   }
 
   function paintDetails(obj, props) {
@@ -706,28 +732,32 @@ const BeeInteract = (function () {
     const oldRow = host.querySelector<HTMLElement>('#objects-pay-row');
     const keepRow = oldRow && !oldRow.hidden && oldRow.dataset.objId === obj.id ? oldRow : null;
     const keepFocus = !!(keepRow && document.activeElement && keepRow.contains(document.activeElement));
+    const esc = BeeUtils.escapeHtml;
     host.innerHTML =
       '<div class="objects-detail__head">' +
-        '<h4 class="profile-split__title">' + BeeUtils.escapeHtml(p.name || obj.name || '(unnamed)') + '</h4>' +
-        '<button type="button" class="btn btn--ghost btn--sm" id="objects-detail-close">Close</button>' +
+        '<h4 class="profile-split__title">' + esc(p.name || obj.name || t('interact.unnamed')) + '</h4>' +
+        '<button type="button" class="btn btn--ghost btn--sm" id="objects-detail-close">' +
+          esc(t('common.close')) + '</button>' +
       '</div>' +
       (p.description || obj.description
-        ? '<p class="objects-detail__desc">' + BeeUtils.escapeHtml(p.description || obj.description) + '</p>'
+        ? '<p class="objects-detail__desc">' + esc(p.description || obj.description) + '</p>'
         : '') +
       '<div class="objects-detail__fields">' +
-        detailRow('Position', Math.round(pos.x) + ', ' + Math.round(pos.y) + ', ' + Math.round(pos.z)) +
-        detailRow('Distance', obj.distance.toFixed(1) + ' m') +
-        personRow('Owner', p.ownerId || obj.ownerId) +
-        (p.groupId && !BeeProfiles.isZero(p.groupId) ? groupRow('Group', p.groupId) : '') +
-        personRow('Last owner', p.lastOwnerId) +
-        detailRow('You may', props ? permText(p.everyoneMask, p.everyonePerms) : '') +
-        detailRow('Next owner may', props ? permText(p.nextOwnerMask, p.nextOwnerPerms) : '') +
-        detailRow('For sale', obj.forSale ? 'L$ ' + obj.salePrice : (props ? 'no' : '')) +
-        personRow('Creator', p.creatorId || obj.creatorId) +
-        detailRow('Created', formatCreated(p.creationDate)) +
-        detailRow('Land impact', extra.landImpact) +
-        detailRow('Physics cost', extra.physicsCost) +
-        detailRow('Object key', obj.id) +
+        detailRow(t('interact.position'), Math.round(pos.x) + ', ' + Math.round(pos.y) + ', ' + Math.round(pos.z)) +
+        detailRow(t('interact.distance'), t('units.metres', { value: obj.distance.toFixed(1) })) +
+        personRow(t('interact.owner'), p.ownerId || obj.ownerId) +
+        (p.groupId && !BeeProfiles.isZero(p.groupId) ? groupRow(t('interact.group'), p.groupId) : '') +
+        personRow(t('interact.lastOwner'), p.lastOwnerId) +
+        detailRow(t('interact.youMay'), props ? permText(p.everyoneMask, p.everyonePerms) : '') +
+        detailRow(t('interact.nextOwnerMay'), props ? permText(p.nextOwnerMask, p.nextOwnerPerms) : '') +
+        detailRow(t('interact.forSale'), obj.forSale
+          ? t('interact.lindenAmount', { amount: BeeI18n.formatNumber(obj.salePrice) })
+          : (props ? t('interact.forSaleNo') : '')) +
+        personRow(t('interact.creator'), p.creatorId || obj.creatorId) +
+        detailRow(t('interact.created'), formatCreated(p.creationDate)) +
+        detailRow(t('interact.landImpact'), extra.landImpact) +
+        detailRow(t('interact.physicsCost'), extra.physicsCost) +
+        detailRow(t('interact.objectKey'), obj.id) +
         mediaHtml(extra.media) +
       '</div>' +
       '<div class="interact-actions objects-detail__actions">' +
@@ -735,25 +765,26 @@ const BeeInteract = (function () {
         // outright once the object has said it wants nothing - a button that can only
         // ever refuse is worse than no button.
         (obj.canTouch
-          ? '<button type="button" class="btn btn--secondary btn--sm" data-obj-action="touch">Touch</button>'
+          ? '<button type="button" class="btn btn--secondary btn--sm" data-obj-action="touch">' +
+            esc(t('interact.touch')) + '</button>'
           : '') +
         (!isAttachmentObject(obj)
           ? '<button type="button" class="btn btn--secondary btn--sm" data-obj-action="sit"' +
-            (state.sitting && sittingOn === obj.id ? ' disabled' : '') + '>Sit on</button>'
+            (state.sitting && sittingOn === obj.id ? ' disabled' : '') + '>' + esc(t('interact.sitOn')) + '</button>'
           : '') +
         (canPayNow(obj)
           ? '<button type="button" class="btn btn--secondary btn--sm" data-obj-action="pay">' +
-            (payPrices[obj.id] && payPrices[obj.id].defaultPrice > 0
-              ? 'Pay L$ ' + payPrices[obj.id].defaultPrice + '...'
-              : 'Pay...') + '</button>'
+            esc(payPrices[obj.id] && payPrices[obj.id].defaultPrice > 0
+              ? t('interact.payDefault', { amount: BeeI18n.formatNumber(payPrices[obj.id].defaultPrice) })
+              : t('interact.payMenu')) + '</button>'
           : '') +
       '</div>' +
-      '<div class="interact-actions" id="objects-pay-row" data-obj-id="' + BeeUtils.escapeHtml(obj.id) + '" hidden>' +
+      '<div class="interact-actions" id="objects-pay-row" data-obj-id="' + esc(obj.id) + '" hidden>' +
         '<input type="number" id="objects-pay-amount" class="settings-control__select" ' +
-          'min="1" step="1" placeholder="L$ amount" inputmode="numeric">' +
-        '<button type="button" class="btn btn--primary btn--sm" id="objects-pay-send">Pay</button>' +
+          'min="1" step="1" placeholder="' + esc(t('interact.amountPlaceholder')) + '" inputmode="numeric">' +
+        '<button type="button" class="btn btn--primary btn--sm" id="objects-pay-send">' + esc(t('interact.pay')) + '</button>' +
       '</div>' +
-      (props && extra.ok ? '' : '<p class="settings-note">Still gathering details...</p>');
+      (props && extra.ok ? '' : '<p class="settings-note">' + esc(t('interact.gathering')) + '</p>');
 
     if (keepRow) {
       const freshRow = document.getElementById('objects-pay-row');
@@ -771,8 +802,7 @@ const BeeInteract = (function () {
       btn.addEventListener('click', function () {
         const act = btn.dataset.objAction;
         if (act === 'touch') {
-          invoke('sl_object_touch', { localId: obj.localId })
-            .catch(function () { BeeUtils.showToast('Could not touch that.', 'warning'); });
+          touchObject(obj);
         } else if (act === 'sit') {
           requestSit(obj);
         } else {
@@ -814,8 +844,9 @@ const BeeInteract = (function () {
       const split = String(entry).indexOf('|');
       const face = split > 0 ? String(entry).slice(0, split) : '';
       const url = split > 0 ? String(entry).slice(split + 1) : String(entry);
-      return '<div class="profile-field"><span class="profile-field__label">Media' +
-        (face ? ' (face ' + BeeUtils.escapeHtml(face) + ')' : '') + '</span>' +
+      return '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(face ? t('interact.mediaFace', { face: face }) : t('interact.media')) +
+        '</span>' +
         '<span><a href="#" class="settings-link" data-media-url="' + BeeUtils.escapeHtml(url) + '">' +
         BeeUtils.escapeHtml(url) + '</a></span></div>';
     });
@@ -847,10 +878,14 @@ const BeeInteract = (function () {
       const btn = document.getElementById(id);
       if (btn) btn.addEventListener('click', function () { run(cmd, args, failure); });
     };
-    bind('interact-sit-ground', 'sl_sit_ground', {}, 'Could not sit down.');
-    bind('interact-stand', 'sl_stand_up', {}, 'Could not stand up.');
-    bind('interact-fly', 'sl_set_flying', { flying: true }, 'Could not start flying.');
-    bind('interact-stop-fly', 'sl_set_flying', { flying: false }, 'Could not stop flying.');
+    bind('interact-sit-ground', 'sl_sit_ground', {},
+      function () { return t('interact.sitGroundFailed'); });
+    bind('interact-stand', 'sl_stand_up', {},
+      function () { return t('interact.standFailed'); });
+    bind('interact-fly', 'sl_set_flying', { flying: true },
+      function () { return t('interact.flyFailed'); });
+    bind('interact-stop-fly', 'sl_set_flying', { flying: false },
+      function () { return t('interact.stopFlyFailed'); });
 
     const refreshBtn = document.getElementById('objects-refresh');
     if (refreshBtn) refreshBtn.addEventListener('click', refreshObjects);
@@ -1031,7 +1066,7 @@ const BeeInteract = (function () {
           // Any verdict ends the pending state; a refusal carries the reason.
           sitPendingOn = '';
           if (!data.sitting && data.error) {
-            BeeUtils.showToast(data.error, 'warning');
+            BeeUtils.showToast(BeeI18n.field(data, 'error'), 'warning');
           }
           paint();
         }
@@ -1056,6 +1091,12 @@ const BeeInteract = (function () {
       if (box) box.value = '';
       closeDetails();
       paint();
+    });
+    // A language switch: the state word, and the list with its title and
+    // notes while the panel is showing.
+    BeeI18n.onChange(function () {
+      paint();
+      if (BeeState.get().activeTab === 'interact') renderObjects();
     });
     paint();
   }

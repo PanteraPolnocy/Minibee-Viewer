@@ -4,12 +4,14 @@
 const BeeUpdater = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let startupChecked = false;
   let updaterAvailable = null;
 
   function invoke(cmd: string, args?: Record<string, unknown>) {
     if (typeof BeeBridge === 'undefined' || typeof BeeBridge.invoke !== 'function') {
-      return Promise.reject(new Error('Native bridge unavailable'));
+      return Promise.reject(new Error(t('updater.bridgeUnavailable')));
     }
     return BeeBridge.invoke(cmd, args || {});
   }
@@ -31,18 +33,19 @@ const BeeUpdater = (function () {
     if (!info || typeof BeeUtils === 'undefined' || typeof BeeUtils.confirm !== 'function') {
       return Promise.resolve(false);
     }
-    const availableVersion = info.version ? String(info.version) : 'a new version';
-    const notes = info.notes ? String(info.notes).trim() : '';
+    const availableVersion = info.version ? String(info.version) : t('updater.newVersion');
+    const notes = info.notes ? String(info.notes).trim() : ''; // the release notes, as published
     const current = info.current_display_version ? String(info.current_display_version) : '';
-    const currentLine = current ? ('You have ' + current + '.\n\n') : '';
+    const currentLine = current ? (t('updater.youHave', { version: current }) + '\n\n') : '';
     const message = notes
-      ? (currentLine + 'Update ' + availableVersion + ' is available.\n\n' + notes + '\n\nInstall now?')
-      : (currentLine + 'Update ' + availableVersion + ' is available. Install now?');
+      ? (currentLine + t('updater.available', { version: availableVersion }) +
+        '\n\n' + notes + '\n\n' + t('updater.installNow'))
+      : (currentLine + t('updater.availableInstall', { version: availableVersion }));
     return BeeUtils.confirm({
-      title: 'Update available',
+      title: t('updater.title'),
       message: message,
-      confirmLabel: 'Install',
-      cancelLabel: 'Later'
+      confirmLabel: t('updater.install'),
+      cancelLabel: t('updater.later')
     });
   }
 
@@ -51,14 +54,14 @@ const BeeUpdater = (function () {
     return promptInstall(info).then(function (accepted) {
       if (!accepted) return false;
       if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-        BeeUtils.showToast('Downloading update...', 'info', 4000);
+        BeeUtils.showToast(t('updater.downloading'), 'info', 4000);
       }
       return invoke('app_install_update').then(function () {
         return true;
       }).catch(function (err) {
-        const msg = err && err.message ? err.message : String(err || 'Update failed');
         if (typeof BeeUtils !== 'undefined' && BeeUtils.showToast) {
-          BeeUtils.showToast('Update failed: ' + msg, 'warning', 6000);
+          const msg = BeeUtils.errText(err) || t('updater.failed');
+          BeeUtils.showToast(t('updater.failedWith', { error: msg }), 'warning', 6000);
         }
         return false;
       });
@@ -88,39 +91,42 @@ const BeeUpdater = (function () {
 
     return available().then(function (ok) {
       if (!ok) {
-        setStatus('Updates are not available in this build.');
+        setStatus(t('updater.notAvailable'));
         return;
       }
-      setStatus('Checking...');
+      setStatus(t('updater.checking'));
       return invoke('app_check_update').then(function (result) {
         if (!result) return;
         if (result.status === 'error') {
-          setStatus(result.message || 'Could not check for updates.');
+          // The core's own account of what went wrong, when it has one.
+          setStatus(BeeI18n.field(result, 'message') || t('updater.checkFailed'));
           clearLater(5000);
           return;
         }
         if (result.status === 'up_to_date') {
           const current = result.current_display_version ? String(result.current_display_version) : '';
-          setStatus(current ? ('You are up to date (' + current + ').') : 'You are up to date.');
+          setStatus(current
+            ? t('updater.upToDateVersion', { version: current })
+            : t('updater.upToDate'));
           clearLater(4500);
           return;
         }
         if (result.status === 'available') {
-          setStatus('Update ' + result.version + ' found.');
+          setStatus(t('updater.found', { version: result.version }));
           return offerUpdate(result).then(function (installed) {
-            if (!installed) setStatus('Update postponed.');
+            if (!installed) setStatus(t('updater.postponed'));
             clearLater(3500);
           });
         }
         // 'unavailable' (updater not built in), or any status a future core
         // adds - never leave the label stuck on "Checking...".
         setStatus(result.status === 'unavailable'
-          ? 'Updates are not available in this build.'
-          : 'Could not check for updates.');
+          ? t('updater.notAvailable')
+          : t('updater.checkFailed'));
         clearLater(4500);
       });
     }).catch(function () {
-      setStatus('Could not check for updates.');
+      setStatus(t('updater.checkFailed'));
       clearLater(5000);
     });
   }

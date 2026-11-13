@@ -14,6 +14,8 @@
 const BeeCurrency = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const PAYMENT_SETUP_URL = 'https://secondlife.com/my/lindex/buy.php?associate_for_viewer=1';
   const PAYMENT_METHOD_URL = 'https://www.secondlife.com/my/account/payment_method_management.php';
   const CURRENCY_HISTORY_URL = 'https://www.secondlife.com/my/account/currency.php';
@@ -65,7 +67,7 @@ const BeeCurrency = (function () {
     if (est) {
       est.textContent = !amount ? '-'
         : haveQuote ? (quote.estimate || '-')
-          : 'Estimating...';
+          : t('currency.estimating');
     }
     const total = el('buy-currency-total');
     if (total) {
@@ -133,8 +135,8 @@ const BeeCurrency = (function () {
   function cannotBuy(message) {
     closeDialog();
     BeeUtils.alert({
-      title: 'Unable to Buy',
-      message: message || 'The billing service is unavailable right now.'
+      title: t('currency.unableTitle'),
+      message: message || t('currency.serviceUnavailable')
     });
   }
 
@@ -212,8 +214,9 @@ const BeeCurrency = (function () {
     if (!amount || !quote || quote.amount !== amount) return;
     const purchase = quote;
     const seq = quoteSeq;
-    const action = 'Buy L$ ' + amount.toLocaleString('en-US') +
-      (purchase.estimate ? ' for approx. ' + purchase.estimate : '') + '?';
+    const action = purchase.estimate
+      ? t('currency.buyConfirmEstimate', { amount: BeeI18n.formatNumber(amount), estimate: purchase.estimate })
+      : t('currency.buyConfirm', { amount: BeeI18n.formatNumber(amount) });
 
     // Always confirm before charging. The helper's token picks the strength:
     // "password" means the account password, anything else a plain confirm.
@@ -223,7 +226,11 @@ const BeeCurrency = (function () {
       if (entered === null) return;
       password = String(entered);
     } else {
-      const ok = await BeeUtils.confirm({ title: 'Confirm purchase', message: action, confirmLabel: 'Buy now' });
+      const ok = await BeeUtils.confirm({
+        title: t('currency.confirmTitle'),
+        message: action,
+        confirmLabel: t('currency.buyNow')
+      });
       if (!ok) return;
     }
     // The dialog may have been closed (disconnect, session loss) while the
@@ -240,7 +247,7 @@ const BeeCurrency = (function () {
     busyTimer = setTimeout(function () {
       timedOut = true;
       endBusy();
-      cannotBuy('The billing service did not answer in time. Check your transaction history before trying again.');
+      cannotBuy(t('currency.timeout'));
     }, BUY_TIMEOUT_MS);
     let result = null;
     let failure = '';
@@ -261,10 +268,8 @@ const BeeCurrency = (function () {
     // success is still worth reporting, since money may have moved.
     if (result && result.ok === true) {
       BeeUtils.alert({
-        title: 'Thank you for your payment!',
-        message: 'Your L$ balance will be updated when processing completes. ' +
-          'If processing takes more than 20 minutes, your transaction may be cancelled ' +
-          'and the purchase amount credited back to your billing account.'
+        title: t('currency.thanksTitle'),
+        message: t('currency.thanksMessage')
       });
     } else if (!timedOut) {
       cannotBuy((result && result.error) || failure);
@@ -351,8 +356,9 @@ const BeeCurrency = (function () {
     // nowhere else on purpose.
     if (!s.canBuyCurrency) {
       BeeUtils.alert({
-        title: 'Buying L$ unavailable',
-        message: s.buyNotice || 'Buying Linden Dollars is not available in this edition of Minibee.'
+        title: t('currency.unavailableTitle'),
+        message: BeeI18n.fromCore(s.buyNotice) ||
+          t('currency.unavailableMessage')
       });
       return;
     }
@@ -367,10 +373,10 @@ const BeeCurrency = (function () {
     if (isLindenGrid() && paymentOkFor !== s.agent.id) {
       if (!(await hasPaymentInfo(s.agent.id))) {
         const go = await BeeUtils.confirm({
-          title: 'Buy L$',
-          message: 'Add a payment method to buy Linden dollars and enjoy more of Second Life.',
-          confirmLabel: 'Get started',
-          cancelLabel: 'Later'
+          title: t('currency.buyTitle'),
+          message: t('currency.addPayment'),
+          confirmLabel: t('currency.getStarted'),
+          cancelLabel: t('currency.later')
         });
         if (go) BeeSlurl.openExternalUrl(PAYMENT_SETUP_URL);
         return;

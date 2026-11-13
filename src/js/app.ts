@@ -4,6 +4,8 @@
 const BeeApp = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let allowUnload = false;
   let wasConnected = false;      // flips true once a session has connected during this run
   let reconnectTimer = null;
@@ -63,8 +65,7 @@ const BeeApp = (function () {
     if (reconnecting) { scheduleReconnect(RECONNECT_INTERVAL); return; }
     reconnecting = true;
     reconnectAttempt += 1;
-    BeeUtils.showToast('Connection lost - reconnecting (attempt ' + reconnectAttempt + ')...',
-      'warning', 4000);
+    BeeUtils.showToast(t('app.reconnecting', { attempt: reconnectAttempt }), 'warning', 4000);
     Promise.resolve(BeeTransport.reconnect()).then(function () {
       reconnecting = false;
       // 'connected' normally cancels the loop; guard here in case it doesn't fire.
@@ -96,9 +97,9 @@ const BeeApp = (function () {
       return;
     }
     const ok = await BeeUtils.confirm({
-      title: 'Close Minibee?',
-      message: 'You are still connected to Second Life. Closing will log you out and quit the viewer.',
-      confirmLabel: 'Log out & quit',
+      title: t('app.closeTitle'),
+      message: t('app.closeMessage'),
+      confirmLabel: t('app.closeConfirm'),
       danger: true
     });
     if (!ok) {
@@ -160,7 +161,7 @@ const BeeApp = (function () {
       // without waiting for the user to open the Land tab.
       if (typeof BeeTransport.refreshParcel === 'function') BeeTransport.refreshParcel();
       BeeNavigation.switchTab('chat');
-      BeeUtils.showToast('Welcome, ' + payload.agent.displayName, 'success');
+      BeeUtils.showToast(t('app.welcome', { name: payload.agent.displayName }), 'success');
       maybeAutoSit();
 
       // Show the login Message-of-the-Day as a system line (see renderMotdMessage).
@@ -181,7 +182,9 @@ const BeeApp = (function () {
     });
 
     BeeTransport.on('session-lost', function (data) {
-      const reason = data && data.reason;
+      // The core's own reasons come with a key (reasonKey); a kick carries the
+      // grid's words as they are.
+      const reason = BeeI18n.field(data, 'reason');
       // Auto-reconnect if it's enabled and we actually had a session; otherwise
       // fall back to the manual session-lost overlay.
       if (wasConnected && autoReconnectEnabled()) {
@@ -192,7 +195,7 @@ const BeeApp = (function () {
         // the modal blocker while the attempts run.
         BeeState.patch({
           sessionLost: true,
-          sessionLostReason: String(reason || '').trim() || 'Lost connection to the region.',
+          sessionLostReason: reason.trim() || t('session.lostConnection'),
           sessionLostDismissed: true
         });
         startReconnect();
@@ -234,7 +237,7 @@ const BeeApp = (function () {
       // An estate or region message is meant for everyone, and the chat tab
       // may not be on screen: a toast as well as the chat line.
       if (msg && msg.kind === 'region-message' && BeeState.get().activeTab !== 'chat') {
-        BeeUtils.showToast(String(msg.fromName || 'Estate') + ': ' +
+        BeeUtils.showToast(String(msg.fromName || t('chat.estate')) + ': ' +
           String(msg.text || '').slice(0, 160), 'info', 8000);
       }
     });
@@ -300,9 +303,9 @@ const BeeApp = (function () {
     BeeTransport.on('im-session-force-close', function (data) {
       if (!data || !data.sessionId) return;
       const session = BeeState.get().imSessions[data.sessionId];
-      const label = session ? (session.title || 'chat session') : 'chat session';
+      const label = (session && session.title) || t('im.chatSession');
       BeeState.closeImSession(data.sessionId);
-      BeeUtils.showToast((data.reason || 'The chat session was closed') +
+      BeeUtils.showToast((BeeI18n.field(data, 'reason') || t('im.sessionClosed')) +
         ' (' + label + ')', 'warning', 5000);
     });
 
@@ -323,12 +326,13 @@ const BeeApp = (function () {
       if (!textEl) return;
       const left = Math.max(0, Math.round((restartDeadline - Date.now()) / 1000));
       const when = left >= 120
-        ? ('about ' + Math.round(left / 60) + ' minutes')
+        ? t('restart.minutes', { count: Math.round(left / 60) })
         : left > 0
-          ? (left + ' seconds')
-          : 'any moment now';
-      textEl.textContent = 'The region ' + (restartRegion ? '"' + restartRegion + '" ' : '') +
-        'is restarting in ' + when + '.';
+          ? t('restart.seconds', { count: left })
+          : t('restart.anyMoment');
+      textEl.textContent = restartRegion
+        ? t('restart.textNamed', { region: restartRegion, when: when })
+        : t('restart.text', { when: when });
       if (left <= 0 && restartTimer) {
         window.clearInterval(restartTimer);
         restartTimer = null;
@@ -497,9 +501,9 @@ const BeeApp = (function () {
     const s = BeeState.get();
     if (!opts.skipConfirm && (s.connected || s.connecting)) {
       const ok = await BeeUtils.confirm({
-        title: 'Log out?',
-        message: 'You will be disconnected from Second Life.',
-        confirmLabel: 'Log out',
+        title: t('app.logoutTitle'),
+        message: t('app.logoutMessage'),
+        confirmLabel: t('common.logOut'),
         danger: true
       });
       if (!ok) return;
@@ -549,18 +553,15 @@ const BeeApp = (function () {
     BeeSettings.set('maturityAsked', true);
     if (typeof BeeUtils.choose !== 'function') return;
     const picked = await BeeUtils.choose({
-      title: 'What would you like to see?',
-      message: 'Second Life rates places and groups as General, Moderate or Adult. ' +
-        'Choose which ratings Minibee shows in search results and the Destination Guide; ' +
-        'what your account may see is still decided by the grid. ' +
-        'You can change this any time in Bee -> Settings -> Search.',
+      title: t('maturity.askTitle'),
+      message: t('maturity.askMessage'),
       choices: [
-        ['general', 'General only'],
-        ['moderate', 'General and Moderate'],
-        ['adult', 'General, Moderate and Adult']
+        ['general', t('maturity.generalOnly')],
+        ['moderate', t('maturity.generalModerate')],
+        ['adult', t('maturity.all')]
       ],
       value: String(BeeSettings.get('maturity') || 'moderate'),
-      confirmLabel: 'Continue',
+      confirmLabel: t('common.continue'),
       hideCancel: true
     });
     if (picked) BeeSettings.set('maturity', picked);
@@ -574,10 +575,16 @@ const BeeApp = (function () {
     try {
       const d = await BeeBridge.invoke('app_distribution');
       if (!d || !d.ok) return;
+      // The notice is kept as the core's keyed line, not as words: this runs
+      // before the language files are in, and the language can change later.
+      // BeeI18n.fromCore puts it into words where it is shown.
+      const notice = typeof d.buyNoticeKey === 'string' && d.buyNoticeKey
+        ? { key: d.buyNoticeKey, text: String(d.buyNotice || ''), args: d.buyNoticeArgs || {} }
+        : (typeof d.buyNotice === 'string' ? d.buyNotice : '');
       BeeState.patch({
         playStore: !!d.playStore,
         canBuyCurrency: d.canBuyCurrency !== false,
-        buyNotice: typeof d.buyNotice === 'string' ? d.buyNotice : ''
+        buyNotice: notice
       });
     } catch (_e) {
       // Not the Play edition unless the core says so.
@@ -594,6 +601,11 @@ const BeeApp = (function () {
       await loadDistribution();
       if (typeof BeeSettings !== 'undefined') {
         BeeSettings.init();
+        // The dictionary has to be in before the panels build anything from
+        // their words; a later switch retranslates the markup and the
+        // panels follow as they render (BeeI18n.onChange for the few that
+        // hold text between renders).
+        await BeeI18n.load(BeeSettings.get('language'));
         syncDataSaver(BeeSettings.get('dataSaver'));
         syncRadarAlerts();
         syncMaturity();
@@ -601,6 +613,7 @@ const BeeApp = (function () {
           if (key === 'dataSaver') syncDataSaver(value);
           if (key === 'radarAlerts' || key === 'radarRange') syncRadarAlerts();
           if (key === 'maturity') syncMaturity();
+          if (key === 'language') void BeeI18n.load(value);
         });
         BeeState.on('change', function (partial) {
           if (partial && partial.connected === true) void maybeAskMaturity();
@@ -645,10 +658,14 @@ const BeeApp = (function () {
       }
     } catch (err) {
       console.error('Minibee init failed:', err);
+      // Show whatever words did load (the keys, at worst) rather than an
+      // empty window, so the error below is readable.
+      BeeI18n.apply();
+      document.documentElement.classList.remove('i18n-pending');
       const el = document.getElementById('login-error');
       if (el) {
         el.hidden = false;
-        el.textContent = 'Viewer init failed: ' + (err.message || String(err));
+        el.textContent = t('app.initFailed', { error: BeeUtils.errText(err) || String(err) });
       }
     }
   }

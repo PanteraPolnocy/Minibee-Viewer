@@ -4,6 +4,8 @@
 const BeeRadar = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let filter = '';
   let renderScheduled = false;
   let sidebarRenderScheduled = false;
@@ -36,9 +38,9 @@ const BeeRadar = (function () {
     const d = bornOn instanceof Date ? bornOn : new Date(bornOn);
     if (Number.isNaN(d.getTime())) return '';
     const days = Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
-    if (days < 60) return days + 'd';
-    if (days < 730) return Math.floor(days / 30) + 'mo';
-    return Math.floor(days / 365) + 'y';
+    if (days < 60) return t('time.daysShort', { count: days });
+    if (days < 730) return t('time.monthsShort', { count: Math.floor(days / 30) });
+    return t('time.yearsShort', { count: Math.floor(days / 365) });
   }
 
   // Age comes from each avatar's basic properties (born-on), which we fetch
@@ -52,6 +54,10 @@ const BeeRadar = (function () {
       BeeProfiles.queueAvatarThumb(entry.id); // deduped; bornOn will be ready for the next render
     }
     return (entry.age && entry.age !== '?') ? entry.age : '';
+  }
+
+  function metres(value) {
+    return t('units.m', { value: value });
   }
 
   function scheduleRender() {
@@ -93,7 +99,8 @@ const BeeRadar = (function () {
     const mic = document.createElement('span');
     mic.className = 'entity-item__voice' +
       (voice.muted ? ' entity-item__voice--muted' : voice.speaking ? ' entity-item__voice--speaking' : '');
-    mic.title = voice.muted ? 'Voice muted for you' : voice.speaking ? 'Speaking' : 'In voice';
+    mic.title = voice.muted ? t('voice.mutedForYou')
+      : voice.speaking ? t('voice.speaking') : t('voice.inVoice');
     mic.textContent = voice.muted ? '\u{1F507}' : '\u{1F3A4}';
     return mic;
   }
@@ -112,7 +119,7 @@ const BeeRadar = (function () {
     li.dataset.id = entry.id;
     const status = entry.status ? ' [' + entry.status + ']' : '';
     const age = ageFor(entry);
-    const ageText = age ? ('Age: ' + age) : 'Age: ...';
+    const ageText = age ? t('radar.age', { age: age }) : t('radar.ageUnknown');
 
     const avatar = document.createElement('div');
     avatar.className = 'entity-item__avatar';
@@ -137,7 +144,7 @@ const BeeRadar = (function () {
 
     const sub = document.createElement('div');
     sub.className = 'entity-item__sub';
-    sub.textContent = ageText + ' · ' + String(entry.range) + 'm' + status;
+    sub.textContent = ageText + ' · ' + metres(entry.range) + status;
     body.appendChild(sub);
 
     const mic = voiceGlyph(entry);
@@ -150,8 +157,8 @@ const BeeRadar = (function () {
     profileBtn.type = 'button';
     profileBtn.className = 'icon-btn';
     profileBtn.dataset.action = 'profile';
-    profileBtn.title = 'Profile';
-    profileBtn.setAttribute('aria-label', 'Profile');
+    profileBtn.title = t('common.profile');
+    profileBtn.setAttribute('aria-label', t('common.profile'));
     const profileTpl = document.createElement('template');
     profileTpl.innerHTML = iconProfile();
     if (profileTpl.content.firstChild) profileBtn.appendChild(profileTpl.content.firstChild);
@@ -160,8 +167,8 @@ const BeeRadar = (function () {
     imBtn.type = 'button';
     imBtn.className = 'icon-btn';
     imBtn.dataset.action = 'im';
-    imBtn.title = 'Send IM';
-    imBtn.setAttribute('aria-label', 'Send IM');
+    imBtn.title = t('common.sendIm');
+    imBtn.setAttribute('aria-label', t('common.sendIm'));
     const imSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     imSvg.setAttribute('viewBox', '0 0 24 24');
     imSvg.setAttribute('width', '18');
@@ -177,7 +184,7 @@ const BeeRadar = (function () {
 
     const range = document.createElement('span');
     range.className = 'entity-item__range';
-    range.textContent = String(entry.range) + 'm';
+    range.textContent = metres(entry.range);
 
     li.appendChild(avatar);
     li.appendChild(body);
@@ -221,16 +228,16 @@ const BeeRadar = (function () {
   function teleportToEntry(entry) {
     const names = nameLines(entry);
     BeeBridge.invoke('sl_teleport_to_agent', { agentId: entry.id }).then(function () {
-      BeeUtils.showToast('Teleporting to ' + (names.title || 'resident') + '...', 'info');
+      BeeUtils.showToast(t('radar.teleportingTo', { name: names.title || t('common.resident') }), 'info');
     }).catch(function (err) {
-      BeeUtils.showToast(err && err.message ? err.message : String(err || 'Teleport failed.'), 'warning');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('teleport.failed'), 'warning');
     });
   }
 
   function copyToClipboard(text, what) {
     if (!text || !navigator.clipboard) return;
     navigator.clipboard.writeText(text).then(function () {
-      BeeUtils.showToast(what + ' copied', 'success');
+      BeeUtils.showToast(t('common.copiedWhat', { what: what }), 'success');
     }).catch(function () {});
   }
 
@@ -241,12 +248,14 @@ const BeeRadar = (function () {
 
     const names = nameLines(entry);
     const actions = [
-      { label: 'Send IM', fn: function () { openIm(entry); } },
-      { label: 'Profile', fn: function () { BeeProfile.openAvatar(entry.id, { agent: entry }); } },
-      { label: 'Teleport to', fn: function () { teleportToEntry(entry); },
+      { label: t('common.sendIm'), fn: function () { openIm(entry); } },
+      { label: t('common.profile'), fn: function () { BeeProfile.openAvatar(entry.id, { agent: entry }); } },
+      { label: t('radar.teleportTo'), fn: function () { teleportToEntry(entry); },
         disabled: !canTeleportTo(entry) },
-      { label: 'Copy name', fn: function () { copyToClipboard(names.title || entry.name || '', 'Name'); } },
-      { label: 'Copy UUID', fn: function () { copyToClipboard(entry.id, 'UUID'); } }
+      { label: t('common.copyName'),
+        fn: function () { copyToClipboard(names.title || entry.name || '', t('common.name')); } },
+      { label: t('common.copyUuid'),
+        fn: function () { copyToClipboard(entry.id, t('common.uuid')); } }
     ];
 
     // Per-person voice controls, for people currently in the voice channel.
@@ -254,22 +263,22 @@ const BeeRadar = (function () {
       ? BeeVoice.participantInfo(entry.id) : null;
     if (voice) {
       actions.push({
-        label: voice.muted ? 'Unmute voice (for me)' : 'Mute voice (for me)',
+        label: voice.muted ? t('voice.unmuteForMe') : t('voice.muteForMe'),
         fn: function () { BeeVoice.setUserMute(entry.id, !voice.muted); }
       });
       actions.push({
-        label: 'Voice volume... (' + voice.volume + '%)',
+        label: t('voice.volumeMenu', { volume: voice.volume }),
         fn: function () {
           BeeUtils.prompt({
-            title: 'Voice volume',
-            message: 'Volume for ' + (names.title || 'this resident') + ' (0-200%):',
-            confirmLabel: 'Set',
+            title: t('voice.volumeTitle'),
+            message: t('voice.volumeFor', { name: names.title || t('voice.thisResident') }),
+            confirmLabel: t('common.set'),
             value: String(voice.volume)
           }).then(function (v) {
             if (v === null) return;
             const n = parseInt(String(v), 10);
             if (Number.isFinite(n)) BeeVoice.setUserVolume(entry.id, n);
-            else BeeUtils.showToast('Enter a number between 0 and 200.', 'warning');
+            else BeeUtils.showToast(t('voice.volumeRange'), 'warning');
           });
         }
       });
@@ -281,7 +290,7 @@ const BeeRadar = (function () {
       btn.textContent = action.label;
       if (action.disabled) {
         btn.disabled = true;
-        btn.title = 'Position not known yet';
+        btn.title = t('radar.positionUnknown');
       } else {
         btn.addEventListener('click', function () {
           menu.hidden = true;
@@ -298,13 +307,26 @@ const BeeRadar = (function () {
     menu.style.top = Math.max(0, Math.min(e.clientY, window.innerHeight - rect.height - 8)) + 'px';
   }
 
-  // "3 nearby", or "3 / 5 nearby" when part of the region sits beyond the
-  // range setting. Shared by the Radar tab header and the chat sidebar.
-  function countLabel(s) {
-    const totalInRegion = s.radar.length;
+  // How many are within the range setting, and how many the region holds.
+  function counts(s) {
+    const total = s.radar.length;
     const nearby = s.radar.filter(function (e) { return e.range <= s.radarRange; }).length;
-    if (totalInRegion > nearby) return nearby + ' / ' + totalInRegion + ' nearby';
-    return nearby === 1 ? '1 nearby' : nearby + ' nearby';
+    return { nearby: nearby, total: total };
+  }
+
+  // "3 nearby", or "3 / 5 nearby" when part of the region sits beyond the
+  // range setting. The Radar tab header.
+  function countLabel(s) {
+    const c = counts(s);
+    if (c.total > c.nearby) return t('radar.nearbyOfTotal', c);
+    return t('radar.nearbyCount', { count: c.nearby });
+  }
+
+  // The chat sidebar's pill: its heading already says "Nearby", so just the
+  // figure, "3" or "3 / 5".
+  function countFigure(s) {
+    const c = counts(s);
+    return c.total > c.nearby ? c.nearby + ' / ' + c.total : String(c.nearby);
   }
 
   function render() {
@@ -334,9 +356,9 @@ const BeeRadar = (function () {
       const empty = document.createElement('li');
       empty.className = 'entity-item';
       empty.style.cursor = 'default';
-      let msg = 'No other avatars detected in this region.';
+      let msg = t('radar.empty');
       if (totalInRegion && filter) {
-        msg = 'No avatars match your search.';
+        msg = t('radar.noMatch');
       }
       empty.innerHTML = '<div class="entity-item__sub">' + BeeUtils.escapeHtml(msg) + '</div>';
       list.appendChild(empty);
@@ -442,7 +464,7 @@ const BeeRadar = (function () {
 
     const range = document.createElement('span');
     range.className = 'chat-radar__range';
-    range.textContent = Math.round(entry.range) + 'm';
+    range.textContent = metres(Math.round(entry.range));
     row.appendChild(range);
 
     // Tap or right-click: the same action menu the Radar tab uses. Stop the
@@ -473,16 +495,14 @@ const BeeRadar = (function () {
     if (!entries.length) {
       const empty = document.createElement('div');
       empty.className = 'chat-radar__empty';
-      empty.textContent = 'Nobody nearby';
+      empty.textContent = t('radar.nobodyNearby');
       list.appendChild(empty);
     } else {
       entries.forEach(function (entry) {
         list.appendChild(renderSidebarItem(entry, s));
       });
     }
-    // The strip's heading already says "Nearby", so the pill is the bare
-    // figure: "3", or "3 / 5" with part of the region beyond the range setting.
-    if (countEl) countEl.textContent = countLabel(s).replace(/ nearby$/, '');
+    if (countEl) countEl.textContent = countFigure(s);
   }
 
   function init() {
@@ -501,13 +521,13 @@ const BeeRadar = (function () {
       const savedRange = BeeSettings.get('radarRange');
       const savedAlerts = BeeSettings.get('radarAlerts');
       if (rangeInput) rangeInput.value = String(savedRange);
-      if (rangeLabel) rangeLabel.textContent = savedRange + 'm';
+      if (rangeLabel) rangeLabel.textContent = metres(savedRange);
       if (alertInput) alertInput.checked = !!savedAlerts;
     }
 
     rangeInput.addEventListener('input', function () {
       const val = parseInt(rangeInput.value, 10);
-      rangeLabel.textContent = val + 'm';
+      rangeLabel.textContent = metres(val);
       if (typeof BeeSettings !== 'undefined') {
         BeeSettings.set('radarRange', val);
       } else {
@@ -568,7 +588,7 @@ const BeeRadar = (function () {
       BeeSettings.onChange(function (key, value) {
         if (key === 'radarRange') {
           if (rangeInput) rangeInput.value = String(value);
-          if (rangeLabel) rangeLabel.textContent = value + 'm';
+          if (rangeLabel) rangeLabel.textContent = metres(value);
           if (BeeNavigation.isTabActive('radar')) scheduleRender();
           sidebarChanged();
         } else if (key === 'radarAlerts') {
@@ -580,6 +600,12 @@ const BeeRadar = (function () {
         }
       });
     }
+
+    // A language switch: the list and its counts are rebuilt in the new words.
+    BeeI18n.onChange(function () {
+      if (BeeNavigation.isTabActive('radar')) scheduleRender();
+      sidebarChanged();
+    });
 
     // The composer's people button flips the chat sidebar setting; the strip
     // itself follows the setting and the window width from there.

@@ -4,6 +4,8 @@
 const BeeSearch = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let activeKind = 'avatars';
   let searchToken = 0;
   let bound = false;
@@ -11,10 +13,26 @@ const BeeSearch = (function () {
   let searchUnlockTimer = null;
 
   const SEARCH_LOCK_MS = 10000;
-  const resultCache = {
-    avatars: { query: '', rows: [], status: '', hasMore: false, nextStart: 0 },
-    groups: { query: '', rows: [], status: '', hasMore: false, nextStart: 0 },
-    places: { query: '', rows: [], status: '', hasMore: false, nextStart: 0 }
+
+  // What one kind of search last showed. The status line is kept as a
+  // function of the language, so a switch can paint it again; `reply` is
+  // the core's last answer, for its own status line and its note about the
+  // ratings left out (both arrive with their keys beside them).
+  type Cached = {
+    query: string;
+    rows: any[];
+    status: (() => string) | null;
+    hasMore: boolean;
+    nextStart: number;
+    reply: any;
+  };
+  function emptyCache(): Cached {
+    return { query: '', rows: [], status: null, hasMore: false, nextStart: 0, reply: null };
+  }
+  const resultCache: Record<string, Cached> = {
+    avatars: emptyCache(),
+    groups: emptyCache(),
+    places: emptyCache()
   };
 
   // Callers that need a form control ask for it: el<HTMLInputElement>('...').
@@ -22,28 +40,39 @@ const BeeSearch = (function () {
     return document.getElementById(id) as T | null;
   }
 
-  function setStatus(text) {
+  // `line` is the status text, or a function returning it (see Cached).
+  function setStatus(line) {
+    const fn = typeof line === 'function' ? line : function () { return line || ''; };
     const node = el('search-status');
-    if (node) node.textContent = text || '';
+    if (node) node.textContent = fn();
     if (resultCache[activeKind]) {
-      resultCache[activeKind].status = text || '';
+      resultCache[activeKind].status = fn;
     }
+  }
+
+  function placeholderFor(kind) {
+    if (kind === 'places') return t('search.placesPlaceholder');
+    if (kind === 'groups') return t('search.groupsPlaceholder');
+    return t('search.peoplePlaceholder');
+  }
+
+  function paintRunButton() {
+    const runBtn = el<HTMLButtonElement>('search-run');
+    if (!runBtn) return;
+    runBtn.disabled = searching;
+    runBtn.textContent = searching ? t('land.searching') : t('common.search');
   }
 
   function setSearching(active) {
     searching = active;
     const input = el<HTMLInputElement>('search-input');
-    const runBtn = el<HTMLButtonElement>('search-run');
     const panel = el('panel-search');
     if (panel) panel.classList.toggle('panel-search--busy', active);
     if (input) input.disabled = active;
     document.querySelectorAll<HTMLButtonElement>('.search-kind').forEach(function (btn) {
       btn.disabled = active;
     });
-    if (runBtn) {
-      runBtn.disabled = active;
-      runBtn.textContent = active ? 'Searching...' : 'Search';
-    }
+    paintRunButton();
     if (searchUnlockTimer) {
       clearTimeout(searchUnlockTimer);
       searchUnlockTimer = null;
@@ -52,7 +81,7 @@ const BeeSearch = (function () {
       searchUnlockTimer = setTimeout(function () {
         if (!searching) return;
         setSearching(false);
-        setStatus('Search timed out. Try again.');
+        setStatus(function () { return t('search.timedOut'); });
       }, SEARCH_LOCK_MS);
     }
   }
@@ -74,28 +103,38 @@ const BeeSearch = (function () {
 
   function trafficLabel(row) {
     if (row.dwell === undefined || row.dwell === null) return '';
-    return 'Traffic ' + Math.round(row.dwell);
+    return t('search.traffic', { value: Math.round(row.dwell) });
   }
 
   function placeSaleLabel(row) {
     if (!row || (row.kind || 'place') !== 'place' || !row.detailLoaded) return '';
-    if (row.auction) return 'Auction';
-    if (row.forSale) return 'For sale';
+    if (row.auction) return t('search.auction');
+    if (row.forSale) return t('interact.forSale');
     return '';
   }
 
   function placeSubtitle(row) {
     const kind = row.kind || 'place';
     if (kind === 'destination') {
-      return row.description ? row.description.slice(0, 80) : 'Destination';
+      return row.description ? row.description.slice(0, 80) : t('dest.destination');
     }
-    if (kind === 'region') return 'Region';
+    if (kind === 'region') return t('chat.region');
     const parts = [];
     const traffic = trafficLabel(row);
     if (traffic) parts.push(traffic);
     const sale = placeSaleLabel(row);
     if (sale) parts.push(sale);
-    return parts.join(' · ') || 'Parcel';
+    return parts.join(' · ') || t('land.parcel');
+  }
+
+  // The core rates a parcel General, Moderate or Adult, in those words;
+  // anything else is shown as it came.
+  function ratingLabel(value) {
+    const v = String(value || '');
+    if (v === 'General') return t('land.ratingGeneral');
+    if (v === 'Moderate') return t('land.ratingModerate');
+    if (v === 'Adult') return t('land.ratingAdult');
+    return v;
   }
 
   function refreshPlaceSubtitle(li, row) {
@@ -112,7 +151,7 @@ const BeeSearch = (function () {
       online?: boolean; region?: any;
     } = {
       id: row.id,
-      name: row.name || row.displayName || row.userName || 'Resident',
+      name: row.name || row.displayName || row.userName || t('profile.resident'),
       userName: row.userName || '',
       displayName: row.displayName || ''
     };
@@ -179,35 +218,39 @@ const BeeSearch = (function () {
     }
   }
 
+  function metaLine(text) {
+    return '<p class="search-result__meta">' + BeeUtils.escapeHtml(text) + '</p>';
+  }
+
   function renderPlaceDetail(detail, row, kind) {
     let textHtml = '';
     if (row.description) {
       textHtml += '<p class="search-result__desc">' + BeeUtils.escapeHtml(row.description) + '</p>';
     }
     if (kind === 'region' && row.gridX !== undefined) {
-      textHtml += '<p class="search-result__meta">Grid: ' +
-        BeeUtils.escapeHtml(String(row.gridX) + ', ' + String(row.gridY)) + '</p>';
+      textHtml += metaLine(t('search.gridMeta', { x: row.gridX, y: row.gridY }));
     } else if (kind === 'place' && row.location) {
-      textHtml += '<p class="search-result__meta">' + BeeUtils.escapeHtml(row.location) + '</p>';
+      textHtml += metaLine(row.location);
       if (row.dwell !== undefined && row.dwell !== null) {
-        textHtml += '<p class="search-result__meta">Traffic: ' + Math.round(row.dwell) + '</p>';
+        textHtml += metaLine(t('search.trafficMeta', { value: Math.round(row.dwell) }));
       }
       if (row.maturity) {
-        textHtml += '<p class="search-result__meta">Rating: ' + BeeUtils.escapeHtml(row.maturity) + '</p>';
+        textHtml += metaLine(t('search.ratingMeta', { rating: ratingLabel(row.maturity) }));
       }
       if (row.auction) {
-        textHtml += '<p class="search-result__meta">Auction</p>';
+        textHtml += metaLine(t('search.auction'));
       } else if (row.forSale) {
-        textHtml += '<p class="search-result__meta">For sale</p>';
+        textHtml += metaLine(t('interact.forSale'));
       }
     } else if (kind === 'destination' && row.maturity) {
-      textHtml += '<p class="search-result__meta">Rating: ' + BeeUtils.escapeHtml(String(row.maturity)) + '</p>';
+      textHtml += metaLine(t('search.ratingMeta', { rating: ratingLabel(row.maturity) }));
     }
     if (row.slurl) {
       textHtml += '<p class="search-result__slurl">' + BeeUtils.escapeHtml(row.slurl) + '</p>';
     }
     textHtml += '<div class="search-result__detail-actions">' +
-      '<button type="button" class="btn btn--primary btn--sm" data-action="detail-map">Show on map</button>' +
+      '<button type="button" class="btn btn--primary btn--sm" data-action="detail-map">' +
+        BeeUtils.escapeHtml(t('map.showOnMap')) + '</button>' +
       '</div>';
 
     let html = '<div class="search-result__detail-body">';
@@ -228,7 +271,9 @@ const BeeSearch = (function () {
   function renderAvatarRow(row) {
     const li = document.createElement('li');
     li.className = 'entity-item search-result';
-    const name = row.name || row.displayName || row.userName || 'Resident';
+    const name = row.name || row.displayName || row.userName || t('profile.resident');
+    const profileLabel = BeeUtils.escapeHtml(t('common.profile'));
+    const imLabel = BeeUtils.escapeHtml(t('search.startConversation'));
     // Feeds the shared context menu's "Copy name" / "Copy UUID".
     if (row.id) li.dataset.agentId = row.id;
     li.dataset.label = name;
@@ -242,10 +287,10 @@ const BeeSearch = (function () {
           : '') +
       '</div>' +
       '<div class="entity-item__actions">' +
-        '<button type="button" class="icon-btn" data-action="profile" title="Profile" aria-label="Profile">' +
-          iconProfile() + '</button>' +
-        '<button type="button" class="icon-btn" data-action="im" title="Start conversation" aria-label="Start conversation">' +
-          iconIm() + '</button>' +
+        '<button type="button" class="icon-btn" data-action="profile" title="' + profileLabel +
+          '" aria-label="' + profileLabel + '">' + iconProfile() + '</button>' +
+        '<button type="button" class="icon-btn" data-action="im" title="' + imLabel +
+          '" aria-label="' + imLabel + '">' + iconIm() + '</button>' +
       '</div>';
     li.querySelector('[data-action="im"]').addEventListener('click', function (e) {
       e.stopPropagation();
@@ -270,21 +315,25 @@ const BeeSearch = (function () {
   function renderGroupRow(row) {
     const li = document.createElement('li');
     li.className = 'entity-item search-result';
+    const name = row.name || t('groups.group');
     // Feeds the shared context menu's "Copy name" / "Copy UUID".
     if (row.id) li.dataset.groupId = row.id;
-    li.dataset.label = row.name || 'Group';
-    const members = row.members !== undefined ? (row.members + ' members') : '';
+    li.dataset.label = name;
+    const members = row.members !== undefined
+      ? t('im.memberCount', { count: row.members })
+      : '';
+    const profileLabel = BeeUtils.escapeHtml(t('im.groupProfile'));
     li.innerHTML =
       '<div class="entity-item__avatar entity-item__avatar--group" data-agent-id="' +
         BeeUtils.escapeHtml(row.id || '') + '" data-kind="group" data-resolve-image="0" data-label="' +
-        BeeUtils.escapeHtml(row.name || 'Group') + '">G</div>' +
+        BeeUtils.escapeHtml(name) + '">' + BeeUtils.escapeHtml(t('thumb.groupGlyph')) + '</div>' +
       '<div class="entity-item__body">' +
-        '<div class="entity-item__name">' + BeeUtils.escapeHtml(row.name || 'Group') + '</div>' +
+        '<div class="entity-item__name">' + BeeUtils.escapeHtml(name) + '</div>' +
         (members ? '<div class="entity-item__sub">' + BeeUtils.escapeHtml(members) + '</div>' : '') +
       '</div>' +
       '<div class="entity-item__actions">' +
-        '<button type="button" class="icon-btn" data-action="profile" title="Group profile" aria-label="Group profile">' +
-          iconProfile() + '</button>' +
+        '<button type="button" class="icon-btn" data-action="profile" title="' + profileLabel +
+          '" aria-label="' + profileLabel + '">' + iconProfile() + '</button>' +
       '</div>';
     li.querySelector('[data-action="profile"]').addEventListener('click', function (e) {
       e.stopPropagation();
@@ -305,14 +354,16 @@ const BeeSearch = (function () {
     const li = document.createElement('li');
     li.className = 'entity-item search-result search-result--place';
     const kind = row.kind || 'place';
-    const title = row.name || 'Place';
+    const title = row.name || t('landmarks.place');
     const subtitle = placeSubtitle(row);
+    const mapLabel = BeeUtils.escapeHtml(t('map.showOnMap'));
 
     const showMapBtn = kind === 'destination' || kind === 'region' || kind === 'place';
 
     li.innerHTML =
       '<button type="button" class="search-result__toggle" aria-expanded="false">' +
-        '<div class="entity-item__avatar entity-item__avatar--place">P</div>' +
+        '<div class="entity-item__avatar entity-item__avatar--place">' +
+          BeeUtils.escapeHtml(t('thumb.placeGlyph')) + '</div>' +
         '<div class="entity-item__body">' +
           '<div class="entity-item__name">' + BeeUtils.escapeHtml(title) + '</div>' +
           '<div class="entity-item__sub">' + BeeUtils.escapeHtml(subtitle) + '</div>' +
@@ -320,8 +371,8 @@ const BeeSearch = (function () {
       '</button>' +
       '<div class="entity-item__actions">' +
         (showMapBtn
-          ? '<button type="button" class="icon-btn" data-action="map" title="Show on map" aria-label="Show on map">' +
-            iconMap() + '</button>'
+          ? '<button type="button" class="icon-btn" data-action="map" title="' + mapLabel +
+            '" aria-label="' + mapLabel + '">' + iconMap() + '</button>'
           : '') +
       '</div>' +
       '<div class="search-result__detail" hidden></div>';
@@ -337,7 +388,8 @@ const BeeSearch = (function () {
           ensurePlaceDetails(row).then(function (enriched) {
             showPlaceOnMap(enriched);
           }).catch(function (err) {
-            BeeUtils.showToast(err.message || 'Could not load place location', 'error');
+            BeeUtils.showToast(BeeUtils.errText(err) ||
+              t('search.placeLocationFailed'), 'error');
           }).finally(function () {
             mapBtn.disabled = false;
           });
@@ -352,7 +404,8 @@ const BeeSearch = (function () {
       li.classList.toggle('search-result--open', !open);
       if (!open) {
         detail.hidden = false;
-        detail.innerHTML = '<p class="search-result__loading">Loading details...</p>';
+        detail.innerHTML = '<p class="search-result__loading">' +
+          BeeUtils.escapeHtml(t('search.loadingDetails')) + '</p>';
         const load = (kind === 'place' && row.parcelId && !row.detailLoaded)
           ? ensurePlaceDetails(row)
           : Promise.resolve(row);
@@ -361,7 +414,8 @@ const BeeSearch = (function () {
           refreshPlaceSubtitle(li, enriched);
         }).catch(function (err) {
           detail.innerHTML = '<p class="search-result__desc">' +
-            BeeUtils.escapeHtml(err.message || 'Could not load place details') + '</p>';
+            BeeUtils.escapeHtml(BeeUtils.errText(err) ||
+              t('search.placeDetailsFailed')) + '</p>';
         });
       } else {
         detail.hidden = true;
@@ -390,7 +444,7 @@ const BeeSearch = (function () {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn--sm search-load-more__btn';
-    btn.textContent = 'Load more results';
+    btn.textContent = t('search.loadMore');
     btn.addEventListener('click', function () {
       if (searching) return;
       li.remove();
@@ -400,25 +454,36 @@ const BeeSearch = (function () {
     list.appendChild(li);
   }
 
+  // The status for a page of results: the count, with "+" while another
+  // page waits, or for an empty page the sim's reason (else "No results."),
+  // then the core's line about the maturity bands left out (see the Search
+  // setting), so an empty page explains itself.
+  function resultStatus(cached) {
+    const n = cached.rows.length;
+    let text;
+    if (n) {
+      text = cached.hasMore
+        ? t('search.resultCountMore', { count: n })
+        : t('search.resultCount', { count: n });
+    } else {
+      text = BeeI18n.field(cached.reply, 'statusText') || t('search.noResults');
+    }
+    const note = BeeI18n.field(cached.reply, 'note');
+    return note ? text + ' ' + note : text;
+  }
+
   function renderResults(rows, statusOverride?) {
     const list = el('search-results');
     if (!list) return;
     list.innerHTML = '';
     if (!rows.length) {
-      setStatus(statusOverride || 'No results.');
+      setStatus(statusOverride || function () { return t('search.noResults'); });
       return;
     }
     const cached = resultCache[activeKind];
-    setStatus(rows.length + (cached && cached.hasMore ? '+' : '') +
-      ' result' + (rows.length === 1 ? '' : 's') + noteSuffix(cached && cached.note));
+    setStatus(function () { return resultStatus(cached); });
     appendRows(list, rows);
     renderLoadMore(list);
-  }
-
-  // The core's line about maturity bands left out (see the Search setting),
-  // appended to whatever the status says so an empty page explains itself.
-  function noteSuffix(note) {
-    return note ? ' ' + String(note) : '';
   }
 
   const MIN_SEARCH_LEN = 3;
@@ -433,48 +498,54 @@ const BeeSearch = (function () {
     const start = loadMore ? (cached && cached.nextStart) || 0 : 0;
     const searchQuery = query;
     if (!searchQuery) {
-      setStatus('Enter a search term.');
+      setStatus(function () { return t('search.enterTerm'); });
       return;
     }
     if (searchQuery.length < MIN_SEARCH_LEN) {
-      setStatus('Enter at least ' + MIN_SEARCH_LEN + ' characters.');
+      setStatus(function () {
+        return t('search.minLength', { count: MIN_SEARCH_LEN });
+      });
       return;
     }
     // Reject symbol-only queries like "////" - the sim just answers those with a
     // placeholder "Resident" row. Require at least one letter or digit in any
     // script so unicode place and group names still search.
     if (!/[\p{L}\p{N}]/u.test(searchQuery)) {
-      setStatus('Enter letters or numbers to search.');
+      setStatus(function () { return t('search.lettersOrNumbers'); });
       return;
     }
     if (!BeeState.gridOnline()) {
-      setStatus('Log in to search.');
+      setStatus(function () { return t('search.logIn'); });
       return;
     }
     const token = ++searchToken;
     setSearching(true);
-    setStatus(loadMore ? 'Loading more...' : 'Searching...');
+    setStatus(function () {
+      return loadMore ? t('search.loadingMore') : t('land.searching');
+    });
     try {
       const res = await BeeTransport.searchDirectory(activeKind, searchQuery, start);
       if (token !== searchToken) return;
       const page = (res && res.rows) || [];
       const rows = loadMore ? ((cached && cached.rows) || []).concat(page) : page;
-      const note = (res && res.note) || '';
-      const statusText = (rows.length
-        ? (rows.length + (res && res.hasMore ? '+' : '') + ' result' + (rows.length === 1 ? '' : 's'))
-        : ((res && res.statusText) || 'No results.')) + noteSuffix(note);
-      resultCache[activeKind] = {
+      const entry: Cached = {
         query: query,
         rows: rows,
-        status: statusText,
+        status: null,
         hasMore: !!(res && res.hasMore),
         nextStart: (res && res.nextStart) || 0,
-        note: note
+        reply: res || null
       };
-      renderResults(rows, statusText);
+      resultCache[activeKind] = entry;
+      renderResults(rows, function () { return resultStatus(entry); });
     } catch (err) {
       if (token !== searchToken) return;
-      setStatus('Search failed: ' + (err.message || String(err)));
+      const reason = BeeUtils.errText(err);
+      setStatus(function () {
+        return reason
+          ? t('search.failedWith', { error: reason })
+          : t('search.failed');
+      });
     } finally {
       if (token === searchToken) setSearching(false);
     }
@@ -489,12 +560,7 @@ const BeeSearch = (function () {
     });
     const input = el<HTMLInputElement>('search-input');
     if (input) {
-      const placeholders = {
-        avatars: 'Search people by username...',
-        places: 'Search places and regions...',
-        groups: 'Search groups...'
-      };
-      input.placeholder = placeholders[activeKind] || 'Search...';
+      input.placeholder = placeholderFor(activeKind);
       if (restoreOnly) {
         const cached = resultCache[activeKind];
         if (cached && cached.query) input.value = cached.query;
@@ -508,6 +574,19 @@ const BeeSearch = (function () {
       setStatus(cached ? cached.status || '' : '');
       renderResults(cached ? cached.rows || [] : []);
     }
+  }
+
+  // A language switch: the placeholder, the button, the rows and the status
+  // line are painted again in the new words; a search in flight finishes
+  // on its own.
+  function repaint() {
+    const input = el<HTMLInputElement>('search-input');
+    if (input) input.placeholder = placeholderFor(activeKind);
+    paintRunButton();
+    const cached = resultCache[activeKind];
+    const status = cached.status;
+    if (cached.rows.length) renderResults(cached.rows);
+    if (status) setStatus(status);
   }
 
   function bindOnce() {
@@ -542,6 +621,7 @@ const BeeSearch = (function () {
 
   function init() {
     bindOnce();
+    BeeI18n.onChange(repaint);
   }
 
   return { init: init, activate: activate, runSearch: runSearch };

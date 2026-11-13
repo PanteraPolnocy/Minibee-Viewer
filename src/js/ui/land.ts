@@ -4,8 +4,14 @@
 const BeeLand = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+  const th = BeeI18n.html;
+
   const PANEL_ID = 'panel-land';
-  const LOADING_MESSAGE = 'Loading land data, please wait...';
+
+  function loadingMessage() {
+    return t('land.loading');
+  }
 
   const EDITABLE_IDS = [
     'land-name', 'land-desc', 'land-push',
@@ -37,7 +43,7 @@ const BeeLand = (function () {
   function showLoading(message?) {
     setLandPending(true);
     if (typeof BeePanelBusy !== 'undefined') {
-      BeePanelBusy.show(PANEL_ID, message || LOADING_MESSAGE);
+      BeePanelBusy.show(PANEL_ID, message || loadingMessage());
     }
   }
 
@@ -80,9 +86,9 @@ const BeeLand = (function () {
 
   function readOnlyNote(parcel) {
     if (parcel.isGroupOwned) {
-      return 'View only - group land requires officer powers to edit';
+      return t('land.viewOnlyGroup');
     }
-    return 'View only - you do not own this parcel';
+    return t('land.viewOnlyNotOwner');
   }
 
   function setFormEditable(canEdit) {
@@ -130,7 +136,7 @@ const BeeLand = (function () {
       const el = document.getElementById(id) as HTMLInputElement | null;
       if (!el) return;
       el.disabled = !canEdit || !capFields;
-      el.title = capFields ? '' : 'This region cannot save this setting.';
+      el.title = capFields ? '' : t('land.capFieldUnsupported');
     });
     const submit = document.getElementById('land-apply') as HTMLButtonElement | null || form.querySelector('[type="submit"]');
     if (submit) submit.disabled = !canEdit;
@@ -167,12 +173,12 @@ const BeeLand = (function () {
       const label = parcel.groupName ||
         (typeof BeeTransport.getGroupName === 'function' ? BeeTransport.getGroupName(id) : '') ||
         (typeof BeeProfiles !== 'undefined' && BeeProfiles.getGroupName ? BeeProfiles.getGroupName(id) : '') ||
-        'Group-owned';
+        t('land.groupOwned');
       return { id: id, label: label, type: 'group', isGroup: true };
     }
     const label = parcel.ownerName ||
       (typeof BeeTransport.getCachedName === 'function' ? BeeTransport.getCachedName(id) : '') ||
-      (id ? 'Resident (resolving...)' : '');
+      (id ? t('land.residentResolving') : '');
     return { id: id, label: label, type: 'avatar', isGroup: false };
   }
 
@@ -184,7 +190,9 @@ const BeeLand = (function () {
     field.classList.toggle('land-field--profile', !!(entityId && text));
     field.dataset.profileId = entityId || '';
     field.dataset.profileType = entityType || '';
-    field.title = entityId ? ('Open ' + (entityType === 'group' ? 'group' : 'avatar') + ' profile') : '';
+    field.title = !entityId ? ''
+      : entityType === 'group' ? t('land.openGroupProfile')
+        : t('land.openAvatarProfile');
   }
 
   function bindProfileFields() {
@@ -304,7 +312,7 @@ const BeeLand = (function () {
     const primsTotal = parcel.primsTotal || 0; // comes from the Rust parcel handler
 
     setFieldValue('land-uuid', parcel.parcelId || '');
-    setFieldValue('land-area', parcel.area ? parcel.area + ' m\u00B2' : '');
+    setFieldValue('land-area', parcel.area ? t('land.areaSqm', { value: parcel.area }) : '');
     setFieldValue('land-traffic', parcel.dwell !== undefined && parcel.dwell !== null
       ? Math.round(parcel.dwell)
       : '');
@@ -379,15 +387,16 @@ const BeeLand = (function () {
       ? '<button type="button" class="profile-inline-link" data-profile-type="' + owner.type +
         '" data-profile-id="' + BeeUtils.escapeHtml(owner.id) + '">' +
         BeeUtils.escapeHtml(ownerLabel) + '</button>'
-      : BeeUtils.escapeHtml(ownerLabel || 'Unknown');
+      : BeeUtils.escapeHtml(ownerLabel || t('common.unknown'));
     const groupLink = parcel.groupId && parcel.groupId !== ZERO_UUID
       ? '<button type="button" class="profile-inline-link" data-profile-type="group" data-profile-id="' +
         BeeUtils.escapeHtml(parcel.groupId) + '">' + BeeUtils.escapeHtml(groupLabel) + '</button>'
       : '';
+    // The owner and group are links, so their labels sit outside the lines.
     let html =
-      'Standing on <strong>' + BeeUtils.escapeHtml(parcel.name) + '</strong><br>' +
-      'Owner: ' + ownerLink +
-      (groupLink ? ' &middot; Group: ' + groupLink : '');
+      th('land.summaryStanding', { name: parcel.name }) + '<br>' +
+      BeeUtils.escapeHtml(t('land.summaryOwner')) + ' ' + ownerLink +
+      (groupLink ? ' &middot; ' + BeeUtils.escapeHtml(t('land.summaryGroup')) + ' ' + groupLink : '');
     if (!canEdit) {
       html += '<br><span class="land-summary__note">' +
         BeeUtils.escapeHtml(readOnlyNote(parcel)) + '</span>';
@@ -406,25 +415,34 @@ const BeeLand = (function () {
 
   // --- General tab extras -----------------------------------------------
 
-  const MATURITY = { 13: 'General', 21: 'Moderate', 42: 'Adult' };
+  // The region's rating by its access code (13 / 21 / 42).
+  function ratingName(access) {
+    const code = Number(access);
+    if (code === 13) return t('land.ratingGeneral');
+    if (code === 21) return t('land.ratingModerate');
+    if (code === 42) return t('land.ratingAdult');
+    return '';
+  }
 
   function renderGeneralExtras(parcel) {
     const region = BeeState.get().region || {};
     setFieldValue('land-region-type', region.productName || '');
-    setFieldValue('land-region-rating', MATURITY[region.access] || '');
+    setFieldValue('land-region-rating', ratingName(region.access));
     // Claim date only means something on leased land (status 0 = leased).
     const claim = parcel.claimDate && parcel.status === 0
-      ? new Date(parcel.claimDate * 1000).toLocaleString()
+      ? new Date(parcel.claimDate * 1000).toLocaleString(BeeI18n.dateLocale())
       : '';
     setFieldValue('land-claim-date', claim);
-    let sale = 'Not for sale';
+    let sale = t('land.notForSale');
     if (parcel.auctionId) {
-      sale = 'Auction ' + parcel.auctionId;
+      sale = t('land.auction', { id: parcel.auctionId });
     } else if (parcel.forSale) {
       const price = Number(parcel.salePrice) || 0;
       const each = parcel.area > 0 ? (price / parcel.area).toFixed(1) : '0';
-      sale = 'L$ ' + price.toLocaleString('en-US') + ' (L$ ' + each + '/m²)' +
-        (parcel.sellWithObjects ? ' with objects' : '');
+      const args = { price: BeeI18n.formatNumber(price), each: each };
+      sale = parcel.sellWithObjects
+        ? t('land.salePriceWithObjects', args)
+        : t('land.salePrice', args);
     }
     setFieldValue('land-sale-state', sale);
   }
@@ -557,7 +575,7 @@ const BeeLand = (function () {
     if (!entries.length) {
       const li = document.createElement('li');
       li.className = 'land-owners-list__empty';
-      li.textContent = 'Nobody listed.';
+      li.textContent = t('land.nobodyListed');
       ul.appendChild(li);
       return;
     }
@@ -578,7 +596,7 @@ const BeeLand = (function () {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn--ghost btn--sm';
-        btn.textContent = 'Remove';
+        btn.textContent = t('common.remove');
         btn.addEventListener('click', function () { onRemove(entry); });
         li.appendChild(btn);
       }
@@ -589,7 +607,7 @@ const BeeLand = (function () {
   function banLabel(entry) {
     const who = nameFor(entry.id);
     if (!entry.time) return who;
-    return who + ' (until ' + new Date(entry.time * 1000).toLocaleString() + ')';
+    return t('land.banUntil', { who: who, date: new Date(entry.time * 1000).toLocaleString(BeeI18n.dateLocale()) });
   }
 
   function renderAccessLists() {
@@ -609,12 +627,13 @@ const BeeLand = (function () {
     lists[which] = entries;
     renderAccessLists();
     BeeTransport.updateParcelAccess(parcel.localId, flags, entries).then(function () {
-      BeeUtils.showToast(which === 'ban' ? 'Ban list saved.' : 'Allowed list saved.', 'success');
+      BeeUtils.showToast(which === 'ban' ? t('land.banListSaved')
+        : t('land.allowListSaved'), 'success');
       // Pull the list back from the sim: it holds the authoritative ban
       // expiry times (the core computes those, not this file).
       requestAccessLists();
     }).catch(function (err) {
-      BeeUtils.showToast(err.message || 'Could not save the list.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('land.listSaveFailed'), 'error');
     });
   }
 
@@ -623,12 +642,12 @@ const BeeLand = (function () {
     if (!input) return;
     const id = BeeUtils.normUuid(input.value.trim());
     if (!id || BeeProfiles.isZero(id)) {
-      BeeUtils.showToast('Enter a resident UUID.', 'warning');
+      BeeUtils.showToast(t('land.enterUuid'), 'warning');
       return;
     }
     const current = lists[which].slice();
     if (current.some(function (e) { return e.id === id; })) {
-      BeeUtils.showToast('Already on the list.', 'warning');
+      BeeUtils.showToast(t('land.alreadyListed'), 'warning');
       return;
     }
     // The Rust core turns hours into an absolute expiry with its own clock.
@@ -663,7 +682,7 @@ const BeeLand = (function () {
     const status = document.getElementById('land-owners-status');
     if (!ul) return;
     ul.innerHTML = '';
-    if (status) status.textContent = owners.length ? '' : 'No objects from other residents.';
+    if (status) status.textContent = owners.length ? '' : t('land.noOtherObjects');
     const parcel = BeeState.get().parcel;
     const canEdit = parcelCanEdit(parcel);
     owners.forEach(function (owner) {
@@ -677,14 +696,16 @@ const BeeLand = (function () {
         else li.dataset.agentId = owner.id;
         li.dataset.label = who;
       }
-      label.textContent = who + ' - ' + owner.count + ' prim' + (owner.count === 1 ? '' : 's') +
-        (owner.isGroup ? ' (group)' : '');
+      const args = { who: who, count: owner.count };
+      label.textContent = owner.isGroup
+        ? t('land.ownerPrimsGroup', args)
+        : t('land.ownerPrims', args);
       li.appendChild(label);
       if (canEdit) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn--ghost btn--sm';
-        btn.textContent = 'Return';
+        btn.textContent = t('land.return');
         btn.addEventListener('click', function () { returnOwnerObjects(owner, who); });
         li.appendChild(btn);
       }
@@ -695,22 +716,23 @@ const BeeLand = (function () {
   async function returnOwnerObjects(owner, who) {
     const parcel = BeeState.get().parcel;
     if (!parcel) return;
+    const args = { who: who, count: owner.count };
     const ok = await BeeUtils.confirm({
-      title: 'Return objects?',
-      message: 'Return ' + owner.count + ' object' + (owner.count === 1 ? '' : 's') +
-        ' belonging to ' + who + '? They go back to their owner\'s inventory' +
-        (owner.isGroup ? '; non-transferable deeded objects are deleted.' : '.'),
-      confirmLabel: 'Return',
+      title: t('land.returnTitle'),
+      message: owner.isGroup
+        ? t('land.returnMessageGroup', args)
+        : t('land.returnMessage', args),
+      confirmLabel: t('land.return'),
       danger: true
     });
     if (!ok) return;
     const RT_LIST = 16;
     BeeTransport.parcelReturnObjects(parcel.localId, RT_LIST, [owner.id]).then(function () {
-      BeeUtils.showToast('Objects returned.', 'success');
+      BeeUtils.showToast(t('land.objectsReturned'), 'success');
       requestObjectOwners(true);
       BeeTransport.refreshParcel({ force: true });
     }).catch(function (err) {
-      BeeUtils.showToast(err.message || 'Could not return the objects.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('land.returnFailed'), 'error');
     });
   }
 
@@ -720,9 +742,9 @@ const BeeLand = (function () {
     if (ownersLoaded && !force) return;
     ownersLoaded = true;
     const status = document.getElementById('land-owners-status');
-    if (status) status.textContent = 'Searching...';
+    if (status) status.textContent = t('land.searching');
     BeeTransport.requestParcelObjectOwners(parcel.localId).catch(function () {
-      if (status) status.textContent = 'Could not load the owner list.';
+      if (status) status.textContent = t('land.ownersFailed');
     });
   }
 
@@ -735,29 +757,82 @@ const BeeLand = (function () {
     BeeTransport.fetchCovenantText().catch(function () {});
   }
 
+  // What the panes last drew from the sim, kept so a language switch can
+  // redraw them without asking again: the covenant reply and the covenant
+  // text, the environment summary, and whether the access lists and the
+  // owner census have been drawn from real data yet (a redraw before that
+  // would show an empty list as "nobody").
+  let lastCovenant = null;
+  let lastCovenantText = null;
+  let lastEnv = null;
+  let accessPainted = false;
+  let ownersPainted = false;
+
+  function renderCovenant(data) {
+    setFieldValue('land-estate-name', data.estateName || '');
+    const ownerName = nameFor(data.estateOwnerId || '');
+    setFieldValue('land-estate-owner', ownerName);
+    setFieldValue('land-covenant-date', data.timestamp
+      ? new Date(data.timestamp * 1000).toLocaleDateString(BeeI18n.dateLocale()) : t('common.never'));
+    const region = BeeState.get().region || {};
+    const rules = [];
+    rules.push(region.blockLandResell ? t('land.noResale') : t('land.resaleAllowed'));
+    rules.push(region.allowParcelChanges
+      ? t('land.joinAllowed') : t('land.noJoin'));
+    setFieldValue('land-estate-rules', rules.join(' · '));
+    if (BeeProfiles.isZero(data.covenantId)) {
+      setFieldValue('land-covenant-text', t('land.noCovenant'));
+    }
+  }
+
+  // The covenant text is the estate's own; only a failure is a line of ours.
+  function renderCovenantText(data) {
+    setFieldValue('land-covenant-text', data && data.ok
+      ? (data.text || '')
+      : (BeeI18n.field(data, 'error') || t('land.covenantFailed')));
+  }
+
+  function minutesLabel(seconds) {
+    return t('land.envMinutes', { value: Math.round(seconds / 60) });
+  }
+
+  function renderEnvironment(env) {
+    const box = document.getElementById('land-env-summary');
+    if (!box) return;
+    const rows = [];
+    rows.push([t('land.envSource'),
+      env.isDefault ? t('land.envRegionDefault') : t('land.envParcelSetting')]);
+    if (env.dayName) rows.push([t('land.envDayCycle'), env.dayName]);
+    if (env.dayLength > 0) rows.push([t('land.envDayLength'), minutesLabel(env.dayLength)]);
+    if (env.dayOffset > 0) rows.push([t('land.envDayOffset'), minutesLabel(env.dayOffset)]);
+    const alts = Array.isArray(env.trackAltitudes) ? env.trackAltitudes : [];
+    if (alts.length) {
+      rows.push([t('land.envSkyAltitudes'), alts.map(function (a) {
+        return t('units.m', { value: Math.round(a) });
+      }).join(', ')]);
+    }
+    box.innerHTML = rows.map(function (r) {
+      return '<div class="profile-field"><span class="profile-field__label">' +
+        BeeUtils.escapeHtml(r[0]) + '</span><span>' + BeeUtils.escapeHtml(String(r[1])) + '</span></div>';
+    }).join('');
+  }
+
   function requestEnvironment(force) {
     if (envLoaded && !force) return;
     envLoaded = true;
     const box = document.getElementById('land-env-summary');
     const parcel = BeeState.get().parcel;
     if (!box || !parcel || parcel.stub) return;
-    box.innerHTML = '<p class="field-hint">Loading environment...</p>';
+    lastEnv = null;
+    box.innerHTML = '<p class="field-hint">' + BeeUtils.escapeHtml(t('land.envLoading')) + '</p>';
     BeeTransport.parcelEnvironment(parcel.localId || 0).then(function (env) {
-      if (!env || !env.ok) throw new Error('No environment data');
-      const rows = [];
-      rows.push(['Source', env.isDefault ? 'Region default' : 'Parcel setting']);
-      if (env.dayName) rows.push(['Day cycle', env.dayName]);
-      if (env.dayLength > 0) rows.push(['Day length', Math.round(env.dayLength / 60) + ' min']);
-      if (env.dayOffset > 0) rows.push(['Day offset', Math.round(env.dayOffset / 60) + ' min']);
-      const alts = Array.isArray(env.trackAltitudes) ? env.trackAltitudes : [];
-      if (alts.length) rows.push(['Sky altitudes', alts.map(function (a) { return Math.round(a) + 'm'; }).join(', ')]);
-      box.innerHTML = rows.map(function (r) {
-        return '<div class="profile-field"><span class="profile-field__label">' +
-          BeeUtils.escapeHtml(r[0]) + '</span><span>' + BeeUtils.escapeHtml(String(r[1])) + '</span></div>';
-      }).join('');
+      if (!env || !env.ok) throw new Error(t('land.envNoData'));
+      lastEnv = env;
+      renderEnvironment(env);
     }).catch(function (err) {
       box.innerHTML = '<p class="field-hint">' +
-        BeeUtils.escapeHtml(err.message || 'Environment settings are unavailable here.') + '</p>';
+        BeeUtils.escapeHtml(BeeUtils.errText(err) || t('land.envUnavailable')) +
+        '</p>';
     });
   }
 
@@ -768,7 +843,7 @@ const BeeLand = (function () {
     renderEntryList('land-exp-block-list', lists.blockExp, null, label);
     if (note) {
       note.textContent = (lists.allowExp.length || lists.blockExp.length)
-        ? '' : 'This region does not report parcel experiences.';
+        ? '' : t('land.noExperiences');
     }
     const ids = lists.allowExp.concat(lists.blockExp)
       .map(function (e) { return e.id; })
@@ -807,12 +882,12 @@ const BeeLand = (function () {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!BeeState.gridOnline()) {
-      BeeUtils.showToast('Not connected to the grid', 'warning');
+      BeeUtils.showToast(t('session.notConnected'), 'warning');
       return;
     }
     const parcel = BeeState.get().parcel;
     if (!parcelCanEdit(parcel)) {
-      BeeUtils.showToast('You cannot edit this parcel', 'error');
+      BeeUtils.showToast(t('land.cannotEdit'), 'error');
       return;
     }
     // Send the FULL current parcel with the edits layered on top. The core needs
@@ -835,14 +910,14 @@ const BeeLand = (function () {
     });
     const btn = document.getElementById('land-apply') as HTMLButtonElement | null || e.target.querySelector('[type="submit"]');
     btn.disabled = true;
-    btn.textContent = 'Applying...';
+    btn.textContent = t('land.applying');
 
     try {
       await BeeTransport.updateParcel(data);
       // What is on screen is now what the sim holds, so the form is clean: the
       // refreshed parcel below may fill every control again.
       captureBaseline(parcel);
-      BeeUtils.showToast('Parcel updated', 'success');
+      BeeUtils.showToast(t('land.updated'), 'success');
       // Re-fetch the authoritative parcel data so the form and the next save's
       // baseline reflect what the sim actually stored.
       if (typeof BeeTransport.refreshParcel === 'function') {
@@ -851,10 +926,10 @@ const BeeLand = (function () {
           .catch(function () { /* leave the optimistic values in place */ });
       }
     } catch (err) {
-      BeeUtils.showToast(err.message || 'Update failed', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('land.updateFailed'), 'error');
     } finally {
       btn.disabled = !parcelCanEdit(BeeState.get().parcel);
-      btn.textContent = 'Apply Changes';
+      btn.textContent = t('land.applyChanges');
     }
   }
 
@@ -968,71 +1043,76 @@ const BeeLand = (function () {
       const p = parcelNow();
       const price = Number(p.salePrice) || 0;
       const ok = await BeeUtils.confirm({
-        title: 'Buy this parcel?',
-        message: 'Buy "' + (p.name || 'this parcel') + '" (' + (p.area || 0) + ' m²) for L$ ' +
-          price.toLocaleString('en-US') + '?',
-        confirmLabel: 'Buy'
+        title: t('land.buyTitle'),
+        message: t('land.buyMessage', {
+          name: p.name || t('land.thisParcel'),
+          area: p.area || 0,
+          price: BeeI18n.formatNumber(price)
+        }),
+        confirmLabel: t('land.buy')
       });
       if (!ok) return;
       BeeTransport.parcelBuy(p.localId).then(function () {
-        BeeUtils.showToast('Purchase sent.', 'success');
+        BeeUtils.showToast(t('land.purchaseSent'), 'success');
         BeeTransport.refreshParcel({ force: true });
       }).catch(function (err) {
-        BeeUtils.showToast(err.message || String(err), 'error');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('land.purchaseFailed'), 'error');
       });
     });
     bind('land-buy-pass', async function () {
       const p = parcelNow();
       const ok = await BeeUtils.confirm({
-        title: 'Buy a pass?',
-        message: 'For L$ ' + (Number(p.passPrice) || 0).toLocaleString('en-US') +
-          ' you can enter "' + (p.name || 'this parcel') + '" for ' + (p.passHours || 0) + ' hours. Buy a pass?',
-        confirmLabel: 'Buy pass'
+        title: t('land.buyPassTitle'),
+        message: t('land.buyPassMessage', {
+          price: BeeI18n.formatNumber(Number(p.passPrice) || 0),
+          name: p.name || t('land.thisParcel'),
+          count: p.passHours || 0
+        }),
+        confirmLabel: t('land.buyPass')
       });
       if (!ok) return;
       BeeTransport.parcelBuyPass(p.localId).then(function () {
-        BeeUtils.showToast('Pass purchase sent.', 'success');
+        BeeUtils.showToast(t('land.passPurchaseSent'), 'success');
       }).catch(function (err) {
-        BeeUtils.showToast(err.message || String(err), 'error');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('land.passPurchaseFailed'), 'error');
       });
     });
     bind('land-abandon', async function () {
       const p = parcelNow();
       const ok = await BeeUtils.confirm({
-        title: 'Abandon this land?',
-        message: 'You are about to release ' + (p.area || 0) + ' m² of land. This removes it from ' +
-          'your holdings and grants NO L$. Are you sure?',
-        confirmLabel: 'Abandon',
+        title: t('land.abandonTitle'),
+        message: t('land.abandonMessage', { area: p.area || 0 }),
+        confirmLabel: t('land.abandon'),
         danger: true
       });
       if (!ok) return;
       BeeTransport.parcelRelease(p.localId).then(function () {
-        BeeUtils.showToast('Land released.', 'success');
+        BeeUtils.showToast(t('land.released'), 'success');
         BeeTransport.refreshParcel({ force: true });
       }).catch(function (err) {
-        BeeUtils.showToast(err.message || String(err), 'error');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('land.releaseFailed'), 'error');
       });
     });
     bind('land-deed', async function () {
       const p = parcelNow();
       const groupId = p.groupId;
       if (!groupId || groupId === ZERO_UUID) {
-        BeeUtils.showToast('Set the parcel group first.', 'warning');
+        BeeUtils.showToast(t('land.setGroupFirst'), 'warning');
         return;
       }
-      const groupName = p.groupName || BeeTransport.getGroupName(groupId) || 'the parcel group';
+      const groupName = p.groupName || BeeTransport.getGroupName(groupId) || t('land.theParcelGroup');
       const ok = await BeeUtils.confirm({
-        title: 'Deed to group?',
-        message: 'Deed ' + (p.area || 0) + ' m² to ' + groupName + '? The group keeps the land; you keep nothing back.',
-        confirmLabel: 'Deed',
+        title: t('land.deedTitle'),
+        message: t('land.deedMessage', { area: p.area || 0, group: groupName }),
+        confirmLabel: t('land.deed'),
         danger: true
       });
       if (!ok) return;
       BeeTransport.parcelDeedToGroup(p.localId, groupId).then(function () {
-        BeeUtils.showToast('Deed sent.', 'success');
+        BeeUtils.showToast(t('land.deedSent'), 'success');
         BeeTransport.refreshParcel({ force: true });
       }).catch(function (err) {
-        BeeUtils.showToast(err.message || String(err), 'error');
+        BeeUtils.showToast(BeeUtils.errText(err) || t('land.deedFailed'), 'error');
       });
     });
   }
@@ -1055,12 +1135,12 @@ const BeeLand = (function () {
         const minutes = Math.max(0, numberValue('land-autoreturn', 0));
         if (minutes === (parcel.otherCleanTime || 0)) return;
         BeeTransport.parcelSetAutoreturn(parcel.localId, minutes).then(function () {
-          BeeUtils.showToast('Autoreturn saved.', 'success');
+          BeeUtils.showToast(t('land.autoreturnSaved'), 'success');
           // Saved on its own, so this control no longer counts as an edit.
           if (formBaseline) formBaseline.values['land-autoreturn'] = readEditable('land-autoreturn');
           BeeState.patch({ parcel: Object.assign({}, parcel, { otherCleanTime: minutes }) });
         }).catch(function (err) {
-          BeeUtils.showToast(err.message || 'Could not save autoreturn.', 'error');
+          BeeUtils.showToast(BeeUtils.errText(err) || t('land.autoreturnFailed'), 'error');
         });
       });
     }
@@ -1080,7 +1160,7 @@ const BeeLand = (function () {
         });
         BeeState.patch({ parcel: next });
         setFieldValue('land-landing-type', '1');
-        BeeUtils.showToast('Landing point staged - press Apply Changes to save.', 'info');
+        BeeUtils.showToast(t('land.landingStaged'), 'info');
       });
     }
     const landingClear = document.getElementById('land-landing-clear');
@@ -1094,7 +1174,7 @@ const BeeLand = (function () {
           landingPoint: null
         });
         BeeState.patch({ parcel: next });
-        BeeUtils.showToast('Landing point cleared - press Apply Changes to save.', 'info');
+        BeeUtils.showToast(t('land.landingCleared'), 'info');
       });
     }
 
@@ -1109,33 +1189,26 @@ const BeeLand = (function () {
       const key = listFor(data.flags);
       if (!key) return;
       lists[key] = (data.entries || []).slice();
-      if (key === 'access' || key === 'ban') renderAccessLists();
-      else renderExperiences();
+      if (key === 'access' || key === 'ban') {
+        accessPainted = true;
+        renderAccessLists();
+      } else {
+        renderExperiences();
+      }
     });
     BeeTransport.on('parcel-object-owners', function (data) {
       lastOwners = (data && data.owners) || [];
+      ownersPainted = true;
       renderOwners(lastOwners);
     });
     BeeTransport.on('covenant', function (data) {
       if (!data) return;
-      setFieldValue('land-estate-name', data.estateName || '');
-      const ownerName = nameFor(data.estateOwnerId || '');
-      setFieldValue('land-estate-owner', ownerName);
-      setFieldValue('land-covenant-date', data.timestamp
-        ? new Date(data.timestamp * 1000).toLocaleDateString() : 'Never');
-      const region = BeeState.get().region || {};
-      const rules = [];
-      rules.push(region.blockLandResell ? 'No resale' : 'Resale allowed');
-      rules.push(region.allowParcelChanges ? 'Join/subdivide allowed' : 'No join/subdivide');
-      setFieldValue('land-estate-rules', rules.join(' · '));
-      if (BeeProfiles.isZero(data.covenantId)) {
-        setFieldValue('land-covenant-text', 'There is no covenant for this estate.');
-      }
+      lastCovenant = data;
+      renderCovenant(data);
     });
     BeeTransport.on('covenant-text', function (data) {
-      setFieldValue('land-covenant-text', data && data.ok
-        ? (data.text || '')
-        : ((data && data.error) || 'The covenant could not be downloaded.'));
+      lastCovenantText = data || null;
+      renderCovenantText(data);
     });
     // Names resolving repaints whatever list is visible.
     BeeTransport.on('names-updated', function () {
@@ -1149,8 +1222,11 @@ const BeeLand = (function () {
   // A new parcel under our feet invalidates every cached pane.
   function resetPaneCaches() {
     ownersLoaded = false;
+    ownersPainted = false;
+    accessPainted = false;
     covenantLoaded = false;
     envLoaded = false;
+    lastEnv = null;
     lists.access = []; lists.ban = []; lists.allowExp = []; lists.blockExp = [];
   }
 
@@ -1160,7 +1236,7 @@ const BeeLand = (function () {
     bindLandExtras();
     (document.getElementById('land-form') as HTMLFormElement).addEventListener('submit', handleSubmit);
     document.getElementById('land-refresh').addEventListener('click', async function () {
-      showLoading('Refreshing land data...');
+      showLoading(t('land.refreshing'));
       try {
         await BeeTransport.refreshParcel({ force: true });
         applyParcel(BeeState.get().parcel, true);
@@ -1260,6 +1336,20 @@ const BeeLand = (function () {
     BeeState.on('reset', function () {
       clearDisplay();
       hideLoading();
+    });
+
+    // A language switch redraws what this module painted in its own words;
+    // the panes keep the data they fetched.
+    BeeI18n.onChange(function () {
+      const parcel = BeeState.get().parcel;
+      if (parcelNeedsLoad(parcel)) return;
+      populateDerivedFields(parcel);
+      if (accessPainted) renderAccessLists();
+      if (ownersPainted) renderOwners(lastOwners);
+      renderExperiences();
+      if (lastEnv) renderEnvironment(lastEnv);
+      if (lastCovenant) renderCovenant(lastCovenant);
+      if (lastCovenantText && !lastCovenantText.ok) renderCovenantText(lastCovenantText);
     });
 
     setLandTab('general');

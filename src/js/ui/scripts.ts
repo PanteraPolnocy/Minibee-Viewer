@@ -6,12 +6,14 @@
 const BeeScripts = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const SOURCE_TIMEOUT_MS = 30000;
 
   let rows = [];
   let loaded = false;
   let loading = false;
-  let loadError = '';
+  let loadError = null; // what the last list fetch rejected with, until the next fetch
   // The grid's LSL language data (functions/events/constants/types/controls).
   let lang = null;
   let langSets = null;
@@ -57,19 +59,19 @@ const BeeScripts = (function () {
       btn.dataset.itemId = r.itemId;
       // Right-click / long-press: the shared context menu offers this copy.
       btn.dataset.copy = r.itemId;
-      btn.dataset.copyLabel = 'Copy item UUID';
-      btn.textContent = r.name || 'Unnamed script';
+      btn.dataset.copyLabel = t('scripts.copyItemUuid');
+      btn.textContent = r.name || t('scripts.unnamed');
       btn.title = btn.textContent;
       li.appendChild(btn);
       list.appendChild(li);
     });
 
     let text = '';
-    if (loading) text = 'Loading scripts...';
-    else if (loadError) text = loadError;
-    else if (loaded && !rows.length) text = 'No scripts yet.';
-    else if (loaded && !shown.length) text = 'No scripts match.';
-    else if (!loaded && !BeeState.gridOnline()) text = 'Log in to see your scripts.';
+    if (loading) text = t('scripts.loading');
+    else if (loadError) text = BeeUtils.errText(loadError) || t('scripts.loadFailed');
+    else if (loaded && !rows.length) text = t('scripts.none');
+    else if (loaded && !shown.length) text = t('scripts.noMatch');
+    else if (!loaded && !BeeState.gridOnline()) text = t('scripts.logInToSee');
     if (status) {
       status.textContent = text;
       status.hidden = !text;
@@ -80,14 +82,16 @@ const BeeScripts = (function () {
     if (loading || (loaded && !force)) return;
     if (!BeeState.gridOnline()) return;
     loading = true;
-    loadError = '';
+    loadError = null;
     renderList();
     try {
       const fetched = await BeeTransport.listScripts();
       rows = fetched || [];
       loaded = true;
     } catch (err) {
-      loadError = BeeUtils.errText(err) || 'Could not load scripts.';
+      // Kept as it came: the list renders its words in whatever language is
+      // current, so a switch repaints the failure too.
+      loadError = err || new Error('');
     } finally {
       loading = false;
       renderList();
@@ -323,7 +327,7 @@ const BeeScripts = (function () {
     if (!current || !input) return;
     if (input.value === current.savedText) {
       current.dirty = false;
-      setStatus('Saved');
+      setStatus('saved');
       const save = el<HTMLButtonElement>('script-save');
       if (save) save.disabled = true;
     } else {
@@ -536,7 +540,7 @@ const BeeScripts = (function () {
     toggle.hidden = !body;
     const open = !!body && docsExpanded();
     toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    toggle.title = open ? 'Hide description' : 'Show description';
+    toggle.title = open ? t('scripts.hideDescription') : t('scripts.showDescription');
     toggle.setAttribute('aria-label', toggle.title);
     doc.hidden = !open;
     doc.innerHTML = open ? body : '';
@@ -567,13 +571,15 @@ const BeeScripts = (function () {
     // This script's own symbols come first: they're what's most likely meant.
     localSyms.fns.forEach(function (def, name) { push(name, 'fn', localFnSignature(name, def)); });
     localSyms.vars.forEach(function (type, name) { push(name, 'var', type); });
-    localSyms.states.forEach(function (name) { push(name, 'state', 'state'); });
+    // The detail names what kind of symbol it is, in the UI language; the
+    // symbols themselves are LSL and stay as they are.
+    localSyms.states.forEach(function (name) { push(name, 'state', t('scripts.kindState')); });
     if (!lang) return out;
     (lang.functions || []).forEach(function (f) { push(f.name, 'fn', signatureText(f)); });
     (lang.constants || []).forEach(function (c) { push(c.name, 'const', (c.type || '') + (c.value ? ' = ' + c.value : '')); });
     (lang.events || []).forEach(function (e) { push(e.name, 'ev', signatureText(e)); });
-    (lang.types || []).forEach(function (t) { push(t, 'typ', 'type'); });
-    (lang.controls || []).forEach(function (k) { push(k, 'kw', 'keyword'); });
+    (lang.types || []).forEach(function (ty) { push(ty, 'typ', t('scripts.kindType')); });
+    (lang.controls || []).forEach(function (k) { push(k, 'kw', t('scripts.kindKeyword')); });
     return out;
   }
 
@@ -639,17 +645,37 @@ const BeeScripts = (function () {
 
   // --- editor: state ---
 
-  function setStatus(text, kind?) {
+  // The editor's state line by id, translated as it is painted, so a
+  // language switch repaints the same state.
+  const STATUS_LINES = {
+    loading: function () { return t('common.loading'); },
+    saved: function () { return t('scripts.statusSaved'); },
+    modified: function () { return t('scripts.statusModified'); },
+    loadFailed: function () { return t('scripts.statusLoadFailed'); },
+    compiling: function () { return t('scripts.statusCompiling'); },
+    compileFailed: function () { return t('scripts.statusCompileFailed'); },
+    savedCompiled: function () { return t('scripts.statusSavedCompiled'); },
+    uploadFailed: function () { return t('scripts.statusUploadFailed'); }
+  };
+  let status = { id: '', kind: '' };
+
+  function paintStatus() {
     const state = el('script-state');
     if (!state) return;
-    state.textContent = text || '';
-    state.className = 'script-editor__state' + (kind ? ' script-editor__state--' + kind : '');
+    const line = STATUS_LINES[status.id];
+    state.textContent = line ? line() : '';
+    state.className = 'script-editor__state' + (status.kind ? ' script-editor__state--' + status.kind : '');
+  }
+
+  function setStatus(id, kind?) {
+    status = { id: id || '', kind: kind || '' };
+    paintStatus();
   }
 
   function markDirty() {
     if (!current || current.dirty) return;
     current.dirty = true;
-    setStatus('Modified', 'dirty');
+    setStatus('modified', 'dirty');
     const save = el<HTMLButtonElement>('script-save');
     if (save) save.disabled = false;
   }
@@ -751,7 +777,8 @@ const BeeScripts = (function () {
       menu.appendChild(btn);
     }
 
-    function copyEntry(label, value) {
+    // `what` names the value in the toast that confirms the copy.
+    function copyEntry(label, value, what) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = label;
@@ -762,7 +789,7 @@ const BeeScripts = (function () {
           menu.hidden = true;
           if (!navigator.clipboard) return;
           navigator.clipboard.writeText(value).then(function () {
-            BeeUtils.showToast(label.replace('Copy ', '') + ' copied', 'success');
+            BeeUtils.showToast(t('common.copiedWhat', { what: what }), 'success');
           }).catch(function () {});
         });
       }
@@ -771,11 +798,12 @@ const BeeScripts = (function () {
 
     const creator = knownId(item.creatorId);
     const lastOwner = knownId(item.lastOwnerId);
-    profileEntry('Creator profile', creator);
-    profileEntry('Last owner profile', lastOwner);
-    copyEntry('Copy item UUID', item.itemId);
-    copyEntry('Copy creator UUID', creator);
-    copyEntry('Copy last owner UUID', lastOwner);
+    profileEntry(t('interact.creatorProfile'), creator);
+    profileEntry(t('scripts.lastOwnerProfile'), lastOwner);
+    copyEntry(t('scripts.copyItemUuid'), item.itemId, t('scripts.itemUuid'));
+    copyEntry(t('scripts.copyCreatorUuid'), creator, t('scripts.creatorUuid'));
+    copyEntry(t('scripts.copyLastOwnerUuid'), lastOwner,
+      t('scripts.lastOwnerUuid'));
     menu.hidden = false;
     const rect = anchor.getBoundingClientRect();
     const mrect = menu.getBoundingClientRect();
@@ -787,7 +815,7 @@ const BeeScripts = (function () {
   // LSL text is inventory asset type 10.
   function sendToResident(row) {
     if (!row || !row.itemId || typeof BeeGive === 'undefined') return;
-    BeeGive.open({ itemId: row.itemId, assetType: 10, name: row.name || 'Script' });
+    BeeGive.open({ itemId: row.itemId, assetType: 10, name: row.name || t('scripts.script') });
   }
 
   function setEditorOpen(open) {
@@ -804,11 +832,11 @@ const BeeScripts = (function () {
       const existing = sourceWaiters.get(itemId);
       if (existing) {
         clearTimeout(existing.timer);
-        existing.reject(new Error('Superseded'));
+        existing.reject(new Error(t('scripts.superseded')));
       }
       const timer = setTimeout(function () {
         sourceWaiters.delete(itemId);
-        reject(new Error('The script download timed out.'));
+        reject(new Error(t('scripts.downloadTimedOut')));
       }, SOURCE_TIMEOUT_MS);
       sourceWaiters.set(itemId, { resolve: resolve, reject: reject, timer: timer });
     });
@@ -817,21 +845,21 @@ const BeeScripts = (function () {
   async function createNew() {
     if (!BeeState.gridOnline()) return;
     const name = await BeeUtils.prompt({
-      title: 'New script',
-      message: 'Name for the new script:',
-      confirmLabel: 'Create',
-      value: 'New Script'
+      title: t('scripts.newScript'),
+      message: t('scripts.newNamePrompt'),
+      confirmLabel: t('scripts.create'),
+      value: t('scripts.defaultName')
     });
     if (name === null || !name.trim()) return;
     try {
       const wait = new Promise<any>(function (resolve, reject) {
         if (createWaiter) {
           clearTimeout(createWaiter.timer);
-          createWaiter.reject(new Error('Superseded'));
+          createWaiter.reject(new Error(t('scripts.superseded')));
         }
         const timer = setTimeout(function () {
           createWaiter = null;
-          reject(new Error('The sim did not confirm the new script.'));
+          reject(new Error(t('scripts.createTimedOut')));
         }, 15000);
         createWaiter = { resolve: resolve, reject: reject, timer: timer };
       });
@@ -849,10 +877,10 @@ const BeeScripts = (function () {
       rows.push(row);
       sortRows();
       renderList();
-      BeeUtils.showToast('Script created.', 'success');
+      BeeUtils.showToast(t('scripts.created'), 'success');
       open(row);
     } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not create the script.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('scripts.createFailed'), 'error');
     }
   }
 
@@ -864,7 +892,7 @@ const BeeScripts = (function () {
       const res = await BeeTransport.formatLsl(input.value);
       if (!res || !res.ok || typeof res.text !== 'string') return;
       if (res.text === input.value) {
-        BeeUtils.showToast('Already tidy.', 'success');
+        BeeUtils.showToast(t('scripts.alreadyTidy'), 'success');
         return;
       }
       pushUndo(true);
@@ -880,18 +908,18 @@ const BeeScripts = (function () {
       refreshHighlight();
       refreshSignature();
       revealOffset(offset);
-      BeeUtils.showToast('Script formatted.', 'success');
+      BeeUtils.showToast(t('scripts.formatted'), 'success');
     } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not format the script.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('scripts.formatFailed'), 'error');
     }
   }
 
   async function renameCurrent() {
     if (!current) return;
     const name = await BeeUtils.prompt({
-      title: 'Rename script',
-      message: 'New name:',
-      confirmLabel: 'Rename',
+      title: t('scripts.rename'),
+      message: t('scripts.renamePrompt'),
+      confirmLabel: t('scripts.renameAction'),
       value: current.name || ''
     });
     if (name === null || !name.trim() || name.trim() === current.name) return;
@@ -905,18 +933,18 @@ const BeeScripts = (function () {
       if (row) row.name = finalName;
       sortRows();
       renderList();
-      BeeUtils.showToast('Script renamed.', 'success');
+      BeeUtils.showToast(t('scripts.renamed'), 'success');
     } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not rename the script.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('scripts.renameFailed'), 'error');
     }
   }
 
   async function open(row) {
     if (current && current.dirty) {
       const ok = await BeeUtils.confirm({
-        title: 'Discard changes?',
-        message: '"' + (current.name || 'This script') + '" has unsaved changes.',
-        confirmLabel: 'Discard',
+        title: t('scripts.discardTitle'),
+        message: t('scripts.discardMessage', { name: current.name || t('scripts.thisScript') }),
+        confirmLabel: t('scripts.discard'),
         danger: true
       });
       if (!ok) return;
@@ -931,7 +959,7 @@ const BeeScripts = (function () {
     });
     closeFind();
     const name = el('script-name');
-    if (name) name.textContent = row.name || 'Unnamed script';
+    if (name) name.textContent = row.name || t('scripts.unnamed');
     const save = el<HTMLButtonElement>('script-save');
     if (save) save.disabled = true;
     const input = el<HTMLTextAreaElement>('script-input');
@@ -941,7 +969,7 @@ const BeeScripts = (function () {
     }
     renderDiagnostics([]);
     hideCompletion();
-    setStatus('Loading...');
+    setStatus('loading');
     setEditorOpen(true);
     renderList();
     refreshHighlight();
@@ -956,7 +984,7 @@ const BeeScripts = (function () {
         input.value = text;
         input.disabled = false;
       }
-      setStatus('Saved');
+      setStatus('saved');
       if (draft !== null && input) {
         // The server's text goes on the undo stack first, so Ctrl+Z shows
         // what the restored draft replaced; the editor reads Modified, and
@@ -964,13 +992,13 @@ const BeeScripts = (function () {
         pushUndo(true);
         input.value = draft;
         markDirty();
-        BeeUtils.showToast('Restored unsaved changes', 'info');
+        BeeUtils.showToast(t('scripts.draftRestored'), 'info');
       }
       refreshHighlight();
     } catch (err) {
       if (seq !== openSeq) return;
-      setStatus('Load failed', 'error');
-      BeeUtils.showToast(BeeUtils.errText(err) || 'Could not load the script.', 'error');
+      setStatus('loadFailed', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('scripts.openFailed'), 'error');
     }
   }
 
@@ -983,7 +1011,7 @@ const BeeScripts = (function () {
     saving = true;
     const btn = el<HTMLButtonElement>('script-save');
     if (btn) btn.disabled = true;
-    setStatus('Compiling...');
+    setStatus('compiling');
     renderDiagnostics([]);
     try {
       const res = await BeeTransport.saveScript(itemId, text, mono && !mono.checked ? 'lsl2' : 'mono');
@@ -1000,23 +1028,23 @@ const BeeScripts = (function () {
         removeDraft(itemId);
         current.dirty = input.value !== text;
         if (!res.compiled) {
-          setStatus('Compile failed', 'error');
-          BeeUtils.showToast('Saved, but the script did not compile.', 'warning');
+          setStatus('compileFailed', 'error');
+          BeeUtils.showToast(t('scripts.savedNotCompiled'), 'warning');
         } else if (current.dirty) {
-          setStatus('Modified', 'dirty');
-          BeeUtils.showToast('Script saved and compiled.', 'success');
+          setStatus('modified', 'dirty');
+          BeeUtils.showToast(t('scripts.savedCompiled'), 'success');
         } else {
-          setStatus('Saved ✓ compiled', 'ok');
-          BeeUtils.showToast('Script saved and compiled.', 'success');
+          setStatus('savedCompiled', 'ok');
+          BeeUtils.showToast(t('scripts.savedCompiled'), 'success');
         }
       } else {
-        setStatus('Upload failed', 'error');
-        BeeUtils.showToast('The script upload failed.', 'error');
+        setStatus('uploadFailed', 'error');
+        BeeUtils.showToast(t('scripts.uploadFailed'), 'error');
       }
     } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || 'The script upload failed.', 'error');
+      BeeUtils.showToast(BeeUtils.errText(err) || t('scripts.uploadFailed'), 'error');
       if (current && current.itemId === itemId) {
-        setStatus('Upload failed', 'error');
+        setStatus('uploadFailed', 'error');
         if (btn) btn.disabled = false;
       }
     } finally {
@@ -1029,7 +1057,7 @@ const BeeScripts = (function () {
     rows = [];
     loaded = false;
     loading = false;
-    loadError = '';
+    loadError = null;
     lang = null;
     langSets = null;
     current = null;
@@ -1037,12 +1065,12 @@ const BeeScripts = (function () {
     clearUndo();
     sourceWaiters.forEach(function (w) {
       clearTimeout(w.timer);
-      w.reject(new Error('Session ended'));
+      w.reject(new Error(t('session.ended')));
     });
     sourceWaiters.clear();
     if (createWaiter) {
       clearTimeout(createWaiter.timer);
-      createWaiter.reject(new Error('Session ended'));
+      createWaiter.reject(new Error(t('session.ended')));
       createWaiter = null;
     }
     ['script-rename', 'script-find-open', 'script-format', 'script-copy-ids', 'script-send'].forEach(function (id) {
@@ -1088,10 +1116,10 @@ const BeeScripts = (function () {
         const creatorKnown = /^[0-9a-f]{8}-/i.test(String(row.creatorId || '')) &&
           !/^0+(-0+)*$/.test(String(row.creatorId || '').replace(/-/g, ''));
         return [
-          { label: 'Open script', action: function () { void open(row); } },
-          { label: 'Send to a resident...', action: function () { sendToResident(row); } },
+          { label: t('scripts.open'), action: function () { void open(row); } },
+          { label: t('scripts.sendToResidentMenu'), action: function () { sendToResident(row); } },
           {
-            label: 'Creator profile',
+            label: t('interact.creatorProfile'),
             disabled: !creatorKnown,
             action: function () {
               if (typeof BeeProfile !== 'undefined' && BeeProfile.openAvatar) BeeProfile.openAvatar(row.creatorId);
@@ -1263,7 +1291,10 @@ const BeeScripts = (function () {
       sourceWaiters.delete(data.itemId);
       clearTimeout(waiter.timer);
       if (data.ok) waiter.resolve(String(data.text || ''));
-      else waiter.reject(new Error(data.error || 'The script could not be downloaded.'));
+      else {
+        waiter.reject(new Error(BeeI18n.field(data, 'error') ||
+          t('scripts.downloadFailed')));
+      }
     });
 
     BeeState.on('reset', reset);
@@ -1281,6 +1312,15 @@ const BeeScripts = (function () {
       if (document.visibilityState === 'hidden') stashDraft();
     });
     window.addEventListener('pagehide', stashDraft);
+    // A language switch: the list, the state line, the signature bar and the
+    // open script's heading are painted again in the new words.
+    BeeI18n.onChange(function () {
+      renderList();
+      paintStatus();
+      refreshSignature();
+      const name = el('script-name');
+      if (name && current) name.textContent = current.name || t('scripts.unnamed');
+    });
     renderList();
   }
 

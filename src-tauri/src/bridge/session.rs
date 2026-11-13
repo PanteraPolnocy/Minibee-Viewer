@@ -20,6 +20,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::bridge::util::truthy;
+use crate::uitext::UiText;
 
 /// A UI-facing event name; it goes out as `minibee-viewer://<event>`.
 pub type EventName = String;
@@ -252,8 +253,13 @@ impl ScriptXfer {
     fn event(&self) -> &'static str {
         if self.notecard { "notecard-source" } else { "script-source" }
     }
-    fn label(&self) -> &'static str {
-        if self.notecard { "notecard" } else { "script" }
+    /// The line reported when the sim refuses or drops the download.
+    fn failure_line(&self) -> UiText {
+        if self.notecard {
+            UiText::new("notecards.downloadFailed", json!({}))
+        } else {
+            UiText::new("scripts.downloadFailed", json!({}))
+        }
     }
 }
 
@@ -548,15 +554,25 @@ pub fn max_maturity() -> Maturity {
 
 /// The line a search or guide page shows while bands above the setting are
 /// left out, so an empty page is not a mystery; `what` names the entries
-/// ("results", "destinations"). Nothing at the top band.
+/// ("groups", "places", "destinations" - each spelled out in full, so a
+/// translation can decline the noun). Nothing at the top band.
+pub fn maturity_hidden_line(level: Maturity, what: &str) -> Option<UiText> {
+    Some(match (level, what) {
+        (Maturity::Adult, _) => return None,
+        (Maturity::Moderate, "groups") => UiText::new("search.hiddenAdultGroups", json!({})),
+        (Maturity::Moderate, "places") => UiText::new("search.hiddenAdultPlaces", json!({})),
+        (Maturity::Moderate, "destinations") => UiText::new("search.hiddenAdultDestinations", json!({})),
+        (Maturity::Moderate, _) => UiText::new("search.hiddenAdult", json!({ "what": what })),
+        (Maturity::General, "groups") => UiText::new("search.hiddenModerateAdultGroups", json!({})),
+        (Maturity::General, "places") => UiText::new("search.hiddenModerateAdultPlaces", json!({})),
+        (Maturity::General, "destinations") => UiText::new("search.hiddenModerateAdultDestinations", json!({})),
+        (Maturity::General, _) => UiText::new("search.hiddenModerateAdult", json!({ "what": what })),
+    })
+}
+
+/// The English of `maturity_hidden_line`, for a caller that wants the words alone.
 pub fn maturity_hidden_note(level: Maturity, what: &str) -> Option<String> {
-    match level {
-        Maturity::Adult => None,
-        Maturity::Moderate => Some(format!("Adult-rated {what} are hidden (Bee -> Settings -> Search).")),
-        Maturity::General => Some(format!(
-            "Moderate and Adult-rated {what} are hidden (Bee -> Settings -> Search)."
-        )),
-    }
+    maturity_hidden_line(level, what).map(|line| line.text)
 }
 
 /// The interest radius to ask the sim for right now.
@@ -705,13 +721,13 @@ impl SessionState {
 
 /// Friendly wording for the named sit-refusal alerts the sim can send
 /// (notification ids, also seen with a legacy "NOTIFY: " prefix).
-fn sit_failure_text(alert_id: &str) -> Option<&'static str> {
+fn sit_failure_line(alert_id: &str) -> Option<UiText> {
     Some(match alert_id {
-        "CantSitNoRoom" => "No room to sit there - try another spot.",
-        "CantSitNoSuitableSurface" => "There is no suitable surface to sit on - try another spot.",
-        "SitFailCantMove" => "You cannot sit because you cannot move right now.",
-        "SitFailNotAllowedOnLand" => "You cannot sit there: you are not allowed on that land.",
-        "SitFailNotSameRegion" => "That seat is in a different region - move closer first.",
+        "CantSitNoRoom" => UiText::new("interact.sitNoRoom", json!({})),
+        "CantSitNoSuitableSurface" => UiText::new("interact.sitNoSurface", json!({})),
+        "SitFailCantMove" => UiText::new("interact.sitCannotMove", json!({})),
+        "SitFailNotAllowedOnLand" => UiText::new("interact.sitNotAllowedOnLand", json!({})),
+        "SitFailNotSameRegion" => UiText::new("interact.sitNotSameRegion", json!({})),
         _ => return None,
     })
 }
@@ -847,43 +863,90 @@ fn global_to_grid(gx: f64, gy: f64, gz: f64) -> (i64, i64, i64, i64, i64) {
     (grid_x as i64, grid_y as i64, local_x, local_y, gz.round() as i64)
 }
 
-/// Decode a ScriptQuestion permission mask into human-readable lines plus a caution flag.
-fn describe_script_permissions(mask: u32) -> (Vec<String>, bool) {
-    const BITS: &[(u32, &str, bool)] = &[
-        (2, "Take Linden dollars (L$) from your account", true),
-        (4, "Act on your control inputs", false),
-        (8, "Remap your control inputs", false),
-        (16, "Animate your avatar", false),
-        (32, "Attach to your avatar", false),
-        (64, "Release ownership", false),
-        (128, "Link and delink", false),
-        (256, "Add and remove joints", false),
-        (512, "Change permissions", false),
-        (1024, "Track your camera", false),
-        (2048, "Control your camera", false),
-        (4096, "Teleport your agent", false),
-        (8192, "Join an experience", false),
-        (16384, "Silently manage estate access", false),
-        (32768, "Override your animations", false),
-        (65536, "Return objects on your land", false),
-        (131072, "Force sit your avatar", false),
-        (262144, "Change environment settings", false),
-        (524288, "Privileged land access", true),
-    ];
+/// The wording of one ScriptQuestion permission bit; None for a bit without a name.
+fn script_permission_line(bit: u32) -> Option<UiText> {
+    Some(match bit {
+        2 => UiText::new("events.permDebit", json!({})),
+        4 => UiText::new("events.permTakeControls", json!({})),
+        8 => UiText::new("events.permRemapControls", json!({})),
+        16 => UiText::new("events.permAnimate", json!({})),
+        32 => UiText::new("events.permAttach", json!({})),
+        64 => UiText::new("events.permReleaseOwnership", json!({})),
+        128 => UiText::new("events.permLink", json!({})),
+        256 => UiText::new("events.permJoints", json!({})),
+        512 => UiText::new("events.permChangePermissions", json!({})),
+        1024 => UiText::new("events.permTrackCamera", json!({})),
+        2048 => UiText::new("events.permControlCamera", json!({})),
+        4096 => UiText::new("events.permTeleport", json!({})),
+        8192 => UiText::new("events.permExperience", json!({})),
+        16384 => UiText::new("events.permEstateAccess", json!({})),
+        32768 => UiText::new("events.permOverrideAnimations", json!({})),
+        65536 => UiText::new("events.permReturnObjects", json!({})),
+        131072 => UiText::new("events.permForceSit", json!({})),
+        262144 => UiText::new("events.permEnvironment", json!({})),
+        524288 => UiText::new("events.permLandAccess", json!({})),
+        _ => return None,
+    })
+}
+
+/// The permission bits worth a caution: money and privileged land access.
+const SCRIPT_PERMISSION_CAUTION: u32 = 2 | 524288;
+
+/// Decode a ScriptQuestion permission mask into human-readable lines (lowest
+/// bit first) plus a caution flag.
+fn describe_script_permissions(mask: u32) -> (Vec<UiText>, bool) {
     let mut lines = Vec::new();
     let mut caution = false;
-    for &(bit, label, c) in BITS {
-        if mask & bit != 0 {
-            lines.push(label.to_string());
-            if c {
+    for shift in 0..32 {
+        let bit = 1u32 << shift;
+        if mask & bit == 0 {
+            continue;
+        }
+        if let Some(line) = script_permission_line(bit) {
+            lines.push(line);
+            if SCRIPT_PERMISSION_CAUTION & bit != 0 {
                 caution = true;
             }
         }
     }
     if lines.is_empty() && mask != 0 {
-        lines.push(format!("Unknown permission flags (0x{mask:x})"));
+        lines.push(UiText::new("events.permUnknownFlags", json!({ "flags": format!("0x{mask:x}") })));
     }
     (lines, caution)
+}
+
+/// The "I want to" interest a bit of WantToMask stands for.
+fn want_to_line(bit: usize) -> Option<UiText> {
+    Some(match bit {
+        0 => UiText::new("profile.wantBuild", json!({})),
+        1 => UiText::new("profile.wantExplore", json!({})),
+        2 => UiText::new("profile.wantMeet", json!({})),
+        3 => UiText::new("profile.wantGroup", json!({})),
+        4 => UiText::new("profile.wantBuy", json!({})),
+        5 => UiText::new("profile.wantSell", json!({})),
+        6 => UiText::new("profile.wantBeHired", json!({})),
+        7 => UiText::new("profile.wantHire", json!({})),
+        _ => return None,
+    })
+}
+
+/// The skill a bit of SkillsMask stands for.
+fn skill_line(bit: usize) -> Option<UiText> {
+    Some(match bit {
+        0 => UiText::new("profile.skillTextures", json!({})),
+        1 => UiText::new("profile.skillArchitecture", json!({})),
+        2 => UiText::new("profile.skillEventPlanning", json!({})),
+        3 => UiText::new("profile.skillModeling", json!({})),
+        4 => UiText::new("profile.skillScripting", json!({})),
+        5 => UiText::new("profile.skillCustomCharacters", json!({})),
+        _ => return None,
+    })
+}
+
+/// The set bits of an interest mask as their lines, lowest bit first.
+fn interest_lines(mask: i64, line: fn(usize) -> Option<UiText>) -> Vec<UiText> {
+    let m = mask as u32;
+    (0..8).filter(|i| m & (1 << i) != 0).filter_map(line).collect()
 }
 
 // Parcel flag bits - just the subset the UI surfaces.
@@ -1122,15 +1185,70 @@ fn tp_target_region_name(state: &SessionState) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// A system chat line; the IO layer stamps in the id and timestamp.
+/// A system chat line; the IO layer stamps in the id and timestamp. For the
+/// grid's own words - a line the core phrases itself goes through
+/// `system_line`, so it carries its key. The sender is the "System" stand-in,
+/// keyed like any other line.
 fn system_chat(text: &str) -> Action {
-    Action::emit(
-        "chat",
-        json!({
-            "fromId": "00000000-0000-0000-0000-000000000000", "fromName": "System",
-            "text": text, "type": "normal", "source": "system", "ownerId": "", "channel": 0,
-        }),
-    )
+    let mut payload = json!({
+        "fromId": "00000000-0000-0000-0000-000000000000",
+        "text": text, "type": "normal", "source": "system", "ownerId": "", "channel": 0,
+    });
+    UiText::new("chat.systemName", json!({})).fields(&mut payload, "fromName");
+    Action::emit("chat", payload)
+}
+
+/// A system chat line the core phrases itself: the English in `text`, the
+/// key and arguments beside it (see uitext).
+fn system_line(line: UiText) -> Action {
+    let mut action = system_chat(&line.text);
+    if let Action::Emit { payload, .. } = &mut action {
+        line.fields(payload, "text");
+    }
+    action
+}
+
+/// The name an object gets when the sim sends none.
+fn object_default_name() -> UiText {
+    UiText::new("events.objectDefaultName", json!({}))
+}
+
+/// The name a region gets when the sim sends none.
+fn region_default_name() -> UiText {
+    UiText::new("events.regionDefaultName", json!({}))
+}
+
+/// The name a resident goes by while theirs is still unknown.
+fn someone() -> UiText {
+    UiText::new("friends.someone", json!({}))
+}
+
+/// A name as the sim sent it, or `stand_in` when it sent none. The stand-in
+/// comes back too, so its key can go beside every field that carries the
+/// name (`mark_stand_in`).
+fn name_or_stand_in(raw: String, stand_in: fn() -> UiText) -> (String, Option<UiText>) {
+    if raw.trim().is_empty() {
+        let line = stand_in();
+        (line.text.clone(), Some(line))
+    } else {
+        (raw, None)
+    }
+}
+
+/// Put a stand-in name's key and arguments beside each of `paths` (a field,
+/// or a dotted path into a nested object: "dialog.objectName"), so the
+/// interface shows the stand-in in its own language.
+fn mark_stand_in(payload: &mut Value, line: &Option<UiText>, paths: &[&str]) {
+    let Some(line) = line else { return };
+    for path in paths {
+        let mut parts: Vec<&str> = path.split('.').collect();
+        let Some(last) = parts.pop() else { continue };
+        let mut target = &mut *payload;
+        for part in parts {
+            target = &mut target[part];
+        }
+        line.fields(target, last);
+    }
 }
 
 /// Which way a resident crossed the radar's alert range.
@@ -1149,22 +1267,29 @@ enum RadarCrossing {
 /// itself. A leave without a range is someone gone from the sweep altogether
 /// (left the region, logged out).
 fn radar_line(id: &str, name: &str, crossing: RadarCrossing, range: Option<f64>, at_ms: u64) -> Action {
-    let (verb, event) = match crossing {
-        RadarCrossing::Enter => ("entered", "enter"),
-        RadarCrossing::Leave => ("left", "leave"),
+    let event = match crossing {
+        RadarCrossing::Enter => "enter",
+        RadarCrossing::Leave => "leave",
     };
-    let metres = range.map(|r| format!(" ({} m)", r.round() as i64)).unwrap_or_default();
-    Action::emit(
-        "chat",
-        json!({
-            "kind": "radar", "fromId": id, "fromName": name,
-            "text": format!("{verb} radar range{metres}."),
-            "type": "normal", "source": "system", "ownerId": "", "channel": 0,
-            "outgoing": false, "emote": false,
-            "timestamp": at_ms,
-            "radar": { "event": event, "range": range },
-        }),
-    )
+    let metres = range.map(|r| r.round() as i64);
+    let line = match (crossing, metres) {
+        (RadarCrossing::Enter, m) => {
+            UiText::new("radar.enteredRange", json!({ "metres": m.unwrap_or(0) }))
+        }
+        (RadarCrossing::Leave, Some(m)) => {
+            UiText::new("radar.leftRange", json!({ "metres": m }))
+        }
+        (RadarCrossing::Leave, None) => UiText::new("radar.leftRegion", json!({})),
+    };
+    let mut payload = json!({
+        "kind": "radar", "fromId": id, "fromName": name,
+        "type": "normal", "source": "system", "ownerId": "", "channel": 0,
+        "outgoing": false, "emote": false,
+        "timestamp": at_ms,
+        "radar": { "event": event, "range": range },
+    });
+    line.fields(&mut payload, "text");
+    Action::emit("chat", payload)
 }
 
 /// How long a newcomer's report waits for their name before going out with a
@@ -1292,16 +1417,14 @@ impl SessionState {
 /// countdown) plus a system chat line kept as the record.
 fn region_restart_warning(seconds: i64, region: &str) -> [Action; 2] {
     let seconds = seconds.max(0);
-    let when = if seconds >= 120 {
-        format!("{} minutes", seconds / 60)
+    let line = if seconds >= 120 {
+        UiText::new("session.regionRestartMinutes", json!({ "region": region, "minutes": seconds / 60 }))
     } else {
-        format!("{seconds} seconds")
+        UiText::new("session.regionRestartSeconds", json!({ "region": region, "seconds": seconds }))
     };
     [
         Action::emit("region-restart", json!({ "seconds": seconds, "regionName": region })),
-        system_chat(&format!(
-            "The region '{region}' is about to restart (in roughly {when}). Teleport out or you will be logged off."
-        )),
+        system_line(line),
     ]
 }
 
@@ -2002,20 +2125,15 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
             if state.covenant_xfer.as_ref().is_some_and(|(t, _)| same_uuid(t, &id)) {
                 state.covenant_xfer = None;
-                actions.push(Action::emit(
-                    "covenant-text",
-                    json!({ "ok": false, "error": "The covenant could not be downloaded." }),
-                ));
+                let mut failed = json!({ "ok": false });
+                UiText::new("land.covenantDownloadFailed", json!({}))
+                    .fields(&mut failed, "error");
+                actions.push(Action::emit("covenant-text", failed));
             } else if state.script_xfer.as_ref().is_some_and(|x| same_uuid(&x.transfer_id, &id)) {
                 let x = state.script_xfer.take().unwrap();
-                actions.push(Action::emit(
-                    x.event(),
-                    json!({
-                        "ok": false,
-                        "itemId": x.item_id,
-                        "error": format!("The {} could not be downloaded.", x.label()),
-                    }),
-                ));
+                let mut failed = json!({ "ok": false, "itemId": x.item_id });
+                x.failure_line().fields(&mut failed, "error");
+                actions.push(Action::emit(x.event(), failed));
             }
         }
 
@@ -2096,10 +2214,10 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if let Some(x) = state.xfers.remove(&id) {
                 crate::dlog!("xfer {id} ({}) aborted by sim, result {}", x.kind, inst_i64(block0(decoded, "XferID").unwrap_or(&Value::Null), "Result"));
                 if x.kind == "mute-list" {
-                    actions.push(Action::emit(
-                        "mute-list",
-                        json!({ "people": [], "error": "The region refused to send the block list." }),
-                    ));
+                    let mut failed = json!({ "people": [] });
+                    UiText::new("buddies.blockListRefused", json!({}))
+                        .fields(&mut failed, "error");
+                    actions.push(Action::emit("mute-list", failed));
                 }
             }
         }
@@ -2175,32 +2293,21 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             }
             // A sit refusal while our request is in flight: stop pretending the
             // sit might still land, and tell the user why it didn't.
-            let sit_reason = sit_failure_text(&alert_id);
+            let sit_reason = sit_failure_line(&alert_id);
             if state.sit_pending {
-                if let Some(reason) = sit_reason {
+                if let Some(reason) = &sit_reason {
                     state.sit_pending = false;
-                    actions.push(Action::emit(
-                        "sit-state",
-                        json!({ "sitting": false, "objectId": "", "error": reason }),
-                    ));
+                    let mut sit = json!({ "sitting": false, "objectId": "" });
+                    reason.fields(&mut sit, "error");
+                    actions.push(Action::emit("sit-state", sit));
                 }
             }
             // Prefer the friendly wording for ids we know; otherwise show the raw
             // text (when there is any - AlertInfo-only alerts used to vanish here).
-            let text = match sit_reason {
-                Some(t) => t.to_string(),
-                None if !raw.is_empty() => raw,
-                None => String::new(),
-            };
-            if !text.is_empty() {
-                actions.push(Action::emit(
-                    "chat",
-                    json!({
-                        "fromId": "00000000-0000-0000-0000-000000000000",
-                        "fromName": "System", "text": text, "type": "normal",
-                        "source": "system", "ownerId": "", "channel": 0,
-                    }),
-                ));
+            match sit_reason {
+                Some(line) => actions.push(system_line(line)),
+                None if !raw.is_empty() => actions.push(system_chat(&raw)),
+                None => {}
             }
         }
 
@@ -2667,25 +2774,28 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             const TEXTBOX_MAGIC_TOKEN: &str = "!!llTextBox!!";
             let is_text_box = buttons.len() == 1 && buttons[0] == TEXTBOX_MAGIC_TOKEN;
             let buttons = if is_text_box { Vec::new() } else { buttons };
-            let name = if object_name.trim().is_empty() { "Object".to_string() } else { object_name };
+            let (name, unnamed) = name_or_stand_in(object_name, object_default_name);
             if !owner_id.is_empty() && !is_zero_uuid(&owner_id) && !is_group {
                 actions.push(Action::ResolveNames(vec![owner_id.clone()]));
             }
-            actions.push(Action::emit(
-                "event",
-                json!({
-                    "kind": "script-dialog", "fromId": object_id, "fromName": name,
-                    "text": if message.trim().is_empty() { "(no message)".to_string() } else { message.clone() },
-                    "type": "script", "source": "script", "channel": channel,
-                    "dialog": {
-                        "objectId": object_id, "objectName": name,
-                        "ownerId": if is_zero_uuid(&owner_id) { String::new() } else { owner_id },
-                        "ownerName": owner_name, "isGroup": is_group,
-                        "message": message, "chatChannel": channel, "buttons": buttons,
-                        "isTextBox": is_text_box, "resolved": false, "response": "",
-                    }
-                }),
-            ));
+            let silent = message.trim().is_empty();
+            let mut payload = json!({
+                "kind": "script-dialog", "fromId": object_id, "fromName": name,
+                "text": message.clone(),
+                "type": "script", "source": "script", "channel": channel,
+                "dialog": {
+                    "objectId": object_id, "objectName": name,
+                    "ownerId": if is_zero_uuid(&owner_id) { String::new() } else { owner_id },
+                    "ownerName": owner_name, "isGroup": is_group,
+                    "message": message, "chatChannel": channel, "buttons": buttons,
+                    "isTextBox": is_text_box, "resolved": false, "response": "",
+                }
+            });
+            if silent {
+                UiText::new("events.noMessage", json!({})).fields(&mut payload, "text");
+            }
+            mark_stand_in(&mut payload, &unnamed, &["fromName", "dialog.objectName"]);
+            actions.push(Action::emit("event", payload));
         }
 
         // A script permission request. We surface it for the user and NEVER auto-answer it.
@@ -2696,29 +2806,24 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if task_id.is_empty() || item_id.is_empty() || state.is_muted(&task_id) {
                 return actions;
             }
-            let name = {
-                let n = inst_text(&d, "ObjectName");
-                if n.trim().is_empty() { "Object".to_string() } else { n }
-            };
+            let (name, unnamed) = name_or_stand_in(inst_text(&d, "ObjectName"), object_default_name);
             let questions = inst_i64(&d, "Questions") as u32;
             let (lines, caution) = describe_script_permissions(questions);
-            let text = if lines.is_empty() {
-                "Permission request".to_string()
-            } else {
-                format!("Permission request: {}", lines.join("; "))
-            };
-            actions.push(Action::emit(
-                "event",
-                json!({
-                    "kind": "script-permission", "fromId": task_id, "fromName": name,
-                    "text": text, "type": "script", "source": "script", "channel": 0,
-                    "permission": {
-                        "taskId": task_id, "itemId": item_id, "objectName": name,
-                        "objectOwner": inst_text(&d, "ObjectOwner"), "questions": questions,
-                        "lines": lines, "hasCaution": caution, "resolved": false, "response": "",
-                    }
-                }),
-            ));
+            // The card lists the permissions from `lines`, each a keyed line;
+            // `text` is the headline the event list and previews show.
+            let lines: Vec<Value> = lines.iter().map(UiText::value).collect();
+            let mut payload = json!({
+                "kind": "script-permission", "fromId": task_id, "fromName": name,
+                "type": "script", "source": "script", "channel": 0,
+                "permission": {
+                    "taskId": task_id, "itemId": item_id, "objectName": name,
+                    "objectOwner": inst_text(&d, "ObjectOwner"), "questions": questions,
+                    "lines": lines, "hasCaution": caution, "resolved": false, "response": "",
+                }
+            });
+            UiText::new("events.permissionRequest", json!({})).fields(&mut payload, "text");
+            mark_stand_in(&mut payload, &unnamed, &["fromName", "permission.objectName"]);
+            actions.push(Action::emit("event", payload));
         }
 
         // An object wants to open a URL, so we surface it as an interactive prompt.
@@ -2732,28 +2837,27 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if state.is_muted(&inst_str(&d, "ObjectID")) || state.is_muted(&owner_id) {
                 return actions;
             }
-            let object_name = {
-                let n = inst_text(&d, "ObjectName");
-                if n.trim().is_empty() { "Object".to_string() } else { n }
-            };
+            let (object_name, unnamed) = name_or_stand_in(inst_text(&d, "ObjectName"), object_default_name);
             let message = inst_text(&d, "Message");
             if !owner_id.is_empty() && !is_zero_uuid(&owner_id) {
                 actions.push(Action::ResolveNames(vec![owner_id.clone()]));
             }
             let owner_name = state.cached_name(&owner_id).unwrap_or("").to_string();
-            let text = if message.trim().is_empty() { format!("Open {url}?") } else { message.clone() };
-            actions.push(Action::emit(
-                "event",
-                json!({
-                    "kind": "interactive-prompt", "fromId": inst_str(&d, "ObjectID"),
-                    "fromName": object_name, "text": text, "type": "script", "source": "script", "channel": 0,
-                    "prompt": {
-                        "type": "load-url", "objectName": object_name, "ownerId": owner_id,
-                        "ownerName": owner_name, "ownerIsGroup": d.get("OwnerIsGroup").and_then(|v| v.as_bool()).unwrap_or(false),
-                        "message": message, "url": url, "resolved": false, "response": "",
-                    }
-                }),
-            ));
+            let silent = message.trim().is_empty();
+            let mut payload = json!({
+                "kind": "interactive-prompt", "fromId": inst_str(&d, "ObjectID"),
+                "fromName": object_name, "text": message.clone(), "type": "script", "source": "script", "channel": 0,
+                "prompt": {
+                    "type": "load-url", "objectName": object_name, "ownerId": owner_id,
+                    "ownerName": owner_name, "ownerIsGroup": d.get("OwnerIsGroup").and_then(|v| v.as_bool()).unwrap_or(false),
+                    "message": message, "url": &url, "resolved": false, "response": "",
+                }
+            });
+            if silent {
+                UiText::new("events.openUrlPrompt", json!({ "url": url })).fields(&mut payload, "text");
+            }
+            mark_stand_in(&mut payload, &unnamed, &["fromName", "prompt.objectName"]);
+            actions.push(Action::emit("event", payload));
         }
 
         // The group's active-title choices, which feed the title dropdown.
@@ -3197,31 +3301,32 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         // An object asks to map or teleport somewhere, shown as an interactive prompt.
         "ScriptTeleportRequest" => {
             let d = block0(decoded, "Data").cloned().unwrap_or(Value::Null);
-            let object_name = {
-                let n = inst_text(&d, "ObjectName");
-                if n.trim().is_empty() { "Object".to_string() } else { n }
-            };
-            let region = {
-                let n = inst_text(&d, "SimName");
-                if n.trim().is_empty() { "Region".to_string() } else { n }
-            };
+            let (object_name, unnamed) = name_or_stand_in(inst_text(&d, "ObjectName"), object_default_name);
+            let (region, unnamed_region) = name_or_stand_in(inst_text(&d, "SimName"), region_default_name);
             let (px, py, pz) = vec3(d.get("SimPosition"));
             let (lx, ly, lz) = vec3(d.get("LookAt"));
             let flags = as_i64(field(decoded, "Options", "Flags"));
-            actions.push(Action::emit(
-                "event",
-                json!({
-                    "kind": "interactive-prompt", "fromId": "", "fromName": object_name,
-                    "text": format!("{region} ({}, {}, {:.1})", px.round(), py.round(), pz),
-                    "type": "script", "source": "script", "channel": 0,
-                    "prompt": {
-                        "type": "script-teleport", "objectName": object_name, "regionName": region,
-                        "position": { "x": px, "y": py, "z": pz },
-                        "lookAt": { "x": lx, "y": ly, "z": lz }, "flags": flags,
-                        "resolved": false, "response": "",
-                    }
-                }),
-            ));
+            let mut payload = json!({
+                "kind": "interactive-prompt", "fromId": "", "fromName": object_name,
+                "text": format!("{region} ({}, {}, {:.1})", px.round(), py.round(), pz),
+                "type": "script", "source": "script", "channel": 0,
+                "prompt": {
+                    "type": "script-teleport", "objectName": object_name, "regionName": region,
+                    "position": { "x": px, "y": py, "z": pz },
+                    "lookAt": { "x": lx, "y": ly, "z": lz }, "flags": flags,
+                    "resolved": false, "response": "",
+                }
+            });
+            mark_stand_in(&mut payload, &unnamed, &["fromName", "prompt.objectName"]);
+            if unnamed_region.is_some() {
+                mark_stand_in(&mut payload, &unnamed_region, &["prompt.regionName"]);
+                UiText::new(
+                    "events.placeAtUnnamedRegion",
+                    json!({ "x": px.round(), "y": py.round(), "z": format!("{pz:.1}") }),
+                )
+                .fields(&mut payload, "text");
+            }
+            actions.push(Action::emit("event", payload));
         }
 
         // Someone offers us a friendship via a calling card, shown as an interactive prompt.
@@ -3235,24 +3340,29 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if !source_id.is_empty() && !is_zero_uuid(&source_id) {
                 actions.push(Action::ResolveNames(vec![source_id.clone()]));
             }
-            let from_name = state.cached_name(&source_id).unwrap_or("Someone").to_string();
-            actions.push(Action::emit(
-                "event",
-                json!({
-                    "kind": "interactive-prompt", "fromId": source_id, "fromName": from_name,
-                    "text": format!("{from_name} offered a friendship card."),
-                    "type": "script", "source": "script", "channel": 0,
-                    "prompt": {
-                        "type": "calling-card", "sourceId": source_id, "destId": inst_str(&ab, "DestID"),
-                        "transactionId": transaction_id, "fromName": from_name, "resolved": false, "response": "",
-                    }
-                }),
-            ));
+            let known = state.cached_name(&source_id).unwrap_or("").to_string();
+            let (from_name, unnamed) = name_or_stand_in(known, someone);
+            let line = if unnamed.is_some() {
+                UiText::new("friends.someoneOfferedCard", json!({}))
+            } else {
+                UiText::new("friends.offeredCard", json!({ "name": from_name }))
+            };
+            let mut payload = json!({
+                "kind": "interactive-prompt", "fromId": source_id, "fromName": from_name,
+                "type": "script", "source": "script", "channel": 0,
+                "prompt": {
+                    "type": "calling-card", "sourceId": source_id, "destId": inst_str(&ab, "DestID"),
+                    "transactionId": transaction_id, "fromName": from_name, "resolved": false, "response": "",
+                }
+            });
+            line.fields(&mut payload, "text");
+            mark_stand_in(&mut payload, &unnamed, &["fromName", "prompt.fromName"]);
+            actions.push(Action::emit("event", payload));
         }
 
         // The other side answered our friendship offer.
-        "AcceptCallingCard" => actions.push(system_chat("Your friendship offer was accepted.")),
-        "DeclineCallingCard" => actions.push(system_chat("Your friendship offer was declined.")),
+        "AcceptCallingCard" => actions.push(system_line(UiText::new("friends.cardAccepted", json!({})))),
+        "DeclineCallingCard" => actions.push(system_line(UiText::new("friends.cardDeclined", json!({})))),
 
         // A region performance sample, roughly once a second. StatID 1 is the sim's
         // frame rate and 0 is the time dilation; the top bar shows the FPS.
@@ -3304,7 +3414,11 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         // The sim froze or unfroze the avatar.
         "ViewerFrozenMessage" => {
             let frozen = field(decoded, "FrozenData", "Data").and_then(|v| v.as_bool()).unwrap_or(false);
-            actions.push(system_chat(if frozen { "You have been frozen." } else { "You are no longer frozen." }));
+            actions.push(system_line(if frozen {
+                UiText::new("session.frozen", json!({}))
+            } else {
+                UiText::new("session.unfrozen", json!({}))
+            }));
         }
 
         // A teleport progress note.
@@ -3339,7 +3453,10 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 state.agent_id.is_empty() || same_uuid(&id, &state.agent_id)
             });
             if hit {
-                actions.push(Action::emit("session-lost", json!({ "reason": "You were kicked by the system." })));
+                let mut payload = json!({});
+                UiText::new("session.kickedBySystem", json!({}))
+                    .fields(&mut payload, "reason");
+                actions.push(Action::emit("session-lost", payload));
             }
         }
 
@@ -3624,11 +3741,10 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
 
         // A resident's interests, for the profile tab. We decode the masks to labels here.
         "AvatarInterestsReply" => {
-            const WANT_TO: &[&str] = &["Build", "Explore", "Meet", "Group", "Buy", "Sell", "Be Hired", "Hire"];
-            const SKILLS: &[&str] = &["Textures", "Architecture", "Event Planning", "Modeling", "Scripting", "Custom Characters"];
-            let mask_labels = |mask: i64, labels: &[&str]| -> Vec<Value> {
+            // Each set bit becomes its keyed label (want_to_line / skill_line).
+            let mask_labels = |mask: i64, line: fn(usize) -> Option<UiText>| -> Vec<Value> {
                 let m = mask as u32;
-                labels.iter().enumerate().filter(|(i, _)| m & (1 << i) != 0).map(|(_, l)| json!(l)).collect()
+                (0..32usize).filter(|bit| m & (1 << bit) != 0).filter_map(line).map(|l| l.value()).collect()
             };
             let avatar_id = inst_str(block0(decoded, "AgentData").unwrap_or(&Value::Null), "AvatarID");
             let want_mask = inst_i64(block0(decoded, "PropertiesData").unwrap_or(&Value::Null), "WantToMask");
@@ -3637,9 +3753,9 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                 "avatar-interests",
                 json!({
                     "avatarId": avatar_id,
-                    "wantToMask": want_mask, "wantTo": mask_labels(want_mask, WANT_TO),
+                    "wantToMask": want_mask, "wantTo": mask_labels(want_mask, want_to_line),
                     "wantToText": field_text(decoded, "PropertiesData", "WantToText").unwrap_or_default(),
-                    "skillsMask": skills_mask, "skills": mask_labels(skills_mask, SKILLS),
+                    "skillsMask": skills_mask, "skills": mask_labels(skills_mask, skill_line),
                     "skillsText": field_text(decoded, "PropertiesData", "SkillsText").unwrap_or_default(),
                     "languagesText": field_text(decoded, "PropertiesData", "LanguagesText").unwrap_or_default(),
                 }),
@@ -4260,10 +4376,12 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             if !sid.is_empty() {
                 state.im_rosters.remove(&sid);
                 let reason = str_field(body, &["reason"]);
-                actions.push(Action::emit(
-                    "im-session-force-close",
-                    json!({ "sessionId": sid, "reason": if reason.is_empty() { "The chat session was closed".to_string() } else { reason } }),
-                ));
+                let silent = reason.is_empty();
+                let mut payload = json!({ "sessionId": sid, "reason": reason });
+                if silent {
+                    UiText::new("im.sessionClosed", json!({})).fields(&mut payload, "reason");
+                }
+                actions.push(Action::emit("im-session-force-close", payload));
             }
         }
 
@@ -4870,56 +4988,57 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             } else {
                 String::new()
             };
-            let item_label = if item.is_empty() { "an item".to_string() } else { format!("'{item}'") };
-            let text_line = if from_task {
-                format!("The object '{display}' has offered you {item_label}.")
-            } else {
-                format!("{display} has offered you {item_label}.")
+            let args = json!({ "name": &display, "item": &item });
+            let line = match (from_task, item.is_empty()) {
+                (true, false) => UiText::new("events.objectOfferedItem", args),
+                (true, true) => UiText::new("events.objectOfferedSomething", args),
+                (false, false) => UiText::new("events.offeredItem", args),
+                (false, true) => UiText::new("events.offeredSomething", args),
             };
             // A task offer's AgentID is the object's owner, already labelled by
             // the object's name here: no avatar lookup for it.
             if !from_task {
                 actions.push(Action::ResolveNames(vec![from_id.clone()]));
             }
-            actions.push(Action::emit(
-                "event",
-                json!({
-                    "kind": "interactive-prompt", "fromId": &from_id, "fromName": &display,
-                    "text": text_line,
-                    "type": "inventory-offer", "source": "system", "channel": 0,
-                    "prompt": {
-                        "type": "inventory-offer", "fromId": &from_id, "fromName": &display,
-                        "fromTask": from_task, "itemName": item, "itemId": item_id,
-                        "transactionId": &im_id, "resolved": false, "response": "",
-                    }
-                }),
-            ));
+            let mut payload = json!({
+                "kind": "interactive-prompt", "fromId": &from_id, "fromName": &display,
+                "type": "inventory-offer", "source": "system", "channel": 0,
+                "prompt": {
+                    "type": "inventory-offer", "fromId": &from_id, "fromName": &display,
+                    "fromTask": from_task, "itemName": item, "itemId": item_id,
+                    "transactionId": &im_id, "resolved": false, "response": "",
+                }
+            });
+            line.fields(&mut payload, "text");
+            actions.push(Action::emit("event", payload));
             return actions;
         }
         // The other party answered an inventory offer we sent.
         5 => {
-            actions.push(system_chat(&format!("{display} accepted your inventory offer.")));
+            actions.push(system_line(UiText::new("events.offerAcceptedBy", json!({ "name": &display }))));
             return actions;
         }
         6 => {
-            actions.push(system_chat(&format!("{display} declined your inventory offer.")));
+            actions.push(system_line(UiText::new("events.offerDeclinedBy", json!({ "name": &display }))));
             return actions;
         }
         // Friendship offer (38): here the IM ID is the transaction id to accept or decline.
         38 => {
             actions.push(Action::ResolveNames(vec![from_id.clone()]));
-            actions.push(Action::emit(
-                "event",
-                json!({
-                    "kind": "interactive-prompt", "fromId": &from_id, "fromName": &display,
-                    "text": if text.trim().is_empty() { format!("{display} has offered you friendship.") } else { text.clone() },
-                    "type": "friendship", "source": "system", "channel": 0,
-                    "prompt": {
-                        "type": "friendship-offer", "fromId": &from_id, "fromName": &display,
-                        "transactionId": &im_id, "resolved": false, "response": "",
-                    }
-                }),
-            ));
+            let mut payload = json!({
+                "kind": "interactive-prompt", "fromId": &from_id, "fromName": &display,
+                "text": &text,
+                "type": "friendship", "source": "system", "channel": 0,
+                "prompt": {
+                    "type": "friendship-offer", "fromId": &from_id, "fromName": &display,
+                    "transactionId": &im_id, "resolved": false, "response": "",
+                }
+            });
+            if text.trim().is_empty() {
+                UiText::new("friends.offeredFriendship", json!({ "name": &display }))
+                    .fields(&mut payload, "text");
+            }
+            actions.push(Action::emit("event", payload));
             return actions;
         }
         // Friendship accepted (39) or declined (40). The roster is frontend-owned,
@@ -4939,11 +5058,11 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     true,
                 ));
             }
-            actions.push(system_chat(&format!("{display} is now your friend.")));
+            actions.push(system_line(UiText::new("friends.nowFriend", json!({ "name": &display }))));
             return actions;
         }
         40 => {
-            actions.push(system_chat(&format!("{display} declined your friendship offer.")));
+            actions.push(system_line(UiText::new("friends.offerDeclinedBy", json!({ "name": &display }))));
             return actions;
         }
         // A script's message (19) or alert (31): the object speaks, its owner
@@ -5006,26 +5125,25 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             role.copy_from_slice(&raw_bucket[4..20]);
             let role_id = crate::bridge::objects::id_string(&role);
             let group_name = group_name_of(state, &from_id);
-            let message = if text.trim().is_empty() {
-                format!("{display} has invited you to join a group.")
-            } else {
-                text.trim().to_string()
-            };
-            actions.push(Action::emit(
-                "event",
-                json!({
-                    "kind": "interactive-prompt", "fromId": &from_id, "fromName": &display,
-                    "groupId": &from_id, "groupName": &group_name,
-                    "text": &message,
-                    "type": "group-invitation", "source": "system", "channel": 0,
-                    "prompt": {
-                        "type": "group-invitation", "groupId": &from_id, "groupName": &group_name,
-                        "fromName": &display, "transactionId": im_id.to_ascii_lowercase(),
-                        "fee": fee, "roleId": role_id, "message": &message,
-                        "resolved": false, "response": "",
-                    }
-                }),
-            ));
+            let message = text.trim().to_string();
+            let mut payload = json!({
+                "kind": "interactive-prompt", "fromId": &from_id, "fromName": &display,
+                "groupId": &from_id, "groupName": &group_name,
+                "text": &message,
+                "type": "group-invitation", "source": "system", "channel": 0,
+                "prompt": {
+                    "type": "group-invitation", "groupId": &from_id, "groupName": &group_name,
+                    "fromName": &display, "transactionId": im_id.to_ascii_lowercase(),
+                    "fee": fee, "roleId": role_id, "message": &message,
+                    "resolved": false, "response": "",
+                }
+            });
+            if message.is_empty() {
+                let line = UiText::new("groups.invitedBy", json!({ "name": &display }));
+                line.fields(&mut payload, "text");
+                line.fields(&mut payload["prompt"], "message");
+            }
+            actions.push(Action::emit("event", payload));
             return actions;
         }
         _ => {}
@@ -5078,11 +5196,13 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     if is_session && !session_im_id.is_empty() {
         let is_group = state.groups.contains(&session_im_id.to_lowercase()) || from_group;
         let stype = if is_group { "group" } else { "conference" };
-        let default_title = if is_group { "Group chat" } else { "Conference" };
+        // No usable name in the bucket: an empty title, which the interface
+        // fills with its "Group chat" / "Conference" stand-in in its own
+        // language until the grid names the session.
         let title = if !bucket.trim().is_empty() && !looks_uuid_or_b64(&bucket) {
             bucket.clone()
         } else {
-            default_title.to_string()
+            String::new()
         };
         payload["sessionId"] = json!(&session_im_id);
         payload["session"] = json!({ "id": &session_im_id, "type": stype, "title": title });
@@ -6778,7 +6898,8 @@ mod tests {
         let e = emit_of(&a, "event").unwrap();
         assert_eq!(e["kind"], "script-permission");
         assert_eq!(e["permission"]["hasCaution"], true);
-        assert_eq!(e["permission"]["lines"][0], "Take Linden dollars (L$) from your account");
+        assert_eq!(e["permission"]["lines"][0]["text"], "Take Linden dollars (L$) from your account");
+        assert_eq!(e["permission"]["lines"][0]["key"], "events.permDebit");
     }
 
     #[test]
@@ -7248,8 +7369,13 @@ mod tests {
             }
         }));
         let i = emit_of(&interests, "avatar-interests").unwrap();
-        assert_eq!(i["wantTo"], json!(["Build", "Meet"]));
-        assert_eq!(i["skills"], json!(["Scripting"]));
+        // Each label is a keyed line the profile renders in the UI language.
+        let texts = |v: &Value| -> Vec<String> {
+            v.as_array().unwrap().iter().map(|l| l["text"].as_str().unwrap().to_string()).collect()
+        };
+        assert_eq!(texts(&i["wantTo"]), vec!["Build", "Meet"]);
+        assert_eq!(i["wantTo"][0]["key"], "profile.wantBuild");
+        assert_eq!(texts(&i["skills"]), vec!["Scripting"]);
         assert_eq!(i["languagesText"], "en");
     }
 
@@ -8431,10 +8557,10 @@ mod tests {
             "SitFailNotAllowedOnLand",
             "SitFailNotSameRegion",
         ] {
-            assert!(sit_failure_text(id).is_some(), "{id} must map to a friendly reason");
+            assert!(sit_failure_line(id).is_some(), "{id} must map to a friendly reason");
         }
-        assert!(sit_failure_text("SomethingElse").is_none());
-        assert!(sit_failure_text("").is_none());
+        assert!(sit_failure_line("SomethingElse").is_none());
+        assert!(sit_failure_line("").is_none());
     }
 
     fn alert_packet(alert_data: &str, info_id: &str) -> Value {

@@ -7,6 +7,8 @@
 const BeeGive = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   const SEARCH_MIN_LEN = 3;
   const SEARCH_DEBOUNCE_MS = 450;
 
@@ -50,12 +52,16 @@ const BeeGive = (function () {
   }
 
   function emptyText(query) {
-    if (source === 'friends') return query ? 'No friends match.' : 'No friends to pick from.';
-    if (source === 'nearby') return query ? 'Nobody nearby matches.' : 'Nobody nearby.';
-    if (searchStatus === 'searching') return 'Searching...';
-    if (searchStatus === 'error') return 'Search failed. Try again.';
-    if (searchStatus === 'done') return 'No residents found.';
-    return 'Type at least ' + SEARCH_MIN_LEN + ' characters of a name to search.';
+    if (source === 'friends') {
+      return query ? t('give.noFriendsMatch') : t('give.noFriends');
+    }
+    if (source === 'nearby') {
+      return query ? t('give.nobodyNearbyMatch') : t('give.nobodyNearby');
+    }
+    if (searchStatus === 'searching') return t('land.searching');
+    if (searchStatus === 'error') return t('give.searchFailed');
+    if (searchStatus === 'done') return t('give.noResidents');
+    return t('give.typeToSearch', { count: SEARCH_MIN_LEN });
   }
 
   function updateSubmit() {
@@ -138,6 +144,27 @@ const BeeGive = (function () {
     updateSubmit();
   }
 
+  // The box under the source tabs is a search box for the directory and a
+  // filter for the two lists; its label and placeholder say which.
+  function paintFilterLabels() {
+    const label = el('give-filter-label');
+    const filter = el<HTMLInputElement>('give-filter');
+    if (label) {
+      label.textContent = source === 'search' ? t('give.nameToSearch') : t('give.filter');
+    }
+    if (filter) {
+      filter.placeholder = source === 'search'
+        ? t('search.peoplePlaceholder')
+        : t('conference.filterPlaceholder');
+    }
+  }
+
+  function paintItemName() {
+    const nameEl = el('give-item-name');
+    if (!nameEl || !item) return;
+    nameEl.textContent = t('give.sendTo', { item: item.name || t('chat.item') });
+  }
+
   function setSource(next) {
     source = next === 'nearby' || next === 'search' ? next : 'friends';
     document.querySelectorAll<HTMLElement>('.give-source').forEach(function (btn) {
@@ -145,13 +172,9 @@ const BeeGive = (function () {
       btn.classList.toggle('search-kind--active', active);
       btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
-    const label = el('give-filter-label');
+    paintFilterLabels();
     const filter = el<HTMLInputElement>('give-filter');
-    if (label) label.textContent = source === 'search' ? 'Name to search' : 'Filter';
-    if (filter) {
-      filter.placeholder = source === 'search' ? 'Search people by username...' : 'Filter by name or username';
-      filter.value = '';
-    }
+    if (filter) filter.value = '';
     searchRows = [];
     searchStatus = '';
     renderPicker();
@@ -191,8 +214,9 @@ const BeeGive = (function () {
   }
 
   function selectedName() {
+    const fallback = t('give.theResident');
     const row = rowsForSource().find(function (r) { return r && normId(r.id) === normId(selectedId); });
-    return row ? (nameLines(row).title || row.name || 'the resident') : 'the resident';
+    return row ? (nameLines(row).title || row.name || fallback) : fallback;
   }
 
   function submit(e) {
@@ -200,19 +224,20 @@ const BeeGive = (function () {
     const dialog = el<HTMLDialogElement>('give-dialog');
     if (!item || !selectedId) return;
     if (!BeeState.gridOnline()) {
-      BeeUtils.showToast('Connect to the grid to send items.', 'warning');
+      BeeUtils.showToast(t('give.connectFirst'), 'warning');
       return;
     }
     const recipient = selectedName();
-    const label = item.name || 'item';
+    const label = item.name || t('chat.item');
     const submitBtn = el<HTMLButtonElement>('give-submit');
     if (submitBtn) submitBtn.disabled = true;
     BeeTransport.giveInventory(selectedId, item).then(function (result) {
-      if (!result || !result.sent) throw new Error('send failed');
-      BeeUtils.showToast('Offered "' + label + '" to ' + recipient + '.', 'success');
+      if (!result || !result.sent) throw new Error(t('give.sendFailed'));
+      BeeUtils.showToast(t('give.offered', { item: label, name: recipient }), 'success');
       if (dialog) BeeUtils.dismissDialog(dialog);
     }).catch(function (err) {
-      BeeUtils.showToast('Could not send "' + label + '": ' + (BeeUtils.errText(err) || 'send failed'), 'warning');
+      BeeUtils.showToast(t('give.sendFailedWith',
+        { item: label, error: BeeUtils.errText(err) || t('give.sendFailed') }), 'warning');
       updateSubmit();
     });
   }
@@ -254,6 +279,14 @@ const BeeGive = (function () {
     BeeState.on('change', function (partial) {
       if (partial && 'radar' in partial) repaint();
     });
+    // A language switch while the picker is open: the lines it paints are
+    // ours (the markup's own carry data-i18n and follow on their own).
+    BeeI18n.onChange(function () {
+      if (!dialog || !dialog.open) return;
+      paintItemName();
+      paintFilterLabels();
+      renderPicker();
+    });
     BeeState.on('reset', function () {
       item = null;
       if (dialog && dialog.open) BeeUtils.dismissDialog(dialog);
@@ -265,7 +298,7 @@ const BeeGive = (function () {
     const dialog = el<HTMLDialogElement>('give-dialog');
     if (!dialog || !nextItem || !nextItem.itemId) return;
     if (!BeeState.gridOnline()) {
-      BeeUtils.showToast('Connect to the grid to send items.', 'warning');
+      BeeUtils.showToast(t('give.connectFirst'), 'warning');
       return;
     }
     bindOnce();
@@ -275,8 +308,7 @@ const BeeGive = (function () {
       name: String(nextItem.name || '')
     };
     selectedId = '';
-    const nameEl = el('give-item-name');
-    if (nameEl) nameEl.textContent = 'Send "' + (item.name || 'item') + '" to:';
+    paintItemName();
     setSource('friends');
     if (typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
     const filter = el<HTMLInputElement>('give-filter');

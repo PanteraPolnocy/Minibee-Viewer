@@ -8,6 +8,8 @@
 const BeeParcelMusic = (function () {
   'use strict';
 
+  const t = BeeI18n.t;
+
   let audio = null;
   let currentUrl = '';
   let enabled = false;
@@ -32,9 +34,18 @@ const BeeParcelMusic = (function () {
   }
 
   function setNow(text) {
-    const t = text || '';
-    if (els.now) els.now.textContent = t;
-    if (els.root) els.root.title = t || 'Parcel music';
+    const line = text || '';
+    if (els.now) els.now.textContent = line;
+    if (els.root) els.root.title = line || t('music.title');
+  }
+
+  // The now-playing line for a stream the parcel offers but we are not playing.
+  function availableLine(url) {
+    return t('music.available', { url: url });
+  }
+
+  function playingLine(url) {
+    return t('music.playing', { url: url });
   }
 
   function showRoot(show) {
@@ -47,7 +58,7 @@ const BeeParcelMusic = (function () {
     // blocked), which otherwise left the slashed "off" note showing the whole time.
     if (els.toggle) {
       els.toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-      els.toggle.title = enabled ? 'Stop parcel music' : 'Play parcel music';
+      els.toggle.title = enabled ? t('music.stopTitle') : t('music.playTitle');
     }
     // An <svg> is an SVGElement, which has no `.hidden` IDL property, so setting
     // it does nothing. Toggle the real attribute instead, since that's what the
@@ -60,20 +71,26 @@ const BeeParcelMusic = (function () {
 
   // Turn a MediaError into something a human (and a bug report) can act on.
   // Streams fail for boring, specific reasons and the bare "error" event hides
-  // them, which made the Android failures impossible to tell apart.
+  // them, which made the Android failures impossible to tell apart. The line
+  // is shown in the player and goes into the diagnostic log as well, so it is
+  // in the UI language; the code in brackets reads the same everywhere.
+  function mediaErrorName(code) {
+    switch (code) {
+      case 1: return t('music.errorAborted');
+      case 2: return t('music.errorNetwork');
+      case 3: return t('music.errorDecode');
+      case 4: return t('music.errorFormat');
+      default: return t('music.errorUnknown');
+    }
+  }
+
   function describeMediaError(a) {
     const code = (a && a.error && a.error.code) || 0;
-    const names = {
-      1: 'playback aborted',
-      2: 'network error',
-      3: 'cannot decode the stream',
-      4: 'stream format not supported'
-    };
-    let why = names[code] || 'unknown error';
+    let why = mediaErrorName(code);
     // The usual Android culprit: an http:// stream on our https:// page counts as
     // mixed content, and Android's WebView refuses it outright.
     if (isMixedContent(currentUrl)) {
-      why += ' (insecure http:// stream blocked on an https:// page)';
+      why += ' ' + t('music.errorMixedContent');
     }
     return why + ' [code ' + code + ']';
   }
@@ -110,7 +127,7 @@ const BeeParcelMusic = (function () {
         updateToggleUI();
         const why = describeMediaError(audio);
         reportStreamProblem('stream error: ' + why);
-        if (currentUrl) setNow('Stream unavailable (' + why + '): ' + currentUrl);
+        if (currentUrl) setNow(t('music.unavailable', { why: why, url: currentUrl }));
       });
     }
     return audio;
@@ -135,7 +152,7 @@ const BeeParcelMusic = (function () {
       p.then(function () {
         playing = true;
         updateToggleUI();
-        setNow('Playing: ' + currentUrl);
+        setNow(playingLine(currentUrl));
       }).catch(function (err) {
         // Autoplay was blocked, or mixed content was refused.
         playing = false;
@@ -144,13 +161,13 @@ const BeeParcelMusic = (function () {
         reportStreamProblem('play() rejected: ' + name +
           (isMixedContent(currentUrl) ? ' (insecure http:// stream on an https:// page)' : ''));
         setNow(name === 'NotAllowedError'
-          ? 'Click Play to start: ' + currentUrl
-          : 'Could not start (' + name + '): ' + currentUrl);
+          ? t('music.clickPlay', { url: currentUrl })
+          : t('music.startFailed', { error: name, url: currentUrl }));
       });
     } else {
       playing = true;
       updateToggleUI();
-      setNow('Playing: ' + currentUrl);
+      setNow(playingLine(currentUrl));
     }
   }
 
@@ -181,7 +198,7 @@ const BeeParcelMusic = (function () {
     if (els.root) {
       if (next) {
         els.root.dataset.copy = next;
-        els.root.dataset.copyLabel = 'Copy stream URL';
+        els.root.dataset.copyLabel = t('music.copyStreamUrl');
       } else {
         delete els.root.dataset.copy;
         delete els.root.dataset.copyLabel;
@@ -195,7 +212,7 @@ const BeeParcelMusic = (function () {
     if (enabled) {
       play();
     } else {
-      setNow('Parcel music available: ' + next);
+      setNow(availableLine(next));
     }
   }
 
@@ -206,7 +223,7 @@ const BeeParcelMusic = (function () {
       if (currentUrl) play();
     } else {
       stop();
-      if (currentUrl) setNow('Parcel music available: ' + currentUrl);
+      if (currentUrl) setNow(availableLine(currentUrl));
     }
   }
 
@@ -257,12 +274,12 @@ const BeeParcelMusic = (function () {
         // URL" on the shared menu, and a second one would double it.
         return [
           {
-            label: enabled ? 'Stop the stream' : 'Play the stream',
+            label: enabled ? t('music.stopStream') : t('music.playStream'),
             action: toggle,
             disabled: !currentUrl
           },
           {
-            label: 'Music settings',
+            label: t('music.settings'),
             action: function () {
               if (typeof BeeNavigation !== 'undefined') BeeNavigation.switchTab('settings');
             }
@@ -283,7 +300,7 @@ const BeeParcelMusic = (function () {
           enabled = on;
           updateToggleUI();
           if (enabled) { if (currentUrl) play(); }
-          else { stop(); if (currentUrl) setNow('Parcel music available: ' + currentUrl); }
+          else { stop(); if (currentUrl) setNow(availableLine(currentUrl)); }
         } else if (key === 'parcelMusicVolume') {
           const v = Math.max(0, Math.min(100, Number(value) || 0));
           if (Math.round(volume * 100) === v) return;
@@ -312,6 +329,23 @@ const BeeParcelMusic = (function () {
       const parcel = (BeeState.get() || {}).parcel;
       if (parcel && parcel.musicUrl) applyUrl(parcel.musicUrl);
     }
+
+    // A language switch: the toggle's tooltip, the copy entry and the steady
+    // now-playing lines (playing, or offered but off) are painted again; a
+    // transient error line stays until the stream's state next changes.
+    BeeI18n.onChange(function () {
+      updateToggleUI();
+      if (els.root && els.root.dataset.copy) {
+        els.root.dataset.copyLabel = t('music.copyStreamUrl');
+      }
+      if (!currentUrl) {
+        setNow('');
+      } else if (playing) {
+        setNow(playingLine(currentUrl));
+      } else if (!enabled) {
+        setNow(availableLine(currentUrl));
+      }
+    });
   }
 
   return {
