@@ -27,6 +27,15 @@
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
+    <!-- A television has neither a touchscreen nor a microphone, and a store
+         lists the viewer only for devices that have everything the manifest
+         requires. A touchscreen counts as required unless said otherwise, and
+         RECORD_AUDIO above implies a required microphone - so both are named
+         here as optional. The remote's pad drives the page on a television;
+         voice only listens until it is unmuted, and unmuting where there is
+         no microphone says so and stays muted. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- No Auto Backup: the data folder holds settings.json (the sealed MFA
          "remember this device" record, remembered username), optional chat
