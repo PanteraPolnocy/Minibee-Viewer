@@ -1,0 +1,20 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). Norwegian Bokmål.
+         Phones report nb, not the viewer code no. -->
+    <string name="channel_connection">Tilkobling</string>
+    <string name="channel_connection_desc">Holder Minibee tilkoblet Second Life.</string>
+    <string name="notif_connected">Forblir tilkoblet Second Life</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%d ulest IM</item>
+        <item quantity="other">%d uleste IM-er</item>
+    </plurals>
+    <string name="action_play_music">Spill av musikk</string>
+    <string name="action_stop_music">Stopp musikk</string>
+    <string name="action_mute_mic">Demp mikrofonen</string>
+    <string name="action_unmute_mic">Slå på mikrofonen</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">Meldinger</string>
+    <string name="channel_messages_desc">Nye direktemeldinger når Minibee ikke er på skjermen.</string>
+    <string name="notif_new_im">Ny IM</string>
+</resources>

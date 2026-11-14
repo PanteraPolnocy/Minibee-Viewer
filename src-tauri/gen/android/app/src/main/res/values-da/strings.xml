@@ -1,0 +1,19 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">Forbindelse</string>
+    <string name="channel_connection_desc">Holder Minibee forbundet til Second Life.</string>
+    <string name="notif_connected">Forbliver forbundet til Second Life</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%d ulæst IM</item>
+        <item quantity="other">%d ulæste IM\'er</item>
+    </plurals>
+    <string name="action_play_music">Afspil musik</string>
+    <string name="action_stop_music">Stop musik</string>
+    <string name="action_mute_mic">Slå mikrofon fra</string>
+    <string name="action_unmute_mic">Slå mikrofon til</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">Beskeder</string>
+    <string name="channel_messages_desc">Nye IM\'er, mens Minibee ikke er på skærmen.</string>
+    <string name="notif_new_im">Ny IM</string>
+</resources>

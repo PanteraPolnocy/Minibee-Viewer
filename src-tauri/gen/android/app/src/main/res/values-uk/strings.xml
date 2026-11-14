@@ -1,0 +1,21 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">З\'єднання</string>
+    <string name="channel_connection_desc">Утримує з\'єднання Minibee з Second Life.</string>
+    <string name="notif_connected">З\'єднання з Second Life утримується</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%d непрочитане повідомлення</item>
+        <item quantity="few">%d непрочитані повідомлення</item>
+        <item quantity="many">%d непрочитаних повідомлень</item>
+        <item quantity="other">%d непрочитаного повідомлення</item>
+    </plurals>
+    <string name="action_play_music">Увімкнути музику</string>
+    <string name="action_stop_music">Зупинити музику</string>
+    <string name="action_mute_mic">Вимкнути мікрофон</string>
+    <string name="action_unmute_mic">Увімкнути мікрофон</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">Повідомлення</string>
+    <string name="channel_messages_desc">Нові особисті повідомлення, коли Minibee не на екрані.</string>
+    <string name="notif_new_im">Нове повідомлення</string>
+</resources>

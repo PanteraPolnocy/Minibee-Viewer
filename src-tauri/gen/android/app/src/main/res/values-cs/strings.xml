@@ -1,0 +1,21 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">Připojení</string>
+    <string name="channel_connection_desc">Udržuje připojení Minibee k Second Life.</string>
+    <string name="notif_connected">Připojení k Second Life zůstává</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%d nepřečtená zpráva</item>
+        <item quantity="few">%d nepřečtené zprávy</item>
+        <item quantity="many">%d nepřečtené zprávy</item>
+        <item quantity="other">%d nepřečtených zpráv</item>
+    </plurals>
+    <string name="action_play_music">Přehrát hudbu</string>
+    <string name="action_stop_music">Zastavit hudbu</string>
+    <string name="action_mute_mic">Ztlumit mikrofon</string>
+    <string name="action_unmute_mic">Zapnout mikrofon</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">Zprávy</string>
+    <string name="channel_messages_desc">Nové okamžité zprávy, když Minibee není na obrazovce.</string>
+    <string name="notif_new_im">Nová zpráva</string>
+</resources>

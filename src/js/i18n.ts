@@ -46,13 +46,40 @@ const BeeI18n = (function () {
   // own language on purpose: that is how someone looking for theirs finds it.
   const LANGUAGES: Array<[string, string]> = [
     ['en', 'English'],
-    ['pl', 'Polski']
+    ['cs', 'Čeština'],
+    ['da', 'Dansk'],
+    ['de', 'Deutsch'],
+    ['es', 'Español'],
+    ['fr', 'Français'],
+    ['hu', 'Magyar'],
+    ['it', 'Italiano'],
+    ['ja', '日本語'],
+    ['nl', 'Nederlands'],
+    ['no', 'Norsk'],
+    ['pl', 'Polski'],
+    ['pt', 'Português'],
+    ['ro', 'Română'],
+    ['ru', 'Русский'],
+    ['sv', 'Svenska'],
+    ['tr', 'Türkçe'],
+    ['uk', 'Українська'],
+    ['zh', '正體中文']
   ];
   // Intl tags. Numbers always follow the UI language; dates and times follow
   // the device while the UI is English (an English UI on a Polish device
   // keeps its 24-hour clock) and the language otherwise.
-  const NUMBER_LOCALE: Record<string, string> = { en: 'en-US', pl: 'pl-PL' };
-  const DATE_LOCALE: Record<string, string | undefined> = { en: undefined, pl: 'pl-PL' };
+  const NUMBER_LOCALE: Record<string, string> = {
+    en: 'en-US', cs: 'cs-CZ', da: 'da-DK', de: 'de-DE', es: 'es-ES', fr: 'fr-FR',
+    hu: 'hu-HU', it: 'it-IT', ja: 'ja-JP', nl: 'nl-NL', no: 'nb-NO', pl: 'pl-PL',
+    pt: 'pt-BR', ro: 'ro-RO', ru: 'ru-RU', sv: 'sv-SE', tr: 'tr-TR', uk: 'uk-UA',
+    zh: 'zh-TW'
+  };
+  const DATE_LOCALE: Record<string, string | undefined> = {
+    en: undefined, cs: 'cs-CZ', da: 'da-DK', de: 'de-DE', es: 'es-ES', fr: 'fr-FR',
+    hu: 'hu-HU', it: 'it-IT', ja: 'ja-JP', nl: 'nl-NL', no: 'nb-NO', pl: 'pl-PL',
+    pt: 'pt-BR', ro: 'ro-RO', ru: 'ru-RU', sv: 'sv-SE', tr: 'tr-TR', uk: 'uk-UA',
+    zh: 'zh-TW'
+  };
   const ATTRS = ['title', 'placeholder', 'aria-label', 'alt', 'value'];
 
   let lang = DEFAULT;

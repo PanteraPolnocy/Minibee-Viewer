@@ -1,0 +1,19 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">Kapcsolat</string>
+    <string name="channel_connection_desc">Fenntartja a Minibee kapcsolatát a Second Life-fal.</string>
+    <string name="notif_connected">A Second Life-kapcsolat fennmarad</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%d olvasatlan üzenet</item>
+        <item quantity="other">%d olvasatlan üzenet</item>
+    </plurals>
+    <string name="action_play_music">Zene lejátszása</string>
+    <string name="action_stop_music">Zene leállítása</string>
+    <string name="action_mute_mic">Mikrofon némítása</string>
+    <string name="action_unmute_mic">Mikrofon némításának feloldása</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">Üzenetek</string>
+    <string name="channel_messages_desc">Új azonnali üzenetek, amikor a Minibee nincs a képernyőn.</string>
+    <string name="notif_new_im">Új üzenet</string>
+</resources>

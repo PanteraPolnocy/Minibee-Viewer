@@ -1,0 +1,20 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">Conexão</string>
+    <string name="channel_connection_desc">Mantém o Minibee conectado ao Second Life.</string>
+    <string name="notif_connected">Conexão com o Second Life mantida</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%d mensagem não lida</item>
+        <item quantity="many">%d mensagens não lidas</item>
+        <item quantity="other">%d mensagens não lidas</item>
+    </plurals>
+    <string name="action_play_music">Tocar música</string>
+    <string name="action_stop_music">Parar música</string>
+    <string name="action_mute_mic">Silenciar microfone</string>
+    <string name="action_unmute_mic">Ativar microfone</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">Mensagens</string>
+    <string name="channel_messages_desc">Novas mensagens instantâneas quando o Minibee não está na tela.</string>
+    <string name="notif_new_im">Nova mensagem</string>
+</resources>

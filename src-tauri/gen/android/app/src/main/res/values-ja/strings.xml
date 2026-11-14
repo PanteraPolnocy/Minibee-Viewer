@@ -1,0 +1,18 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">接続</string>
+    <string name="channel_connection_desc">Minibee と Second Life の接続を維持します。</string>
+    <string name="notif_connected">Second Life に接続したままです</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="other">未読の IM %d 件</item>
+    </plurals>
+    <string name="action_play_music">音楽を再生</string>
+    <string name="action_stop_music">音楽を停止</string>
+    <string name="action_mute_mic">マイクをミュート</string>
+    <string name="action_unmute_mic">マイクのミュートを解除</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">メッセージ</string>
+    <string name="channel_messages_desc">Minibee が画面に出ていないときの新しい IM。</string>
+    <string name="notif_new_im">新しい IM</string>
+</resources>

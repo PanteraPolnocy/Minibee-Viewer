@@ -1,0 +1,19 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">Bağlantı</string>
+    <string name="channel_connection_desc">Minibee\'nin Second Life bağlantısını sürdürür.</string>
+    <string name="notif_connected">Second Life bağlantısı sürdürülüyor</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%d okunmamış ileti</item>
+        <item quantity="other">%d okunmamış ileti</item>
+    </plurals>
+    <string name="action_play_music">Müziği oynat</string>
+    <string name="action_stop_music">Müziği durdur</string>
+    <string name="action_mute_mic">Mikrofonu kapat</string>
+    <string name="action_unmute_mic">Mikrofonu aç</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">İletiler</string>
+    <string name="channel_messages_desc">Minibee ekranda değilken yeni anlık iletiler.</string>
+    <string name="notif_new_im">Yeni ileti</string>
+</resources>

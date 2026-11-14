@@ -1,0 +1,18 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">連線</string>
+    <string name="channel_connection_desc">讓 Minibee 與 Second Life 保持連線。</string>
+    <string name="notif_connected">與 Second Life 保持連線</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="other">%d 則未讀 IM</item>
+    </plurals>
+    <string name="action_play_music">播放音樂</string>
+    <string name="action_stop_music">停止音樂</string>
+    <string name="action_mute_mic">將麥克風靜音</string>
+    <string name="action_unmute_mic">取消麥克風靜音</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">訊息</string>
+    <string name="channel_messages_desc">Minibee 不在畫面上時的新即時訊息。</string>
+    <string name="notif_new_im">新訊息</string>
+</resources>
