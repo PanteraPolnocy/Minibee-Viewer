@@ -1468,6 +1468,7 @@
   "radar.range": "Zasięg",
   "radar.teleportTo": "Teleportuj do",
   "radar.teleportingTo": "Teleportowanie do {name}...",
+  "remote.hint": "Pilot: strzałki przesuwają zaznaczenie, Wybierz je otwiera, Menu pokazuje więcej akcji, Wstecz cofa o krok.",
   "restart.anyMoment": "lada chwila",
   "restart.hint": "Teleportuj się teraz gdzie indziej, inaczej po wyłączeniu regionu nastąpi wylogowanie.",
   "restart.minutes": {

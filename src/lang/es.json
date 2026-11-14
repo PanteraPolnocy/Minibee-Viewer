@@ -1444,6 +1444,7 @@
   "radar.range": "Alcance",
   "radar.teleportTo": "Teleportar a",
   "radar.teleportingTo": "Teleportando a {name}...",
+  "remote.hint": "Mando a distancia: las flechas mueven el resaltado, Seleccionar lo abre, Menú muestra más acciones y Atrás vuelve un paso.",
   "restart.anyMoment": "en cualquier momento",
   "restart.hint": "Teleporta a otro lugar ahora, o se cerrará tu sesión cuando la región se apague.",
   "restart.minutes": {

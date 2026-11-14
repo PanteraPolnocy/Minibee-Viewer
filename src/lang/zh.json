@@ -1396,6 +1396,7 @@
   "radar.range": "範圍",
   "radar.teleportTo": "瞬間傳送到",
   "radar.teleportingTo": "正在瞬間傳送到{name}...",
+  "remote.hint": "遙控器：方向鍵移動反白，選取鍵開啟，選單鍵顯示更多動作，返回鍵回到上一步。",
   "restart.anyMoment": "隨時",
   "restart.hint": "請立刻瞬間傳送到別處，否則區域關閉時你會被登出。",
   "restart.minutes": {

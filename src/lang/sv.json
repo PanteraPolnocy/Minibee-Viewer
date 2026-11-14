@@ -1420,6 +1420,7 @@
   "radar.range": "Räckvidd",
   "radar.teleportTo": "Teleportera till",
   "radar.teleportingTo": "Teleporterar till {name}...",
+  "remote.hint": "Fjärrkontroll: pilarna flyttar markeringen, Välj öppnar den, Meny visar fler åtgärder, Tillbaka går ett steg tillbaka.",
   "restart.anyMoment": "när som helst nu",
   "restart.hint": "Teleportera någon annanstans nu, annars loggas du ut när regionen går ner.",
   "restart.minutes": {

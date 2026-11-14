@@ -1420,6 +1420,7 @@
   "radar.range": "Bereik",
   "radar.teleportTo": "Teleporteren naar",
   "radar.teleportingTo": "Teleporteren naar {name}...",
+  "remote.hint": "Afstandsbediening: de pijlen verplaatsen de markering, Selecteren opent die, Menu toont meer acties, Terug gaat een stap terug.",
   "restart.anyMoment": "elk moment",
   "restart.hint": "Teleporteer nu ergens anders heen, anders word je uitgelogd als de regio uitgaat.",
   "restart.minutes": {

@@ -1420,6 +1420,7 @@
   "radar.range": "Menzil",
   "radar.teleportTo": "Şuraya ışınlan",
   "radar.teleportingTo": "{name} hedefine ışınlanılıyor...",
+  "remote.hint": "Uzaktan kumanda: oklar vurguyu taşır, Seç onu açar, Menü diğer işlemleri gösterir, Geri bir adım geri gider.",
   "restart.anyMoment": "her an",
   "restart.hint": "Şimdi başka bir yere ışınlanın, yoksa bölge kapanınca oturumunuz kapanır.",
   "restart.minutes": {

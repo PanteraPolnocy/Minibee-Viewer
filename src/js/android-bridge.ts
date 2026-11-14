@@ -11,6 +11,11 @@
  * It also answers the Android Back button: MainActivity evaluates
  * window.MinibeeAndroidBack() before deciding what to do with the activity
  * (see back()), and hears about network switches through networkChanged().
+ *
+ * On a television (the shell says so through MinibeeAndroid.isTelevision)
+ * Back ends differently: there the viewer cannot quietly move behind other
+ * apps and stay logged in - nothing on a TV would show that it still is - so
+ * the last Back asks whether to log out and close (see leaveFromTv).
  */
 const BeeAndroidBridge = (function () {
   'use strict';
@@ -84,15 +89,72 @@ const BeeAndroidBridge = (function () {
     return !!el && el.getClientRects().length > 0;
   }
 
+  function isTelevision() {
+    const n = window.MinibeeAndroid;
+    try {
+      return !!(n && typeof n.isTelevision === 'function' && n.isTelevision());
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  // The last Back on a television, with a session live. A phone moves the
+  // viewer behind and its notification says the session is still on; a
+  // television has no such place, and a viewer left running there keeps the
+  // avatar in world with nothing on screen to show it. So it asks - the same
+  // question as closing the desktop window - and a yes logs out and then
+  // closes the app. A shell too old to close it leaves the login screen up,
+  // where the next Back exits.
+  let leaving = false;
+  async function leaveFromTv() {
+    if (leaving) return;
+    leaving = true;
+    try {
+      const ok = await BeeUtils.confirm({
+        title: t('app.closeTitle'),
+        message: t('app.closeMessage'),
+        confirmLabel: t('app.closeConfirm'),
+        danger: true
+      });
+      if (!ok) return;
+      if (window.BeeApp && typeof window.BeeApp.logout === 'function') {
+        await window.BeeApp.logout({ skipConfirm: true });
+      }
+      const n = window.MinibeeAndroid;
+      if (n && typeof n.exitApp === 'function') n.exitApp();
+    } catch (_e) {
+      /* the session's own error handling has spoken; Back can be pressed again */
+    } finally {
+      leaving = false;
+    }
+  }
+
+  // The popups that are not dialogs. The text menu and the top bar's two
+  // close on Escape, which is what Back stands for here; a row's own menu
+  // (people, radar, objects) is simply hidden, as a click beside it does.
+  const ESCAPE_MENUS = ['edit-context-menu', 'bee-menu', 'location-menu'];
+
   // The Back button. Closes the innermost open thing and reports 'handled';
   // with nothing to close, 'background' while a session is live (the shell
   // then moves the task behind, the foreground service keeps the connection)
   // and 'exit' otherwise (the shell finishes the activity). Only reaches what
-  // the UI itself exposes: dialogs go through BeeUtils.dismissDialog, the
-  // narrow-screen IM thread and the script/notecard editors through their own
-  // visible back buttons, so the modules keep their state in step.
+  // the UI itself exposes: dialogs go through BeeUtils.dismissDialog, menus
+  // through the Escape they listen for, the narrow-screen IM thread and the
+  // script/notecard editors through their own visible back buttons, so the
+  // modules keep their state in step. A television gets two more steps at
+  // the end: the focus returns to the tabs, and the last press asks about
+  // logging out instead of going to the background.
   function back() {
     try {
+      const rowMenu = document.getElementById('context-menu');
+      if (isShown(rowMenu)) {
+        rowMenu.hidden = true;
+        return 'handled';
+      }
+      if (ESCAPE_MENUS.some(function (id) { return isShown(document.getElementById(id)); })) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return 'handled';
+      }
       const dialogs = document.querySelectorAll<HTMLDialogElement>('dialog[open]');
       if (dialogs.length) {
         // The most recently opened modal is normally the last one; either
@@ -121,8 +183,15 @@ const BeeAndroidBridge = (function () {
           return 'handled';
         }
       }
+      // A remote first steps back from a panel to the tabs.
+      if (typeof BeeRemoteNav !== 'undefined' && BeeRemoteNav.back()) return 'handled';
     } catch (_e) { /* fall through to the session verdict */ }
-    return BeeState.get().connected ? 'background' : 'exit';
+    if (!BeeState.get().connected) return 'exit';
+    if (isTelevision()) {
+      void leaveFromTv();
+      return 'handled';
+    }
+    return 'background';
   }
 
   function trackIm(payload) {

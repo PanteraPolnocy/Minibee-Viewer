@@ -1444,6 +1444,7 @@
   "radar.range": "Portée",
   "radar.teleportTo": "Se téléporter vers",
   "radar.teleportingTo": "Téléportation vers {name}...",
+  "remote.hint": "Télécommande : les flèches déplacent la sélection, Sélectionner l'ouvre, Menu affiche d'autres actions, Retour revient d'un pas.",
   "restart.anyMoment": "d'un instant à l'autre",
   "restart.hint": "Téléportez-vous ailleurs maintenant, ou vous serez déconnecté quand la région s'arrêtera.",
   "restart.minutes": {

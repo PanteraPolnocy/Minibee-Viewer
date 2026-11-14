@@ -1396,6 +1396,7 @@
   "radar.range": "範囲",
   "radar.teleportTo": "テレポート先",
   "radar.teleportingTo": "{name}さんへテレポートしています...",
+  "remote.hint": "リモコン: 矢印でハイライトを移動、決定で開く、メニューでその他の操作、戻るで1つ前に戻ります。",
   "restart.anyMoment": "まもなく",
   "restart.hint": "今すぐ別の場所へテレポートしてください。リージョンが停止するとログアウトされます。",
   "restart.minutes": {

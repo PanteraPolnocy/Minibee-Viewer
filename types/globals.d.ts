@@ -42,8 +42,15 @@ interface Window {
   /**
    * Injected by the Android shell (addJavascriptInterface in MainActivity) so
    * the page can feed the keep-alive notification; absent everywhere else.
+   * The two newer hooks are optional, for a shell that predates them:
+   * whether the device is a television (the page then answers a remote's
+   * five-way pad, see remote-nav.ts), and closing the app for good.
    */
-  MinibeeAndroid?: { updateState(json: string): void };
+  MinibeeAndroid?: {
+    updateState(json: string): void;
+    isTelevision?(): boolean;
+    exitApp?(): void;
+  };
 
   // Reached through `window.` where the caller treats the module as optional
   // (load order means it may legitimately not be there yet).
@@ -58,5 +65,6 @@ interface Window {
   BeeChatLogs?: typeof BeeChatLogs;
   BeeVoice?: typeof BeeVoice;
   BeeAndroidBridge?: typeof BeeAndroidBridge;
+  BeeRemoteNav?: typeof BeeRemoteNav;
   BeeSounds?: typeof BeeSounds;
 }

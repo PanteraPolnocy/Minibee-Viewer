@@ -1444,6 +1444,7 @@
   "radar.range": "Rază",
   "radar.teleportTo": "Teleportează la",
   "radar.teleportingTo": "Te teleportezi la {name}...",
+  "remote.hint": "Telecomandă: săgețile mută evidențierea, Selectare o deschide, Meniu arată mai multe acțiuni, Înapoi revine cu un pas.",
   "restart.anyMoment": "în orice clipă",
   "restart.hint": "Teleportează-te altundeva acum, altfel vei fi deconectat când regiunea se oprește.",
   "restart.minutes": {

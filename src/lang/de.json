@@ -1420,6 +1420,7 @@
   "radar.range": "Reichweite",
   "radar.teleportTo": "Teleportieren zu",
   "radar.teleportingTo": "Teleportieren zu {name}...",
+  "remote.hint": "Fernbedienung: Die Pfeile bewegen die Markierung, Auswahl öffnet sie, Menü zeigt weitere Aktionen, Zurück geht einen Schritt zurück.",
   "restart.anyMoment": "wenigen Augenblicken",
   "restart.hint": "Teleportieren Sie jetzt woandershin, sonst werden Sie abgemeldet, wenn die Region herunterfährt.",
   "restart.minutes": {

@@ -1444,6 +1444,7 @@
   "radar.range": "Alcance",
   "radar.teleportTo": "Teleportar até",
   "radar.teleportingTo": "Teleportando até {name}...",
+  "remote.hint": "Controle remoto: as setas movem o destaque, Selecionar abre, Menu mostra mais ações e Voltar retorna um passo.",
   "restart.anyMoment": "a qualquer momento",
   "restart.hint": "Teleporte para outro lugar agora, ou você será desconectado quando a região cair.",
   "restart.minutes": {

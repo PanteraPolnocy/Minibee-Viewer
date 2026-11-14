@@ -656,6 +656,8 @@ const BeeApp = (function () {
       if (typeof BeeSounds !== 'undefined') BeeSounds.init();
       if (typeof BeeParcelMusic !== 'undefined') BeeParcelMusic.init();
       if (typeof BeeAndroidBridge !== 'undefined') BeeAndroidBridge.init();
+      // The five-way pad of a television remote; inert anywhere else.
+      if (typeof BeeRemoteNav !== 'undefined') BeeRemoteNav.init();
       if (typeof MinibeeVersion !== 'undefined' && MinibeeVersion.load) {
         MinibeeVersion.load().catch(function () {});
       }

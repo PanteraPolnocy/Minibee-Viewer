@@ -1420,6 +1420,7 @@
   "radar.range": "Range",
   "radar.teleportTo": "Teleport to",
   "radar.teleportingTo": "Teleporting to {name}...",
+  "remote.hint": "Remote control: the arrows move the highlight, Select opens it, Menu shows more actions, Back steps back.",
   "restart.anyMoment": "any moment now",
   "restart.hint": "Teleport somewhere else now, or you will be logged out when the region goes down.",
   "restart.minutes": {

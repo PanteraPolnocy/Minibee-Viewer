@@ -1468,6 +1468,7 @@
   "radar.range": "Dosah",
   "radar.teleportTo": "Teleport k",
   "radar.teleportingTo": "Teleport k {name}...",
+  "remote.hint": "Dálkový ovladač: šipky posouvají zvýraznění, Select ho otevře, Menu ukáže další akce, Zpět vrací o krok.",
   "restart.anyMoment": "každou chvíli",
   "restart.hint": "Teleportuj se teď jinam, jinak tě to odhlásí, až region spadne.",
   "restart.minutes": {

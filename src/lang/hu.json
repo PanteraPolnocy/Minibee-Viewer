@@ -1420,6 +1420,7 @@
   "radar.range": "Hatótáv",
   "radar.teleportTo": "Teleport hozzá",
   "radar.teleportingTo": "Teleport hozzá: {name}...",
+  "remote.hint": "Távirányító: a nyilak mozgatják a kijelölést, a Kiválasztás megnyitja, a Menü további műveleteket mutat, a Vissza egy lépést visszalép.",
   "restart.anyMoment": "pillanatokon belül",
   "restart.hint": "Teleportálj máshova most, különben kijelentkeztet, amikor a régió leáll.",
   "restart.minutes": {

@@ -1,13 +1,16 @@
 package com.pantera.minibee_viewer
 
+import android.app.UiModeManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
 import android.os.Bundle
 import android.system.Os
+import android.view.KeyEvent
 import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -31,6 +34,8 @@ class MainActivity : TauriActivity() {
   @Volatile private var lastNetwork: Network? = null
   private var sawLoss = false
   private var networkCallback: ConnectivityManager.NetworkCallback? = null
+  // Whether this device is a television (see isTelevision); asked once.
+  private val television: Boolean by lazy { isTelevision(this) }
 
   companion object {
     // The live activity, reachable from ConnectionService so notification
@@ -47,6 +52,69 @@ class MainActivity : TauriActivity() {
         }
       }
     }
+
+    // A television - Fire TV, Android TV - is driven by a remote: no touch,
+    // no pointer, a five-way pad. The page asks (MinibeeAndroid.isTelevision)
+    // and turns its pad navigation on; the activity forwards the remote's
+    // other keys (dispatchKeyEvent) and Back ends in a logout question
+    // instead of a quiet move to the background. Any one of the three signs
+    // is enough: the system's UI mode, the leanback feature, or Amazon's own
+    // Fire TV feature.
+    fun isTelevision(context: Context): Boolean {
+      return try {
+        val ui = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+        val pm = context.packageManager
+        ui?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+          pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+          pm.hasSystemFeature("amazon.hardware.fire_tv")
+      } catch (_: Exception) {
+        false
+      }
+    }
+
+    // Close the viewer for good: finish() takes the keep-alive service down
+    // with the activity (see onDestroy). The page calls this once it has
+    // logged out (MinibeeAndroid.exitApp).
+    fun finishCurrent() {
+      val activity = current?.get() ?: return
+      activity.runOnUiThread {
+        try {
+          activity.finish()
+        } catch (_: Exception) {
+        }
+      }
+    }
+  }
+
+  // A remote's keys that a WebView does not reliably hand to the page: Menu
+  // (the page opens the context menu of whatever has the focus, the remote's
+  // stand-in for a long-press) and the media row (play/pause for the parcel's
+  // music, rewind and fast-forward for the tab before and after). Only on a
+  // television - a phone's keys are left alone - and only on release, so a
+  // held key is one press. The five-way pad itself reaches the page as
+  // ordinary arrow and Enter keys and needs no help; while the on-screen
+  // keyboard is up the keys go to it, not here.
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (television) {
+      val key = when (event.keyCode) {
+        KeyEvent.KEYCODE_MENU -> "menu"
+        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+        KeyEvent.KEYCODE_MEDIA_PLAY,
+        KeyEvent.KEYCODE_MEDIA_PAUSE -> "playpause"
+        KeyEvent.KEYCODE_MEDIA_REWIND,
+        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> "previous"
+        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+        KeyEvent.KEYCODE_MEDIA_NEXT -> "next"
+        else -> null
+      }
+      if (key != null) {
+        if (event.action == KeyEvent.ACTION_UP) {
+          runJs("window.BeeRemoteNav && BeeRemoteNav.remoteKey('$key');")
+        }
+        return true
+      }
+    }
+    return super.dispatchKeyEvent(event)
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -263,8 +331,18 @@ class MainActivity : TauriActivity() {
 
   // The page's side of the notification: android-bridge.ts pushes a small JSON
   // state blob here whenever music, voice or unread IMs change. Runs on a
-  // WebView worker thread - only writes plain fields and re-posts.
+  // WebView worker thread - only writes plain fields and re-posts. The two
+  // other hooks are for a television: what kind of device this is, and
+  // closing the app once the page has logged out.
   private class NotificationBridge(private val context: Context) {
+    @JavascriptInterface
+    fun isTelevision(): Boolean = MainActivity.isTelevision(context)
+
+    @JavascriptInterface
+    fun exitApp() {
+      MainActivity.finishCurrent()
+    }
+
     @JavascriptInterface
     fun updateState(json: String) {
       try {

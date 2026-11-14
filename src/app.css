@@ -104,6 +104,26 @@ body {
   visibility: hidden;
 }
 
+/* A television remote (remote-nav.ts sets the class): the focus is the only
+   cursor there is, read from across a room, so it is drawn the same heavy
+   way on everything - whatever quieter focus style, or none, a control has
+   for a keyboard. The ring is in the text colour with a band of the deep
+   surface inside it, which holds on dark panels, light panels and on the
+   accent-filled buttons alike; both sit inside the element's edge, where no
+   scrolling container can clip them. */
+html.remote-nav :focus {
+  outline: 3px solid var(--text) !important;
+  outline-offset: -3px !important;
+  box-shadow: inset 0 0 0 5px var(--bg-deep) !important;
+}
+
+/* A slider taken up with Select: the arrows now change its value, and the
+   ring says so by turning to the accent. */
+html.remote-nav [data-remote-adjust]:focus {
+  outline-color: var(--accent) !important;
+  outline-offset: 2px !important;
+}
+
 .app {
   width: 100%;
   min-height: 100dvh;

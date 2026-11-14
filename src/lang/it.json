@@ -1444,6 +1444,7 @@
   "radar.range": "Raggio",
   "radar.teleportTo": "Teletrasporto verso",
   "radar.teleportingTo": "Teletrasporto verso {name}...",
+  "remote.hint": "Telecomando: le frecce spostano l'evidenziazione, Seleziona la apre, Menu mostra altre azioni, Indietro torna di un passo.",
   "restart.anyMoment": "da un momento all'altro",
   "restart.hint": "Teletrasportati altrove adesso, oppure verrai disconnesso quando la regione si spegne.",
   "restart.minutes": {
