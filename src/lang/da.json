@@ -1475,6 +1475,7 @@
   "scripts.loading": "Indlæser scripts...",
   "scripts.logInToSee": "Log ind for at se dine scripts.",
   "scripts.lslSource": "LSL-kilde",
+  "scripts.luauTitle": "Kompileres til Luau, den runtime som dette script bruger",
   "scripts.monoTitle": "Kompilér til Mono-runtime (fra = LSL2)",
   "scripts.myScripts": "Mine scripts",
   "scripts.newNamePrompt": "Navn på det nye script:",

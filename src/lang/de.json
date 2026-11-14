@@ -1475,6 +1475,7 @@
   "scripts.loading": "Skripte werden geladen...",
   "scripts.logInToSee": "Melden Sie sich an, um Ihre Skripte zu sehen.",
   "scripts.lslSource": "LSL-Quelltext",
+  "scripts.luauTitle": "Wird für Luau kompiliert, die Laufzeit, die dieses Skript verwendet",
   "scripts.monoTitle": "Für die Mono-Laufzeit kompilieren (aus = LSL2)",
   "scripts.myScripts": "Meine Skripte",
   "scripts.newNamePrompt": "Name für das neue Skript:",

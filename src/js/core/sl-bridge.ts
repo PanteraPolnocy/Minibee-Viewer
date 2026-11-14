@@ -656,8 +656,14 @@ const BeeSLBridge = (function () {
   function requestScriptSource(itemId, assetId) {
     return invoke('sl_script_source', { itemId: itemId, assetId: assetId || '' });
   }
-  function saveScript(itemId, text, target) {
-    return invoke('sl_script_save', { itemId: itemId, text: text, target: target || null });
+  // `target` is the user's pick between the two LSL machines; `about` is what
+  // the listing said of the item ({ lua, runtime }). The core works out the
+  // compiler from all of it and answers with the one it used.
+  function saveScript(itemId, text, target, about) {
+    return invoke('sl_script_save', {
+      itemId: itemId, text: text, target: target || null,
+      lua: !!(about && about.lua), runtime: String((about && about.runtime) || '')
+    });
   }
   // The new item arrives later as a 'script-created' event.
   function createScript(name) { return invoke('sl_script_create', { name: name }); }

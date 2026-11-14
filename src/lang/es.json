@@ -1501,6 +1501,7 @@
   "scripts.loading": "Cargando scripts...",
   "scripts.logInToSee": "Inicia sesión para ver tus scripts.",
   "scripts.lslSource": "Código LSL",
+  "scripts.luauTitle": "Se compila para Luau, el entorno de ejecución que usa este script",
   "scripts.monoTitle": "Compilar para el runtime Mono (apagado = LSL2)",
   "scripts.myScripts": "Mis scripts",
   "scripts.newNamePrompt": "Nombre del script nuevo:",

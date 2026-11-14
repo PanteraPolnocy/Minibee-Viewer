@@ -18,7 +18,10 @@ const BeeScripts = (function () {
   let lang = null;
   let langSets = null;
   let langLoading = false;
-  let current = null; // { itemId, assetId, creatorId, lastOwnerId, name, savedText, dirty }
+  // { itemId, assetId, creatorId, lastOwnerId, name, savedText, dirty, lua,
+  // runtime }: the last two are what the inventory says of the script - its
+  // language, and the machine it last ran on (see syncTarget).
+  let current = null;
   let saving = false;
   let openSeq = 0;
   const sourceWaiters = new Map(); // itemId -> { resolve, reject, timer }
@@ -726,10 +729,14 @@ const BeeScripts = (function () {
       row.type = 'button';
       row.className = 'script-diag';
       const hasPos = typeof d.line === 'number';
-      // The compiler reports 0-based positions; people count from 1.
-      row.textContent = (hasPos ? '(' + (d.line + 1) + ', ' + (d.column + 1) + ') ' : '') + (d.text || '');
+      // The Lua compiler names a line and no column.
+      const hasColumn = typeof d.column === 'number';
+      // The core hands over 0-based positions; people count from 1.
+      const where = !hasPos ? ''
+        : '(' + (d.line + 1) + (hasColumn ? ', ' + (d.column + 1) : '') + ') ';
+      row.textContent = where + (d.text || '');
       if (hasPos) {
-        row.addEventListener('click', function () { jumpTo(d.line, d.column); });
+        row.addEventListener('click', function () { jumpTo(d.line, hasColumn ? d.column : 0); });
       } else {
         row.disabled = true;
       }
@@ -884,10 +891,33 @@ const BeeScripts = (function () {
     }
   }
 
+  // Whether the open script's compiler is settled by what it is: a Lua
+  // script, or LSL that already runs on the Luau machine. Only LSL on one of
+  // the two older machines leaves the user a choice (the Mono switch).
+  function onLuau() {
+    return !!current && (current.lua || current.runtime === 'luau');
+  }
+
+  // The header's compiler control for the open script: the Mono switch, set
+  // to the machine the script is on, or - where there is nothing to choose -
+  // the name of the one it gets. The formatter knows LSL only, so a Lua
+  // script goes without it.
+  function syncTarget() {
+    const fixed = onLuau();
+    const mono = el<HTMLInputElement>('script-mono');
+    const monoLabel = mono ? mono.closest<HTMLElement>('label') : null;
+    const vm = el('script-vm');
+    if (monoLabel) monoLabel.hidden = fixed;
+    if (vm) vm.hidden = !fixed;
+    if (mono && current && !fixed) mono.checked = current.runtime !== 'lsl2';
+    const format = el('script-format');
+    if (format) format.hidden = !current || !!current.lua;
+  }
+
   // Re-indent the whole source through the Rust formatter. One undo step.
   async function formatCurrent() {
     const input = el<HTMLTextAreaElement>('script-input');
-    if (!current || !input || input.disabled) return;
+    if (!current || current.lua || !input || input.disabled) return;
     try {
       const res = await BeeTransport.formatLsl(input.value);
       if (!res || !res.ok || typeof res.text !== 'string') return;
@@ -951,12 +981,17 @@ const BeeScripts = (function () {
       removeDraft(current.itemId);
     }
     const seq = ++openSeq;
-    current = { itemId: row.itemId, assetId: row.assetId, creatorId: row.creatorId || '', lastOwnerId: row.lastOwnerId || '', name: row.name, savedText: '', dirty: false };
+    current = {
+      itemId: row.itemId, assetId: row.assetId, creatorId: row.creatorId || '', lastOwnerId: row.lastOwnerId || '',
+      name: row.name, savedText: '', dirty: false,
+      lua: !!row.lua, runtime: String(row.runtime || '')
+    };
     clearUndo();
     ['script-rename', 'script-find-open', 'script-format', 'script-copy-ids', 'script-send'].forEach(function (id) {
       const btn = el(id);
       if (btn) btn.hidden = false;
     });
+    syncTarget();
     closeFind();
     const name = el('script-name');
     if (name) name.textContent = row.name || t('scripts.unnamed');
@@ -1014,7 +1049,20 @@ const BeeScripts = (function () {
     setStatus('compiling');
     renderDiagnostics([]);
     try {
-      const res = await BeeTransport.saveScript(itemId, text, mono && !mono.checked ? 'lsl2' : 'mono');
+      const res = await BeeTransport.saveScript(itemId, text, mono && !mono.checked ? 'lsl2' : 'mono',
+        { lua: current.lua, runtime: current.runtime });
+      // What it was compiled for is the script's machine from now on - and
+      // its language, when the core judged an unmarked script to be Lua by
+      // its text. The list row learns it too, for the next time it is opened.
+      if (res && res.ok && res.target) {
+        const about = { lua: res.target === 'luau', runtime: res.target === 'lsl-luau' ? 'luau' : String(res.target) };
+        const row = rows.find(function (r) { return r.itemId === itemId; });
+        if (row) Object.assign(row, about);
+        if (current && current.itemId === itemId) {
+          Object.assign(current, about);
+          syncTarget();
+        }
+      }
       // The round trip takes seconds and the editor may have moved on to
       // another script meanwhile; a late reply must not touch that one.
       if (!current || current.itemId !== itemId) return;
@@ -1077,6 +1125,7 @@ const BeeScripts = (function () {
       const btn = el(id);
       if (btn) btn.hidden = true;
     });
+    syncTarget();
     closeFind();
     const sig = el('script-signature');
     if (sig) sig.hidden = true;

@@ -1475,6 +1475,7 @@
   "scripts.loading": "Scripts laden...",
   "scripts.logInToSee": "Log in om je scripts te zien.",
   "scripts.lslSource": "LSL-bron",
+  "scripts.luauTitle": "Gecompileerd voor Luau, de runtime die dit script gebruikt",
   "scripts.monoTitle": "Compileren voor de Mono-runtime (uit = LSL2)",
   "scripts.myScripts": "Mijn scripts",
   "scripts.newNamePrompt": "Naam voor het nieuwe script:",

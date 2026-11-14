@@ -354,9 +354,9 @@ const BeeTransport = (function () {
     return adapter.requestScriptSource(itemId, assetId);
   }
 
-  function saveScript(itemId, text, target) {
+  function saveScript(itemId, text, target, about?) {
     if (!adapter || !adapter.saveScript) return Promise.reject(new Error('Scripts not available'));
-    return adapter.saveScript(itemId, text, target);
+    return adapter.saveScript(itemId, text, target, about);
   }
 
   function createScript(name) {

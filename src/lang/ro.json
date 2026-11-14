@@ -1501,6 +1501,7 @@
   "scripts.loading": "Se încarcă scripturile...",
   "scripts.logInToSee": "Conectează-te ca să-ți vezi scripturile.",
   "scripts.lslSource": "Sursă LSL",
+  "scripts.luauTitle": "Compilat pentru Luau, mediul de execuție folosit de acest script",
   "scripts.monoTitle": "Compilează pentru Mono (oprit = LSL2)",
   "scripts.myScripts": "Scripturile mele",
   "scripts.newNamePrompt": "Nume pentru scriptul nou:",

@@ -6133,6 +6133,9 @@ button.profile-uuid--menu:focus-visible {
   color: var(--text-muted);
   white-space: nowrap;
 }
+/* One of the two shows at a time: the Mono switch, or the name of the
+   machine a script has no choice about (scripts.ts syncTarget). */
+.script-editor__target[hidden] { display: none; }
 .script-editor__body {
   flex: 1 1 auto;
   min-height: 0;

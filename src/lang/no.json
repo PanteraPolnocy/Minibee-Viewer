@@ -1475,6 +1475,7 @@
   "scripts.loading": "Laster skript...",
   "scripts.logInToSee": "Logg inn for å se skriptene dine.",
   "scripts.lslSource": "LSL-kildekode",
+  "scripts.luauTitle": "Kompileres for Luau, kjøretiden dette skriptet bruker",
   "scripts.monoTitle": "Kompiler for Mono-kjøringen (av = LSL2)",
   "scripts.myScripts": "Mine skript",
   "scripts.newNamePrompt": "Navn på det nye skriptet:",

@@ -1527,6 +1527,7 @@
   "scripts.loading": "Načítání skriptů...",
   "scripts.logInToSee": "Přihlas se, ať vidíš svoje skripty.",
   "scripts.lslSource": "Zdroj LSL",
+  "scripts.luauTitle": "Kompiluje se pro Luau, běhové prostředí, které tento skript používá",
   "scripts.monoTitle": "Kompilovat pro běh Mono (vypnuto = LSL2)",
   "scripts.myScripts": "Moje skripty",
   "scripts.newNamePrompt": "Název nového skriptu:",

@@ -38,6 +38,35 @@ fn script_too_large() -> String {
 /// frontend from shipping megabytes at the sim.
 const MAX_SOURCE_BYTES: usize = 512 * 1024;
 
+/// A script item says which language it is written in with the low byte of
+/// its inventory flags: 0 for LSL, 1 for Lua. Both kinds are the same asset
+/// type, so nothing else tells them apart.
+const SCRIPT_SUBTYPE_MASK: i64 = 0xff;
+const SCRIPT_SUBTYPE_LUA: i64 = 1;
+
+/// Whether a script item is written in Lua.
+fn item_is_lua(item: &Value) -> bool {
+    inventory::item_i64(item, "flags") & SCRIPT_SUBTYPE_MASK == SCRIPT_SUBTYPE_LUA
+}
+
+/// The machine a script item last ran on - "lsl2", "mono" or "luau" - or
+/// nothing for one that was never compiled. The inventory carries it under
+/// `script`, or under a `metadata` wrapper, depending on which service
+/// answered.
+fn item_runtime(item: &Value) -> String {
+    let direct = item.get("script").and_then(|s| s.get("runtime"));
+    let wrapped = item
+        .get("metadata")
+        .and_then(|m| m.get("script"))
+        .and_then(|s| s.get("runtime"));
+    direct
+        .or(wrapped)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase()
+}
+
 fn script_row(item: &Value) -> Option<Value> {
     if inventory::item_i64(item, "type") != AT_LSL_TEXT {
         return None;
@@ -52,6 +81,9 @@ fn script_row(item: &Value) -> Option<Value> {
         "creatorId": inventory::item_creator(item).to_ascii_lowercase(),
         "lastOwnerId": inventory::item_last_owner(item).to_ascii_lowercase(),
         "name": inventory::item_str(item, "name"),
+        // What a save has to compile it for (see compile_target).
+        "lua": item_is_lua(item),
+        "runtime": item_runtime(item),
     }))
 }
 
@@ -236,11 +268,14 @@ pub async fn sl_script_rename(state: State<'_, Arc<AppState>>, item_id: String, 
     Ok(json!({ "ok": true, "name": name }))
 }
 
-/// One "(line, column) : severity : text" compiler message, split into parts
-/// the editor can jump to. Lines/columns are 0-based on the wire.
+/// One compiler message, split into parts the editor can jump to. The two
+/// compilers word theirs differently: LSL says "(line, column) : severity :
+/// text" counting from 0, Lua says "chunk:line: text" counting from 1 and
+/// names no column. Both come out with a 0-based `line`, the LSL one with
+/// its `column` as well; anything else is passed on as plain text.
 pub fn parse_diagnostic(raw: &str) -> Value {
     let raw = raw.trim();
-    let parsed = (|| {
+    let lsl = || {
         let rest = raw.strip_prefix('(')?;
         let (nums, tail) = rest.split_once(')')?;
         let (line, column) = nums.split_once(',')?;
@@ -248,19 +283,76 @@ pub fn parse_diagnostic(raw: &str) -> Value {
         let column: i64 = column.trim().parse().ok()?;
         let text = tail.trim_start().strip_prefix(':').unwrap_or(tail).trim();
         Some(json!({ "line": line, "column": column, "text": text }))
-    })();
-    parsed.unwrap_or_else(|| json!({ "text": raw }))
+    };
+    let lua = || {
+        // "chunk" is whatever precedes the first colon; the line number must
+        // follow it directly, digits only, and close with a colon of its own.
+        let (_chunk, rest) = raw.split_once(':')?;
+        let (number, text) = rest.split_once(':')?;
+        if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let line: i64 = number.parse().ok()?;
+        Some(json!({ "line": (line - 1).max(0), "text": text.trim() }))
+    };
+    lsl().or_else(lua).unwrap_or_else(|| json!({ "text": raw }))
+}
+
+/// Whether the source has LSL's `default {` in it anywhere - the one thing
+/// every LSL script must contain and a Lua script has no reason to.
+fn has_default_state(source: &str) -> bool {
+    let mut rest = source;
+    while let Some(at) = rest.find("default") {
+        let after = &rest[at + "default".len()..];
+        if after.trim_start().starts_with('{') {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
+/// What a script is compiled for when it is saved: "lsl2" or "mono" (the two
+/// LSL machines), "lsl-luau" (LSL on the Luau machine) or "luau" (Lua).
+///
+/// A Lua script has one machine. An LSL script already running on Luau stays
+/// there; one on either of the old machines goes where the user's Mono
+/// switch says (`mono`). A script that was never compiled, or whose
+/// inventory entry does not say, is judged by its text: without a `default`
+/// state it cannot be LSL.
+///
+/// Sent to the wrong compiler, a script comes back as a page of errors and
+/// is stored uncompiled - which is why the language is asked of the
+/// inventory instead of assuming LSL.
+pub fn compile_target(lua: bool, runtime: &str, mono: bool, source: &str) -> &'static str {
+    let lsl = if mono { "mono" } else { "lsl2" };
+    if lua {
+        return "luau";
+    }
+    match runtime {
+        "luau" => "lsl-luau",
+        "mono" | "lsl2" => lsl,
+        _ if has_default_state(source) => lsl,
+        _ => "luau",
+    }
 }
 
 /// Save an agent-inventory script: UpdateScriptAgent hands back a one-shot
 /// uploader URL, the source is posted there, and the sim compiles it as part
 /// of accepting the upload.
+///
+/// `target` is the user's choice between the two LSL machines ("mono", the
+/// default, or "lsl2"); `lua` and `runtime` are what the listing said about
+/// the item (see `script_row`). Which compiler the save is for follows from
+/// all three and the text - `compile_target` - and comes back as `target`.
 #[tauri::command]
 pub async fn sl_script_save(
     state: State<'_, Arc<AppState>>,
     item_id: String,
     text: String,
     target: Option<String>,
+    lua: Option<bool>,
+    runtime: Option<String>,
 ) -> Cmd {
     let session = state.active().ok_or_else(no_active_session)?;
     let item_id = item_id.trim().to_ascii_lowercase();
@@ -270,11 +362,13 @@ pub async fn sl_script_save(
     if text.len() > MAX_SOURCE_BYTES {
         return Err(script_too_large());
     }
-    let target = match target.as_deref() {
-        None | Some("mono") => "mono",
-        Some("lsl2") => "lsl2",
+    let mono = match target.as_deref() {
+        None | Some("mono") => true,
+        Some("lsl2") => false,
         Some(_) => return Err(ui_err("err.unknownScriptTarget", json!({}))),
     };
+    let runtime = runtime.unwrap_or_default().trim().to_ascii_lowercase();
+    let target = compile_target(lua.unwrap_or(false), &runtime, mono, &text);
     if session.cap("UpdateScriptAgent").is_none() {
         return Err(ui_err("err.scriptUploadCapUnavailable", json!({})));
     }
@@ -331,6 +425,9 @@ pub async fn sl_script_save(
         "compiled": compiled,
         "diagnostics": diagnostics,
         "newAsset": result.get("new_asset").and_then(|v| v.as_str()).unwrap_or(""),
+        // What it was compiled for, so the editor knows the script's machine
+        // (and its language) from here on.
+        "target": target,
     }))
 }
 
@@ -652,6 +749,84 @@ mod tests {
         let d = parse_diagnostic("Compile failed");
         assert_eq!(d["text"], "Compile failed");
         assert!(d.get("line").is_none());
+    }
+
+    #[test]
+    fn lua_diagnostics_count_lines_from_one_and_name_no_column() {
+        let d = parse_diagnostic("script:12: Expected identifier when parsing expression, got '='");
+        assert_eq!(d["line"], 11, "0-based for the editor, like the LSL ones");
+        assert!(d.get("column").is_none(), "the Lua compiler names none, so none is made up");
+        assert_eq!(d["text"], "Expected identifier when parsing expression, got '='");
+        // The chunk can be empty or bracketed; the first line is line 0.
+        assert_eq!(parse_diagnostic(":1: unexpected symbol")["line"], 0);
+        assert_eq!(parse_diagnostic("[string \"main\"]:3: 'end' expected")["line"], 2);
+        // A text that only looks a little like it is left alone...
+        for raw in ["Compile failed: out of memory", "note: 12 warnings", "a:b: c", "::", "x:-3: y"] {
+            let d = parse_diagnostic(raw);
+            assert_eq!(d["text"], raw, "{raw}");
+            assert!(d.get("line").is_none(), "{raw}");
+        }
+        // ...and an LSL message is never read as a Lua one.
+        let d = parse_diagnostic("(3, 0) : ERROR : Name not defined within scope : x:7: y");
+        assert_eq!(d["line"], 3);
+        assert_eq!(d["column"], 0);
+        // A line number too long to be one is not a number at all.
+        assert!(parse_diagnostic("s:99999999999999999999999: x").get("line").is_none());
+    }
+
+    #[test]
+    fn rows_say_what_language_and_machine_a_script_is() {
+        let id = |n: u8| format!("aa000000-0000-0000-0000-0000000000{n:02}");
+        let items = vec![
+            // Flags carry more than the language; only the low byte counts.
+            json!({ "item_id": id(1), "type": AT_LSL_TEXT, "name": "a lsl", "flags": 0x100 }),
+            json!({ "item_id": id(2), "type": AT_LSL_TEXT, "name": "b lua", "flags": 0x101, "script": { "runtime": "luau" } }),
+            json!({ "item_id": id(3), "type": AT_LSL_TEXT, "name": "c lsl on luau", "flags": 0, "metadata": { "script": { "runtime": "Luau" } } }),
+            json!({ "item_id": id(4), "type": AT_LSL_TEXT, "name": "d old", "flags": "0", "script": { "runtime": "lsl2" } }),
+            json!({ "item_id": id(5), "type": AT_LSL_TEXT, "name": "e bare" }),
+        ];
+        let rows = script_rows(&items);
+        let facts: Vec<(bool, &str)> = rows
+            .iter()
+            .map(|r| (r["lua"].as_bool().unwrap(), r["runtime"].as_str().unwrap()))
+            .collect();
+        assert_eq!(facts, vec![(false, ""), (true, "luau"), (false, "luau"), (false, "lsl2"), (false, "")]);
+    }
+
+    #[test]
+    fn a_script_is_compiled_for_the_machine_it_belongs_on() {
+        const LSL: &str = "default\n{\n    state_entry() { llSay(0, \"hi\"); }\n}\n";
+        const LUA: &str = "function LLEvents.touch_start(n)\n    ll.Say(0, \"hi\")\nend\n";
+        // A Lua script has one machine, whatever the Mono switch says.
+        assert_eq!(compile_target(true, "luau", true, LUA), "luau");
+        assert_eq!(compile_target(true, "", false, LUA), "luau");
+        assert_eq!(compile_target(true, "mono", true, LSL), "luau", "the language is the item's, not the text's");
+        // LSL already on Luau stays there.
+        assert_eq!(compile_target(false, "luau", true, LSL), "lsl-luau");
+        assert_eq!(compile_target(false, "luau", false, LSL), "lsl-luau");
+        // LSL on the old machines follows the switch.
+        assert_eq!(compile_target(false, "mono", true, LSL), "mono");
+        assert_eq!(compile_target(false, "mono", false, LSL), "lsl2");
+        assert_eq!(compile_target(false, "lsl2", true, LSL), "mono");
+        assert_eq!(compile_target(false, "lsl2", false, LSL), "lsl2");
+        // Never compiled: the text decides.
+        assert_eq!(compile_target(false, "", true, LSL), "mono");
+        assert_eq!(compile_target(false, "", false, LSL), "lsl2");
+        assert_eq!(compile_target(false, "", true, LUA), "luau");
+        assert_eq!(compile_target(false, "something new", true, LUA), "luau");
+        assert_eq!(compile_target(false, "", true, ""), "luau", "nothing in it says LSL");
+    }
+
+    #[test]
+    fn the_default_state_is_what_marks_lsl() {
+        assert!(has_default_state("default { }"));
+        assert!(has_default_state("integer x;\ndefault\n\n\t{\n}"));
+        assert!(has_default_state("default{state_entry(){}}"));
+        assert!(has_default_state("// by default it idles\ndefault {}"), "an earlier mention does not hide the real one");
+        assert!(!has_default_state(""));
+        assert!(!has_default_state("local default = 3"));
+        assert!(!has_default_state("defaults { }"), "the brace has to follow the word");
+        assert!(!has_default_state("local t = { default = 1 }"));
     }
 
     #[test]

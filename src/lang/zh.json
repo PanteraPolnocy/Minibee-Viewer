@@ -1449,6 +1449,7 @@
   "scripts.loading": "正在載入腳本...",
   "scripts.logInToSee": "登入後才能看到你的腳本。",
   "scripts.lslSource": "LSL原始碼",
+  "scripts.luauTitle": "為此腳本使用的執行環境 Luau 編譯",
   "scripts.monoTitle": "為Mono執行環境編譯（關閉 = LSL2）",
   "scripts.myScripts": "我的腳本",
   "scripts.newNamePrompt": "新腳本的名稱:",

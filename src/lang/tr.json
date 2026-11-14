@@ -1475,6 +1475,7 @@
   "scripts.loading": "Betikler yükleniyor...",
   "scripts.logInToSee": "Betiklerinizi görmek için giriş yapın.",
   "scripts.lslSource": "LSL kaynağı",
+  "scripts.luauTitle": "Bu betiğin kullandığı çalışma ortamı olan Luau için derlenir",
   "scripts.monoTitle": "Mono çalışma zamanı için derle (kapalı = LSL2)",
   "scripts.myScripts": "Betiklerim",
   "scripts.newNamePrompt": "Yeni betiğin adı:",

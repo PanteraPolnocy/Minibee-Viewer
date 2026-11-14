@@ -1449,6 +1449,7 @@
   "scripts.loading": "スクリプトを読み込んでいます...",
   "scripts.logInToSee": "スクリプトを見るにはログインしてください。",
   "scripts.lslSource": "LSLソース",
+  "scripts.luauTitle": "このスクリプトが使うランタイム Luau 向けにコンパイルされます",
   "scripts.monoTitle": "Monoランタイム向けにコンパイル（オフ = LSL2）",
   "scripts.myScripts": "マイスクリプト",
   "scripts.newNamePrompt": "新しいスクリプトの名前:",

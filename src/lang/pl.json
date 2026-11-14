@@ -1527,6 +1527,7 @@
   "scripts.loading": "Wczytywanie skryptów...",
   "scripts.logInToSee": "Zaloguj się, aby zobaczyć swoje skrypty.",
   "scripts.lslSource": "Kod źródłowy LSL",
+  "scripts.luauTitle": "Kompilowany dla Luau, środowiska, którego używa ten skrypt",
   "scripts.monoTitle": "Kompiluj dla środowiska Mono (wył. = LSL2)",
   "scripts.myScripts": "Moje skrypty",
   "scripts.newNamePrompt": "Nazwa nowego skryptu:",

@@ -1475,6 +1475,7 @@
   "scripts.loading": "Szkriptek betöltése...",
   "scripts.logInToSee": "Jelentkezz be a szkriptjeidhez.",
   "scripts.lslSource": "LSL forrás",
+  "scripts.luauTitle": "Luau-ra fordul, arra a futtatókörnyezetre, amelyet ez a szkript használ",
   "scripts.monoTitle": "Fordítás a Mono futtatóhoz (ki = LSL2)",
   "scripts.myScripts": "Szkriptjeim",
   "scripts.newNamePrompt": "Az új szkript neve:",
