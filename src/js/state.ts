@@ -24,7 +24,11 @@ const BeeState = (function () {
     imSessions: {},
     activeImSession: null,
     parcel: null,
+    // Unread IM lines in every conversation, and the share of them that sits
+    // in group chats and conferences: the menu shows the two apart, people
+    // loudly and groups quietly (see syncImUnread).
     unreadIm: 0,
+    unreadImGroups: 0,
     unreadChat: 0,
     unreadEvents: 0,
     unreadRadar: 0,
@@ -82,6 +86,7 @@ const BeeState = (function () {
     state.activeImSession = null;
     state.parcel = null;
     state.unreadIm = 0;
+    state.unreadImGroups = 0;
     state.unreadChat = 0;
     state.unreadEvents = 0;
     state.unreadRadar = 0;
@@ -90,6 +95,11 @@ const BeeState = (function () {
     state.sessionLost = false;
     state.sessionLostReason = '';
     state.sessionLostDismissed = false;
+    // The login is over: the conferences left during it are forgotten, and
+    // the next account reads its own lists.
+    closedThisLogin.clear();
+    standing = null;
+    lastRefused = null;
     emit('reset');
   }
 
@@ -159,24 +169,192 @@ const BeeState = (function () {
     emit('event', msg);
   }
 
-  // The IM badge is the sum of what the conversation rows show - derived from
-  // them, never kept as a running tally of its own. A tally drifts as soon as
-  // any path zeroes or drops a conversation's count without adjusting it too,
-  // and then no amount of closing brings the badge down. syncImUnread folds
-  // the current sum into a pending 'change' partial; recountImUnread emits it.
-  function imUnreadTotal() {
-    return Object.keys(state.imSessions).reduce(function (n, id) {
-      return n + (state.imSessions[id].unread || 0);
-    }, 0);
+  // A group chat or a conference, as opposed to a private thread (which has
+  // no type, see ensureImSession).
+  function isSessionChat(session) {
+    return !!session && (session.type === 'group' || session.type === 'conference');
+  }
+
+  // The IM badges are sums of what the conversation rows show - derived from
+  // them, never kept as running tallies of their own. A tally drifts as soon
+  // as any path zeroes or drops a conversation's count without adjusting it
+  // too, and then no amount of closing brings the badge down. There are two
+  // sums: every row (unreadIm, which the phone notification also reports),
+  // and the group chats and conferences among them (unreadImGroups) - people
+  // are the difference. syncImUnread folds what changed into a pending
+  // 'change' partial; recountImUnread emits it.
+  function imUnreadCounts() {
+    let total = 0;
+    let groups = 0;
+    Object.keys(state.imSessions).forEach(function (id) {
+      const session = state.imSessions[id];
+      const n = session.unread || 0;
+      total += n;
+      if (isSessionChat(session)) groups += n;
+    });
+    return { total: total, groups: groups };
   }
 
   function syncImUnread(partial) {
-    const total = imUnreadTotal();
-    if (total !== state.unreadIm) {
-      state.unreadIm = total;
-      partial.unreadIm = total;
+    const counts = imUnreadCounts();
+    if (counts.total !== state.unreadIm) {
+      state.unreadIm = counts.total;
+      partial.unreadIm = counts.total;
+    }
+    if (counts.groups !== state.unreadImGroups) {
+      state.unreadImGroups = counts.groups;
+      partial.unreadImGroups = counts.groups;
     }
     return partial;
+  }
+
+  // --- group chats that were turned away ---
+  //
+  // A group whose chat the user closed, or muted, is refused: its chat opens
+  // no tab by itself and counts nowhere. It comes back when the user opens it
+  // from the group; a muted one then keeps its mute until it is unmuted, and
+  // a muted chat that is open stays open, quietly. Both lists belong to the
+  // account and live in the settings file. A conference has no group to open
+  // it from and its id means nothing after logout, so the conferences left
+  // are only remembered until then.
+  //
+  // The core does the refusing (it never joins such a session, see
+  // SessionState::closed_chats); what it must refuse is refusedChats(), and
+  // 'im-refused-chats' says when that list changed.
+  const CHAT_STANDING_KEY = 'minibee-group-chats';
+  const closedThisLogin = new Set<string>();
+  let standing: { agent: string; closed: Set<string>; muted: Set<string> } | null = null;
+  let lastRefused: string | null = null;
+
+  // The account's lists, read once per login. `agentId` names the account
+  // while the login is still on its way (the session is started before
+  // state.agent is set).
+  function chatStanding(agentId?) {
+    const agent = normAgentId(agentId || (state.agent && state.agent.id));
+    if (standing && standing.agent === agent) return standing;
+    const stored = BeeUtils.storageGet(CHAT_STANDING_KEY, null);
+    const mine = (agent && stored && typeof stored === 'object' && stored[agent]) || {};
+    const ids = function (list) {
+      return new Set<string>((Array.isArray(list) ? list : []).map(normAgentId).filter(looksLikeUuid));
+    };
+    standing = { agent: agent, closed: ids(mine.closed), muted: ids(mine.muted) };
+    return standing;
+  }
+
+  function saveChatStanding() {
+    const s = chatStanding();
+    if (!s.agent) return;
+    const stored = BeeUtils.storageGet(CHAT_STANDING_KEY, null);
+    const all = stored && typeof stored === 'object' && !Array.isArray(stored)
+      ? Object.assign({}, stored) : {};
+    if (s.closed.size || s.muted.size) {
+      all[s.agent] = { closed: Array.from(s.closed).sort(), muted: Array.from(s.muted).sort() };
+    } else {
+      delete all[s.agent];
+    }
+    BeeUtils.storageSet(CHAT_STANDING_KEY, all);
+  }
+
+  // Rows are keyed by the id as it arrived; the lists hold it lowercased.
+  function hasChatRow(id) {
+    if (state.imSessions[id]) return true;
+    return Object.keys(state.imSessions).some(function (key) {
+      return key.toLowerCase() === id;
+    });
+  }
+
+  function isGroupMuted(groupId) {
+    return chatStanding().muted.has(normAgentId(groupId));
+  }
+
+  // Whether this chat must not open by itself: it was closed, or it is a
+  // muted group's with no tab open.
+  function isChatRefused(sessionId) {
+    const id = normAgentId(sessionId);
+    if (!id) return false;
+    if (closedThisLogin.has(id)) return true;
+    const s = chatStanding();
+    return s.closed.has(id) || (s.muted.has(id) && !hasChatRow(id));
+  }
+
+  // Every chat the core has to refuse, for the account logged in (or, with
+  // `agentId`, the one logging in).
+  function refusedChats(agentId?) {
+    const s = chatStanding(agentId);
+    const out = new Set<string>(closedThisLogin);
+    s.closed.forEach(function (id) { out.add(id); });
+    s.muted.forEach(function (id) { if (!hasChatRow(id)) out.add(id); });
+    return Array.from(out).sort();
+  }
+
+  // Called wherever the list can have changed: a chat closed or opened, a
+  // mute toggled, a tab that came or went.
+  function syncRefusedChats() {
+    if (!state.agent) return;
+    const ids = refusedChats();
+    const key = ids.join(',');
+    if (key === lastRefused) return;
+    lastRefused = key;
+    emit('im-refused-chats', ids);
+  }
+
+  // The user closed this group chat or left this conference, and it is to
+  // stay that way. Only the user's own doing counts: a tab that goes for
+  // another reason (the grid closed the session, a call's throwaway
+  // conference was tidied up) refuses nothing.
+  function refuseChat(sessionId) {
+    const id = normAgentId(sessionId);
+    if (!looksLikeUuid(id)) return false;
+    const session = state.imSessions[sessionId];
+    if (session && session.type === 'group') {
+      const s = chatStanding();
+      if (!s.closed.has(id)) {
+        s.closed.add(id);
+        saveChatStanding();
+      }
+    } else {
+      closedThisLogin.add(id);
+    }
+    syncRefusedChats();
+    return true;
+  }
+
+  // The user asked for this chat again (from the group): it is no longer
+  // closed. A mute is not touched - that is undone on the chat itself.
+  function welcomeChat(sessionId) {
+    const id = normAgentId(sessionId);
+    if (!id) return false;
+    let changed = closedThisLogin.delete(id);
+    const s = chatStanding();
+    if (s.closed.delete(id)) {
+      saveChatStanding();
+      changed = true;
+    }
+    syncRefusedChats();
+    return changed;
+  }
+
+  function rememberGroupMute(groupId, muted) {
+    const id = normAgentId(groupId);
+    if (!looksLikeUuid(id)) return;
+    const s = chatStanding();
+    if (s.muted.has(id) === !!muted) return;
+    if (muted) s.muted.add(id);
+    else s.muted.delete(id);
+    saveChatStanding();
+  }
+
+  // A chat that is, or has just turned out to be, a group's: it takes the
+  // mute the group carries, or hands over the one it was given while it
+  // still passed for a conference.
+  function adoptGroupMute(session) {
+    if (!session || session.type !== 'group') return;
+    if (isGroupMuted(session.id)) {
+      session.muted = true;
+      session.unread = 0;
+    } else if (session.muted) {
+      rememberGroupMute(session.id, true);
+    }
   }
 
   function recountImUnread() {
@@ -194,11 +372,13 @@ const BeeState = (function () {
     return true;
   }
 
+  type ImPartial = { activeImSession?: string | null; unreadIm?: number; unreadImGroups?: number };
+
   function closeImSession(sessionId) {
     const session = state.imSessions[sessionId];
     if (!session) return false;
     delete state.imSessions[sessionId];
-    const partial: { activeImSession?: string | null; unreadIm?: number } = {};
+    const partial: ImPartial = {};
     if (state.activeImSession === sessionId) {
       partial.activeImSession = null;
       state.activeImSession = null;
@@ -208,6 +388,8 @@ const BeeState = (function () {
     if (Object.keys(partial).length) {
       emit('change', partial);
     }
+    // A muted group whose tab is gone is refused from here on.
+    syncRefusedChats();
     return true;
   }
 
@@ -224,7 +406,7 @@ const BeeState = (function () {
       session.typing = false;
       session.typingName = '';
     }
-    const partial: { activeImSession?: string | null; unreadIm?: number } = {};
+    const partial: ImPartial = {};
     if (state.activeImSession === sessionId) {
       partial.activeImSession = null;
       state.activeImSession = null;
@@ -316,11 +498,14 @@ const BeeState = (function () {
       looksLikeUuid(text) || looksLikeBase64Bucket(text);
   }
 
+  // Open the tab of a group chat or a conference. Whether the chat may open
+  // at all is the caller's question (isChatRefused): the user's own request
+  // welcomes it first, the grid's messages are checked on their way in.
   function ensureKeyedSession(sessionId, info) {
     if (!sessionId || state.imSessions[sessionId]) return sessionId;
     const type = (info && info.type) || 'group';
     const title = (info && info.title) || defaultSessionTitle(type);
-    state.imSessions[sessionId] = {
+    const session: any = {
       id: sessionId,
       type: type,
       title: title,
@@ -331,7 +516,12 @@ const BeeState = (function () {
       lastMessage: '',
       updatedAt: Date.now()
     };
-    emit('im-session-new', state.imSessions[sessionId]);
+    state.imSessions[sessionId] = session;
+    // A muted group's chat opens muted, whenever and however it opens.
+    adoptGroupMute(session);
+    emit('im-session-new', session);
+    // With its tab open, a muted group is no longer turned away.
+    syncRefusedChats();
     return sessionId;
   }
 
@@ -340,7 +530,7 @@ const BeeState = (function () {
   function remapImSession(oldId, newId) {
     if (!oldId || !newId || oldId === newId) return;
     const session = state.imSessions[oldId];
-    const partial: { activeImSession?: string | null; unreadIm?: number } = {};
+    const partial: ImPartial = {};
     if (session) {
       const target = state.imSessions[newId];
       if (target) {
@@ -392,17 +582,22 @@ const BeeState = (function () {
     return true;
   }
 
+  // Mute or unmute a chat (toggle when `muted` is left out). A group's mute
+  // is the group's own: it is remembered for the account and outlives both
+  // the tab and the login. A conference's lasts as long as its tab.
   function setSessionMuted(sessionId, muted?) {
     const session = state.imSessions[sessionId];
     if (!session) return false;
     const next = muted === undefined ? !session.muted : !!muted;
     if (!!session.muted === next) return next;
     session.muted = next;
+    if (session.type === 'group') rememberGroupMute(sessionId, next);
     if (next && session.unread) {
       session.unread = 0;
       recountImUnread();
     }
     emit('im-sessions-updated');
+    syncRefusedChats();
     return next;
   }
 
@@ -432,14 +627,28 @@ const BeeState = (function () {
     if (type !== 'group' && type !== 'conference') return false;
     if (session.type === 'group' && type === 'conference') return false;
     session.type = type;
+    retypedAsGroup(session);
     emit('im-sessions-updated');
     return true;
+  }
+
+  // A chat that passed for a conference turned out to be a group's: the
+  // group's mute applies to it from here on, and the counts follow.
+  function retypedAsGroup(session) {
+    if (session.type !== 'group') return;
+    adoptGroupMute(session);
+    recountImUnread();
+    syncRefusedChats();
   }
 
   function addImMessage(sessionId, msg, participant, sessionInfo) {
     let resolvedId = sessionId;
     if (!state.imSessions[resolvedId]) {
       if (sessionInfo && sessionInfo.type && sessionInfo.type !== 'p2p') {
+        // A chat that was turned away opens for the user alone. The core
+        // refuses it at the door; this is for the line that was already on
+        // its way in when the chat was closed.
+        if (isChatRefused(resolvedId)) return;
         ensureKeyedSession(resolvedId, sessionInfo);
       } else if (participant) {
         const ensured = ensureImSession(participant);
@@ -450,6 +659,7 @@ const BeeState = (function () {
     const session = state.imSessions[resolvedId];
     if (sessionInfo && sessionInfo.type === 'group' && session.type !== 'group') {
       session.type = 'group';
+      retypedAsGroup(session);
     }
     if (sessionInfo && sessionInfo.title && !isDefaultSessionTitle(sessionInfo.title) &&
         isDefaultSessionTitle(session.title)) {
@@ -607,6 +817,10 @@ const BeeState = (function () {
     updateSessionRoster: updateSessionRoster,
     setSessionTyping: setSessionTyping,
     setSessionMuted: setSessionMuted,
+    refuseChat: refuseChat,
+    welcomeChat: welcomeChat,
+    isChatRefused: isChatRefused,
+    refusedChats: refusedChats,
     renameSession: renameSession,
     setSessionType: setSessionType,
     isDefaultSessionTitle: isDefaultSessionTitle,

@@ -1,6 +1,6 @@
 //! The SL UDP circuit: one socket per session, a datagram relay, and an HTTP listener for inbound trusted messages.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -33,6 +33,9 @@ pub struct EngineInit {
     pub sim_port: u16,
     pub circuit_code: u32,
     pub caps: HashMap<String, String>,
+    /// The chats to keep closed from the first packet on (see
+    /// `SessionState::closed_chats`); normalized ids.
+    pub closed_chats: HashSet<String>,
 }
 
 pub struct Session {
@@ -461,6 +464,22 @@ impl Session {
     pub fn set_block_state(&self, id: &str, blocked: bool) {
         if let Some(st) = self.engine.lock().unwrap().as_mut() {
             st.set_block_state(id, blocked);
+        }
+    }
+
+    /// Replace the set of chat sessions to keep closed (the interface's list,
+    /// told whole on every change).
+    pub fn set_closed_chats(&self, ids: HashSet<String>) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.set_closed_chats(ids);
+        }
+    }
+
+    /// The user left a chat session: its roster goes with it.
+    pub fn forget_chat_roster(&self, chat_id: &str) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.im_rosters.remove(chat_id);
+            st.im_rosters.remove(&chat_id.trim().to_ascii_lowercase());
         }
     }
 
@@ -1419,6 +1438,7 @@ pub async fn open(
         sim_port: e.sim_port,
         circuit_code: e.circuit_code,
         caps: e.caps,
+        closed_chats: e.closed_chats,
         ..Default::default()
     });
     let engine_mode = engine_state.is_some();

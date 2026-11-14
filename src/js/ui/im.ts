@@ -143,7 +143,12 @@ const BeeIm = (function () {
           : '') +
         '<p class="' + previewClass + '">' + BeeUtils.escapeHtml(previewText) + '</p>' +
       '</div>' +
-      (session.unread ? '<span class="im-session__unread">' + session.unread + '</span>' : '');
+      // A person's count is the loud pill; a group's or a conference's is
+      // the quiet one, as on their tab and on the menu.
+      (session.unread
+        ? '<span class="im-session__unread' + (sessionChat ? ' im-session__unread--quiet' : '') + '">' +
+          session.unread + '</span>'
+        : '');
 
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
@@ -188,23 +193,53 @@ const BeeIm = (function () {
     old.replaceWith(renderSession(session));
   }
 
+  // Whether the running call, if any, is this conversation's.
+  function callIsOn(sessionId) {
+    if (typeof BeeVoice === 'undefined' || typeof BeeVoice.callInfo !== 'function') return false;
+    const info = BeeVoice.callInfo();
+    const sid = String(sessionId || '').toLowerCase();
+    return !!(info && sid && (String(info.sessionId || '').toLowerCase() === sid ||
+      String(info.origin || '').toLowerCase() === sid));
+  }
+
+  // The user closes a conversation. A private thread is only put away: the
+  // person's next message brings it back. A group chat or a conference is
+  // left for good - the grid would otherwise pull us back in with the next
+  // message - and stays closed until the user opens it from the group
+  // (BeeState.refuseChat; the core does the turning away).
   function closeSession(sessionId) {
     if (!sessionId) return;
     const session = BeeState.get().imSessions[sessionId];
     if (!session) return;
-    if (isSessionChat(session) && typeof BeeTransport.leaveImSession === 'function') {
-      BeeTransport.leaveImSession(sessionId);
+    if (isSessionChat(session)) {
+      const isGroup = session.type === 'group';
+      // A call on this chat ends with it: no tab would be left to hang up from.
+      if (callIsOn(sessionId)) BeeVoice.endCall();
+      BeeState.refuseChat(sessionId);
+      // The leave needs the session still on record, to know it is one.
+      if (typeof BeeTransport.leaveImSession === 'function') BeeTransport.leaveImSession(sessionId);
       BeeState.closeImSession(sessionId);
+      if (isGroup) BeeUtils.showToast(t('im.groupChatClosed'), 'info', 5000);
     } else {
       BeeState.dismissImSession(sessionId);
     }
-    const wasActive = BeeState.get().activeImSession === sessionId;
-    if (wasActive) {
-      syncImLayout();
-      renderSessions();
-    } else {
-      renderSessions();
-    }
+    syncImLayout();
+    renderSessions();
+  }
+
+  // Mute or unmute a group chat or a conference, and say what that means: a
+  // group's mute is remembered with the group, a conference's lasts as long
+  // as its tab.
+  function toggleSessionMute(sessionId) {
+    const session = sessionId ? BeeState.get().imSessions[sessionId] : null;
+    if (!session) return;
+    const isGroup = session.type === 'group';
+    const muted = BeeState.setSessionMuted(sessionId);
+    const text = !muted ? t('im.sessionUnmuted')
+      : isGroup ? t('im.groupMuted') : t('im.sessionMuted');
+    BeeUtils.showToast(text, 'success', muted && isGroup ? 4500 : 2500);
+    syncImLayout();
+    renderSessions();
   }
 
   function refreshIncomingImUi(sessionId) {
@@ -786,6 +821,10 @@ const BeeIm = (function () {
       BeeUtils.showToast(t('im.connectForGroupChat'), 'warning');
       return;
     }
+    // Asking for the chat is what brings a closed one back: it is welcome
+    // again before its tab opens, and the core hears of it before the
+    // session is started (the transport sends the start behind that word).
+    BeeState.welcomeChat(groupId);
     BeeState.ensureKeyedSession(groupId, { type: 'group', title: groupName || '' });
     if (typeof BeeTransport.openGroupChat === 'function') {
       BeeTransport.openGroupChat(groupId, groupName || '');
@@ -985,10 +1024,7 @@ const BeeIm = (function () {
         if (sessionChat) {
           items.push({
             label: session.muted ? t('im.unmuteNotifications') : t('im.muteNotifications'),
-            action: function () {
-              BeeState.setSessionMuted(sid);
-              renderSessions();
-            }
+            action: function () { toggleSessionMute(sid); }
           });
         }
         items.push({
@@ -1107,12 +1143,7 @@ const BeeIm = (function () {
     if (muteSessionBtn) {
       muteSessionBtn.addEventListener('click', function () {
         const sid = BeeState.get().activeImSession;
-        if (!sid) return;
-        const muted = BeeState.setSessionMuted(sid);
-        BeeUtils.showToast(muted ? t('im.sessionMuted')
-          : t('im.sessionUnmuted'), 'success', 2500);
-        syncImLayout();
-        renderSessions();
+        if (sid) toggleSessionMute(sid);
       });
     }
     const imInput = document.getElementById('im-input') as HTMLTextAreaElement | null;

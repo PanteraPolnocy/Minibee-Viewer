@@ -24,6 +24,12 @@
   --offline: #6d6356;
   --overlay: rgba(10, 8, 6, 0.72);
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  /* The quiet count pill (group chats): the theme's deepest surface with
+     accent digits and a thin accent ring, where the loud pill is solid
+     accent. Dark here, pale in the light theme - quiet in both. */
+  --pill-quiet-bg: var(--bg-deep);
+  --pill-quiet-fg: var(--accent);
+  --pill-quiet-ring: rgba(240, 180, 41, 0.55);
 }
 
 [data-theme="light"] {
@@ -49,6 +55,11 @@
   --offline: #9e9e9e;
   --overlay: rgba(250, 247, 242, 0.88);
   --shadow: 0 4px 24px rgba(31, 26, 18, 0.12);
+  /* Deeper golds than the dark theme's: the digits and the ring have to
+     hold against a pale surface. */
+  --pill-quiet-bg: var(--bg-deep);
+  --pill-quiet-fg: var(--accent-deep);
+  --pill-quiet-ring: var(--accent-hover);
 }
 
 :root {
@@ -1708,6 +1719,16 @@ button.bee-menu__value--action:disabled {
 
 .im-subtab__badge[hidden] { display: none; }
 
+/* Group chats and conferences count in the quiet pill wherever they are
+   counted: on their tab here, on their rows and on the menu icon. */
+.im-subtab[data-im-sub="sessions"] .im-subtab__badge,
+.im-session__unread.im-session__unread--quiet,
+.nav-badge.nav-badge--quiet {
+  background: var(--pill-quiet-bg);
+  color: var(--pill-quiet-fg);
+  box-shadow: inset 0 0 0 1px var(--pill-quiet-ring);
+}
+
 .im-thread__body {
   flex: 1;
   display: flex;
@@ -2937,6 +2958,12 @@ button.bee-menu__value--action:disabled {
   right: 10px;
 }
 
+/* The IM icon's second pill (group chats) sits on its other shoulder. */
+.side-nav .nav-badge--quiet {
+  right: auto;
+  left: 10px;
+}
+
 .bottom-nav__item {
   flex: 1;
   display: flex;
@@ -2994,6 +3021,13 @@ button.bee-menu__value--action:disabled {
 }
 
 .nav-badge--alert { background: var(--warning); color: #000; }
+
+/* Mirrors the loud pill across the icon; anchored by its right edge so the
+   two never meet however wide either grows ("99+"). Its colours are set with
+   the other quiet pills. */
+.nav-badge--quiet {
+  right: calc(50% + 6px);
+}
 
 .nav-dot {
   position: absolute;
@@ -5926,6 +5960,7 @@ button.profile-uuid--menu:focus-visible {
     white-space: nowrap;
   }
   .side-nav .nav-badge { top: 4px; right: calc(50% - 20px); }
+  .side-nav .nav-badge--quiet { left: auto; right: calc(50% + 6px); }
 
   /* Top bar on phones: shed the niche chrome (FPS, SLT clock, music volume
      slider, parcel sub-line) and let the name grow, so the agent name and the

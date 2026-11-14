@@ -601,6 +601,8 @@
   "im.friendshipSent": "A barátságajánlat elküldve.",
   "im.fromChatLog": "A csevegési naplódból",
   "im.groupChat": "Csoportcsevegés",
+  "im.groupChatClosed": "A csoportcsevegés bezárva. Zárva marad, amíg meg nem nyitod a csoport profiljából.",
+  "im.groupMuted": "A csoport némítva. A csevegése csendben marad, és magától többé nem nyílik meg.",
   "im.groupProfile": "Csoportprofil",
   "im.groups": "Csoportok",
   "im.hangUp": "Letesz",

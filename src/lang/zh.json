@@ -597,6 +597,8 @@
   "im.friendshipSent": "已送出朋友邀請。",
   "im.fromChatLog": "來自你的聊天紀錄",
   "im.groupChat": "群組聊天",
+  "im.groupChatClosed": "已關閉群組聊天。在你從群組資料開啟之前，它會保持關閉。",
+  "im.groupMuted": "已將群組靜音。它的聊天會保持安靜，不再自動開啟。",
   "im.groupProfile": "群組資料",
   "im.groups": "群組",
   "im.hangUp": "掛斷",

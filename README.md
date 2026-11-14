@@ -100,7 +100,7 @@ There is **no Debug tab** and no in-app log viewer. For a bug paper trail, start
 
 - **Side navigation** - Chat, IM, Interact, Events, People, Search, Radar, Map, Land, Guide, News, Bee down the left edge (bottom bar on a phone-width screen).
 - **Top bar** - connection dot, your name (tap for your profile), **active group title** underneath, parcel + region, parcel-music control when the parcel streams, L$ balance (tap for the balance menu:<!-- play:skip --> buy L$ with amount, estimated cost and new balance, confirmed before anything is charged;<!-- /play:skip --> refresh from the server; copy), SLT clock, sim FPS, theme toggle, logout.
-- **Unread badges** - numbers on Chat, IM, and Events; dots on Radar (someone new in range) and Land (parcel updated). A new IM bumps the badge but doesn't yank you to the tab - you read when you're ready.
+- **Unread badges** - numbers on Chat, IM, and Events; dots on Radar (someone new in range) and Land (parcel updated). The IM icon carries two counts: a gold one for people and a quieter, outlined one for group chats and conferences. A new IM bumps its badge but doesn't yank you to the tab - you read when you're ready.
 
 Tabs load their data when you open them, so login stays quick. Chat and IM keep flowing in the background once you're connected.
 
@@ -122,12 +122,12 @@ Nothing in Events answers by itself. Unresolved items keep the Events badge lit 
 The **IM** tab keeps 1:1, group, and conference conversations in one list:
 
 - **1:1 IM** - with a "typing..." indicator while the other person composes. Closing a 1:1 hides it but keeps the history; it reopens when either of you writes again.
-- **Notifications** - a new IM raises the IM badge; Minibee won't switch tabs on you.
-- **Group chat** - open from the Land tab's parcel group, a group profile, or when someone posts in that group.
+- **Notifications** - a private IM raises the gold count on the IM icon, a group or conference line the quieter one beside it (the same two styles mark the **People** and **Groups** tabs and the rows themselves); Minibee won't switch tabs on you.
+- **Group chat** - open from the Land tab's parcel group or a group profile. It also opens by itself when someone posts in a group - unless you closed or muted that group's chat (see below).
 - **Conference chat** - start from the IM tab or a buddy's menu; **Invite** adds more people to an open conference.
 - **Roster** - member sidebar with online state; click someone for a 1:1.
 - **Moderation** - in **group** sessions, moderators can mute/unmute a participant's text. Ad-hoc conferences don't get moderation controls (that's deliberate - it's a group thing).
-- **Mute vs Leave** - Mute silences a session locally; Leave actually exits group/conference chat on the server.
+- **Mute and Leave** - both are ways of turning a group's chat away, and both are remembered per account. **Mute** keeps the open chat but makes it quiet: no count, no sound, nothing on the IM icon - and once its tab is gone (after the next login, say) that chat no longer opens by itself. **Leave** (the X on a group chat) exits the chat on the server and keeps it closed: new messages neither reopen it nor count. Either way the chat comes back when you open it from the group (**Open group chat** on its profile); a muted one stays muted until you unmute it there. A conference you leave stays away for the rest of the login.
 
 You can pay another resident from the IM pay dialog.
 

@@ -609,6 +609,8 @@
   "im.friendshipSent": "Wysłano propozycję znajomości.",
   "im.fromChatLog": "Z twojego logu czatu",
   "im.groupChat": "Czat grupowy",
+  "im.groupChatClosed": "Czat grupowy zamknięty. Pozostanie zamknięty, dopóki nie otworzysz go z profilu grupy.",
+  "im.groupMuted": "Grupa wyciszona. Jej czat pozostaje cichy i nie otwiera się już sam.",
   "im.groupProfile": "Profil grupy",
   "im.groups": "Grupy",
   "im.hangUp": "Rozłącz",

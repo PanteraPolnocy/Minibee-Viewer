@@ -53,6 +53,10 @@ const BeeSLBridge = (function () {
   function bindEvents() {
     const pending = [];
 
+    // Not a backend event: the interface's own word that the list of chats
+    // to keep closed has changed (see pushClosedChats).
+    if (typeof BeeState !== 'undefined') BeeState.on('im-refused-chats', pushClosedChats);
+
     PASSTHROUGH.forEach(function (name) {
       pending.push(BeeBridge.listen('minibee-viewer://' + name, function (payload) {
         if (name === 'connected') seedFromConnected(payload);
@@ -362,6 +366,11 @@ const BeeSLBridge = (function () {
         simPort: data.simPort,
         caps: caps,
         eventQueueCapUrl: findCap(caps, 'EventQueueGet'),
+        // The chats this account turned away (see BeeState.refusedChats): the
+        // core has to know before the first invitation can arrive.
+        closedChats: typeof BeeState !== 'undefined' && typeof BeeState.refusedChats === 'function'
+          ? BeeState.refusedChats(data.agent.id)
+          : [],
         connected: connected
       }
     });
@@ -521,10 +530,29 @@ const BeeSLBridge = (function () {
 
   // --- chat sessions (conference / group) ---
 
+  // The chats the core is to keep closed. BeeState decides which (a group
+  // chat the user closed, a muted group with no tab open) and says so with
+  // 'im-refused-chats'; the core does the refusing. The list goes over whole,
+  // one call behind the other, and what must not overtake it - the start of
+  // a chat the user just asked for again - waits on the same chain.
+  let closedChatsSync: Promise<any> = Promise.resolve();
+  function pushClosedChats(ids) {
+    const list = Array.isArray(ids) ? ids.slice() : [];
+    closedChatsSync = closedChatsSync.then(function () {
+      return invoke('sl_set_closed_chats', { ids: list });
+    }).catch(function () {});
+    return closedChatsSync;
+  }
+
   function openGroupChat(groupId, groupName) {
     // IM dialog 15 (IM_SESSION_GROUP_START) starts the group session, and its id
-    // IS the group id. Emit im-session-open so the UI shows the tab right away.
-    invoke('sl_im_send', { toId: groupId, imId: groupId, dialog: 15, text: '', fromGroup: true }).catch(function () {});
+    // IS the group id. It goes out behind any word still on its way to the
+    // core that this chat is wanted again: the core turns away the replies
+    // of a chat it holds closed, and the tab would open onto nothing.
+    closedChatsSync.then(function () {
+      return invoke('sl_im_send', { toId: groupId, imId: groupId, dialog: 15, text: '', fromGroup: true });
+    }).catch(function () {});
+    // Emit im-session-open so the UI shows the tab right away.
     BeeTransport.emit('im-session-open', { sessionId: groupId, type: 'group', title: groupName || '' });
     return { sessionId: groupId, type: 'group', title: groupName || '' };
   }
@@ -549,6 +577,9 @@ const BeeSLBridge = (function () {
     const session = (typeof BeeState !== 'undefined' && BeeState.get().imSessions) ? BeeState.get().imSessions[sessionId] : null;
     // P2P (untyped) has no server-side session, so there's nothing to leave.
     if (!session || !session.type || session.type === 'p2p') return;
+    // The leave is what takes us off the session's roster; the cap's decline
+    // answers an invitation that may still be waiting on it (a call ringing).
+    invoke('sl_chat_session_leave', { sessionId: sessionId }).catch(function () {});
     invoke('sl_chat_session_decline', { sessionId: sessionId }).catch(function () {});
   }
 

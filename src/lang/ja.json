@@ -597,6 +597,8 @@
   "im.friendshipSent": "フレンド申請を送りました。",
   "im.fromChatLog": "チャットログから",
   "im.groupChat": "グループチャット",
+  "im.groupChatClosed": "グループチャットを閉じました。グループのプロフィールから開くまで、閉じたままになります。",
+  "im.groupMuted": "グループをミュートしました。チャットは静かなままで、自動では開かなくなります。",
   "im.groupProfile": "グループのプロフィール",
   "im.groups": "グループ",
   "im.hangUp": "通話を切る",

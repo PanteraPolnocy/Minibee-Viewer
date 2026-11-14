@@ -601,6 +601,8 @@
   "im.friendshipSent": "Friendship offer sent.",
   "im.fromChatLog": "From your chat log",
   "im.groupChat": "Group chat",
+  "im.groupChatClosed": "Group chat closed. It stays closed until you open it from the group's profile.",
+  "im.groupMuted": "Group muted. Its chat stays quiet and no longer opens by itself.",
   "im.groupProfile": "Group profile",
   "im.groups": "Groups",
   "im.hangUp": "Hang up",

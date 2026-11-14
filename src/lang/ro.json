@@ -605,6 +605,8 @@
   "im.friendshipSent": "Oferta de prietenie a fost trimisă.",
   "im.fromChatLog": "Din jurnalul tău de chat",
   "im.groupChat": "Chat de grup",
+  "im.groupChatClosed": "Chatul de grup a fost închis. Rămâne închis până îl deschizi din profilul grupului.",
+  "im.groupMuted": "Grupul a fost trecut pe silențios. Chatul lui rămâne tăcut și nu se mai deschide singur.",
   "im.groupProfile": "Profil de grup",
   "im.groups": "Grupuri",
   "im.hangUp": "Închide",

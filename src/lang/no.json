@@ -601,6 +601,8 @@
   "im.friendshipSent": "Vennskapstilbud sendt.",
   "im.fromChatLog": "Fra chattloggen din",
   "im.groupChat": "Gruppechat",
+  "im.groupChatClosed": "Gruppechatten er lukket. Den forblir lukket til du åpner den fra gruppens profil.",
+  "im.groupMuted": "Gruppen er dempet. Chatten forblir stille og åpnes ikke lenger av seg selv.",
   "im.groupProfile": "Gruppeprofil",
   "im.groups": "Grupper",
   "im.hangUp": "Legg på",

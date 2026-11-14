@@ -605,6 +605,8 @@
   "im.friendshipSent": "Proposition d'amitié envoyée.",
   "im.fromChatLog": "Depuis votre journal de chat",
   "im.groupChat": "Chat de groupe",
+  "im.groupChatClosed": "Chat de groupe fermé. Il le reste jusqu'à ce que vous l'ouvriez depuis le profil du groupe.",
+  "im.groupMuted": "Groupe mis en sourdine. Son chat reste silencieux et ne s'ouvre plus tout seul.",
   "im.groupProfile": "Profil du groupe",
   "im.groups": "Groupes",
   "im.hangUp": "Raccrocher",

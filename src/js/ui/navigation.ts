@@ -198,10 +198,15 @@ const BeeNavigation = (function () {
   function updateBadges() {
     const s = BeeState.get();
     const chatUnread = s.activeTab === 'chat' ? 0 : s.unreadChat;
-    const imUnread = s.activeTab === 'im' ? 0 : s.unreadIm;
+    // The IM icon carries two counts: people in the loud pill, group chats
+    // and conferences in the quiet one beside it. Both rest while the tab
+    // itself is showing.
+    const imGroups = s.activeTab === 'im' ? 0 : (s.unreadImGroups || 0);
+    const imPeople = s.activeTab === 'im' ? 0 : Math.max(0, (s.unreadIm || 0) - (s.unreadImGroups || 0));
     const eventsUnread = s.activeTab === 'events' ? 0 : (s.unreadEvents || 0);
     setBadge('badge-chat', chatUnread);
-    setBadge('badge-im', imUnread);
+    setBadge('badge-im', imPeople);
+    setBadge('badge-im-groups', imGroups);
     setBadge('badge-events', eventsUnread);
     setDot('badge-radar', (s.unreadRadar || 0) > 0 && s.activeTab !== 'radar');
     setDot('badge-land', !!s.landUpdated && s.activeTab !== 'land');

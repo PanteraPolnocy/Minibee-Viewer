@@ -601,6 +601,8 @@
   "im.friendshipSent": "Vriendschap aangeboden.",
   "im.fromChatLog": "Uit je chatlog",
   "im.groupChat": "Groepschat",
+  "im.groupChatClosed": "Groepschat gesloten. Hij blijft gesloten tot je hem opent vanuit het groepsprofiel.",
+  "im.groupMuted": "Groep gedempt. De chat blijft stil en opent niet meer vanzelf.",
   "im.groupProfile": "Groepsprofiel",
   "im.groups": "Groepen",
   "im.hangUp": "Ophangen",

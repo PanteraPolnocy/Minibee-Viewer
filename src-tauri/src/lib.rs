@@ -250,6 +250,8 @@ pub fn run() {
             bridge::caps::sl_fetch_agent_profile,
             bridge::caps::sl_chat_session_accept,
             bridge::caps::sl_chat_session_decline,
+            bridge::caps::sl_chat_session_leave,
+            bridge::caps::sl_set_closed_chats,
             bridge::caps::sl_chat_session_start_conference,
             bridge::caps::sl_chat_session_invite,
             bridge::caps::sl_chat_session_moderate,

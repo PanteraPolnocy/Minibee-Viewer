@@ -165,6 +165,17 @@ pub struct SessionState {
     /// Per-IM-session roster, so the incremental ChatterBoxSessionAgentListUpdates
     /// deltas can be merged into a full snapshot (the UI replaces the list wholesale).
     pub im_rosters: HashMap<String, ImRoster>,
+    /// Chat sessions that are to stay closed, lowercased: the groups whose
+    /// chat the user closed or muted (remembered by the interface across
+    /// logins, and handed over when the session starts) and the conferences
+    /// left during this login. The grid re-invites us to a group's chat with
+    /// its next message; for these the invitation is not taken up, nothing
+    /// is shown, and the grid is told we have left. The interface decides
+    /// what is on the list - a muted group with its chat open is not, so
+    /// that chat keeps filling quietly - and opening a chat from the group
+    /// takes the id out again before the session is started (see
+    /// `set_closed_chats`).
+    pub closed_chats: HashSet<String>,
     /// Inbound file transfers in progress, keyed by the id we chose when asking. The mute
     /// list is the only thing we fetch this way.
     pub xfers: HashMap<u64, XferIn>,
@@ -1463,6 +1474,65 @@ fn is_p2p_session<'a>(state: &SessionState, session_id: &str, agents: impl IntoI
     }
     let peer = xor_session_id(&state.agent_id, session_id);
     !same_uuid(&peer, &state.agent_id) && state.knows_name(&peer)
+}
+
+/// The ids of the chats to keep closed, as `closed_chats` holds them:
+/// trimmed, lowercased, and nothing that is not a session id.
+pub fn normalize_closed_chats<I, S>(ids: I) -> HashSet<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    ids.into_iter()
+        .map(|id| id.as_ref().trim().to_ascii_lowercase())
+        .filter(|id| id.len() == 36 && !is_zero_uuid(id))
+        .collect()
+}
+
+/// Tell the grid we are out of a chat session: IM_SESSION_LEAVE (dialog 18)
+/// addressed to the session, whose id a group chat shares with its group.
+/// Sent when the user closes a group chat or leaves a conference, and again
+/// whenever the grid pulls us back into one that is to stay closed.
+pub fn leave_chat_session(agent_id: &str, session_uuid: &str, chat_id: &str) -> Action {
+    Action::send(
+        "ImprovedInstantMessage",
+        json!({
+            "AgentData": [{ "AgentID": agent_id, "SessionID": session_uuid }],
+            "MessageBlock": [{
+                "FromGroup": false, "ToAgentID": chat_id,
+                "ParentEstateID": 0, "RegionID": "00000000-0000-0000-0000-000000000000",
+                "Position": [0.0, 0.0, 0.0], "Offline": 0, "Dialog": 18, "ID": chat_id,
+                "Timestamp": 0, "FromAgentName": B64.encode(b"\0"),
+                "Message": B64.encode(b"\0"), "BinaryBucket": B64.encode(b"\0"),
+            }],
+        }),
+        true,
+    )
+}
+
+impl SessionState {
+    /// Whether the user closed this chat session and it is to stay closed.
+    pub fn chat_closed(&self, chat_id: &str) -> bool {
+        if chat_id.is_empty() || self.closed_chats.is_empty() {
+            return false;
+        }
+        // Wire-decoded ids are already canonical; normalize only on a miss.
+        self.closed_chats.contains(chat_id) || self.closed_chats.contains(&chat_id.trim().to_ascii_lowercase())
+    }
+
+    /// Replace the set of chats to keep closed. A chat that just joined the
+    /// set has no roster worth keeping; one that left it starts clean.
+    pub fn set_closed_chats(&mut self, ids: HashSet<String>) {
+        for id in &ids {
+            self.im_rosters.remove(id);
+        }
+        self.closed_chats = ids;
+    }
+
+    /// The reply to the grid pulling us into a chat that is to stay closed.
+    fn refuse_closed_chat(&self, chat_id: &str) -> Action {
+        leave_chat_session(&self.agent_id, &self.session_uuid, chat_id)
+    }
 }
 
 /// Strip a trailing SLURL line (maps.secondlife.com / slurl) off a lure message.
@@ -4279,7 +4349,10 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                 let v_session = body.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
                 let v_from = body.get("from_id").and_then(|v| v.as_str()).unwrap_or("");
                 let uri = voice.get("channel_uri").and_then(|v| v.as_str()).unwrap_or("");
-                let muted = state.is_muted_text(v_from) || state.is_muted_text(v_session);
+                // A chat the user closed does not ring either.
+                let muted = state.is_muted_text(v_from)
+                    || state.is_muted_text(v_session)
+                    || state.chat_closed(v_session);
                 // Our own outgoing call can echo back as an invitation; never
                 // ring for ourselves.
                 let self_echo = same_uuid(v_from, &state.agent_id);
@@ -4312,6 +4385,15 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                 || same_uuid(&session_id, ZERO)
                 || same_uuid(&from_id, &state.agent_id)
             {
+                return actions;
+            }
+            // A chat the user closed stays closed: the grid invites us back
+            // with a group's next message, and taking that up is how a closed
+            // group chat used to reappear, unread count and all. No accept,
+            // nothing shown, and the grid is told we are out again.
+            if state.chat_closed(&session_id) {
+                state.im_rosters.remove(&session_id);
+                actions.push(state.refuse_closed_chat(&session_id));
                 return actions;
             }
             // A blocked sender must not pull us into a conference: if the tab
@@ -4373,6 +4455,12 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
         }
         "ForceCloseChatterBoxSession" => {
             let sid = str_field(body, &["session_id", "sessionId"]);
+            // A chat the user already closed has nothing left to close, and
+            // nothing to announce.
+            if state.chat_closed(&sid) {
+                state.im_rosters.remove(&sid);
+                return actions;
+            }
             if !sid.is_empty() {
                 state.im_rosters.remove(&sid);
                 let reason = str_field(body, &["reason"]);
@@ -4413,6 +4501,12 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
         "ChatterBoxSessionAgentListUpdates" => {
             let sid = str_field(body, &["session_id", "sessionId"]);
             if sid.is_empty() {
+                return actions;
+            }
+            // Members coming and going in a chat the user closed: a roster
+            // event would open its tab again, so none is kept or sent.
+            if state.chat_closed(&sid) {
+                state.im_rosters.remove(&sid);
                 return actions;
             }
             // The update is a per-agent DELTA (ENTER/LEAVE plus moderator/mute
@@ -5157,6 +5251,13 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
     // A session-flavoured IM whose id is really our private thread with the
     // sender (id = us XOR them) is a P2P line, not a conference.
     let is_session = is_session && (from_group || !is_p2p_session(state, &session_im_id, [from_id.as_str()]));
+    // A line from a chat the user closed (see the EventQueue's
+    // ChatterBoxInvitation, the usual way back in): dropped, and the grid is
+    // told again that we have left.
+    if is_session && state.chat_closed(&session_im_id) {
+        actions.push(state.refuse_closed_chat(&session_im_id));
+        return actions;
+    }
     if is_session && !session_im_id.is_empty() {
         // A session line can arrive over both transports (the EventQueue's
         // ChatterBoxInvitation carries the first message, UDP the rest), so only
@@ -7107,6 +7208,213 @@ mod tests {
         }));
         let r = emit_of(&roster, "im-roster").unwrap();
         assert_eq!(r["participants"][0]["isModerator"], true);
+    }
+
+    // A chat the user closed and wants kept closed. The grid has four ways
+    // back in - the invitation carrying a group's next message, a roster
+    // delta, a session line over UDP, a call - and none of them opens it.
+    const CLOSED_GROUP: &str = "99999999-aaaa-bbbb-cccc-000000000001";
+    const OUR_SESSION: &str = "abababab-0000-0000-0000-000000000001";
+
+    fn closed_group_state() -> SessionState {
+        let mut st = me_state();
+        st.session_uuid = OUR_SESSION.into();
+        st.groups.insert(CLOSED_GROUP.into());
+        st.groups.insert("44444444-4444-4444-4444-444444444444".into());
+        // The interface may hand the id over in any case, padded or not.
+        st.set_closed_chats(normalize_closed_chats([format!("  {}\n", CLOSED_GROUP.to_uppercase())]));
+        st
+    }
+
+    fn closed_group_invitation(text: &str) -> Value {
+        json!({ "instantmessage": { "message_params": {
+            "from_id": OTHER, "id": CLOSED_GROUP, "from_name": "Ruth Resident", "message": text,
+        } } })
+    }
+
+    /// The IM_SESSION_LEAVE among `actions`, if there is one.
+    fn leave_of(actions: &[Action]) -> Option<(&Value, bool)> {
+        actions.iter().find_map(|a| match a {
+            Action::Send { name, blocks, reliable }
+                if name == "ImprovedInstantMessage" && blocks["MessageBlock"][0]["Dialog"] == 18 =>
+            {
+                Some((blocks, *reliable))
+            }
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn closed_chat_ids_are_normalized() {
+        let ids = normalize_closed_chats([
+            " 99999999-AAAA-BBBB-CCCC-000000000001 ",
+            "99999999-aaaa-bbbb-cccc-000000000001",
+            "00000000-0000-0000-0000-000000000000",
+            "not an id",
+            "",
+        ]);
+        assert_eq!(ids.len(), 1, "one id, however it was written; nothing else is a session");
+        assert!(ids.contains(CLOSED_GROUP));
+        assert!(normalize_closed_chats(Vec::<String>::new()).is_empty());
+
+        let st = closed_group_state();
+        assert!(st.chat_closed(CLOSED_GROUP));
+        assert!(st.chat_closed(&CLOSED_GROUP.to_uppercase()), "the wire's case does not matter");
+        assert!(!st.chat_closed("44444444-4444-4444-4444-444444444444"));
+        assert!(!st.chat_closed(""));
+        assert!(!me_state().chat_closed(CLOSED_GROUP), "nothing is closed until the user closes it");
+    }
+
+    #[test]
+    fn closed_chat_invitation_is_refused_with_a_leave() {
+        let mut st = closed_group_state();
+        let a = route_eq(&mut st, "ChatterBoxInvitation", &closed_group_invitation("anyone around?"));
+        assert!(emit_of(&a, "im").is_none(), "the line that used to reopen the tab is not shown");
+        assert!(
+            !a.iter().any(|x| matches!(x, Action::AcceptChatSession { .. })),
+            "accepting is what enrolled us again"
+        );
+        assert!(!a.iter().any(|x| matches!(x, Action::Emit { .. })), "nothing reaches the interface");
+        assert_eq!(a.len(), 1, "the leave and nothing else");
+        let (blocks, reliable) = leave_of(&a).expect("the grid is told we are out again");
+        assert!(reliable);
+        assert_eq!(blocks["AgentData"][0]["AgentID"], ME);
+        assert_eq!(blocks["AgentData"][0]["SessionID"], OUR_SESSION);
+        let mb = &blocks["MessageBlock"][0];
+        assert_eq!(mb["ID"], CLOSED_GROUP, "the session being left");
+        assert_eq!(mb["ToAgentID"], CLOSED_GROUP);
+        assert_eq!(mb["FromGroup"], false);
+        assert_eq!(mb["Offline"], 0);
+        assert!(!st.im_rosters.contains_key(CLOSED_GROUP));
+
+        // Every later message invites us again, and gets the same answer.
+        st.now_ms = 60_000;
+        let a = route_eq(&mut st, "ChatterBoxInvitation", &closed_group_invitation("hello?"));
+        assert!(emit_of(&a, "im").is_none());
+        assert!(leave_of(&a).is_some());
+
+        // A group that was not closed is joined as before.
+        let other = json!({ "instantmessage": { "message_params": {
+            "from_id": OTHER, "id": "44444444-4444-4444-4444-444444444444",
+            "from_name": "Ruth Resident", "message": "hi group",
+        } } });
+        let a = route_eq(&mut st, "ChatterBoxInvitation", &other);
+        assert_eq!(emit_of(&a, "im").expect("im")["session"]["type"], "group");
+        assert!(a.iter().any(|x| matches!(x, Action::AcceptChatSession { .. })));
+        assert!(leave_of(&a).is_none());
+    }
+
+    #[test]
+    fn closed_chat_does_not_ring() {
+        let mut st = closed_group_state();
+        // A group call, with and without a message riding along.
+        let mut body = closed_group_invitation("join the call");
+        body["voice"] = json!({ "channel_uri": "sip:group@example", "invitation_type": 1 });
+        body["session_id"] = json!(CLOSED_GROUP);
+        body["from_id"] = json!(OTHER);
+        let a = route_eq(&mut st, "ChatterBoxInvitation", &body);
+        assert!(emit_of(&a, "voice-call-invite").is_none(), "no ring from a chat that was closed");
+        assert!(emit_of(&a, "im").is_none());
+        assert!(leave_of(&a).is_some());
+
+        let bare = json!({
+            "voice": { "channel_uri": "sip:group@example", "invitation_type": 1 },
+            "session_id": CLOSED_GROUP, "from_id": OTHER,
+        });
+        assert!(route_eq(&mut st, "ChatterBoxInvitation", &bare).is_empty());
+    }
+
+    #[test]
+    fn closed_chat_keeps_no_roster_and_announces_no_force_close() {
+        let mut st = closed_group_state();
+        let roster = json!({
+            "session_id": CLOSED_GROUP,
+            "agent_updates": {
+                ME: { "transition": "ENTER", "info": {} },
+                OTHER: { "transition": "ENTER", "info": { "is_moderator": true } },
+            }
+        });
+        let a = route_eq(&mut st, "ChatterBoxSessionAgentListUpdates", &roster);
+        assert!(a.is_empty(), "a roster event would open the tab again");
+        assert!(!st.im_rosters.contains_key(CLOSED_GROUP));
+
+        let a = route_eq(&mut st, "ForceCloseChatterBoxSession", &json!({ "session_id": CLOSED_GROUP, "reason": "removed" }));
+        assert!(a.is_empty(), "there is no open chat to close, and nothing to announce");
+    }
+
+    #[test]
+    fn closed_chat_drops_session_lines_over_udp() {
+        let mut st = closed_group_state();
+        let pkt = im_packet(17, OTHER, "00000000-0000-0000-0000-000000000000", true,
+            CLOSED_GROUP, "still talking", "Explorers");
+        let a = route(&mut st, &pkt);
+        assert!(emit_of(&a, "im").is_none());
+        let (blocks, _) = leave_of(&a).expect("a line got through, so the grid still has us in");
+        assert_eq!(blocks["MessageBlock"][0]["ID"], CLOSED_GROUP);
+
+        // The same resident's private message is another conversation altogether.
+        let p2p = im_packet(0, OTHER, ME, false, "00000000-0000-0000-0000-000000000000", "psst", "");
+        let a = route(&mut st, &p2p);
+        assert_eq!(emit_of(&a, "im").expect("the private IM arrives")["message"]["text"], "psst");
+        assert!(leave_of(&a).is_none());
+    }
+
+    #[test]
+    fn reopened_chat_is_joined_again() {
+        let mut st = closed_group_state();
+        assert!(emit_of(&route_eq(&mut st, "ChatterBoxInvitation", &closed_group_invitation("one")), "im").is_none());
+
+        // The user opens the chat from the group: the id leaves the set before
+        // the session is started, so its replies are no longer turned away.
+        st.set_closed_chats(HashSet::new());
+        st.now_ms = 5000;
+        let a = route_eq(&mut st, "ChatterBoxInvitation", &closed_group_invitation("two"));
+        let p = emit_of(&a, "im").expect("the chat is live again");
+        assert_eq!(p["sessionId"], CLOSED_GROUP);
+        assert_eq!(p["session"]["type"], "group");
+        assert!(a.iter().any(|x| matches!(x, Action::AcceptChatSession { .. })));
+        assert!(leave_of(&a).is_none());
+
+        let roster = route_eq(&mut st, "ChatterBoxSessionAgentListUpdates", &json!({
+            "session_id": CLOSED_GROUP,
+            "agent_updates": { OTHER: { "transition": "ENTER", "info": {} } }
+        }));
+        assert!(emit_of(&roster, "im-roster").is_some(), "the roster is back too");
+
+        st.now_ms = 9000;
+        let pkt = im_packet(17, OTHER, "00000000-0000-0000-0000-000000000000", true,
+            CLOSED_GROUP, "three", "Explorers");
+        assert_eq!(emit_of(&route(&mut st, &pkt), "im").expect("im")["message"]["text"], "three");
+    }
+
+    #[test]
+    fn closing_a_chat_drops_the_roster_it_had() {
+        let mut st = me_state();
+        st.groups.insert(CLOSED_GROUP.into());
+        route_eq(&mut st, "ChatterBoxSessionAgentListUpdates", &json!({
+            "session_id": CLOSED_GROUP,
+            "agent_updates": { OTHER: { "transition": "ENTER", "info": {} } }
+        }));
+        assert!(st.im_rosters.contains_key(CLOSED_GROUP));
+        st.set_closed_chats(normalize_closed_chats([CLOSED_GROUP]));
+        assert!(!st.im_rosters.contains_key(CLOSED_GROUP), "a reopened chat starts from a clean roster");
+        assert!(st.chat_closed(CLOSED_GROUP));
+    }
+
+    #[test]
+    fn leaving_a_chat_names_the_session_in_both_fields() {
+        let action = leave_chat_session(ME, OUR_SESSION, CLOSED_GROUP);
+        let Action::Send { name, blocks, reliable } = action else { panic!("a packet to send") };
+        assert_eq!(name, "ImprovedInstantMessage");
+        assert!(reliable, "a lost leave would leave us enrolled");
+        let mb = &blocks["MessageBlock"][0];
+        assert_eq!(mb["Dialog"], 18);
+        assert_eq!(mb["ID"], CLOSED_GROUP);
+        assert_eq!(mb["ToAgentID"], CLOSED_GROUP);
+        // Variable fields carry their terminator and nothing else.
+        for field in ["FromAgentName", "Message", "BinaryBucket"] {
+            assert_eq!(B64.decode(mb[field].as_str().unwrap()).unwrap(), vec![0u8], "{field}");
+        }
     }
 
     #[test]

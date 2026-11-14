@@ -601,6 +601,8 @@
   "im.friendshipSent": "Arkadaşlık teklifi gönderildi.",
   "im.fromChatLog": "Sohbet günlüğünüzden",
   "im.groupChat": "Grup sohbeti",
+  "im.groupChatClosed": "Grup sohbeti kapatıldı. Grup profilinden açılana kadar kapalı kalır.",
+  "im.groupMuted": "Grup sessize alındı. Sohbeti sessiz kalır ve artık kendiliğinden açılmaz.",
   "im.groupProfile": "Grup profili",
   "im.groups": "Gruplar",
   "im.hangUp": "Kapat",

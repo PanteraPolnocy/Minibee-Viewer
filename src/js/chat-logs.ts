@@ -234,6 +234,11 @@ const BeeChatLogs = (function () {
     BeeState.on('im', logIm);
     BeeState.on('chat', logChat);
     BeeState.on('im-session-new', loadHistory);
+    // A group chat or a conference that was closed can be opened again, as a
+    // new tab with nothing in it: that one reads its log tail afresh.
+    BeeState.on('im-session-closed', function (sessionId) {
+      historyTried.delete(sessionId);
+    });
     BeeState.on('change', function (partial) {
       if (partial && partial.connected === true) void maybeAsk();
     });

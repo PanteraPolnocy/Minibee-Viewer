@@ -601,6 +601,8 @@
   "im.friendshipSent": "Vänskapsförfrågan skickad.",
   "im.fromChatLog": "Från din chattlogg",
   "im.groupChat": "Gruppchatt",
+  "im.groupChatClosed": "Gruppchatten är stängd. Den förblir stängd tills du öppnar den från gruppens profil.",
+  "im.groupMuted": "Gruppen är tystad. Dess chatt förblir tyst och öppnas inte längre av sig själv.",
   "im.groupProfile": "Grupprofil",
   "im.groups": "Grupper",
   "im.hangUp": "Lägg på",

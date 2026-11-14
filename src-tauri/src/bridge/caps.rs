@@ -603,6 +603,44 @@ pub async fn sl_chat_session_decline(state: State<'_, Arc<AppState>>, session_id
     chat_session_post(state.inner(), "decline invitation", &session_id, &[], None).await
 }
 
+/// Leave a group chat or a conference: IM_SESSION_LEAVE over the circuit,
+/// which is how the grid learns a participant is gone (the cap's "decline
+/// invitation" only turns down a call). The roster kept for the session goes
+/// with it. Whether the chat then stays closed is `sl_set_closed_chats`'
+/// business; this only says goodbye.
+#[tauri::command]
+pub async fn sl_chat_session_leave(state: State<'_, Arc<AppState>>, session_id: String) -> Cmd {
+    let (s, agent, sess) = crate::commands::active_ids(&state)?;
+    let chat_id = session_id.trim().to_ascii_lowercase();
+    // Only a session keyed by an id can be left; anything else has nobody to tell.
+    if crate::bridge::session::normalize_closed_chats([chat_id.as_str()]).is_empty() {
+        return Ok(json!({ "ok": false }));
+    }
+    s.forget_chat_roster(&chat_id);
+    if let crate::bridge::session::Action::Send { name, blocks, reliable } =
+        crate::bridge::session::leave_chat_session(&agent, &sess, &chat_id)
+    {
+        s.send_encoded(&name, &blocks, reliable).await;
+    }
+    Ok(json!({ "ok": true }))
+}
+
+/// The chat sessions that are to stay closed (the groups whose chat the user
+/// closed or muted, which the interface remembers per account, plus the
+/// conferences left during this login), told whole on every change; the
+/// list a session starts with rides `sl_start_session`. See
+/// `SessionState::closed_chats`.
+#[tauri::command]
+pub async fn sl_set_closed_chats(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> Cmd {
+    let closed = crate::bridge::session::normalize_closed_chats(ids);
+    let count = closed.len();
+    // No live session is not an error: the list rides the next session start.
+    if let Some(s) = state.active() {
+        s.set_closed_chats(closed);
+    }
+    Ok(json!({ "ok": true, "count": count }))
+}
+
 #[tauri::command]
 pub async fn sl_chat_session_start_conference(
     state: State<'_, Arc<AppState>>,

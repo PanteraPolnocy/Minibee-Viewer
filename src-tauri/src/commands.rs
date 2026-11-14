@@ -3554,6 +3554,17 @@ pub async fn sl_start_session(app: AppHandle, state: State<'_, Arc<AppState>>, p
         })
         .unwrap_or_default();
 
+    // The chats this account keeps closed, known before the first packet: a
+    // group's waiting chatter arrives right behind the login, and must not
+    // slip in ahead of a list sent afterwards.
+    let closed_chats = crate::bridge::session::normalize_closed_chats(
+        params
+            .get("closedChats")
+            .and_then(|v| v.as_array())
+            .map(|list| list.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
+            .unwrap_or_default(),
+    );
+
     // Whatever circuit ran before - the session a relogin or auto-reconnect is
     // replacing - is finished with. Close it before opening the new one, so
     // its socket, listener and tasks go away instead of piling up, and its
@@ -3578,6 +3589,7 @@ pub async fn sl_start_session(app: AppHandle, state: State<'_, Arc<AppState>>, p
             sim_port,
             circuit_code,
             caps: caps_map.clone(),
+            closed_chats,
         }),
     )
     .await?;

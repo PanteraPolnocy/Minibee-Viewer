@@ -609,6 +609,8 @@
   "im.friendshipSent": "Nabídka přátelství odeslána.",
   "im.fromChatLog": "Z tvého logu chatu",
   "im.groupChat": "Chat skupiny",
+  "im.groupChatClosed": "Chat skupiny je zavřený. Zůstane zavřený, dokud ho neotevřeš z profilu skupiny.",
+  "im.groupMuted": "Skupina je ztlumená. Její chat zůstane potichu a sám se už neotevře.",
   "im.groupProfile": "Profil skupiny",
   "im.groups": "Skupiny",
   "im.hangUp": "Zavěsit",

@@ -283,6 +283,10 @@ const BeeApp = (function () {
       // retype the person's tab into a conference.
       const existing = BeeState.get().imSessions[data.sessionId];
       if (existing && !isSessionChatType(existing.type)) return;
+      // A chat that was turned away (closed, or a muted group's) opens for
+      // the user alone. The core sends no roster for one; this is the event
+      // that was already on its way when the chat was closed.
+      if (!existing && BeeState.isChatRefused(data.sessionId)) return;
       BeeState.ensureKeyedSession(data.sessionId, { type: data.type, title: data.title });
       if (data.title) BeeState.renameSession(data.sessionId, data.title);
       if (data.type) BeeState.setSessionType(data.sessionId, data.type);
@@ -303,6 +307,8 @@ const BeeApp = (function () {
     BeeTransport.on('im-session-force-close', function (data) {
       if (!data || !data.sessionId) return;
       const session = BeeState.get().imSessions[data.sessionId];
+      // A chat that was turned away has no tab to close, and its end is no news.
+      if (!session && BeeState.isChatRefused(data.sessionId)) return;
       const label = (session && session.title) || t('im.chatSession');
       BeeState.closeImSession(data.sessionId);
       BeeUtils.showToast((BeeI18n.field(data, 'reason') || t('im.sessionClosed')) +

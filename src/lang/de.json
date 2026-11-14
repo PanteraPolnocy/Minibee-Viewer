@@ -601,6 +601,8 @@
   "im.friendshipSent": "Freundschaftsangebot gesendet.",
   "im.fromChatLog": "Aus Ihrem Chatprotokoll",
   "im.groupChat": "Gruppenchat",
+  "im.groupChatClosed": "Gruppenchat geschlossen. Er bleibt geschlossen, bis Sie ihn über das Gruppenprofil öffnen.",
+  "im.groupMuted": "Gruppe stummgeschaltet. Ihr Chat bleibt still und öffnet sich nicht mehr von selbst.",
   "im.groupProfile": "Gruppenprofil",
   "im.groups": "Gruppen",
   "im.hangUp": "Auflegen",
