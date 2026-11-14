@@ -245,6 +245,7 @@ const BeeMap = (function () {
     tileImageCache.clear();
     fetchedBlocks.clear();
     httpNamePending.clear();
+    httpNameRetryAt.clear();
     httpNameBatchQueue = [];
     httpNameBatchRunning = false;
     regionInfo.clear();
@@ -314,6 +315,13 @@ const BeeMap = (function () {
     }
   }
 
+  // Tiles the web lookup gave no answer for, and when it may be asked about
+  // them again. The grid's own map (rememberBlocks) fills them in meanwhile;
+  // without the pause every redraw would put the same question to a service
+  // that is not answering.
+  const httpNameRetryAt = new Map<string, number>();
+  const HTTP_NAME_RETRY_MS = 60000;
+
   function queueRegionNameFetch(gridX, gridY) {
     const key = tileKey(gridX, gridY);
     if (isRegionResolved(gridX, gridY)) return;
@@ -322,6 +330,8 @@ const BeeMap = (function () {
       markRegionEmpty(gridX, gridY);
       return;
     }
+    const retryAt = httpNameRetryAt.get(key);
+    if (retryAt && Date.now() < retryAt) return;
     httpNamePending.add(key);
     httpNameBatchQueue.push({ gridX: gridX, gridY: gridY, key: key });
     scheduleRegionNameBatch();
@@ -342,14 +352,18 @@ const BeeMap = (function () {
         const gy = row.gridY;
         if (gx === undefined || gy === undefined) return;
         if (row.name) {
+          httpNameRetryAt.delete(tileKey(gx, gy));
           applyRegionInfo(gx, gy, row.name, undefined, 'http');
         } else if (row.empty) {
-          markRegionEmpty(gx, gy);
-        }
-      });
-      batch.forEach(function (item) {
-        if (!isRegionResolved(item.gridX, item.gridY)) {
-          markRegionEmpty(item.gridX, item.gridY);
+          // The service looked and found no region there. A name the grid's
+          // own map gave for the tile stands: the grid is the one that knows.
+          if (!getRegionName(gx, gy)) markRegionEmpty(gx, gy);
+        } else {
+          // No answer at all (the service is out of reach or out of order):
+          // that says nothing about the tile. It stays open - marking it
+          // empty would wipe real regions off the map - and is not asked
+          // about again for a while.
+          httpNameRetryAt.set(tileKey(gx, gy), Date.now() + HTTP_NAME_RETRY_MS);
         }
       });
     }).catch(function () {
@@ -779,6 +793,10 @@ const BeeMap = (function () {
   function regionErrorMessage(err, regionName) {
     const name = String(regionName || '').trim();
     const msg = BeeUtils.errText(err);
+    // A lookup nobody answered, or a region the map lists as down: these say
+    // exactly what happened and are shown as they are - never reworded into
+    // "unknown region" because of a word that happens to be in the name.
+    if (msg && err && (err.lookupFailed || err.regionOffline)) return msg;
     if (/unknown region|region not found/i.test(msg)) return msg;
     if (name && (/not found|timed out|could not resolve|parse/i.test(msg) || !msg)) {
       return t('map.unknownRegion', { name: name });
@@ -786,6 +804,14 @@ const BeeMap = (function () {
     if (msg) return msg;
     return name ? t('map.unknownRegion', { name: name })
       : t('map.resolveFailed');
+  }
+
+  // The grid's map lists the region that was just looked up as down: worth
+  // saying when it is shown, before anybody tries to go there.
+  function noteIfOffline(loc) {
+    if (loc && loc.offline) {
+      BeeUtils.showToast(t('teleport.regionOffline', { region: loc.regionName || '' }), 'warning');
+    }
   }
 
   async function goToInput() {
@@ -808,13 +834,16 @@ const BeeMap = (function () {
         input.value = BeeSlurl.buildMapsUrl(loc.regionName, loc);
       }
       revealMapOnPhone();
+      noteIfOffline(loc);
     } catch (err) {
       const badName = parsed && parsed.regionName ? parsed.regionName : text;
       if (needsLookup && info) {
-        info.textContent = infoPrev || t('map.unknownRegionShort');
+        // A lookup that could not be made says nothing about the region:
+        // the line goes back to what it showed, not to "Unknown region".
+        info.textContent = infoPrev || (err && err.lookupFailed ? '' : t('map.unknownRegionShort'));
       }
       if (selection && needsLookup && parsed && parsed.regionName &&
-          selection.regionName &&
+          selection.regionName && !(err && err.lookupFailed) &&
           selection.regionName.toLowerCase() === String(parsed.regionName).toLowerCase()) {
         setSelection(null);
       }
@@ -875,6 +904,12 @@ const BeeMap = (function () {
         resetTeleportButton();
         const badName = parsed && parsed.regionName ? parsed.regionName : text;
         BeeUtils.showToast(regionErrorMessage(err, badName), 'error');
+        return;
+      }
+      // Looked up this moment and listed as down: say so instead of trying.
+      if (target.offline) {
+        resetTeleportButton();
+        BeeUtils.showToast(t('teleport.regionOffline', { region: target.regionName || '' }), 'error');
         return;
       }
     } else if (!target) {
@@ -950,6 +985,7 @@ const BeeMap = (function () {
       setSelection(loc);
       const field = el<HTMLInputElement>('map-location-input');
       if (field) field.value = BeeSlurl.buildMapsUrl(loc.regionName, loc);
+      noteIfOffline(loc);
     }).catch(function (err) {
       const badName = parsed.regionName ||
         (typeof input === 'string' ? input : '');

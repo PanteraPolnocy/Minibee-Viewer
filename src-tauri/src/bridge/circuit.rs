@@ -87,6 +87,9 @@ pub struct Session {
     /// A liveness probe after a network change is in flight (see
     /// probe_after_network_change); a second one waits for nothing.
     probing: AtomicBool,
+    /// Region names being looked up on the sim's map (see
+    /// `lookup_region_name`).
+    region_lookups: crate::bridge::map::RegionLookups,
 }
 
 impl Session {
@@ -981,6 +984,34 @@ impl Session {
         }
     }
 
+    /// Ask the sim's map where a region is, by name, and wait for what it
+    /// says: the region, that there is none by that name, or - `None` -
+    /// nothing within `wait` (or no session to ask through).
+    ///
+    /// This is the grid's own answer, over the circuit the session already
+    /// runs on, so it is there whenever the session is. The request is sent
+    /// reliably; the reply arrives as ordinary map blocks, which `execute`
+    /// shows to the waiting lookup.
+    pub async fn lookup_region_name(
+        &self,
+        name: &str,
+        wait: Duration,
+    ) -> Option<crate::bridge::map::MapNameAnswer> {
+        let (agent, session_uuid) = self.agent_ids()?;
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        let request = json!({
+            // Flags 2 is the map layer every request here asks for.
+            "AgentData": [{ "AgentID": agent, "SessionID": session_uuid, "Flags": 2, "EstateID": 0, "Godlike": false }],
+            "NameData": [{ "Name": B64.encode(format!("{name}\0").as_bytes()) }],
+        });
+        self.region_lookups
+            .ask(name, wait, || self.send_encoded("MapNameRequest", &request, true))
+            .await
+    }
+
     /// Encode a message by name, send it, and - if it's reliable - track it for resend.
     pub async fn send_encoded(&self, name: &str, blocks: &Value, reliable: bool) {
         let seq = self.next_seq();
@@ -1016,6 +1047,16 @@ impl Session {
             }
             Action::Emit { event, mut payload } => {
                 stamp_event(&event, &mut payload);
+                if event == "map-blocks" {
+                    // A name lookup waiting on the sim reads the map's blocks
+                    // first; the interface gets them as it always did, less
+                    // the mark that closes a name search, which is no tile.
+                    self.region_lookups.settle(&payload);
+                    crate::bridge::map::without_search_marks(&mut payload);
+                    if payload.as_array().is_some_and(|blocks| blocks.is_empty()) {
+                        return;
+                    }
+                }
                 if event == "disconnected" {
                     // LogoutReply: the logout grace period can end now.
                     self.logout_acked.store(true, Ordering::SeqCst);
@@ -1464,6 +1505,7 @@ pub async fn open(
         props_drain_gen: AtomicU64::new(0),
         finish_anim_at: AtomicU64::new(0),
         probing: AtomicBool::new(false),
+        region_lookups: Default::default(),
     });
     let session_id = now_id();
 

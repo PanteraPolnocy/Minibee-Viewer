@@ -643,7 +643,7 @@ pub async fn bridge_region_by_name(state: State<'_, Arc<AppState>>, name: String
     if name.trim().is_empty() {
         return Err(ui_err("err.regionNameRequired", json!({})));
     }
-    Ok(map::fetch_region_by_name(state.inner(), &name).await)
+    Ok(map::region_by_name(state.inner(), &name).await)
 }
 
 /// Break chat/IM text into link segments, each with a trust classification.

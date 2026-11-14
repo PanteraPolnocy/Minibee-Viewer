@@ -762,12 +762,21 @@ const BeeSLBridge = (function () {
     //  - a string (SLURL / "Region/x/y/z" / bare name), e.g. one from the
     //    destination guide (which used to send grid 0,0 and fail);
     //  - a region-name-only object (e.g. a script teleport).
+    let lookedUp = false;
     if (typeof loc === 'string') {
       target = await resolveLocation(loc);
+      lookedUp = true;
     } else if (loc.gridX == null && loc.gridY == null && loc.regionName) {
       const x = loc.x != null ? loc.x : 128, y = loc.y != null ? loc.y : 128, z = loc.z != null ? loc.z : 25;
       target = await resolveLocation(loc.regionName + '/' + x + '/' + y + '/' + z);
+      lookedUp = true;
     }
+    // The grid's map lists the region but as down: say that, which is what
+    // the teleport would fail on anyway, only less clearly. Only a lookup
+    // made just now counts: a location handed in ready-made may carry that
+    // word from a while ago, and a region that is back up must not be kept
+    // out of reach by it - then the sim is simply asked.
+    if (lookedUp && target.offline) throw regionOfflineError(target.regionName);
     await invoke('sl_teleport_to', {
       gridX: target.gridX || 0, gridY: target.gridY || 0,
       x: target.x != null ? target.x : 128, y: target.y != null ? target.y : 128, z: target.z != null ? target.z : 25,
@@ -778,6 +787,13 @@ const BeeSLBridge = (function () {
     // Return the resolved location (regionName + coords) so callers (e.g. the
     // map selection) get real data back, not just the bare {ok:true} ack.
     return target;
+  }
+  // What a teleport says instead of trying, when the map has just listed the
+  // region as down. The mark lets the interface show the words as they are.
+  function regionOfflineError(regionName) {
+    const down: any = new Error(t('teleport.regionOffline', { region: regionName || '' }));
+    down.regionOffline = true;
+    return down;
   }
   function teleportHome() { return invoke('sl_teleport_home'); }
   function sendTeleportOffer(targetId, message) { return invoke('sl_send_teleport_offer', { toId: targetId, message: message || '' }); }
@@ -852,12 +868,27 @@ const BeeSLBridge = (function () {
     }
     if (!regionName) throw new Error(t('teleport.enterRegion'));
     const info = await BeeBridge.regionByName(regionName);
+    // Nobody could be asked (the core says so with `unavailable`): that is a
+    // lookup that failed, not a region that does not exist, and it must not
+    // read like one - a region "not found" sends people off to report it down.
+    if (info && info.unavailable) {
+      const failed: any = new Error(BeeI18n.field(info, 'error') || t('teleport.regionNotFound', { region: regionName }));
+      failed.lookupFailed = true;
+      throw failed;
+    }
     if (!info || (info.x == null && info.gridX == null)) {
       throw new Error(t('teleport.regionNotFound', { region: regionName }));
     }
     const gridX = info.gridX != null ? info.gridX : info.x;
     const gridY = info.gridY != null ? info.gridY : info.y;
-    return { regionName: regionName, gridX: gridX, gridY: gridY, x: local.x, y: local.y, z: local.z };
+    // The name as the grid spells it; `offline` when its map lists the
+    // region as down at this moment (teleportTo says so instead of trying).
+    const found: any = {
+      regionName: info.name || regionName, gridX: gridX, gridY: gridY,
+      x: local.x, y: local.y, z: local.z
+    };
+    if (info.offline) found.offline = true;
+    return found;
   }
 
   // --- map ---
