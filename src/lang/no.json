@@ -1634,6 +1634,7 @@
   "settings.voiceMicDevice": "Mikrofon",
   "settings.voiceMicVolume": "Mikrofonvolum",
   "settings.voiceOutputDevice": "Utenhet",
+  "settings.voiceReleaseMic": "Frigi mikrofonen mens den er dempet",
   "settings.volume": "Volum",
   "slurl.openExternalMessage": "Denne lenken forlater Second Life og åpnes i nettleseren:\n{url}",
   "slurl.openExternalTitle": "Åpne ekstern lenke?",

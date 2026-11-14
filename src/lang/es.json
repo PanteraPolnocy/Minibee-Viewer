@@ -1663,6 +1663,7 @@
   "settings.voiceMicDevice": "Micrófono",
   "settings.voiceMicVolume": "Volumen del micrófono",
   "settings.voiceOutputDevice": "Dispositivo de salida",
+  "settings.voiceReleaseMic": "Liberar el micrófono mientras está silenciado",
   "settings.volume": "Volumen",
   "slurl.openExternalMessage": "Este enlace sale de Second Life y se abre en tu navegador:\n{url}",
   "slurl.openExternalTitle": "¿Abrir el enlace externo?",

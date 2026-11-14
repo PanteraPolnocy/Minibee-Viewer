@@ -1634,6 +1634,7 @@
   "settings.voiceMicDevice": "Mikrofon",
   "settings.voiceMicVolume": "Mikrofon hangereje",
   "settings.voiceOutputDevice": "Kimeneti eszköz",
+  "settings.voiceReleaseMic": "A mikrofon elengedése némítás közben",
   "settings.volume": "Hangerő",
   "slurl.openExternalMessage": "Ez a hivatkozás elhagyja a Second Life-ot, és a böngésződben nyílik meg:\n{url}",
   "slurl.openExternalTitle": "Megnyitod a külső hivatkozást?",

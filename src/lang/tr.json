@@ -1634,6 +1634,7 @@
   "settings.voiceMicDevice": "Mikrofon",
   "settings.voiceMicVolume": "Mikrofon sesi",
   "settings.voiceOutputDevice": "Çıkış aygıtı",
+  "settings.voiceReleaseMic": "Sessizdeyken mikrofonu serbest bırak",
   "settings.volume": "Ses",
   "slurl.openExternalMessage": "Bu bağlantı Second Life'tan çıkar ve tarayıcınızda açılır:\n{url}",
   "slurl.openExternalTitle": "Dış bağlantı açılsın mı?",

@@ -27,6 +27,11 @@ const BeeSettings = (function () {
     voiceVolume: { type: 'number', default: 80, min: 0, max: 100, step: 1 },
     // Microphone gain: 100 = as captured, up to 200% boost.
     voiceMicVolume: { type: 'number', default: 100, min: 0, max: 200, step: 5 },
+    // Let the microphone itself go a moment after muting (the system's
+    // recording indicator goes out, a Bluetooth headset leaves its call
+    // mode) and open it again on unmute. On by default; off keeps it open
+    // for the whole voice session, as before.
+    voiceReleaseMic: { type: 'boolean', default: true },
     // Device ids; empty = system default. Labels resolve after the first
     // microphone grant (browser rule).
     voiceMicDevice: { type: 'string', default: '' },

@@ -1692,6 +1692,7 @@
   "settings.voiceMicDevice": "Mikrofon",
   "settings.voiceMicVolume": "Głośność mikrofonu",
   "settings.voiceOutputDevice": "Urządzenie wyjściowe",
+  "settings.voiceReleaseMic": "Zwalniaj mikrofon, gdy jest wyciszony",
   "settings.volume": "Głośność",
   "slurl.openExternalMessage": "Ten link prowadzi poza Second Life i otworzy się w przeglądarce internetowej:\n{url}",
   "slurl.openExternalTitle": "Otworzyć link zewnętrzny?",

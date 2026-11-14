@@ -57,6 +57,9 @@ const BeeVoice = (function () {
   let posTimer = null;
   let reconnectTimer = null;
   let connectTimer = null;
+  // Automatic attempts that have failed in a row since voice was last up
+  // (see retryDelay).
+  let retryCount = 0;
 
   // agent id -> { speaking, level }; server messages key by agent UUID.
   const participants = new Map();
@@ -141,6 +144,36 @@ const BeeVoice = (function () {
       BeeState.gridOnline() && !!window.RTCPeerConnection;
   }
 
+  // The key of a core error (commands reject with the `{ key, text, args }`
+  // line as a string), or '' for anything else.
+  function errorKey(err) {
+    let value = err && typeof err === 'object' && typeof err.message === 'string' && !err.key ? err.message : err;
+    if (typeof value === 'string' && value.charCodeAt(0) === 123) {
+      try { value = JSON.parse(value); } catch (_e) { return ''; }
+    }
+    return value && typeof value === 'object' && typeof value.key === 'string' ? value.key : '';
+  }
+
+  // Failures that trying again cannot cure: the place itself has no voice
+  // (a teleport or a parcel crossing starts over by itself), or the request
+  // was ours to get right.
+  const FINAL_ERRORS = ['err.regionHasNoVoice', 'err.voiceNotAllowedOnParcel', 'err.badSdpOffer', 'err.noActiveSession'];
+
+  // How long to wait before the next automatic attempt. The first comes
+  // quickly - a region hop, a blip - and each failure after it pushes the
+  // next one out, to ten seconds; a voice server that stays down for minutes
+  // is then asked every half minute, and after that once a minute. The
+  // waits are uneven on purpose: everyone in a region loses the same server
+  // at the same moment and should not all come back in the same one.
+  function retryDelay() {
+    const steps = [RECONNECT_DELAY_MS, 4000, 6000, 8000];
+    if (retryCount === 0) return steps[0];
+    const base = retryCount < steps.length ? steps[retryCount]
+      : retryCount < 12 ? 10000
+        : retryCount < 24 ? 30000 : 60000;
+    return base + Math.floor(Math.random() * 1000);
+  }
+
   function emitState() {
     BeeTransport.emit('voice-state', { state: state, muted: micMuted, desired: desired });
     render();
@@ -188,25 +221,58 @@ const BeeVoice = (function () {
     return out;
   }
 
+  // Let the microphone go: every sender returns to the silent placeholder it
+  // started with (the voice server expects the uplink to keep coming) and
+  // the capture chain is closed. The next unmute opens the microphone anew.
+  function dropMic() {
+    cancelMicRelease();
+    const silent = silentPlaceholderTrack();
+    const swap = function (sender) {
+      if (sender) sender.replaceTrack(silent).catch(function () {});
+    };
+    swap(micSender);
+    neighbourSessions.forEach(function (ns) { swap(ns.sender); });
+    if (callSession) swap(callSession.sender);
+    if (micCtx) { try { micCtx.close(); } catch (_e) {} micCtx = null; }
+    micGain = null;
+    sentTrack = null;
+    stopTracks();
+  }
+
   // Drop the current microphone chain so the next unmute (or the immediate
   // re-acquire below, when the mic is live) picks up the newly chosen device.
   async function reacquireMic() {
     if (!micStream) return;
     const wasLive = !micMuted;
-    if (micSender) { try { await micSender.replaceTrack(null); } catch (_e) {} }
-    neighbourSessions.forEach(function (ns) {
-      if (ns.sender) ns.sender.replaceTrack(null).catch(function () {});
-    });
-    if (callSession && callSession.sender) {
-      callSession.sender.replaceTrack(null).catch(function () {});
-    }
-    if (micCtx) { try { micCtx.close(); } catch (_e) {} micCtx = null; }
-    micGain = null;
-    sentTrack = null;
-    stopTracks();
+    dropMic();
     micMuted = true;
     emitState();
     if (wasLive && state === 'on') void setMicLive(true);
+  }
+
+  // Muting only silences the track: the microphone itself stays open, and
+  // the system goes on saying so - the recording indicator, a Bluetooth
+  // headset held in its call mode, the battery. So a moment after a mute the
+  // microphone is let go, and the next unmute opens it again. The moment's
+  // wait keeps a quick mute-unmute from closing and reopening the device;
+  // the setting is for a machine where reopening is slow or asks again.
+  const MIC_RELEASE_MS = 1000;
+  let micReleaseTimer = null;
+
+  function cancelMicRelease() {
+    if (micReleaseTimer) { clearTimeout(micReleaseTimer); micReleaseTimer = null; }
+  }
+
+  function scheduleMicRelease() {
+    cancelMicRelease();
+    if (!micStream || !micMuted) return;
+    if (typeof BeeSettings === 'undefined' || !BeeSettings.get('voiceReleaseMic')) return;
+    micReleaseTimer = setTimeout(function () {
+      micReleaseTimer = null;
+      if (!micStream || !micMuted) return;
+      dropMic();
+      vlog('microphone released while muted');
+    }, MIC_RELEASE_MS);
   }
 
   function voiceVolume() {
@@ -519,6 +585,8 @@ const BeeVoice = (function () {
         joinedChannel = dc;
         vlog('data channel up ("' + (dc ? dc.label : '?') + '"); joining');
         if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; }
+        // Voice is up: whatever went wrong before is over.
+        retryCount = 0;
         // Join the way the standard client does: announce arrival first, then
         // claim primary for the region we stand in - two messages, in order.
         sendData({ j: {} });
@@ -619,6 +687,16 @@ const BeeVoice = (function () {
     } catch (err) {
       if (seq !== connectSeq) return;
       vlog('connect failed: ' + (BeeUtils.errText(err) || err));
+      // An automatic attempt that failed for a passing reason - the voice
+      // server restarting, a request that timed out - is made again, further
+      // and further apart, for as long as the user wants voice. Nothing is
+      // said: the button already shows voice as off, and a server that is
+      // down would otherwise fill the screen with the same line.
+      if (auto && desired && FINAL_ERRORS.indexOf(errorKey(err)) === -1) {
+        vlog('connect: will try again (attempt ' + (retryCount + 1) + ' failed)');
+        scheduleReconnect('');
+        return;
+      }
       teardown();
       emitState();
       // The automatic login-time join stays quiet when a region simply has no
@@ -643,6 +721,7 @@ const BeeVoice = (function () {
     if (posTimer) { clearInterval(posTimer); posTimer = null; }
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; }
+    cancelMicRelease();
     pendingIce = [];
     iceDone = false;
     iceDoneSent = false;
@@ -675,17 +754,21 @@ const BeeVoice = (function () {
     state = 'off';
   }
 
-  // A region hop (or a dropped connection) restarts voice against the new
-  // region, as long as the user still wants it on.
+  // A region hop (or a dropped connection, or an attempt that failed)
+  // restarts voice, as long as the user still wants it on. Each call counts
+  // as one more failure until voice comes up (see retryDelay); a fresh start
+  // - a new region - resets the count before calling.
   function scheduleReconnect(reason) {
     teardown();
     emitState();
     if (!desired) return;
     if (reason) BeeUtils.showToast(t('voice.reconnecting', { reason: reason }), 'warning');
+    const delay = retryDelay();
+    retryCount += 1;
     reconnectTimer = setTimeout(function () {
       reconnectTimer = null;
       if (desired && state === 'off' && available()) void connect(true);
-    }, RECONNECT_DELAY_MS);
+    }, delay);
   }
 
   // --- neighbour regions -----------------------------------------------------
@@ -1127,6 +1210,7 @@ const BeeVoice = (function () {
 
   function join() {
     desired = true;
+    retryCount = 0;
     void connect(false);
   }
 
@@ -1135,11 +1219,13 @@ const BeeVoice = (function () {
   function maybeAutoJoin() {
     if (!available() || desired || state !== 'off') return;
     desired = true;
+    retryCount = 0;
     void connect(true);
   }
 
   function leave() {
     desired = false;
+    retryCount = 0;
     teardown();
     emitState();
   }
@@ -1153,8 +1239,11 @@ const BeeVoice = (function () {
       applyMicMute();
       emitState();
       BeeUtils.showToast(t('voice.micMuted'), 'warning');
+      scheduleMicRelease();
       return;
     }
+    // Unmuted again before the microphone was let go: it is still open.
+    cancelMicRelease();
     if (!micStream) {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         BeeUtils.showToast(t('voice.noMicAccess'), 'error');
@@ -1316,11 +1405,17 @@ const BeeVoice = (function () {
     applyVolume();
     // A teleport lands on (possibly) another region and voice server; the
     // old session is dead either way, so rebuild while the user wants voice.
+    // (Another region is a fresh start: whatever was failing belonged to the
+    // one left behind, so the waits begin again from the short end.)
     BeeTransport.on('teleport-finish', function () {
-      if (desired) scheduleReconnect('');
+      if (!desired) return;
+      retryCount = 0;
+      scheduleReconnect('');
     });
     BeeTransport.on('region', function () {
-      if (desired && state !== 'off') scheduleReconnect('');
+      if (!desired || state === 'off') return;
+      retryCount = 0;
+      scheduleReconnect('');
     });
     // The sim confirmed a session we asked it to start; a P2P call waits on
     // this before requesting the call itself.
@@ -1360,6 +1455,7 @@ const BeeVoice = (function () {
         vlog('parcel voice channel changed (' +
           (parcelChannelId === null ? 'estate' : parcelChannelId) + ' -> ' +
           (want === null ? 'estate' : want) + '); reconnecting');
+        retryCount = 0;
         scheduleReconnect('');
       }
     });
@@ -1382,6 +1478,11 @@ const BeeVoice = (function () {
         }
         if (key === 'voiceMicDevice') {
           void reacquireMic();
+          return;
+        }
+        if (key === 'voiceReleaseMic') {
+          // Switched on with a muted microphone still open: let it go now.
+          scheduleMicRelease();
           return;
         }
         if (key === 'voiceOutputDevice') {

@@ -1634,6 +1634,7 @@
   "settings.voiceMicDevice": "Microphone",
   "settings.voiceMicVolume": "Microphone volume",
   "settings.voiceOutputDevice": "Output device",
+  "settings.voiceReleaseMic": "Release the microphone while muted",
   "settings.volume": "Volume",
   "slurl.openExternalMessage": "This link leaves Second Life and opens in your browser:\n{url}",
   "slurl.openExternalTitle": "Open external link?",

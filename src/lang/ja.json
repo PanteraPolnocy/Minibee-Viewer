@@ -1605,6 +1605,7 @@
   "settings.voiceMicDevice": "マイク",
   "settings.voiceMicVolume": "マイクの音量",
   "settings.voiceOutputDevice": "出力デバイス",
+  "settings.voiceReleaseMic": "ミュート中はマイクを解放する",
   "settings.volume": "音量",
   "slurl.openExternalMessage": "このリンクはSecond Lifeの外へ出て、ブラウザで開きます:\n{url}",
   "slurl.openExternalTitle": "外部リンクを開きますか？",

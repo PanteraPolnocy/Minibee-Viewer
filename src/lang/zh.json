@@ -1605,6 +1605,7 @@
   "settings.voiceMicDevice": "麥克風",
   "settings.voiceMicVolume": "麥克風音量",
   "settings.voiceOutputDevice": "輸出裝置",
+  "settings.voiceReleaseMic": "靜音時釋放麥克風",
   "settings.volume": "音量",
   "slurl.openExternalMessage": "這個連結會離開Second Life，並在瀏覽器中開啟:\n{url}",
   "slurl.openExternalTitle": "要開啟外部連結嗎？",

@@ -1692,6 +1692,7 @@
   "settings.voiceMicDevice": "Микрофон",
   "settings.voiceMicVolume": "Громкость микрофона",
   "settings.voiceOutputDevice": "Устройство вывода",
+  "settings.voiceReleaseMic": "Освобождать микрофон, пока он выключен",
   "settings.volume": "Громкость",
   "slurl.openExternalMessage": "Эта ссылка уводит из Second Life и откроется в браузере:\n{url}",
   "slurl.openExternalTitle": "Открыть внешнюю ссылку?",

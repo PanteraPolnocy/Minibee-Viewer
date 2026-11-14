@@ -89,6 +89,8 @@ const BeeSettingsUI = (function () {
       { key: 'voiceVolume', label: function () { return t('settings.volume'); }, kind: 'range', unit: '%' },
       { key: 'voiceMicVolume', kind: 'range', unit: '%',
         label: function () { return t('settings.voiceMicVolume'); } },
+      { key: 'voiceReleaseMic', kind: 'toggle',
+        label: function () { return t('settings.voiceReleaseMic'); } },
       { key: 'voiceMicDevice', label: function () { return t('settings.voiceMicDevice'); }, kind: 'select',
         missingLabel: function () { return t('settings.savedMicUnavailable'); },
         optionsFn: function () {

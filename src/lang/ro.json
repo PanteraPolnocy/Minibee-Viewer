@@ -1663,6 +1663,7 @@
   "settings.voiceMicDevice": "Microfon",
   "settings.voiceMicVolume": "Volumul microfonului",
   "settings.voiceOutputDevice": "Dispozitiv de ieșire",
+  "settings.voiceReleaseMic": "Eliberează microfonul cât timp este oprit",
   "settings.volume": "Volum",
   "slurl.openExternalMessage": "Acest link părăsește Second Life și se deschide în navigator:\n{url}",
   "slurl.openExternalTitle": "Deschizi linkul extern?",

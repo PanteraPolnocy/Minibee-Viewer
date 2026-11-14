@@ -1692,6 +1692,7 @@
   "settings.voiceMicDevice": "Mikrofon",
   "settings.voiceMicVolume": "Hlasitost mikrofonu",
   "settings.voiceOutputDevice": "Výstupní zařízení",
+  "settings.voiceReleaseMic": "Uvolnit mikrofon, když je ztlumený",
   "settings.volume": "Hlasitost",
   "slurl.openExternalMessage": "Tenhle odkaz opouští Second Life a otevře se v prohlížeči:\n{url}",
   "slurl.openExternalTitle": "Otevřít externí odkaz?",

@@ -1634,6 +1634,7 @@
   "settings.voiceMicDevice": "Mikrofon",
   "settings.voiceMicVolume": "Mikrofonvolym",
   "settings.voiceOutputDevice": "Utenhet",
+  "settings.voiceReleaseMic": "Släpp mikrofonen medan den är avstängd",
   "settings.volume": "Volym",
   "slurl.openExternalMessage": "Den här länken lämnar Second Life och öppnas i webbläsaren:\n{url}",
   "slurl.openExternalTitle": "Öppna extern länk?",

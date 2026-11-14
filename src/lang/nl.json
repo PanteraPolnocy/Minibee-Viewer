@@ -1634,6 +1634,7 @@
   "settings.voiceMicDevice": "Microfoon",
   "settings.voiceMicVolume": "Microfoonvolume",
   "settings.voiceOutputDevice": "Uitgangsapparaat",
+  "settings.voiceReleaseMic": "Microfoon vrijgeven zolang die gedempt is",
   "settings.volume": "Volume",
   "slurl.openExternalMessage": "Deze link verlaat Second Life en opent in je browser:\n{url}",
   "slurl.openExternalTitle": "Externe link openen?",

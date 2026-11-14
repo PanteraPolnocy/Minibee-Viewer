@@ -1692,6 +1692,7 @@
   "settings.voiceMicDevice": "Мікрофон",
   "settings.voiceMicVolume": "Гучність мікрофона",
   "settings.voiceOutputDevice": "Пристрій виводу",
+  "settings.voiceReleaseMic": "Звільняти мікрофон, поки його вимкнено",
   "settings.volume": "Гучність",
   "slurl.openExternalMessage": "Це посилання веде за межі Second Life і відкриється в браузері:\n{url}",
   "slurl.openExternalTitle": "Відкрити зовнішнє посилання?",
