@@ -13,6 +13,9 @@
  * the values (the template in the file is ours). A line that bends with a
  * number is an object of CLDR plural forms in the file, picked by `count`:
  * English has `one` and `other`, Polish also `few` and `many`.
+ * Korean has only `other`. Hindi and Bengali have `one` and `other`
+ * (and `one` is also what those two use for zero). Arabic has `zero`,
+ * `one`, `two`, `few`, `many` and `other`.
  *
  * Never call t() while a script is being evaluated (top-level constants):
  * the files are loaded by BeeApp.init, after the scripts. Tables of labels
@@ -46,14 +49,18 @@ const BeeI18n = (function () {
   // own language on purpose: that is how someone looking for theirs finds it.
   const LANGUAGES: Array<[string, string]> = [
     ['en', 'English'],
+    ['ar', 'العربية'],
+    ['bn', 'বাংলা'],
     ['cs', 'Čeština'],
     ['da', 'Dansk'],
     ['de', 'Deutsch'],
     ['es', 'Español'],
     ['fr', 'Français'],
+    ['hi', 'हिन्दी'],
     ['hu', 'Magyar'],
     ['it', 'Italiano'],
     ['ja', '日本語'],
+    ['ko', '한국어'],
     ['nl', 'Nederlands'],
     ['no', 'Norsk'],
     ['pl', 'Polski'],
@@ -65,20 +72,25 @@ const BeeI18n = (function () {
     ['uk', 'Українська'],
     ['zh', '正體中文']
   ];
+  // Arabic is the one right-to-left language. The stylesheet mirrors the
+  // shell from this flag; chat and notecards keep the direction of the text.
+  const RTL: Record<string, boolean> = { ar: true };
   // Intl tags. Numbers always follow the UI language; dates and times follow
   // the device while the UI is English (an English UI on a Polish device
   // keeps its 24-hour clock) and the language otherwise.
+  // Arabic and Bengali force Latin digits (u-nu-latn). L$ amounts, coordinates
+  // and ages get copied and typed back as ASCII; native digits would not parse.
   const NUMBER_LOCALE: Record<string, string> = {
-    en: 'en-US', cs: 'cs-CZ', da: 'da-DK', de: 'de-DE', es: 'es-ES', fr: 'fr-FR',
-    hu: 'hu-HU', it: 'it-IT', ja: 'ja-JP', nl: 'nl-NL', no: 'nb-NO', pl: 'pl-PL',
-    pt: 'pt-BR', ro: 'ro-RO', ru: 'ru-RU', sv: 'sv-SE', tr: 'tr-TR', uk: 'uk-UA',
-    zh: 'zh-TW'
+    en: 'en-US', ar: 'ar-u-nu-latn', bn: 'bn-BD-u-nu-latn', cs: 'cs-CZ', da: 'da-DK',
+    de: 'de-DE', es: 'es-ES', fr: 'fr-FR', hi: 'hi-IN', hu: 'hu-HU', it: 'it-IT',
+    ja: 'ja-JP', ko: 'ko-KR', nl: 'nl-NL', no: 'nb-NO', pl: 'pl-PL', pt: 'pt-BR',
+    ro: 'ro-RO', ru: 'ru-RU', sv: 'sv-SE', tr: 'tr-TR', uk: 'uk-UA', zh: 'zh-TW'
   };
   const DATE_LOCALE: Record<string, string | undefined> = {
-    en: undefined, cs: 'cs-CZ', da: 'da-DK', de: 'de-DE', es: 'es-ES', fr: 'fr-FR',
-    hu: 'hu-HU', it: 'it-IT', ja: 'ja-JP', nl: 'nl-NL', no: 'nb-NO', pl: 'pl-PL',
-    pt: 'pt-BR', ro: 'ro-RO', ru: 'ru-RU', sv: 'sv-SE', tr: 'tr-TR', uk: 'uk-UA',
-    zh: 'zh-TW'
+    en: undefined, ar: 'ar-u-nu-latn', bn: 'bn-BD-u-nu-latn', cs: 'cs-CZ', da: 'da-DK',
+    de: 'de-DE', es: 'es-ES', fr: 'fr-FR', hi: 'hi-IN', hu: 'hu-HU', it: 'it-IT',
+    ja: 'ja-JP', ko: 'ko-KR', nl: 'nl-NL', no: 'nb-NO', pl: 'pl-PL', pt: 'pt-BR',
+    ro: 'ro-RO', ru: 'ru-RU', sv: 'sv-SE', tr: 'tr-TR', uk: 'uk-UA', zh: 'zh-TW'
   };
   const ATTRS = ['title', 'placeholder', 'aria-label', 'alt', 'value'];
 
@@ -144,6 +156,7 @@ const BeeI18n = (function () {
     rules = pluralRules(lang) || englishRules;
     if (typeof document !== 'undefined' && document.documentElement) {
       document.documentElement.lang = lang;
+      document.documentElement.dir = RTL[lang] ? 'rtl' : 'ltr';
     }
     apply();
     // The markup holds keys, not words: it stays hidden until the first

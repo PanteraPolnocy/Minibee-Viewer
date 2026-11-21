@@ -89,7 +89,7 @@ Any future departure from standard protocol behaviour will be documented here be
 
 Open **Bee** in the nav (bee icon) for preferences and bundled docs:
 
-- **Settings** (sub-tab) - UI language (English or Polish; the words live in `src/lang/<code>.json`, one file per language, and a switch applies without a restart), theme, radar range/alerts, buddies filter, content ratings for search and the Destination Guide (General and Moderate by default; the first login asks once), destination feed, parcel music, auto-reconnect, data saver, IM sounds, the optional nearby-people strip beside nearby chat, optional sit-on-ground after login. Changes apply everywhere immediately.
+- **Settings** (sub-tab) - UI language (one file per language in `src/lang/<code>.json`; a switch applies without a restart. Arabic lays the shell out right to left), theme, radar range/alerts, buddies filter, content ratings for search and the Destination Guide (General and Moderate by default; the first login asks once), destination feed, parcel music, auto-reconnect, data saver, IM sounds, the optional nearby-people strip beside nearby chat, optional sit-on-ground after login. Changes apply everywhere immediately.
 - **About Minibee** - version, author, support links, **Check for updates** (desktop), **Copy all** for bug reports.
 - **Help** - the full user guide ([HELP.md](HELP.md)).
 - **README** / **License** / **Privacy** - bundled project docs.

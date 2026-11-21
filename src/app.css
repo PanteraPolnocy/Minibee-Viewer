@@ -715,7 +715,7 @@ html.remote-nav [data-remote-adjust]:focus {
   margin: 0;
   color: inherit;
   font-family: inherit;
-  text-align: left;
+  text-align: start;
   max-width: 100%;
 }
 
@@ -736,7 +736,7 @@ html.remote-nav [data-remote-adjust]:focus {
 .bee-menu {
   position: absolute;
   top: calc(var(--top-bar-h) + 4px);
-  right: 8px;
+  inset-inline-end: 8px;
   z-index: 70;
   min-width: 190px;
   display: flex;
@@ -941,7 +941,7 @@ button.bee-menu__value--action:disabled {
   flex-direction: column;
   width: var(--side-nav-w);
   background: var(--bg-deep);
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -1044,7 +1044,7 @@ button.bee-menu__value--action:disabled {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
-  text-align: left;
+  text-align: start;
 }
 
 .session-lost-dialog__close {
@@ -1054,7 +1054,7 @@ button.bee-menu__value--action:disabled {
 .session-lost-dialog__title {
   margin: 0;
   font-size: 1.1rem;
-  text-align: left;
+  text-align: start;
 }
 
 .session-lost-dialog__body {
@@ -1825,7 +1825,7 @@ button.bee-menu__value--action:disabled {
   background: none;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   padding: 0;
   cursor: pointer;
 }
@@ -1892,7 +1892,7 @@ button.bee-menu__value--action:disabled {
   .im-roster {
     position: absolute;
     top: 0;
-    right: 0;
+    inset-inline-end: 0;
     bottom: 0;
     width: min(280px, 85%);
     box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
@@ -2066,7 +2066,7 @@ button.bee-menu__value--action:disabled {
   color: var(--text);
   font: inherit;
   font-weight: 600;
-  text-align: left;
+  text-align: start;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2224,7 +2224,7 @@ button.bee-menu__value--action:disabled {
   background: transparent;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -2683,7 +2683,7 @@ button.bee-menu__value--action:disabled {
   margin: 0;
   font: inherit;
   color: var(--accent);
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -3200,7 +3200,7 @@ button.bee-menu__value--action:disabled {
   background: none;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
 }
 
 .objects-row:last-child { border-bottom: none; }
@@ -3219,7 +3219,7 @@ button.bee-menu__value--action:disabled {
   background: none;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   padding: 8px 4px;
   cursor: pointer;
 }
@@ -3619,7 +3619,7 @@ button.bee-menu__value--action:disabled {
   background: none;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -3968,7 +3968,7 @@ button.bee-menu__value--action:disabled {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 6px 14px;
-  text-align: left;
+  text-align: start;
   font-size: 0.85rem;
   width: 100%;
   max-width: 360px;
@@ -4268,7 +4268,7 @@ button.bee-menu__value--action:disabled {
   font-weight: 600;
   line-height: 1.1;
   color: #fff;
-  text-align: left;
+  text-align: start;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4596,7 +4596,7 @@ button.bee-menu__value--action:disabled {
   color: var(--text);
   font: inherit;
   font-size: 0.84rem;
-  text-align: left;
+  text-align: start;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4646,7 +4646,7 @@ button.bee-menu__value--action:disabled {
   display: none;
   position: absolute;
   top: 8px;
-  right: 8px;
+  inset-inline-end: 8px;
   z-index: 7;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(8, 18, 36, 0.82);
@@ -4741,7 +4741,7 @@ button.bee-menu__value--action:disabled {
   background: transparent;
   color: var(--text);
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -4757,7 +4757,7 @@ button.bee-menu__value--action:disabled {
 
 @media (min-width: 481px) {
   .im-layout { flex-direction: row; }
-  .im-sessions-pane { width: min(320px, 34%); border-right: 1px solid var(--border); flex: none; }
+  .im-sessions-pane { width: min(320px, 34%); border-inline-end: 1px solid var(--border); flex: none; }
   .im-thread {
     position: relative;
     inset: auto;
@@ -4768,7 +4768,7 @@ button.bee-menu__value--action:disabled {
   }
   .im-back { display: none; }
   /* No back button here, so the name gets its own breathing room. */
-  .im-thread__header { padding-left: 14px; }
+  .im-thread__header { padding-inline-start: 14px; }
 }
 
 @media (max-width: 480px) {
@@ -4879,7 +4879,7 @@ button.bee-menu__value--action:disabled {
   background: transparent;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   padding: 0;
   min-width: 0;
   cursor: pointer;
@@ -5276,7 +5276,7 @@ button.status-chip--balance:disabled {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 8px;
   align-items: center;
-  text-align: left;
+  text-align: start;
   padding: 8px 10px;
   border: none;
   border-bottom: 1px solid var(--border);
@@ -5425,7 +5425,7 @@ button.profile-uuid--menu {
   padding: 0;
   border: none;
   background: none;
-  text-align: left;
+  text-align: start;
   word-break: break-all;
   cursor: pointer;
   border-radius: 4px;
@@ -5552,7 +5552,7 @@ button.profile-uuid--menu:focus-visible {
 .profile-groups-list__clear {
   display: block;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 4px 2px 8px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--border);
@@ -5563,7 +5563,7 @@ button.profile-uuid--menu:focus-visible {
 .profile-groups-list__item {
   display: block;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 4px 2px;
   line-height: 1.4;
   white-space: normal;
@@ -5652,7 +5652,7 @@ button.profile-uuid--menu:focus-visible {
   border: 0;
   background: transparent;
   color: var(--text);
-  text-align: left;
+  text-align: start;
   padding: 6px 8px;
   border-radius: var(--radius);
   cursor: pointer;
@@ -5890,7 +5890,7 @@ button.profile-uuid--menu:focus-visible {
   color: var(--accent);
   padding: 0;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -5918,7 +5918,7 @@ button.profile-uuid--menu:focus-visible {
 .profile-image-dialog__close {
   position: absolute;
   top: 8px;
-  right: 8px;
+  inset-inline-end: 8px;
   z-index: 1;
 }
 
@@ -5952,7 +5952,7 @@ button.profile-uuid--menu:focus-visible {
     order: 2;
     width: 100%;
     height: auto;
-    border-right: none;
+    border-inline-end: none;
     border-top: 1px solid var(--border);
   }
   .side-nav.bottom-nav {
@@ -6035,7 +6035,7 @@ button.profile-uuid--menu:focus-visible {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   padding: 10px;
   gap: 8px;
 }
@@ -6081,7 +6081,7 @@ button.profile-uuid--menu:focus-visible {
 .scripts-list__item {
   display: block;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 8px 10px;
   border: none;
   border-radius: var(--radius-sm);
@@ -6485,7 +6485,7 @@ button.profile-uuid--menu:focus-visible {
 .script-diag {
   display: block;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 4px 12px;
   border: none;
   background: transparent;
@@ -6500,7 +6500,7 @@ button.profile-uuid--menu:focus-visible {
 
 @media (max-width: 640px) {
   /* One pane at a time: list first, the editor slides in over it. */
-  .scripts-list { flex: 1 1 auto; border-right: none; }
+  .scripts-list { flex: 1 1 auto; border-inline-end: none; }
   .script-editor { display: none; }
   .panel--scripts--editor-open .scripts-list { display: none; }
   .panel--scripts--editor-open .script-editor { display: flex; }
@@ -6696,7 +6696,7 @@ button.profile-uuid--menu:focus-visible {
   color: inherit;
   background: none;
   border: none;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -6743,4 +6743,40 @@ button.profile-uuid--menu:focus-visible {
 @media (max-width: 899px) {
   .chat-radar,
   .chat-radar-toggle { display: none !important; }
+}
+
+/* Arabic. dir=rtl on the document reverses flex rows, so the sidebar, the
+   top bar and the IM list change ends on their own. What follows is the
+   part flex does not do.
+
+   Grid prose (nearby chat, IMs, notecards, typed fields) uses plaintext:
+   the first strong letter picks the direction, so an English line stays
+   left to right inside the Arabic shell. Script source is LSL or Luau and
+   stays left to right either way, gutter included. */
+html[dir="rtl"] .msg__body,
+html[dir="rtl"] .composer__input,
+html[dir="rtl"] .im-thread__body,
+html[dir="rtl"] .notecard-editor__input,
+html[dir="rtl"] .profile-interests__text,
+html[dir="rtl"] input[type="text"],
+html[dir="rtl"] input[type="search"],
+html[dir="rtl"] input:not([type]),
+html[dir="rtl"] textarea:not(.script-editor__input) {
+  unicode-bidi: plaintext;
+}
+
+html[dir="rtl"] .script-editor__input,
+html[dir="rtl"] .script-editor__highlight,
+html[dir="rtl"] .script-editor__gutter,
+html[dir="rtl"] .script-diag,
+html[dir="rtl"] .landmark-dialog__slurl,
+html[dir="rtl"] input[type="password"] {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* The member list docks to the inline end. Its shadow has to fall back
+   across the thread, which is the other physical side in Arabic. */
+html[dir="rtl"] .im-roster {
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.35);
 }

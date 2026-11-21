@@ -1,0 +1,23 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">الاتصال</string>
+    <string name="channel_connection_desc">يبقي Minibee متصلا بـ Second Life.</string>
+    <string name="notif_connected">البقاء متصلا بـ Second Life</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="zero">%d رسائل فورية غير مقروءة</item>
+        <item quantity="one">%d رسالة فورية غير مقروءة</item>
+        <item quantity="two">%d رسالتان فوريتان غير مقروءتان</item>
+        <item quantity="few">%d رسائل فورية غير مقروءة</item>
+        <item quantity="many">%d رسالة فورية غير مقروءة</item>
+        <item quantity="other">%d رسالة فورية غير مقروءة</item>
+    </plurals>
+    <string name="action_play_music">تشغيل الموسيقى</string>
+    <string name="action_stop_music">إيقاف الموسيقى</string>
+    <string name="action_mute_mic">كتم الميكروفون</string>
+    <string name="action_unmute_mic">إلغاء كتم الميكروفون</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">الرسائل</string>
+    <string name="channel_messages_desc">رسائل فورية جديدة حين لا يكون Minibee على الشاشة.</string>
+    <string name="notif_new_im">رسالة فورية جديدة</string>
+</resources>

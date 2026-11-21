@@ -1,0 +1,19 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">कनेक्शन</string>
+    <string name="channel_connection_desc">Minibee को Second Life से जोड़े रखता है.</string>
+    <string name="notif_connected">Second Life से जुड़े रहना</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%d बिना पढ़ा IM</item>
+        <item quantity="other">%d बिना पढ़े IM</item>
+    </plurals>
+    <string name="action_play_music">संगीत चलाएँ</string>
+    <string name="action_stop_music">संगीत रोकें</string>
+    <string name="action_mute_mic">माइक म्यूट करें</string>
+    <string name="action_unmute_mic">माइक अनम्यूट करें</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">संदेश</string>
+    <string name="channel_messages_desc">जब Minibee स्क्रीन पर न हो, नए IM.</string>
+    <string name="notif_new_im">नया IM</string>
+</resources>

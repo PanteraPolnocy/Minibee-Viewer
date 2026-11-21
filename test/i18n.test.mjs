@@ -205,6 +205,18 @@ test('numbers follow the UI language; dates follow the device in English only', 
   assert.equal(BeeI18n.formatNumber('nope'), 'nope');
 });
 
+test('Arabic lays the document out right to left; every other language stays left to right', async () => {
+  const { BeeI18n, html } = load({ en: EN, ar: { 'common.cancel': 'إلغاء' }, pl: PL });
+  assert.equal(await BeeI18n.load('ar'), 'ar');
+  assert.equal(html.lang, 'ar');
+  assert.equal(html.dir, 'rtl');
+  assert.equal(BeeI18n.t('common.cancel'), 'إلغاء');
+  assert.equal(await BeeI18n.load('pl'), 'pl');
+  assert.equal(html.dir, 'ltr');
+  assert.equal(await BeeI18n.load('en'), 'en');
+  assert.equal(html.dir, 'ltr');
+});
+
 test('the language menu starts with English and names each language in itself', () => {
   const { BeeI18n } = load();
   const langs = BeeI18n.languages();

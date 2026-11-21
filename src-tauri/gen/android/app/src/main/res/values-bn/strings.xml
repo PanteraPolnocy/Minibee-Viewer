@@ -1,0 +1,19 @@
+<resources>
+    <!-- Keep-alive notification (ConnectionService). -->
+    <string name="channel_connection">সংযোগ</string>
+    <string name="channel_connection_desc">Minibee-কে Second Life-এর সাথে যুক্ত রাখে.</string>
+    <string name="notif_connected">Second Life-এ সংযুক্ত থাকা</string>
+    <plurals name="notif_unread_ims">
+        <item quantity="one">%dটি অপঠিত IM</item>
+        <item quantity="other">%dটি অপঠিত IM</item>
+    </plurals>
+    <string name="action_play_music">সঙ্গীত চালান</string>
+    <string name="action_stop_music">সঙ্গীত বন্ধ করুন</string>
+    <string name="action_mute_mic">মাইক নিঃশব্দ</string>
+    <string name="action_unmute_mic">মাইক চালু</string>
+
+    <!-- Message alerts while the viewer is off screen. -->
+    <string name="channel_messages">বার্তা</string>
+    <string name="channel_messages_desc">Minibee পর্দায় না থাকলে নতুন IM.</string>
+    <string name="notif_new_im">নতুন IM</string>
+</resources>
