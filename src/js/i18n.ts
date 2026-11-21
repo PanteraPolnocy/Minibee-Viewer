@@ -47,8 +47,11 @@ const BeeI18n = (function () {
   const DEFAULT = 'en';
   // Menu order; every code has src/lang/<code>.json. The names are in their
   // own language on purpose: that is how someone looking for theirs finds it.
+  // Pirate is the English tag en-x-pirate, not a made-up code: an unknown tag
+  // borrows this machine's plural rules, and the counted lines would not match.
   const LANGUAGES: Array<[string, string]> = [
     ['en', 'English'],
+    ['en-x-pirate', 'Pirate'],
     ['ar', 'العربية'],
     ['bn', 'বাংলা'],
     ['cs', 'Čeština'],
@@ -81,13 +84,13 @@ const BeeI18n = (function () {
   // Arabic and Bengali force Latin digits (u-nu-latn). L$ amounts, coordinates
   // and ages get copied and typed back as ASCII; native digits would not parse.
   const NUMBER_LOCALE: Record<string, string> = {
-    en: 'en-US', ar: 'ar-u-nu-latn', bn: 'bn-BD-u-nu-latn', cs: 'cs-CZ', da: 'da-DK',
+    en: 'en-US', 'en-x-pirate': 'en-US', ar: 'ar-u-nu-latn', bn: 'bn-BD-u-nu-latn', cs: 'cs-CZ', da: 'da-DK',
     de: 'de-DE', es: 'es-ES', fr: 'fr-FR', hi: 'hi-IN', hu: 'hu-HU', it: 'it-IT',
     ja: 'ja-JP', ko: 'ko-KR', nl: 'nl-NL', no: 'nb-NO', pl: 'pl-PL', pt: 'pt-BR',
     ro: 'ro-RO', ru: 'ru-RU', sv: 'sv-SE', tr: 'tr-TR', uk: 'uk-UA', zh: 'zh-TW'
   };
   const DATE_LOCALE: Record<string, string | undefined> = {
-    en: undefined, ar: 'ar-u-nu-latn', bn: 'bn-BD-u-nu-latn', cs: 'cs-CZ', da: 'da-DK',
+    en: undefined, 'en-x-pirate': 'en-US', ar: 'ar-u-nu-latn', bn: 'bn-BD-u-nu-latn', cs: 'cs-CZ', da: 'da-DK',
     de: 'de-DE', es: 'es-ES', fr: 'fr-FR', hi: 'hi-IN', hu: 'hu-HU', it: 'it-IT',
     ja: 'ja-JP', ko: 'ko-KR', nl: 'nl-NL', no: 'nb-NO', pl: 'pl-PL', pt: 'pt-BR',
     ro: 'ro-RO', ru: 'ru-RU', sv: 'sv-SE', tr: 'tr-TR', uk: 'uk-UA', zh: 'zh-TW'

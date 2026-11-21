@@ -76,7 +76,7 @@ const BeeSettings = (function () {
     // UI language: a code BeeI18n.languages() lists (one dictionary file per
     // language under lang/). English needs no file and is the default on
     // every device; a switch takes effect without a restart.
-    language: { type: 'string', default: 'en', choices: ['en', 'ar', 'bn', 'cs', 'da', 'de', 'es', 'fr', 'hi', 'hu', 'it', 'ja', 'ko', 'nl', 'no', 'pl', 'pt', 'ro', 'ru', 'sv', 'tr', 'uk', 'zh'] }
+    language: { type: 'string', default: 'en', choices: ['en', 'en-x-pirate', 'ar', 'bn', 'cs', 'da', 'de', 'es', 'fr', 'hi', 'hu', 'it', 'ja', 'ko', 'nl', 'no', 'pl', 'pt', 'ro', 'ru', 'sv', 'tr', 'uk', 'zh'] }
   };
 
   const OBJECTS_RANGE_CHOICES = [16, 32, 48, 64, 96, 128, 256, 384];
