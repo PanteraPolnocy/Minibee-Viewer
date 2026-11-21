@@ -807,7 +807,7 @@
   "land.alreadyListed": "Zaten listede.",
   "land.applyChanges": "Değişiklikleri uygula",
   "land.applying": "Uygulanıyor...",
-  "land.area": "Alan (m&sup2;)",
+  "land.area": "Alan (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "Açık artırma {id}",
   "land.audio": "Ses",

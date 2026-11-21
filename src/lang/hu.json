@@ -807,7 +807,7 @@
   "land.alreadyListed": "Már szerepel a listán.",
   "land.applyChanges": "Alkalmazás",
   "land.applying": "Alkalmazás...",
-  "land.area": "Terület (m&sup2;)",
+  "land.area": "Terület (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "Aukció {id}",
   "land.audio": "Hang",

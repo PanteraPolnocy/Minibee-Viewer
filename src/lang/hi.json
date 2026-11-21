@@ -807,7 +807,7 @@
   "land.alreadyListed": "पहले से सूची में है.",
   "land.applyChanges": "बदलाव लागू करें",
   "land.applying": "लागू हो रहा है...",
-  "land.area": "क्षेत्र (m&sup2;)",
+  "land.area": "क्षेत्र (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "नीलामी {id}",
   "land.audio": "ऑडियो",

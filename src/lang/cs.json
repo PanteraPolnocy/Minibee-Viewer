@@ -835,7 +835,7 @@
   "land.alreadyListed": "Už je na seznamu.",
   "land.applyChanges": "Použít změny",
   "land.applying": "Ukládání...",
-  "land.area": "Plocha (m&sup2;)",
+  "land.area": "Plocha (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "Aukce {id}",
   "land.audio": "Zvuk",

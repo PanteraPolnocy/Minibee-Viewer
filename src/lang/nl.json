@@ -807,7 +807,7 @@
   "land.alreadyListed": "Staat al op de lijst.",
   "land.applyChanges": "Wijzigingen toepassen",
   "land.applying": "Toepassen...",
-  "land.area": "Oppervlakte (m&sup2;)",
+  "land.area": "Oppervlakte (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "Veiling {id}",
   "land.audio": "Audio",

@@ -821,7 +821,7 @@
   "land.alreadyListed": "Este deja pe listă.",
   "land.applyChanges": "Aplică modificările",
   "land.applying": "Se aplică...",
-  "land.area": "Suprafață (m&sup2;)",
+  "land.area": "Suprafață (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "Licitație {id}",
   "land.audio": "Audio",

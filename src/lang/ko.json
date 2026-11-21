@@ -793,7 +793,7 @@
   "land.alreadyListed": "이미 목록에 있습니다.",
   "land.applyChanges": "변경 적용",
   "land.applying": "적용 중...",
-  "land.area": "면적 (m&sup2;)",
+  "land.area": "면적 (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "경매 {id}",
   "land.audio": "오디오",

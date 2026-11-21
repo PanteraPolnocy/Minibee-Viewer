@@ -821,7 +821,7 @@
   "land.alreadyListed": "Ya está en la lista.",
   "land.applyChanges": "Aplicar cambios",
   "land.applying": "Aplicando...",
-  "land.area": "Área (m&sup2;)",
+  "land.area": "Área (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "Subasta {id}",
   "land.audio": "Audio",

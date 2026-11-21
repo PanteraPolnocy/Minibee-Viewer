@@ -863,7 +863,7 @@
   "land.alreadyListed": "موجود في القائمة مسبقاً.",
   "land.applyChanges": "تطبيق التغييرات",
   "land.applying": "جارٍ التطبيق...",
-  "land.area": "المساحة (m&sup2;)",
+  "land.area": "المساحة (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "مزاد {id}",
   "land.audio": "الصوت",

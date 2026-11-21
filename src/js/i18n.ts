@@ -51,7 +51,6 @@ const BeeI18n = (function () {
   // borrows this machine's plural rules, and the counted lines would not match.
   const LANGUAGES: Array<[string, string]> = [
     ['en', 'English'],
-    ['en-x-pirate', 'Pirate'],
     ['ar', 'العربية'],
     ['bn', 'বাংলা'],
     ['cs', 'Čeština'],
@@ -73,7 +72,8 @@ const BeeI18n = (function () {
     ['sv', 'Svenska'],
     ['tr', 'Türkçe'],
     ['uk', 'Українська'],
-    ['zh', '正體中文']
+    ['zh', '正體中文'],
+    ['en-x-pirate', 'Pirate']
   ];
   // Arabic is the one right-to-left language. The stylesheet mirrors the
   // shell from this flag; chat and notecards keep the direction of the text.

@@ -807,7 +807,7 @@
   "land.alreadyListed": "ইতিমধ্যে তালিকায় আছে.",
   "land.applyChanges": "বদল প্রয়োগ",
   "land.applying": "প্রয়োগ হচ্ছে...",
-  "land.area": "এলাকা (m&sup2;)",
+  "land.area": "এলাকা (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "নিলাম {id}",
   "land.audio": "অডিও",

@@ -793,7 +793,7 @@
   "land.alreadyListed": "已經在清單上。",
   "land.applyChanges": "套用變更",
   "land.applying": "正在套用...",
-  "land.area": "面積 (m&sup2;)",
+  "land.area": "面積 (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "拍賣 {id}",
   "land.audio": "音訊",

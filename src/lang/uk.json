@@ -835,7 +835,7 @@
   "land.alreadyListed": "Вже в списку.",
   "land.applyChanges": "Застосувати зміни",
   "land.applying": "Застосування...",
-  "land.area": "Площа (m&sup2;)",
+  "land.area": "Площа (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "Аукціон {id}",
   "land.audio": "Звук",

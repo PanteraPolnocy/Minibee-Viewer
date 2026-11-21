@@ -793,7 +793,7 @@
   "land.alreadyListed": "すでにリストにあります。",
   "land.applyChanges": "変更を適用",
   "land.applying": "適用しています...",
-  "land.area": "面積 (m&sup2;)",
+  "land.area": "面積 (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "オークション {id}",
   "land.audio": "オーディオ",

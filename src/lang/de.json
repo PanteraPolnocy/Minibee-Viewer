@@ -807,7 +807,7 @@
   "land.alreadyListed": "Bereits auf der Liste.",
   "land.applyChanges": "Änderungen übernehmen",
   "land.applying": "Wird übernommen...",
-  "land.area": "Fläche (m&sup2;)",
+  "land.area": "Fläche (m²)",
   "land.areaSqm": "{value} m²",
   "land.auction": "Auktion {id}",
   "land.audio": "Audio",
