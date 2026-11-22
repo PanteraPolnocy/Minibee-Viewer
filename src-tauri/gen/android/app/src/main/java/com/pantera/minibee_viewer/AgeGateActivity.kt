@@ -344,10 +344,12 @@ class AgeGateActivity : AppCompatActivity() {
   }
 }
 
-private fun Cursor.text(column: String): String {
+// Null means the column is absent or SQL NULL. A present empty string is
+// kept, because Amazon uses that for "age verification does not apply".
+private fun Cursor.text(column: String): String? {
   val index = getColumnIndex(column)
-  if (index < 0 || isNull(index)) return ""
-  return getString(index) ?: ""
+  if (index < 0 || isNull(index)) return null
+  return getString(index)
 }
 
 private fun Cursor.number(column: String): Int? {

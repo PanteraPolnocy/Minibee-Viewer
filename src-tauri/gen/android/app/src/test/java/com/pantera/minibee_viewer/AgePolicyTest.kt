@@ -56,6 +56,12 @@ class AgePolicyTest {
   fun amazonOnlyEmptySuccessSkipsTheCheck() {
     assertEquals(AgeVerdict.Allow, amazonVerdict("SUCCESS", "", null, null))
     assertEquals(AgeVerdict.Allow, amazonVerdict("SUCCESS", "VERIFIED", 18, null))
+    assertEquals(
+      AgeVerdict.Block(BlockReason.Unconfirmed),
+      amazonVerdict("SUCCESS", "VERIFIED", null, null)
+    )
+    assertEquals(AgeVerdict.Retry, amazonVerdict(null, "", null, null))
+    assertEquals(AgeVerdict.Retry, amazonVerdict("SUCCESS", null, 18, null))
     assertEquals(AgeVerdict.Allow, amazonVerdict("FEATURE_NOT_SUPPORTED", "", null, null))
     assertEquals(
       AgeVerdict.Block(BlockReason.Underage),

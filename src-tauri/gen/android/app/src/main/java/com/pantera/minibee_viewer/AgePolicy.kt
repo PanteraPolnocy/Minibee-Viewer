@@ -69,32 +69,37 @@ internal fun sharedAgeVerdict(ageLower: Int?, ageUpper: Int?): AgeVerdict {
 }
 
 internal fun amazonVerdict(
-  responseStatus: String,
-  userStatus: String,
+  responseStatus: String?,
+  userStatus: String?,
   ageLower: Int?,
   ageUpper: Int?,
 ): AgeVerdict {
+  // Null is a missing column or SQL NULL. Amazon documents a present empty
+  // userStatus as "this law does not apply". A missing field is not that.
+  if (responseStatus == null) return AgeVerdict.Retry
   when (responseStatus) {
     "SUCCESS" -> Unit
     "INTERNAL_TRANSIENT_ERROR" -> return AgeVerdict.Retry
-    // The API is not on this device (legacy Fire OS). Amazon's own name for
-    // "no check exists here", parallel to Play's DEVICE_NOT_SUPPORTED.
+    // Intentional compatibility fallback, not a finding that no age law
+    // applies. Amazon uses this when the API is not enabled on the device
+    // (legacy Fire OS). Same shape as Play's DEVICE_NOT_SUPPORTED, which
+    // Google says should use the normal experience. Stopping here would
+    // brick those devices.
     "FEATURE_NOT_SUPPORTED" -> return AgeVerdict.Allow
     // INTERNAL_ERROR, APP_NOT_OWNED, and anything unrecognised are failures,
     // not an empty userStatus. Empty is the only documented "law does not
     // apply" answer, and it arrives with SUCCESS.
     else -> return AgeVerdict.Block(BlockReason.StoreUnreachable)
   }
+  if (userStatus == null) return AgeVerdict.Retry
   when (userStatus.trim()) {
     "" -> return AgeVerdict.Allow
     "VERIFIED" -> {
-      // VERIFIED means 18+ when the bounds are absent. Bounds that say
-      // otherwise are not treated as an adult.
-      if (ageLower != null && !adultBand(ageLower, ageUpper)) {
-        return AgeVerdict.Block(BlockReason.Underage)
-      }
-      if (ageUpper != null && ageUpper < 18) return AgeVerdict.Block(BlockReason.Underage)
-      return AgeVerdict.Allow
+      // Documented adult shape is ageLower 18 and no upper bound. Missing
+      // bounds are not that shape.
+      if (adultBand(ageLower, ageUpper)) return AgeVerdict.Allow
+      if (ageLower == null) return AgeVerdict.Block(BlockReason.Unconfirmed)
+      return AgeVerdict.Block(BlockReason.Underage)
     }
     "SUPERVISED" -> return AgeVerdict.Block(BlockReason.Underage)
     "CONSENT_NOT_GRANTED" -> return AgeVerdict.Block(BlockReason.ConsentNotGranted)
