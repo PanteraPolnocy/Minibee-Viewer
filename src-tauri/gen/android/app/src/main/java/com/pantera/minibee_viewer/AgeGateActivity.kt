@@ -30,6 +30,12 @@ import kotlin.concurrent.thread
 // only after this gate allows it. The age band is never put on an Intent,
 // written down, or logged. Play's install id and Amazon's user id are not read.
 class AgeGateActivity : AppCompatActivity() {
+  companion object {
+    // True only after this process has passed the gate. A restored
+    // MainActivity (process death, recents) sees false and comes back here.
+    @Volatile var passedThisProcess: Boolean = false
+  }
+
   private val handler = Handler(Looper.getMainLooper())
   private val signals: AgeSignalsManager by lazy {
     AgeSignalsManagerFactory.create(applicationContext)
@@ -92,13 +98,13 @@ class AgeGateActivity : AppCompatActivity() {
       // one Play call so a licence tester can exercise the live API; attempt
       // 2 means that call does not retry, so a machine without Play Store
       // still opens at once.
-      InstallStore.Other -> if (BuildConfig.DEBUG) discoverPlay(token, 2) else openViewer()
-      InstallStore.Play -> discoverPlay(token, 0)
+      InstallStore.Other -> if (BuildConfig.DEBUG) discoverPlay(token, 2, false) else openViewer()
+      InstallStore.Play -> discoverPlay(token, 0, true)
       InstallStore.Amazon -> discoverAmazon(token, 0)
     }
   }
 
-  private fun discoverPlay(token: Int, attempt: Int) {
+  private fun discoverPlay(token: Int, attempt: Int, storeInstall: Boolean) {
     val stamp = ++step
     signals.getApplicableAgeFeatures(ApplicableAgeFeaturesRequest.builder().build())
       .addOnSuccessListener { result ->
@@ -112,13 +118,15 @@ class AgeGateActivity : AppCompatActivity() {
       }
       .addOnFailureListener { error ->
         if (!current(token, stamp)) return@addOnFailureListener
-        when (playDiscoveryFailure(playCode(error))) {
+        when (playDiscoveryFailure(playCode(error), storeInstall)) {
           PlayFailure.Allow -> openViewer()
           PlayFailure.Block -> showBlock(BlockReason.StoreUnreachable)
           PlayFailure.Retry -> if (attempt >= 2) {
-            openViewer()
+            // Retries exhausted. A Play install still does not know whether
+            // sharing is mandatory, so it stops. A debug sideload opens.
+            if (storeInstall) showBlock(BlockReason.StoreUnreachable) else openViewer()
           } else {
-            retryLater(token, attempt) { discoverPlay(token, attempt + 1) }
+            retryLater(token, attempt) { discoverPlay(token, attempt + 1, storeInstall) }
           }
         }
       }
@@ -189,7 +197,7 @@ class AgeGateActivity : AppCompatActivity() {
       val verdict = try {
         readAmazon(signal)
       } catch (_: Exception) {
-        AgeVerdict.Allow
+        AgeVerdict.Retry
       }
       if (!settled.compareAndSet(false, true)) return@thread
       handler.removeCallbacks(giveUp)
@@ -210,13 +218,16 @@ class AgeGateActivity : AppCompatActivity() {
 
   private fun readAmazon(signal: CancellationSignal): AgeVerdict {
     val uri = Uri.parse("content://amzn_appstore/getUserAgeData")
+    // A missing cursor is not SUCCESS with an empty userStatus. Retry, then
+    // the unreachable screen. Only that SUCCESS answer means the law does
+    // not apply.
     val cursor = try {
       contentResolver.query(uri, null, null, null, null, signal)
     } catch (_: Exception) {
-      return AgeVerdict.Allow
-    } ?: return AgeVerdict.Allow
+      return AgeVerdict.Retry
+    } ?: return AgeVerdict.Retry
     cursor.use { rows ->
-      if (!rows.moveToFirst()) return AgeVerdict.Allow
+      if (!rows.moveToFirst()) return AgeVerdict.Retry
       return amazonVerdict(
         responseStatus = rows.text("responseStatus"),
         userStatus = rows.text("userStatus"),
@@ -229,6 +240,7 @@ class AgeGateActivity : AppCompatActivity() {
   private fun openViewer() {
     if (opened || isFinishing) return
     opened = true
+    passedThisProcess = true
     startActivity(Intent(this, MainActivity::class.java))
     finish()
     overridePendingTransition(0, 0)

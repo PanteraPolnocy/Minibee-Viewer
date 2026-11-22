@@ -39,14 +39,17 @@ internal fun isRetryablePlayError(code: Int): Boolean =
   code == AgeSignalsErrorCode.INTERNAL_ERROR ||
     code in AgeSignalsErrorCode.CLIENT_TRANSIENT_ERROR..AgeSignalsErrorCode.API_NOT_AVAILABLE
 
-// Discovery has not established that a law applies. A missing Play Store
-// answer is not an under-18 band. An outdated SDK is our bug to stop on.
-internal fun playDiscoveryFailure(code: Int?): PlayFailure = when {
-  code == null -> PlayFailure.Allow
-  code == AgeSignalsErrorCode.APP_NOT_OWNED -> PlayFailure.Allow
+// A Play install that cannot learn whether sharing is mandatory must not
+// open: silence is not proof that no law applies. DEVICE_NOT_SUPPORTED is
+// the exception Google documents as "use your default experience".
+// APP_NOT_OWNED on a sideload (storeInstall false) is that same default;
+// on a Play install it is a contradiction and stops.
+internal fun playDiscoveryFailure(code: Int?, storeInstall: Boolean): PlayFailure = when {
   code == AgeSignalsErrorCode.DEVICE_NOT_SUPPORTED -> PlayFailure.Allow
+  code == AgeSignalsErrorCode.APP_NOT_OWNED && !storeInstall -> PlayFailure.Allow
   code == AgeSignalsErrorCode.SDK_VERSION_OUTDATED -> PlayFailure.Block
-  isRetryablePlayError(code) -> PlayFailure.Retry
+  code != null && isRetryablePlayError(code) -> PlayFailure.Retry
+  storeInstall -> PlayFailure.Block
   else -> PlayFailure.Allow
 }
 
@@ -74,7 +77,13 @@ internal fun amazonVerdict(
   when (responseStatus) {
     "SUCCESS" -> Unit
     "INTERNAL_TRANSIENT_ERROR" -> return AgeVerdict.Retry
-    else -> return AgeVerdict.Allow
+    // The API is not on this device (legacy Fire OS). Amazon's own name for
+    // "no check exists here", parallel to Play's DEVICE_NOT_SUPPORTED.
+    "FEATURE_NOT_SUPPORTED" -> return AgeVerdict.Allow
+    // INTERNAL_ERROR, APP_NOT_OWNED, and anything unrecognised are failures,
+    // not an empty userStatus. Empty is the only documented "law does not
+    // apply" answer, and it arrives with SUCCESS.
+    else -> return AgeVerdict.Block(BlockReason.StoreUnreachable)
   }
   when (userStatus.trim()) {
     "" -> return AgeVerdict.Allow

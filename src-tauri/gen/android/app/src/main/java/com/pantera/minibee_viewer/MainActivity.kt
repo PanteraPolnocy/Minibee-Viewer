@@ -118,6 +118,22 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    // Recents restores this activity after the process dies, skipping the
+    // launcher. The pass flag dies with the process, so send them back
+    // through the gate. super.onCreate has to run (TauriActivity requires
+    // it, and it loads the native library); finish() then drops that
+    // half-started session before the keep-alive service exists.
+    if (!AgeGateActivity.passedThisProcess) {
+      exportDataDir()
+      super.onCreate(savedInstanceState)
+      startActivity(
+        Intent(this, AgeGateActivity::class.java)
+          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+      )
+      finish()
+      overridePendingTransition(0, 0)
+      return
+    }
     exportDataDir()
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
