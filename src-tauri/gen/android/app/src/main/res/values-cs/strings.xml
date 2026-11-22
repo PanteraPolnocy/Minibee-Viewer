@@ -18,4 +18,17 @@
     <string name="channel_messages">Zprávy</string>
     <string name="channel_messages_desc">Nové okamžité zprávy, když Minibee není na obrazovce.</string>
     <string name="notif_new_im">Nová zpráva</string>
+
+    <!-- Store age gate. Shown only when Play or Amazon installed this build. -->
+    <string name="age_gate_checking">Kontrola věkové podmínky obchodu</string>
+    <string name="age_gate_title">Od 18 let</string>
+    <string name="age_gate_under">Obchod hlásí, že tomuto účtu je méně než 18 let. Minibee z obchodu se otevírá jen od 18 let.</string>
+    <string name="age_gate_verify">Než se Minibee otevře, musí Google Play potvrdit věk tohoto účtu.</string>
+    <string name="age_gate_not_shared">V tomto regionu musí obchod sdělit věk, a tento účet ho nesdělil.</string>
+    <string name="age_gate_unconfirmed">Obchod nepotvrdil, že tomuto účtu je alespoň 18 let.</string>
+    <string name="age_gate_consent">Rodič nebo zákonný zástupce nepovolil Minibee pro tento účet.</string>
+    <string name="age_gate_unreachable">Obchod nemohl potvrdit věk tohoto účtu. Zkontrolujte připojení a zkuste to znovu.</string>
+    <string name="age_gate_close">Zavřít</string>
+    <string name="age_gate_try_again">Zkusit znovu</string>
+    <string name="age_gate_open_store">Otevřít Obchod Play</string>
 </resources>

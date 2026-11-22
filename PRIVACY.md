@@ -80,7 +80,9 @@ No Second Life account data is sent with the update check. Android has no automa
 
 ## Android
 
-Same login and on-device storage behaviour as desktop. Distributed on [Google Play](https://play.google.com/store/apps/details?id=com.pantera.minibee_viewer) and, as an APK, on GitHub Releases. The Google Play edition has no in-app L$ purchase (Play policy); everything else is the same app.
+Same login and on-device storage behaviour as desktop. Distributed on [Google Play](https://play.google.com/store/apps/details?id=com.pantera.minibee_viewer) and the Amazon Appstore from the same Android App Bundle, and as an APK on GitHub Releases. The store build has no in-app L$ purchase (Play policy on that binary); everything else is the same app.
+
+Where Play or Amazon requires an age check, that store build asks the store for an age band and opens only when the band is 18 or over. The band stays in memory for that decision. It is not written to disk, not sent to Linden Lab, and not used for anything else. The GitHub APK does not ask.
 
 While the viewer runs, a persistent notification keeps the connection alive; it can show the number of unread IMs and, expanded, the newest message's sender and text. That preview lives only in the device's own notification shade (your lock-screen notification settings govern what shows when locked) and is never sent anywhere. While voice is connected and you have granted the microphone permission, the same connection service is marked as using the microphone so voice keeps working when the app is in the background; the marking is dropped when voice disconnects.
 
@@ -102,7 +104,7 @@ https://github.com/PanteraPolnocy/Minibee-Viewer
 
 ## Children
 
-Minibee is not aimed at children. Second Life has its own age rules under Linden Lab.
+Minibee is not aimed at children. The Play and Amazon listings are 18+, and those installations do not open when the store reports an age under 18. Second Life has its own age rules under Linden Lab, which still govern the GitHub APK.
 
 ---
 

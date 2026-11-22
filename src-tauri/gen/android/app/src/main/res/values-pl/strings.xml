@@ -18,4 +18,17 @@
     <string name="channel_messages">Wiadomości</string>
     <string name="channel_messages_desc">Nowe wiadomości prywatne, gdy Minibee nie jest na ekranie.</string>
     <string name="notif_new_im">Nowa wiadomość</string>
+
+    <!-- Store age gate. Shown only when Play or Amazon installed this build. -->
+    <string name="age_gate_checking">Sprawdzanie wymogu wieku w sklepie</string>
+    <string name="age_gate_title">Od 18 lat</string>
+    <string name="age_gate_under">Sklep podaje, że to konto ma mniej niż 18 lat. Minibee ze sklepu otwiera się tylko od 18 lat.</string>
+    <string name="age_gate_verify">Zanim Minibee się otworzy, Google Play musi potwierdzić wiek tego konta.</string>
+    <string name="age_gate_not_shared">W tym regionie sklep musi podać wiek, a to konto go nie udostępniło.</string>
+    <string name="age_gate_unconfirmed">Sklep nie potwierdził, że to konto ma co najmniej 18 lat.</string>
+    <string name="age_gate_consent">Rodzic lub opiekun nie zezwolił na Minibee dla tego konta.</string>
+    <string name="age_gate_unreachable">Sklep nie mógł potwierdzić wieku tego konta. Sprawdź połączenie i spróbuj ponownie.</string>
+    <string name="age_gate_close">Zamknij</string>
+    <string name="age_gate_try_again">Spróbuj ponownie</string>
+    <string name="age_gate_open_store">Otwórz Sklep Play</string>
 </resources>

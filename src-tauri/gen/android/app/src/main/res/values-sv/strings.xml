@@ -16,4 +16,17 @@
     <string name="channel_messages">Meddelanden</string>
     <string name="channel_messages_desc">Nya snabbmeddelanden när Minibee inte visas.</string>
     <string name="notif_new_im">Nytt IM</string>
+
+    <!-- Store age gate. Shown only when Play or Amazon installed this build. -->
+    <string name="age_gate_checking">Kontrollerar butikens ålderskrav</string>
+    <string name="age_gate_title">18 år och äldre</string>
+    <string name="age_gate_under">Butiken anger att det här kontot är under 18. Minibee från butiken öppnas bara från 18 år.</string>
+    <string name="age_gate_verify">Google Play måste bekräfta kontots ålder innan Minibee kan öppnas.</string>
+    <string name="age_gate_not_shared">I den här regionen måste butiken lämna en ålder, och det här kontot har inte delat den.</string>
+    <string name="age_gate_unconfirmed">Butiken har inte bekräftat att det här kontot är 18 år eller äldre.</string>
+    <string name="age_gate_consent">En förälder eller vårdnadshavare har inte tillåtit Minibee för det här kontot.</string>
+    <string name="age_gate_unreachable">Butiken kunde inte bekräfta åldern för det här kontot. Kontrollera anslutningen och försök igen.</string>
+    <string name="age_gate_close">Stäng</string>
+    <string name="age_gate_try_again">Försök igen</string>
+    <string name="age_gate_open_store">Öppna Play Butik</string>
 </resources>

@@ -37,6 +37,14 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!-- Age gate: see the Play Store app to send the user there, and Amazon's
+         age provider on an Amazon install of this same bundle. -->
+    <queries>
+        <package android:name="com.android.vending" />
+        <package android:name="com.amazon.venezia" />
+        <provider android:authorities="amzn_appstore" />
+    </queries>
+
     <!-- No Auto Backup: the data folder holds settings.json (the sealed MFA
          "remember this device" record, remembered username), optional chat
          logs and the WebView's storage. None of it should leave the device
@@ -53,11 +61,9 @@
         android:usesCleartextTraffic="${usesCleartextTraffic}"
         android:supportsRtl="true">
         <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
-            android:launchMode="singleTask"
-            android:label="@string/main_activity_title"
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name=".AgeGateActivity"
+            android:exported="true"
+            android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -65,6 +71,13 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:launchMode="singleTask"
+            android:label="@string/main_activity_title"
+            android:name=".MainActivity"
+            android:exported="false" />
 
         <!-- The declared set is the ceiling; the service picks the actual types
              per startForeground() call: specialUse always, mediaPlayback while

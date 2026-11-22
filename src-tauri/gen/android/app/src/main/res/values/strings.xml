@@ -19,4 +19,17 @@
     <string name="channel_messages">Messages</string>
     <string name="channel_messages_desc">New instant messages while Minibee is not on screen.</string>
     <string name="notif_new_im">New IM</string>
+
+    <!-- Store age gate. Shown only when Play or Amazon installed this build. -->
+    <string name="age_gate_checking">Checking the store\'s age requirement</string>
+    <string name="age_gate_title">Ages 18 and over</string>
+    <string name="age_gate_under">The store says this account is under 18. Minibee from the store only opens for ages 18 and over.</string>
+    <string name="age_gate_verify">Google Play needs to confirm this account\'s age before Minibee can open.</string>
+    <string name="age_gate_not_shared">This region requires an age from the store, and this account has not shared one.</string>
+    <string name="age_gate_unconfirmed">The store has not confirmed that this account is 18 or over.</string>
+    <string name="age_gate_consent">A parent or guardian has not allowed Minibee for this account.</string>
+    <string name="age_gate_unreachable">The store could not confirm the age for this account. Check the connection and try again.</string>
+    <string name="age_gate_close">Close</string>
+    <string name="age_gate_try_again">Try again</string>
+    <string name="age_gate_open_store">Open Play Store</string>
 </resources>

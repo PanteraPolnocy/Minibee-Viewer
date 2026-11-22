@@ -16,4 +16,17 @@
     <string name="channel_messages">İletiler</string>
     <string name="channel_messages_desc">Minibee ekranda değilken yeni anlık iletiler.</string>
     <string name="notif_new_im">Yeni ileti</string>
+
+    <!-- Store age gate. Shown only when Play or Amazon installed this build. -->
+    <string name="age_gate_checking">Mağazanın yaş koşulu kontrol ediliyor</string>
+    <string name="age_gate_title">18 yaş ve üzeri</string>
+    <string name="age_gate_under">Mağaza bu hesabın 18 yaşından küçük olduğunu bildiriyor. Mağazadaki Minibee yalnızca 18 yaş ve üzerinde açılır.</string>
+    <string name="age_gate_verify">Minibee açılmadan önce Google Play bu hesabın yaşını doğrulamalıdır.</string>
+    <string name="age_gate_not_shared">Bu bölgede mağazanın bir yaş bildirmesi gerekir ve bu hesap paylaşmadı.</string>
+    <string name="age_gate_unconfirmed">Mağaza bu hesabın 18 yaş veya üzerinde olduğunu doğrulamadı.</string>
+    <string name="age_gate_consent">Bir ebeveyn veya vasi bu hesap için Minibee\'ye izin vermedi.</string>
+    <string name="age_gate_unreachable">Mağaza bu hesabın yaşını doğrulayamadı. Bağlantıyı kontrol edip yeniden deneyin.</string>
+    <string name="age_gate_close">Kapat</string>
+    <string name="age_gate_try_again">Yeniden dene</string>
+    <string name="age_gate_open_store">Play Store\'u aç</string>
 </resources>

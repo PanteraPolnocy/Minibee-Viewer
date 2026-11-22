@@ -20,4 +20,17 @@
     <string name="channel_messages">الرسائل</string>
     <string name="channel_messages_desc">رسائل فورية جديدة حين لا يكون Minibee على الشاشة.</string>
     <string name="notif_new_im">رسالة فورية جديدة</string>
+
+    <!-- Store age gate. Shown only when Play or Amazon installed this build. -->
+    <string name="age_gate_checking">جار التحقق من شرط العمر في المتجر</string>
+    <string name="age_gate_title">من عمر 18 عاما</string>
+    <string name="age_gate_under">يذكر المتجر أن هذا الحساب دون 18 عاما. لا يفتح Minibee من المتجر إلا لمن بلغ 18 عاما.</string>
+    <string name="age_gate_verify">يحتاج Google Play إلى تأكيد عمر هذا الحساب قبل أن يفتح Minibee.</string>
+    <string name="age_gate_not_shared">تتطلب هذه المنطقة عمرا من المتجر، وهذا الحساب لم يشاركه.</string>
+    <string name="age_gate_unconfirmed">لم يؤكد المتجر أن هذا الحساب بلغ 18 عاما.</string>
+    <string name="age_gate_consent">لم يسمح أحد الوالدين أو الوصي بـ Minibee لهذا الحساب.</string>
+    <string name="age_gate_unreachable">تعذر على المتجر تأكيد عمر هذا الحساب. تحقق من الاتصال ثم أعد المحاولة.</string>
+    <string name="age_gate_close">إغلاق</string>
+    <string name="age_gate_try_again">إعادة المحاولة</string>
+    <string name="age_gate_open_store">فتح متجر Play</string>
 </resources>

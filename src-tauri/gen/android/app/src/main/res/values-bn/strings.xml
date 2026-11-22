@@ -16,4 +16,17 @@
     <string name="channel_messages">বার্তা</string>
     <string name="channel_messages_desc">Minibee পর্দায় না থাকলে নতুন IM.</string>
     <string name="notif_new_im">নতুন IM</string>
+
+    <!-- Store age gate. Shown only when Play or Amazon installed this build. -->
+    <string name="age_gate_checking">দোকানের বয়সের শর্ত যাচাই করা হচ্ছে</string>
+    <string name="age_gate_title">১৮ বছর বা তার বেশি</string>
+    <string name="age_gate_under">দোকান জানাচ্ছে এই অ্যাকাউন্টের বয়স ১৮-এর কম। দোকান থেকে Minibee শুধু ১৮ বা তার বেশি বয়সে খোলে।</string>
+    <string name="age_gate_verify">Minibee খোলার আগে Google Play-কে এই অ্যাকাউন্টের বয়স নিশ্চিত করতে হবে।</string>
+    <string name="age_gate_not_shared">এই অঞ্চলে দোকান থেকে বয়স জানতে হয়, এবং এই অ্যাকাউন্ট তা দেয়নি।</string>
+    <string name="age_gate_unconfirmed">দোকান নিশ্চিত করেনি যে এই অ্যাকাউন্টের বয়স ১৮ বা তার বেশি।</string>
+    <string name="age_gate_consent">কোনো অভিভাবক এই অ্যাকাউন্টের জন্য Minibee-এর অনুমতি দেননি।</string>
+    <string name="age_gate_unreachable">দোকান এই অ্যাকাউন্টের বয়স নিশ্চিত করতে পারেনি। সংযোগ দেখে আবার চেষ্টা করুন।</string>
+    <string name="age_gate_close">বন্ধ করুন</string>
+    <string name="age_gate_try_again">আবার চেষ্টা করুন</string>
+    <string name="age_gate_open_store">Play Store খুলুন</string>
 </resources>

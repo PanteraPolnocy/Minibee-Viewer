@@ -15,4 +15,17 @@
     <string name="channel_messages">訊息</string>
     <string name="channel_messages_desc">Minibee 不在畫面上時的新即時訊息。</string>
     <string name="notif_new_im">新訊息</string>
+
+    <!-- Store age gate. Shown only when Play or Amazon installed this build. -->
+    <string name="age_gate_checking">正在檢查商店的年齡要求</string>
+    <string name="age_gate_title">年滿 18 歲</string>
+    <string name="age_gate_under">商店回報此帳號未滿 18 歲。從商店安裝的 Minibee 只供年滿 18 歲者開啟。</string>
+    <string name="age_gate_verify">在 Minibee 開啟前，Google Play 必須確認此帳號的年齡。</string>
+    <string name="age_gate_not_shared">此地區要求商店提供年齡，而此帳號尚未分享。</string>
+    <string name="age_gate_unconfirmed">商店尚未確認此帳號已年滿 18 歲。</string>
+    <string name="age_gate_consent">家長或監護人尚未允許此帳號使用 Minibee。</string>
+    <string name="age_gate_unreachable">商店無法確認此帳號的年齡。請檢查連線後再試一次。</string>
+    <string name="age_gate_close">關閉</string>
+    <string name="age_gate_try_again">再試一次</string>
+    <string name="age_gate_open_store">開啟 Play 商店</string>
 </resources>
