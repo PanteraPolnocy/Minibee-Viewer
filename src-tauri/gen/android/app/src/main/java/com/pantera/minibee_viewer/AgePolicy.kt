@@ -92,14 +92,19 @@ internal fun amazonVerdict(
     else -> return AgeVerdict.Block(BlockReason.StoreUnreachable)
   }
   if (userStatus == null) return AgeVerdict.Retry
-  when (userStatus.trim()) {
+  // Exact match. trim() would turn whitespace into the empty status, which
+  // is the exemption. Whitespace is not that documented value.
+  when (userStatus) {
     "" -> return AgeVerdict.Allow
     "VERIFIED" -> {
-      // Documented adult shape is ageLower 18 and no upper bound. Missing
-      // bounds are not that shape.
-      if (adultBand(ageLower, ageUpper)) return AgeVerdict.Allow
-      if (ageLower == null) return AgeVerdict.Block(BlockReason.Unconfirmed)
-      return AgeVerdict.Block(BlockReason.Underage)
+      // Amazon's adult row is ageLower 18 and ageUpper null. Anything else
+      // is not that contract. A bound under 18 is underage; the rest is
+      // unconfirmed, so a 19 with a missing upper bound is not told they
+      // are under 18.
+      if (ageLower == 18 && ageUpper == null) return AgeVerdict.Allow
+      if (ageLower != null && ageLower < 18) return AgeVerdict.Block(BlockReason.Underage)
+      if (ageUpper != null && ageUpper < 18) return AgeVerdict.Block(BlockReason.Underage)
+      return AgeVerdict.Block(BlockReason.Unconfirmed)
     }
     "SUPERVISED" -> return AgeVerdict.Block(BlockReason.Underage)
     "CONSENT_NOT_GRANTED" -> return AgeVerdict.Block(BlockReason.ConsentNotGranted)

@@ -58,7 +58,20 @@ class AgePolicyTest {
     assertEquals(AgeVerdict.Allow, amazonVerdict("SUCCESS", "VERIFIED", 18, null))
     assertEquals(
       AgeVerdict.Block(BlockReason.Unconfirmed),
+      amazonVerdict("SUCCESS", "VERIFIED", 18, 18)
+    )
+    assertEquals(
+      AgeVerdict.Block(BlockReason.Unconfirmed),
+      amazonVerdict("SUCCESS", "VERIFIED", 19, null)
+    )
+    assertEquals(
+      AgeVerdict.Block(BlockReason.Unconfirmed),
       amazonVerdict("SUCCESS", "VERIFIED", null, null)
+    )
+    assertEquals(AgeVerdict.Block(BlockReason.Unconfirmed), amazonVerdict("SUCCESS", " ", null, null))
+    assertEquals(
+      AgeVerdict.Block(BlockReason.Unconfirmed),
+      amazonVerdict("SUCCESS", " VERIFIED", 18, null)
     )
     assertEquals(AgeVerdict.Retry, amazonVerdict(null, "", null, null))
     assertEquals(AgeVerdict.Retry, amazonVerdict("SUCCESS", null, 18, null))
