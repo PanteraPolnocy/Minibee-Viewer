@@ -24,8 +24,9 @@
     <string name="age_gate_verify">A Google Playnek meg kell erősítenie ennek a fióknak az életkorát, mielőtt a Minibee megnyílhat.</string>
     <string name="age_gate_not_shared">Ebben a régióban a boltnak meg kell adnia az életkort, és ez a fiók nem osztotta meg.</string>
     <string name="age_gate_unconfirmed">A bolt nem erősítette meg, hogy ez a fiók legalább 18 éves.</string>
-    <string name="age_gate_consent">Egy szülő vagy gondviselő nem engedélyezte a Minibee-t ehhez a fiókhoz.</string>
     <string name="age_gate_unreachable">A bolt nem tudta megerősíteni ennek a fióknak az életkorát. Ellenőrizze a kapcsolatot, majd próbálja újra.</string>
+    <string name="age_gate_update_play">A Google Play nem tudta megerősíteni ennek a fióknak az életkorát. Frissítse vagy kapcsolja be a Play Áruházat és a Google Play-szolgáltatásokat, majd próbálja újra.</string>
+    <string name="age_gate_update_app">A Minibee ezen verziója már nem tud életkort lekérni a Google Playtől. Frissítse a Minibee-t a Play Áruházban.</string>
     <string name="age_gate_close">Bezárás</string>
     <string name="age_gate_try_again">Újrapróbálás</string>
     <string name="age_gate_open_store">Play Áruház megnyitása</string>

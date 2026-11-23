@@ -24,8 +24,9 @@
     <string name="age_gate_verify">Google Play moet de leeftijd van dit account bevestigen voordat Minibee kan openen.</string>
     <string name="age_gate_not_shared">In deze regio moet de winkel een leeftijd doorgeven, en dit account heeft die niet gedeeld.</string>
     <string name="age_gate_unconfirmed">De winkel heeft niet bevestigd dat dit account 18 jaar of ouder is.</string>
-    <string name="age_gate_consent">Een ouder of voogd heeft Minibee voor dit account niet toegestaan.</string>
     <string name="age_gate_unreachable">De winkel kon de leeftijd van dit account niet bevestigen. Controleer de verbinding en probeer het opnieuw.</string>
+    <string name="age_gate_update_play">Google Play kon de leeftijd van dit account niet bevestigen. Werk de Play Store en Google Play-services bij of zet ze aan, en probeer het opnieuw.</string>
+    <string name="age_gate_update_app">Deze versie van Minibee kan geen leeftijd meer opvragen bij Google Play. Werk Minibee bij via de Play Store.</string>
     <string name="age_gate_close">Sluiten</string>
     <string name="age_gate_try_again">Opnieuw proberen</string>
     <string name="age_gate_open_store">Play Store openen</string>

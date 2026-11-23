@@ -2,13 +2,17 @@ package com.pantera.minibee_viewer
 
 import com.google.android.play.agesignals.model.AgeSignalsErrorCode
 
-// Store-build age gate. The GitHub sideload APK is InstallStore.Other and is
-// never asked. Play is asked only when that API reports mandatory sharing.
-// Amazon is asked on every Amazon install; an empty status means the law
-// does not apply there (Amazon also uses empty for Kids+, which this 18+
-// app is not part of). A band is adult only when its lower bound is at least
-// 18 and its upper bound is absent or at least 18, so a custom top band that
-// starts below 18 does not count. The numbers are not stored or forwarded.
+// Store-build age gate. A store is asked only when that store installed the
+// app, which is the AAB that Play and Amazon ship; the GitHub sideload APK is
+// InstallStore.Other and is never asked. Play is asked only when that API
+// reports mandatory sharing: its terms allow the age data only for complying
+// with a law, and that is where one applies. Amazon is asked on every Amazon
+// install; an empty status means the law does not apply there (Amazon also
+// uses empty for Kids+, which this 18+ app is not part of). A band is adult
+// only when its lower bound is at least 18 and its upper bound is absent or
+// at least 18, so a custom top band that starts below 18 does not count (Play
+// Console's custom age ranges, if used, need 18 among their minimum ages, or
+// adults read as unconfirmed). The numbers are not stored or forwarded.
 
 internal enum class InstallStore { Play, Amazon, Other }
 
@@ -23,7 +27,8 @@ internal enum class BlockReason {
   VerificationRequired,
   NotShared,
   Unconfirmed,
-  ConsentNotGranted,
+  PlayNeedsUpdate,
+  AppNeedsUpdate,
   StoreUnreachable,
 }
 
@@ -35,14 +40,20 @@ internal sealed class AgeVerdict {
 
 internal enum class PlayFailure { Allow, Retry, Block }
 
+// Google's "Retryable" column: every code from API_NOT_AVAILABLE (-1) down to
+// CLIENT_TRANSIENT_ERROR (-8). INTERNAL_ERROR is marked no, but its advice is
+// a retry strategy with a maximum number of attempts, so it gets the same
+// bounded retries.
 internal fun isRetryablePlayError(code: Int): Boolean =
   code == AgeSignalsErrorCode.INTERNAL_ERROR ||
     code in AgeSignalsErrorCode.CLIENT_TRANSIENT_ERROR..AgeSignalsErrorCode.API_NOT_AVAILABLE
 
 // A Play install that cannot learn whether sharing is mandatory must not
-// open: silence is not proof that no law applies. DEVICE_NOT_SUPPORTED is
-// the exception Google documents as "use your default experience".
-// APP_NOT_OWNED on a sideload (storeInstall false) is that same default;
+// open: silence is not proof that no law applies. DEVICE_NOT_SUPPORTED is the
+// one exception. Google says only that the API does not support this kind of
+// device and offers no step that would change it, so there is no age signal
+// to wait for, the same case as Amazon's FEATURE_NOT_SUPPORTED. APP_NOT_OWNED
+// on a sideload (storeInstall false) is a debug build outside Play and opens;
 // on a Play install it is a contradiction and stops.
 internal fun playDiscoveryFailure(code: Int?, storeInstall: Boolean): PlayFailure = when {
   code == AgeSignalsErrorCode.DEVICE_NOT_SUPPORTED -> PlayFailure.Allow
@@ -59,14 +70,41 @@ internal fun playMandatoryFailure(code: Int?): PlayFailure = when {
   else -> PlayFailure.Block
 }
 
+// What the screen asks of the user once Play has failed for good, after
+// Google's advice for each code: update or turn on the Play Store and Play
+// services (an old or missing store app, a service it cannot bind to), update
+// this app (an age SDK Play no longer accepts), or try again later.
+internal fun playBlockReason(code: Int?): BlockReason = when (code) {
+  AgeSignalsErrorCode.API_NOT_AVAILABLE,
+  AgeSignalsErrorCode.PLAY_STORE_NOT_FOUND,
+  AgeSignalsErrorCode.PLAY_SERVICES_NOT_FOUND,
+  AgeSignalsErrorCode.CANNOT_BIND_TO_SERVICE,
+  AgeSignalsErrorCode.PLAY_STORE_VERSION_OUTDATED,
+  AgeSignalsErrorCode.PLAY_SERVICES_VERSION_OUTDATED -> BlockReason.PlayNeedsUpdate
+  AgeSignalsErrorCode.SDK_VERSION_OUTDATED -> BlockReason.AppNeedsUpdate
+  else -> BlockReason.StoreUnreachable
+}
+
 internal fun adultBand(ageLower: Int?, ageUpper: Int?): Boolean =
   ageLower != null && ageLower >= 18 && (ageUpper == null || ageUpper >= 18)
 
-internal fun sharedAgeVerdict(ageLower: Int?, ageUpper: Int?): AgeVerdict {
-  if (ageLower == null) return AgeVerdict.Block(BlockReason.NotShared)
-  if (adultBand(ageLower, ageUpper)) return AgeVerdict.Allow
-  return AgeVerdict.Block(BlockReason.Underage)
+// Under 18 only when the whole band is. A band that reaches past 18 without
+// starting there ([16, null], or [0, 20] under custom ranges) could be either,
+// so it is unconfirmed rather than called under 18.
+internal fun sharedAgeVerdict(ageLower: Int?, ageUpper: Int?): AgeVerdict = when {
+  ageLower == null -> AgeVerdict.Block(BlockReason.NotShared)
+  adultBand(ageLower, ageUpper) -> AgeVerdict.Allow
+  ageUpper != null && ageUpper < 18 -> AgeVerdict.Block(BlockReason.Underage)
+  else -> AgeVerdict.Block(BlockReason.Unconfirmed)
 }
+
+// Amazon's own account of a query made before the API gives live answers:
+// "null, Exception, or FEATURE_NOT_SUPPORTED". A device whose Appstore has no
+// age provider at all (a Fire TV, an older Appstore) answers null as well.
+// None of it is an answer about this user, so all of it opens, as
+// FEATURE_NOT_SUPPORTED did from the start; stopping there would lock every
+// such device out. A live answer is a row with a responseStatus.
+internal val amazonNotLive: AgeVerdict = AgeVerdict.Allow
 
 internal fun amazonVerdict(
   responseStatus: String?,
@@ -80,12 +118,9 @@ internal fun amazonVerdict(
   when (responseStatus) {
     "SUCCESS" -> Unit
     "INTERNAL_TRANSIENT_ERROR" -> return AgeVerdict.Retry
-    // Intentional compatibility fallback, not a finding that no age law
-    // applies. Amazon uses this when the API is not enabled on the device
-    // (legacy Fire OS). Same shape as Play's DEVICE_NOT_SUPPORTED, which
-    // Google says should use the normal experience. Stopping here would
-    // brick those devices.
-    "FEATURE_NOT_SUPPORTED" -> return AgeVerdict.Allow
+    // "The GetUserAgeData API is not enabled on this device. This can occur
+    // on legacy devices that do not receive new feature support."
+    "FEATURE_NOT_SUPPORTED" -> return amazonNotLive
     // INTERNAL_ERROR, APP_NOT_OWNED, and anything unrecognised are failures,
     // not an empty userStatus. Empty is the only documented "law does not
     // apply" answer, and it arrives with SUCCESS.
@@ -97,17 +132,20 @@ internal fun amazonVerdict(
   when (userStatus) {
     "" -> return AgeVerdict.Allow
     "VERIFIED" -> {
-      // Amazon's adult row is ageLower 18 and ageUpper null. Anything else
-      // is not that contract. A bound under 18 is underage; the rest is
-      // unconfirmed, so a 19 with a missing upper bound is not told they
-      // are under 18.
+      // Amazon's adult row is ageLower 18 and ageUpper null ("Always 18",
+      // "Always null"). Anything else is not that contract. A bound under 18
+      // is underage; the rest is unconfirmed, so a 19 with a missing upper
+      // bound is not told they are under 18.
       if (ageLower == 18 && ageUpper == null) return AgeVerdict.Allow
       if (ageLower != null && ageLower < 18) return AgeVerdict.Block(BlockReason.Underage)
       if (ageUpper != null && ageUpper < 18) return AgeVerdict.Block(BlockReason.Underage)
       return AgeVerdict.Block(BlockReason.Unconfirmed)
     }
     "SUPERVISED" -> return AgeVerdict.Block(BlockReason.Underage)
-    "CONSENT_NOT_GRANTED" -> return AgeVerdict.Block(BlockReason.ConsentNotGranted)
+    // A parent's consent only ever covers someone under 18, and this app
+    // stays shut for them even with it, so they see the under-18 screen,
+    // not one that suggests a parent could open it.
+    "CONSENT_NOT_GRANTED" -> return AgeVerdict.Block(BlockReason.Underage)
     "UNKNOWN" -> return AgeVerdict.Block(BlockReason.Unconfirmed)
     else -> return AgeVerdict.Block(BlockReason.Unconfirmed)
   }

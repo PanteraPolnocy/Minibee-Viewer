@@ -24,8 +24,9 @@
     <string name="age_gate_verify">Minibee खुलने से पहले Google Play को इस खाते की आयु की पुष्टि करनी होगी।</string>
     <string name="age_gate_not_shared">इस क्षेत्र में स्टोर से आयु चाहिए, और इस खाते ने उसे साझा नहीं किया।</string>
     <string name="age_gate_unconfirmed">स्टोर ने पुष्टि नहीं की है कि यह खाता 18 वर्ष या उससे अधिक का है।</string>
-    <string name="age_gate_consent">किसी अभिभावक ने इस खाते के लिए Minibee की अनुमति नहीं दी है।</string>
     <string name="age_gate_unreachable">स्टोर इस खाते की आयु की पुष्टि नहीं कर सका। कनेक्शन जाँचकर फिर कोशिश करें।</string>
+    <string name="age_gate_update_play">Google Play इस खाते की आयु की पुष्टि नहीं कर सका। Play Store और Google Play सेवाएं अपडेट या चालू करके फिर कोशिश करें।</string>
+    <string name="age_gate_update_app">Minibee का यह संस्करण अब Google Play से आयु नहीं ले सकता। Play Store से Minibee अपडेट करें।</string>
     <string name="age_gate_close">बंद करें</string>
     <string name="age_gate_try_again">फिर कोशिश करें</string>
     <string name="age_gate_open_store">Play Store खोलें</string>

@@ -26,9 +26,12 @@ import com.google.android.play.agesignals.model.ApplicableAgeFeature
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-// Launcher for the store build. MainActivity (and the Rust session) starts
-// only after this gate allows it. The age band is never put on an Intent,
-// written down, or logged. Play's install id and Amazon's user id are not read.
+// Launcher of every Android build; MainActivity (and the Rust session) starts
+// only after this gate allows it. Only a copy that Play or Amazon installed
+// (the AAB the stores ship) ever asks a store: the GitHub APK is installed by
+// neither and opens at once (see begin). The age band is never put on an
+// Intent, written down, or logged. Play's install id and Amazon's user id are
+// not read.
 class AgeGateActivity : AppCompatActivity() {
   companion object {
     // True only after this process has passed the gate. A restored
@@ -118,13 +121,14 @@ class AgeGateActivity : AppCompatActivity() {
       }
       .addOnFailureListener { error ->
         if (!current(token, stamp)) return@addOnFailureListener
-        when (playDiscoveryFailure(playCode(error), storeInstall)) {
+        val code = playCode(error)
+        when (playDiscoveryFailure(code, storeInstall)) {
           PlayFailure.Allow -> openViewer()
-          PlayFailure.Block -> showBlock(BlockReason.StoreUnreachable)
+          PlayFailure.Block -> showBlock(playBlockReason(code))
           PlayFailure.Retry -> if (attempt >= 2) {
             // Retries exhausted. A Play install still does not know whether
             // sharing is mandatory, so it stops. A debug sideload opens.
-            if (storeInstall) showBlock(BlockReason.StoreUnreachable) else openViewer()
+            if (storeInstall) showBlock(playBlockReason(code)) else openViewer()
           } else {
             retryLater(token, attempt) { discoverPlay(token, attempt + 1, storeInstall) }
           }
@@ -172,13 +176,14 @@ class AgeGateActivity : AppCompatActivity() {
   }
 
   private fun onMandatoryFailure(token: Int, attempt: Int, error: Exception, retry: () -> Unit) {
-    when (playMandatoryFailure(playCode(error))) {
+    val code = playCode(error)
+    when (playMandatoryFailure(code)) {
       PlayFailure.Retry -> if (attempt >= 2) {
-        showBlock(BlockReason.StoreUnreachable)
+        showBlock(playBlockReason(code))
       } else {
         retryLater(token, attempt, retry)
       }
-      PlayFailure.Allow, PlayFailure.Block -> showBlock(BlockReason.StoreUnreachable)
+      PlayFailure.Allow, PlayFailure.Block -> showBlock(playBlockReason(code))
     }
   }
 
@@ -218,16 +223,18 @@ class AgeGateActivity : AppCompatActivity() {
 
   private fun readAmazon(signal: CancellationSignal): AgeVerdict {
     val uri = Uri.parse("content://amzn_appstore/getUserAgeData")
-    // A missing cursor is not SUCCESS with an empty userStatus. Retry, then
-    // the unreachable screen. Only that SUCCESS answer means the law does
-    // not apply.
+    // No cursor, no row, or a query that throws: what Amazon says the API
+    // gives before it returns live answers, and what a device without the
+    // provider gives (amazonNotLive). Only a row is an answer about the user;
+    // a row that cannot be read is retried (the caller's catch). Our own
+    // timeout cancels the query too, but that thread has lost by then.
     val cursor = try {
       contentResolver.query(uri, null, null, null, null, signal)
     } catch (_: Exception) {
-      return AgeVerdict.Retry
-    } ?: return AgeVerdict.Retry
+      return amazonNotLive
+    } ?: return amazonNotLive
     cursor.use { rows ->
-      if (!rows.moveToFirst()) return AgeVerdict.Retry
+      if (!rows.moveToFirst()) return amazonNotLive
       return amazonVerdict(
         responseStatus = rows.text("responseStatus"),
         userStatus = rows.text("userStatus"),
@@ -266,17 +273,26 @@ class AgeGateActivity : AppCompatActivity() {
       BlockReason.VerificationRequired -> R.string.age_gate_verify
       BlockReason.NotShared -> R.string.age_gate_not_shared
       BlockReason.Unconfirmed -> R.string.age_gate_unconfirmed
-      BlockReason.ConsentNotGranted -> R.string.age_gate_consent
+      BlockReason.PlayNeedsUpdate -> R.string.age_gate_update_play
+      BlockReason.AppNeedsUpdate -> R.string.age_gate_update_app
       BlockReason.StoreUnreachable -> R.string.age_gate_unreachable
     })
     primary.visibility = View.VISIBLE
     when (reason) {
-      BlockReason.VerificationRequired -> {
+      BlockReason.VerificationRequired,
+      BlockReason.PlayNeedsUpdate -> {
         primary.setText(R.string.age_gate_open_store)
-        primary.setOnClickListener { openPlayStore() }
+        primary.setOnClickListener { openPlayStore(ownPage = false) }
         secondary.visibility = View.VISIBLE
         secondary.setText(R.string.age_gate_try_again)
         secondary.setOnClickListener { begin() }
+      }
+      BlockReason.AppNeedsUpdate -> {
+        primary.setText(R.string.age_gate_open_store)
+        primary.setOnClickListener { openPlayStore(ownPage = true) }
+        secondary.visibility = View.VISIBLE
+        secondary.setText(R.string.age_gate_close)
+        secondary.setOnClickListener { finish() }
       }
       BlockReason.StoreUnreachable -> {
         primary.setText(R.string.age_gate_try_again)
@@ -287,8 +303,7 @@ class AgeGateActivity : AppCompatActivity() {
       }
       BlockReason.Underage,
       BlockReason.NotShared,
-      BlockReason.Unconfirmed,
-      BlockReason.ConsentNotGranted -> {
+      BlockReason.Unconfirmed -> {
         primary.setText(R.string.age_gate_close)
         primary.setOnClickListener { finish() }
         secondary.visibility = View.GONE
@@ -297,15 +312,33 @@ class AgeGateActivity : AppCompatActivity() {
     primary.requestFocus()
   }
 
-  private fun openPlayStore() {
+  // The Play Store app: where Google sends the user to verify their age, and
+  // where the store and Play services are updated. ownPage opens this app's
+  // own listing instead, to update an age SDK Play no longer accepts. Coming
+  // back checks again. Without the store app, its web page.
+  private fun openPlayStore(ownPage: Boolean) {
     recheckOnResume = true
-    val launch = packageManager.getLaunchIntentForPackage("com.android.vending")
-    val intent = launch ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store"))
-    try {
-      startActivity(intent)
-    } catch (_: Exception) {
-      recheckOnResume = false
+    val store = if (ownPage) {
+      Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))
+        .setPackage("com.android.vending")
+    } else {
+      packageManager.getLaunchIntentForPackage("com.android.vending")
     }
+    val web = Intent(
+      Intent.ACTION_VIEW,
+      Uri.parse(
+        if (ownPage) "https://play.google.com/store/apps/details?id=$packageName"
+        else "https://play.google.com/store"
+      )
+    )
+    for (target in listOfNotNull(store, web)) {
+      try {
+        startActivity(target)
+        return
+      } catch (_: Exception) {
+      }
+    }
+    recheckOnResume = false
   }
 
   private fun retryLater(token: Int, attempt: Int, again: () -> Unit) {

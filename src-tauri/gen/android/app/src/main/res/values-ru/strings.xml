@@ -26,8 +26,9 @@
     <string name="age_gate_verify">Google Play должен подтвердить возраст этого аккаунта, прежде чем Minibee сможет открыться.</string>
     <string name="age_gate_not_shared">В этом регионе магазин должен сообщить возраст, а этот аккаунт его не передал.</string>
     <string name="age_gate_unconfirmed">Магазин не подтвердил, что этому аккаунту есть 18 лет или больше.</string>
-    <string name="age_gate_consent">Родитель или опекун не разрешил Minibee для этого аккаунта.</string>
     <string name="age_gate_unreachable">Магазин не смог подтвердить возраст этого аккаунта. Проверьте соединение и попробуйте снова.</string>
+    <string name="age_gate_update_play">Не удалось подтвердить возраст этого аккаунта через Google Play. Обновите или включите Play Маркет и Сервисы Google Play, затем попробуйте снова.</string>
+    <string name="age_gate_update_app">Эта версия Minibee больше не может получить возраст из Google Play. Обновите Minibee в Play Маркете.</string>
     <string name="age_gate_close">Закрыть</string>
     <string name="age_gate_try_again">Повторить</string>
     <string name="age_gate_open_store">Открыть Play Маркет</string>

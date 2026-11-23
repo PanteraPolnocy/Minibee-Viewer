@@ -28,8 +28,9 @@
     <string name="age_gate_verify">يحتاج Google Play إلى تأكيد عمر هذا الحساب قبل أن يفتح Minibee.</string>
     <string name="age_gate_not_shared">تتطلب هذه المنطقة عمرا من المتجر، وهذا الحساب لم يشاركه.</string>
     <string name="age_gate_unconfirmed">لم يؤكد المتجر أن هذا الحساب بلغ 18 عاما.</string>
-    <string name="age_gate_consent">لم يسمح أحد الوالدين أو الوصي بـ Minibee لهذا الحساب.</string>
     <string name="age_gate_unreachable">تعذر على المتجر تأكيد عمر هذا الحساب. تحقق من الاتصال ثم أعد المحاولة.</string>
+    <string name="age_gate_update_play">تعذر على Google Play تأكيد عمر هذا الحساب. حدّث متجر Play وخدمات Google Play أو فعّلها، ثم أعد المحاولة.</string>
+    <string name="age_gate_update_app">لم يعد بإمكان هذا الإصدار من Minibee الحصول على العمر من Google Play. حدّث Minibee من متجر Play.</string>
     <string name="age_gate_close">إغلاق</string>
     <string name="age_gate_try_again">إعادة المحاولة</string>
     <string name="age_gate_open_store">فتح متجر Play</string>

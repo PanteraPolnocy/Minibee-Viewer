@@ -26,8 +26,9 @@
     <string name="age_gate_verify">Перш ніж Minibee відкриється, Google Play має підтвердити вік цього облікового запису.</string>
     <string name="age_gate_not_shared">У цьому регіоні магазин має повідомити вік, а цей обліковий запис його не надав.</string>
     <string name="age_gate_unconfirmed">Магазин не підтвердив, що цьому обліковому запису виповнилося 18 років.</string>
-    <string name="age_gate_consent">Батьки або опікун не дозволили Minibee для цього облікового запису.</string>
     <string name="age_gate_unreachable">Магазин не зміг підтвердити вік цього облікового запису. Перевірте з\'єднання й спробуйте знову.</string>
+    <string name="age_gate_update_play">Не вдалося підтвердити вік цього облікового запису через Google Play. Оновіть або ввімкніть Play Маркет і Сервіси Google Play, а потім спробуйте знову.</string>
+    <string name="age_gate_update_app">Ця версія Minibee більше не може отримати вік із Google Play. Оновіть Minibee у Play Маркеті.</string>
     <string name="age_gate_close">Закрити</string>
     <string name="age_gate_try_again">Спробувати знову</string>
     <string name="age_gate_open_store">Відкрити Play Маркет</string>

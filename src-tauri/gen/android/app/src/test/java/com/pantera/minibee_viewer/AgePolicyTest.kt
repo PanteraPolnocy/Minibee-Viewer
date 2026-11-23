@@ -20,6 +20,50 @@ class AgePolicyTest {
     assertEquals(AgeVerdict.Block(BlockReason.NotShared), sharedAgeVerdict(null, null))
     assertEquals(AgeVerdict.Block(BlockReason.Underage), sharedAgeVerdict(16, 17))
     assertEquals(AgeVerdict.Allow, sharedAgeVerdict(18, null))
+    assertEquals(AgeVerdict.Allow, sharedAgeVerdict(21, null))
+  }
+
+  @Test
+  fun aBandAcross18IsUnconfirmedNotUnderage() {
+    // Play Console's custom age ranges can make these: 16 and over, or
+    // 0 to 20 under a minimum age of 21.
+    assertEquals(AgeVerdict.Block(BlockReason.Unconfirmed), sharedAgeVerdict(16, null))
+    assertEquals(AgeVerdict.Block(BlockReason.Unconfirmed), sharedAgeVerdict(0, 20))
+    assertEquals(AgeVerdict.Block(BlockReason.Underage), sharedAgeVerdict(0, 14))
+  }
+
+  @Test
+  fun retriesFollowGooglesRetryableColumn() {
+    for (code in -8..-1) assertEquals("code $code", true, isRetryablePlayError(code))
+    assertEquals(true, isRetryablePlayError(AgeSignalsErrorCode.INTERNAL_ERROR))
+    assertEquals(false, isRetryablePlayError(AgeSignalsErrorCode.APP_NOT_OWNED))
+    assertEquals(false, isRetryablePlayError(AgeSignalsErrorCode.SDK_VERSION_OUTDATED))
+    assertEquals(false, isRetryablePlayError(AgeSignalsErrorCode.DEVICE_NOT_SUPPORTED))
+  }
+
+  @Test
+  fun aFailedPlayCheckSaysWhatToDo() {
+    for (code in listOf(
+      AgeSignalsErrorCode.API_NOT_AVAILABLE,
+      AgeSignalsErrorCode.PLAY_STORE_NOT_FOUND,
+      AgeSignalsErrorCode.PLAY_SERVICES_NOT_FOUND,
+      AgeSignalsErrorCode.CANNOT_BIND_TO_SERVICE,
+      AgeSignalsErrorCode.PLAY_STORE_VERSION_OUTDATED,
+      AgeSignalsErrorCode.PLAY_SERVICES_VERSION_OUTDATED,
+    )) {
+      assertEquals("code $code", BlockReason.PlayNeedsUpdate, playBlockReason(code))
+    }
+    assertEquals(BlockReason.AppNeedsUpdate, playBlockReason(AgeSignalsErrorCode.SDK_VERSION_OUTDATED))
+    for (code in listOf(
+      AgeSignalsErrorCode.NETWORK_ERROR,
+      AgeSignalsErrorCode.CLIENT_TRANSIENT_ERROR,
+      AgeSignalsErrorCode.APP_NOT_OWNED,
+      AgeSignalsErrorCode.DEVICE_NOT_SUPPORTED,
+      AgeSignalsErrorCode.INTERNAL_ERROR,
+    )) {
+      assertEquals("code $code", BlockReason.StoreUnreachable, playBlockReason(code))
+    }
+    assertEquals(BlockReason.StoreUnreachable, playBlockReason(null))
   }
 
   @Test
@@ -88,10 +132,6 @@ class AgePolicyTest {
       AgeVerdict.Block(BlockReason.Unconfirmed),
       amazonVerdict("SUCCESS", "UNKNOWN", null, null)
     )
-    assertEquals(
-      AgeVerdict.Block(BlockReason.ConsentNotGranted),
-      amazonVerdict("SUCCESS", "CONSENT_NOT_GRANTED", null, null)
-    )
     assertEquals(AgeVerdict.Retry, amazonVerdict("INTERNAL_TRANSIENT_ERROR", "", null, null))
     assertEquals(
       AgeVerdict.Block(BlockReason.StoreUnreachable),
@@ -105,5 +145,27 @@ class AgePolicyTest {
       AgeVerdict.Block(BlockReason.StoreUnreachable),
       amazonVerdict("SOMETHING_NEW", "", null, null)
     )
+  }
+
+  @Test
+  fun amazonConsentIsOnlyEverAMinors() {
+    // Revoked, pending or refused consent: someone under 18, whom this app
+    // does not open for even with a parent's consent.
+    assertEquals(
+      AgeVerdict.Block(BlockReason.Underage),
+      amazonVerdict("SUCCESS", "CONSENT_NOT_GRANTED", 0, 12)
+    )
+    assertEquals(
+      AgeVerdict.Block(BlockReason.Underage),
+      amazonVerdict("SUCCESS", "CONSENT_NOT_GRANTED", null, null)
+    )
+  }
+
+  @Test
+  fun amazonBeforeLiveAnswersOpens() {
+    // No cursor, no row or a thrown query (AgeGateActivity.readAmazon), and
+    // FEATURE_NOT_SUPPORTED: Amazon's three answers before the API is live.
+    assertEquals(AgeVerdict.Allow, amazonNotLive)
+    assertEquals(amazonNotLive, amazonVerdict("FEATURE_NOT_SUPPORTED", "", null, null))
   }
 }

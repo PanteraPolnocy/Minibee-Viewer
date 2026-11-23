@@ -85,13 +85,41 @@ jobs:
         run: |
           echo "## Hand-edited files to re-apply" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          for f in \
-            "src-tauri/gen/android/app/src/main/java/com/pantera/minibee_viewer/MainActivity.kt" \
-            "src-tauri/gen/android/app/src/main/java/com/pantera/minibee_viewer/ConnectionService.kt" \
-            "src-tauri/gen/android/app/build.gradle.kts" \
-            "src-tauri/gen/apple/project.yml" \
-            "src-tauri/gen/apple/minibee-viewer_iOS/Info.plist" ; do
-            before="/tmp/gen-before/${f#src-tauri/}"
+          # Everything here was written or changed by hand after the generator
+          # ran: the activities and the keep-alive service, the store age gate
+          # (launcher activity, policy, its tests and layout), the manifest
+          # (permissions, service types, TV features, the gate as launcher),
+          # the notification and age gate strings, the backup exclusion, the
+          # build and shrinking setup, and the ignored signing files.
+          android="src-tauri/gen/android"
+          kotlin="$android/app/src/main/java/com/pantera/minibee_viewer"
+          files=(
+            "$kotlin/MainActivity.kt"
+            "$kotlin/ConnectionService.kt"
+            "$kotlin/AgeGateActivity.kt"
+            "$kotlin/AgePolicy.kt"
+            "$android/app/src/test/java/com/pantera/minibee_viewer/AgePolicyTest.kt"
+            "$android/app/src/main/res/layout/activity_age_gate.xml"
+            "$android/app/src/main/AndroidManifest.xml"
+            "$android/app/src/main/res/values/strings.xml"
+            "$android/app/src/main/res/xml/data_extraction_rules.xml"
+            "$android/app/build.gradle.kts"
+            "$android/app/proguard-rules.pro"
+            "$android/build.gradle.kts"
+            "$android/gradle.properties"
+            "$android/buildSrc/build.gradle.kts"
+            "$android/buildSrc/src/main/java/com/pantera/minibee_viewer/kotlin/BuildTask.kt"
+            "$android/buildSrc/src/main/java/com/pantera/minibee_viewer/kotlin/RustPlugin.kt"
+            "$android/.gitignore"
+            "src-tauri/gen/apple/project.yml"
+            "src-tauri/gen/apple/minibee-viewer_iOS/Info.plist"
+          )
+          # The generator writes no translations: every values-*/strings.xml is
+          # hand-made, so each one there before is checked, new languages too.
+          for t in /tmp/gen-before/gen/android/app/src/main/res/values-*/strings.xml; do
+            if [ -f "$t" ]; then files+=("src-tauri/gen/${t#/tmp/gen-before/gen/}"); fi
+          done
+          for f in "${files[@]}"; do
             before="/tmp/gen-before/gen/${f#src-tauri/gen/}"
             if [ -f "$before" ] && [ -f "$f" ]; then
               if diff -q "$before" "$f" >/dev/null; then

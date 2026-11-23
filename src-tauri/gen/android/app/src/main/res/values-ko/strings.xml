@@ -23,8 +23,9 @@
     <string name="age_gate_verify">Minibee를 열려면 Google Play가 이 계정의 연령을 확인해야 합니다.</string>
     <string name="age_gate_not_shared">이 지역에서는 스토어의 연령이 필요한데, 이 계정은 공유하지 않았습니다.</string>
     <string name="age_gate_unconfirmed">스토어가 이 계정이 18세 이상인지 확인하지 않았습니다.</string>
-    <string name="age_gate_consent">부모 또는 보호자가 이 계정의 Minibee를 허용하지 않았습니다.</string>
     <string name="age_gate_unreachable">스토어가 이 계정의 연령을 확인하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.</string>
+    <string name="age_gate_update_play">Google Play에서 이 계정의 연령을 확인하지 못했습니다. Play 스토어와 Google Play 서비스를 업데이트하거나 사용 설정한 뒤 다시 시도하세요.</string>
+    <string name="age_gate_update_app">이 버전의 Minibee는 더 이상 Google Play에서 연령을 가져올 수 없습니다. Play 스토어에서 Minibee를 업데이트하세요.</string>
     <string name="age_gate_close">닫기</string>
     <string name="age_gate_try_again">다시 시도</string>
     <string name="age_gate_open_store">Play 스토어 열기</string>

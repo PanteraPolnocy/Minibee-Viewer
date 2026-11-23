@@ -25,8 +25,9 @@
     <string name="age_gate_verify">Google Play trebuie să confirme vârsta acestui cont înainte ca Minibee să se poată deschide.</string>
     <string name="age_gate_not_shared">În această regiune magazinul trebuie să comunice vârsta, iar acest cont nu a făcut-o.</string>
     <string name="age_gate_unconfirmed">Magazinul nu a confirmat că acest cont are cel puțin 18 ani.</string>
-    <string name="age_gate_consent">Un părinte sau un tutore nu a permis Minibee pentru acest cont.</string>
     <string name="age_gate_unreachable">Magazinul nu a putut confirma vârsta acestui cont. Verifică conexiunea și încearcă din nou.</string>
+    <string name="age_gate_update_play">Google Play nu a putut confirma vârsta acestui cont. Actualizează sau activează Play Store și Servicii Google Play, apoi încearcă din nou.</string>
+    <string name="age_gate_update_app">Această versiune Minibee nu mai poate obține vârsta de la Google Play. Actualizează Minibee din Play Store.</string>
     <string name="age_gate_close">Închide</string>
     <string name="age_gate_try_again">Încearcă din nou</string>
     <string name="age_gate_open_store">Deschide Play Store</string>

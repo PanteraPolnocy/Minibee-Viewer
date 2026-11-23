@@ -26,8 +26,9 @@
     <string name="age_gate_verify">Než se Minibee otevře, musí Google Play potvrdit věk tohoto účtu.</string>
     <string name="age_gate_not_shared">V tomto regionu musí obchod sdělit věk, a tento účet ho nesdělil.</string>
     <string name="age_gate_unconfirmed">Obchod nepotvrdil, že tomuto účtu je alespoň 18 let.</string>
-    <string name="age_gate_consent">Rodič nebo zákonný zástupce nepovolil Minibee pro tento účet.</string>
     <string name="age_gate_unreachable">Obchod nemohl potvrdit věk tohoto účtu. Zkontrolujte připojení a zkuste to znovu.</string>
+    <string name="age_gate_update_play">Google Play nemohl potvrdit věk tohoto účtu. Aktualizujte nebo zapněte Obchod Play a Služby Google Play a zkuste to znovu.</string>
+    <string name="age_gate_update_app">Tato verze Minibee už nemůže získat věk z Google Play. Aktualizujte Minibee v Obchodě Play.</string>
     <string name="age_gate_close">Zavřít</string>
     <string name="age_gate_try_again">Zkusit znovu</string>
     <string name="age_gate_open_store">Otevřít Obchod Play</string>

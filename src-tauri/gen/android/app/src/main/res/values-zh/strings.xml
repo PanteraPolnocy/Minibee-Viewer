@@ -23,8 +23,9 @@
     <string name="age_gate_verify">在 Minibee 開啟前，Google Play 必須確認此帳號的年齡。</string>
     <string name="age_gate_not_shared">此地區要求商店提供年齡，而此帳號尚未分享。</string>
     <string name="age_gate_unconfirmed">商店尚未確認此帳號已年滿 18 歲。</string>
-    <string name="age_gate_consent">家長或監護人尚未允許此帳號使用 Minibee。</string>
     <string name="age_gate_unreachable">商店無法確認此帳號的年齡。請檢查連線後再試一次。</string>
+    <string name="age_gate_update_play">Google Play 無法確認此帳號的年齡。請更新或啟用 Play 商店和 Google Play 服務，然後再試一次。</string>
+    <string name="age_gate_update_app">此版本的 Minibee 已無法從 Google Play 取得年齡。請在 Play 商店更新 Minibee。</string>
     <string name="age_gate_close">關閉</string>
     <string name="age_gate_try_again">再試一次</string>
     <string name="age_gate_open_store">開啟 Play 商店</string>
