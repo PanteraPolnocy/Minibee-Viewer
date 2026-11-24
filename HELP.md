@@ -137,7 +137,7 @@ Row menu: details, profiles, Touch (if the object supports it), Sit on, Pay (wit
 
 **News** - four feeds; cards expand; **Read on the web** for full articles. Loads when you open the tab.
 
-**Parcel music** - top-bar speaker; auto-play and volume under **Bee -> Settings** (off by default).
+**Parcel music** - top-bar speaker; auto-play and volume under **Bee -> Settings** (off by default). A stream is played from a public address only: one that points at this device or a private network is shown, and can be copied, but is not fetched - the parcel picks that address, not you.
 
 ---
 

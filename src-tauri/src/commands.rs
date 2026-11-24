@@ -657,6 +657,33 @@ pub fn bridge_classify_url(url: String) -> Cmd {
     Ok(serde_json::to_value(urlmatch::classify_external_url(&url)).unwrap_or(Value::Null))
 }
 
+/// Whether the player may be given a parcel's stream URL, and that URL as it
+/// was read here. Only http(s), and never a loopback, link-local or private
+/// target, by address or by a name that resolves to one: the name is looked
+/// up, the stream itself is not fetched. A parcel picks this URL, the user
+/// does not, so there is no exception for a grid on the local network the way
+/// there is for the login address. A refusal is an answer, not an error; its
+/// reason is for the log.
+///
+/// This vets the address the player starts from. The webview follows a
+/// server's redirects by itself, and those hops are not seen here.
+#[tauri::command]
+pub async fn bridge_check_stream_url(url: String) -> Cmd {
+    // Text that is no absolute URL is refused outright: the guard lets it by
+    // (an HTTP client could do nothing with it), but a page resolves
+    // "//10.0.0.1/a" against its own address and fetches that.
+    let Ok(parsed) = reqwest::Url::parse(&url) else {
+        return Ok(json!({ "allowed": false, "reason": "not an absolute URL" }));
+    };
+    // The player is handed this reading back, so the address that was checked
+    // and the address that is fetched are not left to two parsers to agree on.
+    let read = parsed.to_string();
+    Ok(match proxy::guard_url(&read).await {
+        Ok(()) => json!({ "allowed": true, "url": read }),
+        Err(reason) => json!({ "allowed": false, "reason": crate::uitext::plain(&reason) }),
+    })
+}
+
 /// Append a line from the frontend to the shared diagnostic log (a no-op unless enabled).
 #[tauri::command]
 pub async fn bridge_log(source: Option<String>, message: String) -> Cmd {
@@ -3091,6 +3118,43 @@ mod tests {
         let node = all["node"].as_array().unwrap();
         assert!(node.iter().any(|p| p["name"] == "typescript"));
         assert!(!all["templateVersion"].as_str().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_parcel_stream_is_played_only_from_a_public_http_address() {
+        async fn checked(url: &str) -> Value {
+            bridge_check_stream_url(url.to_string()).await.unwrap()
+        }
+        // Addresses written out, so nothing here is looked up or connected to.
+        for url in [
+            "http://127.0.0.1/",
+            "http://10.0.0.1/a",
+            "http://192.168.0.5/a",
+            "http://169.254.169.254/",
+            "http://[::1]/",
+            "http://[::ffff:10.0.0.1]/a",
+            "http://localhost:8000/stream",
+            "file:///etc/passwd",
+            "ftp://8.8.8.8/a",
+            // The same loopback address in the other ways a URL can spell it.
+            "http://0x7f.1/",
+            "http://2130706433/",
+            "http://8.8.8.8@127.0.0.1/",
+            // No absolute URL: a page would read these against its own address.
+            "//10.0.0.1/a",
+            "stream.mp3",
+            "",
+        ] {
+            let answer = checked(url).await;
+            assert_eq!(answer["allowed"], false, "{url}");
+            assert!(answer.get("url").is_none(), "{url}");
+            assert!(!answer["reason"].as_str().unwrap_or("").is_empty(), "{url}");
+        }
+        let answer = checked("https://8.8.8.8/stream").await;
+        assert_eq!(answer["allowed"], true);
+        assert_eq!(answer["url"], "https://8.8.8.8/stream");
+        // The player gets the URL as it was read here, not as it was written.
+        assert_eq!(checked("HTTP://8.8.8.8:80/a b").await["url"], "http://8.8.8.8/a%20b");
     }
 
     #[test]

@@ -16,6 +16,10 @@ const BeeParcelMusic = (function () {
   let volume = 0.5;
   let playing = false;
   let triedSecureUrl = false;
+  // The newest request to play. Every play() and every stop() takes a new
+  // ticket, so the core's answer about an older URL, or one that arrives after
+  // the stream was stopped, is dropped instead of starting a stream.
+  let playTicket = 0;
   // The top-bar music control's parts, filled in once the DOM is ready.
   const els: {
     root?: HTMLElement | null;
@@ -141,19 +145,66 @@ const BeeParcelMusic = (function () {
     return url;
   }
 
+  // The core's word on a stream URL before the player is given it. A parcel
+  // picks this URL, not the user, and the webview fetches whatever the player
+  // is handed - so only an http(s) address that is neither this device nor a
+  // private network may be played. Resolves to the URL as the core read it
+  // (the one to play), or to none with the reason for the log. No backend, or
+  // a call that fails, is a refusal as well.
+  function checkStreamUrl(url) {
+    if (typeof BeeBridge === 'undefined' || typeof BeeBridge.invoke !== 'function') {
+      return Promise.resolve({ url: '', reason: 'no backend' });
+    }
+    return BeeBridge.invoke('bridge_check_stream_url', { url: url }).then(function (res) {
+      if (res && res.allowed === true && typeof res.url === 'string' && res.url) {
+        return { url: res.url, reason: '' };
+      }
+      return { url: '', reason: String((res && res.reason) || 'no reason given') };
+    }).catch(function (err) {
+      return { url: '', reason: 'check failed: ' + String((err && err.message) || err) };
+    });
+  }
+
   function play() {
     if (!currentUrl) return;
+    const ticket = ++playTicket;
+    checkStreamUrl(playableUrl(currentUrl)).then(function (verdict) {
+      // The parcel's URL changed, or the stream was stopped, while the core
+      // was looking: this answer is about a stream nobody is waiting for.
+      if (ticket !== playTicket) return;
+      if (verdict.url) startStream(verdict.url, ticket);
+      else refuseStream(verdict.reason);
+    });
+  }
+
+  // The stream must not be fetched, or the core could not be asked: the player
+  // is left without a source, so nothing is requested, and the line says the
+  // stream is unavailable. The URL stays on show and can still be copied.
+  function refuseStream(reason) {
+    dropSource();
+    playing = false;
+    updateToggleUI();
+    reportStreamProblem('stream refused: ' + reason);
+    setNow(t('music.unavailable', { why: t('music.errorNetwork'), url: currentUrl }));
+  }
+
+  // `url` is a stream address the core has just allowed. The player's own
+  // answer is held to the same ticket: a stream stopped or replaced while it
+  // was still connecting says "aborted", and that is not news about the
+  // stream that is wanted now.
+  function startStream(url, ticket) {
     const a = ensureAudio();
-    const wanted = playableUrl(currentUrl);
-    if (a.src !== wanted) a.src = wanted;
+    if (a.src !== url) a.src = url;
     a.volume = volume;
     const p = a.play();
     if (p && typeof p.then === 'function') {
       p.then(function () {
+        if (ticket !== playTicket) return;
         playing = true;
         updateToggleUI();
         setNow(playingLine(currentUrl));
       }).catch(function (err) {
+        if (ticket !== playTicket) return;
         // Autoplay was blocked, or mixed content was refused.
         playing = false;
         updateToggleUI();
@@ -171,11 +222,17 @@ const BeeParcelMusic = (function () {
     }
   }
 
-  function stop() {
+  function dropSource() {
     if (audio) {
       audio.pause();
       try { audio.removeAttribute('src'); audio.load(); } catch (_e) { /* safe to ignore */ }
     }
+  }
+
+  function stop() {
+    // An address check still on its way must not start the stream after this.
+    playTicket += 1;
+    dropSource();
     playing = false;
     updateToggleUI();
   }

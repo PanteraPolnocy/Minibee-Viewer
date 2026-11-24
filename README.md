@@ -245,7 +245,7 @@ Closing the window while connected asks **log out and quit** - and that quit pat
 - **No RLV / RLVa** - no Restrained Love restrictions
 - Names may show as codes for a moment until they resolve
 - Avatar "About" may be truncated if the region can't serve the full profile
-- **Parcel music:** some exotic stream formats won't decode; the top bar says why. On Android, plain `http://` audio is allowed on purpose
+- **Parcel music:** some exotic stream formats won't decode; the top bar says why. On Android, plain `http://` audio is allowed on purpose. A stream address that points at this device or a private network is not played (the parcel picks it, not you)
 - Buddy-list photos only in the buddies list; radar/search/chat show initials unless cached
 - Radar positions are the sim's coarse ~1 m grid
 - If nothing updates and packet counts sit at zero: close other SL viewers and check Windows Firewall for Minibee's UDP

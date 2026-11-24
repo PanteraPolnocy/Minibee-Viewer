@@ -117,6 +117,7 @@ pub fn run() {
             commands::bridge_region_by_name,
             commands::bridge_linkify,
             commands::bridge_classify_url,
+            commands::bridge_check_stream_url,
             commands::bridge_log,
             commands::bridge_log_path,
             commands::sl_open_circuit,
