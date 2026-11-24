@@ -8,6 +8,10 @@ name: Main Code Builder
 #
 # Updater note: desktop clients fetch .../releases/latest/download/latest.json.
 # GitHub only resolves /releases/latest for non-prerelease releases.
+#
+# Actions from outside GitHub are pinned to a commit, with the release that
+# commit belongs to in the comment beside it: a tag or a branch can be moved
+# to other code, a commit cannot. Dependabot (ci-actions) moves both together.
 
 on:
   release:
@@ -98,12 +102,12 @@ jobs:
             patchelf
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: "./src-tauri -> target"
 
@@ -112,7 +116,7 @@ jobs:
 
       - name: Build and upload to the release
         if: github.event_name == 'release'
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -170,7 +174,7 @@ jobs:
           java-version: '17'
 
       - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         id: setup-ndk
         with:
           # r28+ aligns native libraries to 16 KB pages by default - a Google
@@ -190,12 +194,12 @@ jobs:
           echo "Gradle will use NDK ${NDK_VERSION}"
 
       - name: Set up Rust & Android Targets
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
 
       - name: Cache Rust build
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: "./src-tauri -> target"
 
@@ -300,7 +304,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload APK and AAB to Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         if: github.event_name == 'release'
         with:
           files: |
@@ -352,7 +356,7 @@ jobs:
         id: upload
         if: github.event_name == 'release' && github.event.release.prerelease == false && steps.play.outputs.enabled == 'true'
         continue-on-error: true
-        uses: r0adkll/upload-google-play@v1
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.pantera.minibee_viewer
@@ -399,7 +403,7 @@ jobs:
       # APK is scanned even when Google Play is the recommended Android install on the release page.
       - name: Upload release assets to VirusTotal
         id: vt
-        uses: crazy-max/ghaction-virustotal@v5
+        uses: crazy-max/ghaction-virustotal@936d8c5c00afe97d3d9a1af26d017cfdf26800a2 # v5.0.0
         with:
           vt_api_key: ${{ secrets.VIRUSTOTAL_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -442,7 +446,7 @@ jobs:
     permissions: {}
     steps:
       - name: Publish to WinGet
-        uses: vedantmgoyal9/winget-releaser@main
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
         with:
           identifier: Minibee.Viewer
           token: ${{ secrets.WINGET_TOKEN }}

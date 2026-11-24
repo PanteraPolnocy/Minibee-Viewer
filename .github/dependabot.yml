@@ -51,7 +51,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
       day: "saturday"
     open-pull-requests-limit: 10
     cooldown:
@@ -70,7 +70,7 @@ updates:
   - package-ecosystem: "gradle"
     directory: "/src-tauri/gen/android"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
       day: "saturday"
     open-pull-requests-limit: 10
     cooldown:
