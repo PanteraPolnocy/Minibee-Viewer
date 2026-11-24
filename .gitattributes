@@ -1,0 +1,11 @@
+# Text is stored with LF line ends in the repository, whatever Git settings a
+# contributor happens to have; a working copy still gets the line ends its own
+# Git gives it. Git decides by itself what is text - images and the like are
+# left alone.
+* text=auto
+
+# The Gradle launcher is a shell script: with CRLF a Unix machine cannot run
+# it. Its Windows twin is a command script, which wants CRLF wherever it is
+# checked out.
+gradlew text eol=lf
+*.bat text eol=crlf
