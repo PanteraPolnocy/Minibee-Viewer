@@ -83,7 +83,7 @@ class AgeGateActivity : AppCompatActivity() {
     // the task. Finishing reveals it; a cold start is the task root and stays.
     if (!isTaskRoot && isLauncherIntent(intent)) {
       finish()
-      overridePendingTransition(0, 0)
+      withoutAnimation()
       return
     }
     setContentView(R.layout.activity_age_gate)
@@ -273,6 +273,15 @@ class AgeGateActivity : AppCompatActivity() {
     passedThisProcess = true
     startActivity(Intent(this, MainActivity::class.java))
     finish()
+    withoutAnimation()
+  }
+
+  // The gate steps aside without an animation of its own. The call is marked
+  // deprecated from Android 14 on, where its successor is set per activity
+  // and exists only there; this one works on every version and covers the
+  // whole hand-over in one place.
+  @Suppress("DEPRECATION")
+  private fun withoutAnimation() {
     overridePendingTransition(0, 0)
   }
 
