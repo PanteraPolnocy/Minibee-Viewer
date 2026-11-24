@@ -801,9 +801,9 @@ const BeeSettingsUI = (function () {
       return out;
     };
     return [copyHeading(t('settings.packages')), templateCredit(), '']
-      .concat(section(t('packages.rustCrates'), packages.rust))
-      .concat([''])
       .concat(section(t('packages.buildTools'), packages.node))
+      .concat([''])
+      .concat(section(t('packages.rustCrates'), packages.rust))
       .join('\n');
   }
 
@@ -846,8 +846,10 @@ const BeeSettingsUI = (function () {
         el.appendChild(row);
       });
     };
-    section(t('packages.rustCrates'), packages.rust);
+    // The short list first: the build tools fit on a screen, the crates run
+    // to hundreds of rows and would bury them.
     section(t('packages.buildTools'), packages.node);
+    section(t('packages.rustCrates'), packages.rust);
   }
 
   function fallbackCopy(text, done) {
