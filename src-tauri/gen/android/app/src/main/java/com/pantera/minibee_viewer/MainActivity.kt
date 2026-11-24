@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.lang.ref.WeakReference
+import kotlin.system.exitProcess
 import org.json.JSONObject
 
 class MainActivity : TauriActivity() {
@@ -118,21 +119,14 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    // Recents restores this activity after the process dies, skipping the
-    // launcher. The pass flag dies with the process, so send them back
-    // through the gate. super.onCreate has to run (TauriActivity requires
-    // it, and it loads the native library); finish() then drops that
-    // half-started session before the keep-alive service exists.
+    // Recents, or a message alert left in the shade, brings this activity
+    // back after the process died, skipping the launcher - and the pass flag
+    // died with the process. A copy no store installed has nobody to ask and
+    // opens as it always did. A store copy starts over at the gate (see
+    // restartAtTheGate).
     if (!AgeGateActivity.passedThisProcess) {
-      exportDataDir()
-      super.onCreate(savedInstanceState)
-      startActivity(
-        Intent(this, AgeGateActivity::class.java)
-          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-      )
-      finish()
-      overridePendingTransition(0, 0)
-      return
+      if (AgeGateActivity.asksAStore(this)) restartAtTheGate()
+      AgeGateActivity.passedThisProcess = true
     }
     exportDataDir()
     enableEdgeToEdge()
@@ -142,6 +136,27 @@ class MainActivity : TauriActivity() {
     startKeepAlive()
     installBackHandler()
     watchNetwork()
+  }
+
+  // The gate, in a process of its own: the gate is put on top of a cleared
+  // task and this process ends at once, before the viewer is started in it
+  // (super.onCreate has not run), so Android starts a new one for the gate.
+  // Starting the viewer here and finishing this activity for the gate would
+  // not do: the viewer ends the whole process when the activity it opened in
+  // is destroyed, and that would take the gate - or the viewer opened after
+  // it - down too.
+  private fun restartAtTheGate(): Nothing {
+    try {
+      startActivity(
+        Intent(this, AgeGateActivity::class.java)
+          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+      )
+    } catch (_: Exception) {
+      // Nothing to start over in: the process still ends, and the icon
+      // starts at the gate.
+    }
+    android.os.Process.killProcess(android.os.Process.myPid())
+    exitProcess(0)
   }
 
   // The Rust core derives the login device id (hwid.rs) without an AppHandle,

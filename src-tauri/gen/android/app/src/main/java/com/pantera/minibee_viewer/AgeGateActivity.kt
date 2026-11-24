@@ -1,5 +1,6 @@
 package com.pantera.minibee_viewer
 
+import android.content.Context
 import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
@@ -34,9 +35,31 @@ import kotlin.concurrent.thread
 // not read.
 class AgeGateActivity : AppCompatActivity() {
   companion object {
-    // True only after this process has passed the gate. A restored
-    // MainActivity (process death, recents) sees false and comes back here.
+    // True once this process may run the viewer: the gate let it through, or
+    // there was no store to ask. A MainActivity brought back in a new process
+    // (process death, then recents) sees false; see MainActivity.onCreate.
     @Volatile var passedThisProcess: Boolean = false
+
+    // Whether a store is asked before this copy opens: one that Play or
+    // Amazon installed, and any debug build (see begin). The GitHub APK has
+    // nobody to ask.
+    fun asksAStore(context: Context): Boolean =
+      BuildConfig.DEBUG || installStore(installerOf(context)) != InstallStore.Other
+
+    private fun installerOf(context: Context): String? {
+      return try {
+        val packages = context.packageManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+          val info = packages.getInstallSourceInfo(context.packageName)
+          info.installingPackageName ?: info.initiatingPackageName
+        } else {
+          @Suppress("DEPRECATION")
+          packages.getInstallerPackageName(context.packageName)
+        }
+      } catch (_: Exception) {
+        null
+      }
+    }
   }
 
   private val handler = Handler(Looper.getMainLooper())
@@ -96,7 +119,7 @@ class AgeGateActivity : AppCompatActivity() {
     handler.removeCallbacksAndMessages(null)
     val token = ++generation
     showChecking()
-    when (installStore(installerPackage())) {
+    when (installStore(installerOf(this))) {
       // A release sideload (the GitHub APK) never asks. A debug sideload makes
       // one Play call so a licence tester can exercise the live API; attempt
       // 2 means that call does not retry, so a machine without Play Store
@@ -345,20 +368,6 @@ class AgeGateActivity : AppCompatActivity() {
     handler.postDelayed({
       if (still(token)) again()
     }, 500L * (attempt + 1))
-  }
-
-  private fun installerPackage(): String? {
-    return try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        val info = packageManager.getInstallSourceInfo(packageName)
-        info.installingPackageName ?: info.initiatingPackageName
-      } else {
-        @Suppress("DEPRECATION")
-        packageManager.getInstallerPackageName(packageName)
-      }
-    } catch (_: Exception) {
-      null
-    }
   }
 
   private fun still(token: Int): Boolean = token == generation && !isFinishing && !isDestroyed

@@ -6,6 +6,18 @@ import org.junit.Test
 
 class AgePolicyTest {
   @Test
+  fun onlyACopyAStoreInstalledHasAStoreToAsk() {
+    assertEquals(InstallStore.Play, installStore("com.android.vending"))
+    assertEquals(InstallStore.Amazon, installStore("com.amazon.venezia"))
+    // The GitHub APK: installed by a file manager, a browser, adb or nobody
+    // the system names.
+    assertEquals(InstallStore.Other, installStore(null))
+    assertEquals(InstallStore.Other, installStore(""))
+    assertEquals(InstallStore.Other, installStore("com.google.android.packageinstaller"))
+    assertEquals(InstallStore.Other, installStore("com.android.vending.evil"))
+  }
+
+  @Test
   fun adultBandStartsAtEighteen() {
     assertEquals(false, adultBand(null, null))
     assertEquals(false, adultBand(17, null))
@@ -85,6 +97,21 @@ class AgePolicyTest {
       PlayFailure.Allow,
       playDiscoveryFailure(AgeSignalsErrorCode.DEVICE_NOT_SUPPORTED, storeInstall = true)
     )
+  }
+
+  @Test
+  fun aPlayStoreTooOldToBeAskedStopsToo() {
+    // The library answers these itself, without a call, when the Play Store
+    // is older than the question. Tried again, then the screen asks for the
+    // store to be updated: this does not open, in any country.
+    for (code in listOf(
+      AgeSignalsErrorCode.PLAY_STORE_VERSION_OUTDATED,
+      AgeSignalsErrorCode.API_NOT_AVAILABLE,
+    )) {
+      assertEquals("code $code", PlayFailure.Retry, playDiscoveryFailure(code, storeInstall = true))
+      assertEquals("code $code", PlayFailure.Retry, playMandatoryFailure(code))
+      assertEquals("code $code", BlockReason.PlayNeedsUpdate, playBlockReason(code))
+    }
   }
 
   @Test

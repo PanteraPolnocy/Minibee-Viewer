@@ -49,12 +49,18 @@ internal fun isRetryablePlayError(code: Int): Boolean =
     code in AgeSignalsErrorCode.CLIENT_TRANSIENT_ERROR..AgeSignalsErrorCode.API_NOT_AVAILABLE
 
 // A Play install that cannot learn whether sharing is mandatory must not
-// open: silence is not proof that no law applies. DEVICE_NOT_SUPPORTED is the
-// one exception. Google says only that the API does not support this kind of
-// device and offers no step that would change it, so there is no age signal
-// to wait for, the same case as Amazon's FEATURE_NOT_SUPPORTED. APP_NOT_OWNED
-// on a sideload (storeInstall false) is a debug build outside Play and opens;
-// on a Play install it is a contradiction and stops.
+// open: silence is not proof that no law applies. That holds for a Play
+// Store too old to be asked as well: the question exists from Play Store
+// 54.1 on, and the library refuses an older one itself, before any call, in
+// every country (PLAY_STORE_VERSION_OUTDATED). The screen then asks for the
+// store to be updated. Kept that way on purpose.
+//
+// DEVICE_NOT_SUPPORTED is the one exception. Google says only that the API
+// does not support this kind of device and offers no step that would change
+// it, so there is no age signal to wait for, the same case as Amazon's
+// FEATURE_NOT_SUPPORTED. APP_NOT_OWNED on a sideload (storeInstall false) is a
+// debug build outside Play and opens; on a Play install it is a contradiction
+// and stops.
 internal fun playDiscoveryFailure(code: Int?, storeInstall: Boolean): PlayFailure = when {
   code == AgeSignalsErrorCode.DEVICE_NOT_SUPPORTED -> PlayFailure.Allow
   code == AgeSignalsErrorCode.APP_NOT_OWNED && !storeInstall -> PlayFailure.Allow
