@@ -87,6 +87,22 @@ fn host_trusted(host: &str) -> bool {
     })
 }
 
+/// Whether a lowercased URL is a SLURL by the way it begins: the
+/// secondlife:// scheme, or a map link on one of the two map hosts. Only the
+/// beginning counts - the same words further inside a URL (a path, a query)
+/// are somebody else's address.
+fn starts_as_slurl(lower: &str) -> bool {
+    if lower.starts_with("secondlife://") {
+        return true;
+    }
+    ["http://", "https://"].iter().any(|scheme| {
+        lower.strip_prefix(scheme).is_some_and(|rest| {
+            rest.starts_with("maps.secondlife.com/secondlife/")
+                || rest.starts_with("slurl.com/secondlife/")
+        })
+    })
+}
+
 /// Strip trailing punctuation that a URL shouldn't swallow.
 fn trim_trailing(url: &str) -> &str {
     let mut end = url.len();
@@ -201,11 +217,7 @@ pub fn linkify(text: &str) -> Vec<Segment> {
         let whole = m.get(0).unwrap();
         let url = trim_trailing(m.get(1).unwrap().as_str()).to_string();
         let label = m.get(2).map(|l| l.as_str().trim().to_string());
-        let lower = url.to_ascii_lowercase();
-        let kind = if lower.starts_with("secondlife://")
-            || lower.contains("maps.secondlife.com/secondlife/")
-            || lower.contains("slurl.com/secondlife/")
-        {
+        let kind = if starts_as_slurl(&url.to_ascii_lowercase()) {
             LinkKind::Slurl
         } else {
             LinkKind::Http
@@ -475,6 +487,40 @@ mod tests {
                 assert!(*trusted);
             }
             _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn a_bracketed_link_is_a_slurl_only_by_how_it_begins() {
+        for text in [
+            "[https://maps.secondlife.com/secondlife/Natoma/1/2/3 Meet here]",
+            "[http://slurl.com/secondlife/Natoma/1/2/3 Meet here]",
+            "[secondlife://Natoma/128/64/25 Meet here]",
+        ] {
+            match links(&linkify(text))[0] {
+                Segment::Link { kind, trusted, label, .. } => {
+                    assert_eq!(*kind, LinkKind::Slurl, "{text}");
+                    assert!(*trusted, "{text}");
+                    assert_eq!(label, "Meet here");
+                }
+                _ => panic!(),
+            }
+        }
+        // The map hosts' words inside another site's URL are that site's: an
+        // ordinary web link, which asks before it opens.
+        for url in [
+            "http://www.example.org/slurl.com/secondlife/Natoma/1/2/3",
+            "http://www.example.org/?next=maps.secondlife.com/secondlife/Natoma/1/2/3",
+            "http://maps.secondlife.com.example.org/secondlife/Natoma/1/2/3",
+        ] {
+            match links(&linkify(&format!("[{url} Meet here]")))[0] {
+                Segment::Link { kind, trusted, url: found, .. } => {
+                    assert_eq!(*kind, LinkKind::Http, "{url}");
+                    assert!(!*trusted, "{url}");
+                    assert_eq!(found, url);
+                }
+                _ => panic!(),
+            }
         }
     }
 

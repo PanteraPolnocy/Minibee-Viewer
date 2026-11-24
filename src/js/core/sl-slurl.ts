@@ -24,6 +24,7 @@ const BeeSlurl = (function () {
   const LINK_SLURL = /(?:secondlife:\/\/[^\s<>\]"]+|https?:\/\/(?:maps\.secondlife\.com|slurl\.com)\/secondlife\/[^\s<>\]"]+)/gi;
   const LINK_HTTP = /https?:\/\/[^\s<>\]"]+/gi;
   const LINK_EMAIL = /\b[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}\b/gi;
+  const SLURL_START = /^(?:secondlife:\/\/|https?:\/\/(?:maps\.secondlife\.com|slurl\.com)\/secondlife\/)/i;
 
   function hostOf(url) {
     const afterScheme = url.indexOf('://') >= 0 ? url.slice(url.indexOf('://') + 3) : url;
@@ -331,7 +332,7 @@ const BeeSlurl = (function () {
     while ((m = bracket.exec(src)) !== null) {
       const url = trimTrailingUrl(m[1]);
       const label = (m[2] || '').trim();
-      const isSlurl = /^secondlife:\/\//i.test(url) || /(?:maps\.secondlife\.com|slurl\.com)\/secondlife\//i.test(url);
+      const isSlurl = SLURL_START.test(url);
       raws.push({ start: m.index, end: m.index + m[0].length, url: url,
         label: label || null, kind: isSlurl ? 'slurl' : 'http', bracketed: true, priority: 0 });
     }

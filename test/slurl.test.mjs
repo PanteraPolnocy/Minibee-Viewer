@@ -136,6 +136,29 @@ test('scanLinks: maps link classified as slurl, not bare http', () => {
   assert.equal(links[0].kind, 'slurl');
 });
 
+test('scanLinks: a bracketed link is a slurl only by how it begins', () => {
+  const map = BeeSlurl.scanLinks('[https://maps.secondlife.com/secondlife/Natoma/1/2/3 Meet here]')
+    .find((s) => s.type === 'link');
+  assert.equal(map.kind, 'slurl');
+  assert.equal(map.trusted, true);
+  assert.equal(map.label, 'Meet here');
+  const inWorld = BeeSlurl.scanLinks('[secondlife://Natoma/128/64/25 Meet here]').find((s) => s.type === 'link');
+  assert.equal(inWorld.kind, 'slurl');
+
+  // The map hosts' words inside another site's URL are that site's: an
+  // ordinary web link, which asks before it opens.
+  for (const url of [
+    'http://www.example.org/slurl.com/secondlife/Natoma/1/2/3',
+    'http://www.example.org/?next=maps.secondlife.com/secondlife/Natoma/1/2/3',
+    'http://maps.secondlife.com.example.org/secondlife/Natoma/1/2/3'
+  ]) {
+    const link = BeeSlurl.scanLinks('[' + url + ' Meet here]').find((s) => s.type === 'link');
+    assert.equal(link.kind, 'http', url);
+    assert.equal(link.trusted, false, url);
+    assert.equal(link.url, url);
+  }
+});
+
 test('scanLinks: trailing punctuation trimmed, balanced paren kept', () => {
   const a = BeeSlurl.scanLinks('go http://example.com/p, ok').find((s) => s.type === 'link');
   assert.equal(a.url, 'http://example.com/p');
