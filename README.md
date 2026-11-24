@@ -1,4 +1,4 @@
-﻿# Minibee Viewer
+# Minibee Viewer
 
 ![Minibee logo](/src-tauri/icons/128x128.png)
 

@@ -1,4 +1,4 @@
-﻿// The parcel handler builds one big json! literal, and the default limit of 128 is too low to expand it.
+// The parcel handler builds one big json! literal, and the default limit of 128 is too low to expand it.
 #![recursion_limit = "512"]
 
 pub mod bridge;

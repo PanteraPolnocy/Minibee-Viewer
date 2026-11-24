@@ -1,4 +1,4 @@
-﻿//! Tauri IPC command handlers: bridge helpers plus UDP circuit control.
+//! Tauri IPC command handlers: bridge helpers plus UDP circuit control.
 
 use std::sync::Arc;
 use std::time::Duration;
