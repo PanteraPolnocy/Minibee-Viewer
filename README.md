@@ -94,7 +94,7 @@ Open **Bee** in the nav (bee icon) for preferences and bundled docs:
 - **Help** - the full user guide ([HELP.md](HELP.md)).
 - **README** / **License** / **Privacy** - bundled project docs.
 
-There is **no Debug tab** and no in-app log viewer. For a bug paper trail, start with `--enablelogfiles` (or `MINIBEE_ENABLE_LOGFILES=1`). Log file: `%TEMP%/minibee-viewer/minibee-viewer-<pid>.log` on Windows (your OS temp dir elsewhere; the pid keeps two running viewers apart). **Off by default** - fresh per launch, stale ones swept after a few days.
+There is **no Debug tab** and no in-app viewer for the diagnostic log (the chat log reader in **Bee -> About** is for conversations). For a bug paper trail, start with `--enablelogfiles` (or `MINIBEE_ENABLE_LOGFILES=1`). Log file: `%TEMP%/minibee-viewer/minibee-viewer-<pid>.log` on Windows (your OS temp dir elsewhere; the pid keeps two running viewers apart). **Off by default** - fresh per launch, stale ones swept after a few days.
 
 ## Getting around
 

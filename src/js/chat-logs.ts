@@ -15,7 +15,7 @@ const BeeChatLogs = (function () {
 
   // The nearby-chat transcript's file name on disk. An identifier, not
   // wording: it stays the same in every UI language, so switching languages
-  // never starts a second file (the log manager labels it in the UI language).
+  // never starts a second file (the log reader labels it in the UI language).
   const LOCAL_LOG_NAME = 'Nearby Chat';
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -60,7 +60,7 @@ const BeeChatLogs = (function () {
   // Lines for a person whose username nobody knows yet (a first contact whose
   // name lookup is still in flight) wait for it rather than land in a file
   // named after something else. Past a generous wait the UUID names the file;
-  // the log manager shows the person behind it once the name is known.
+  // the log reader shows the person behind it once the name is known.
   const waiting = new Map(); // agent id -> { participant, lines, timer }
   const WAIT_FOR_NAME_MS = 30000;
 

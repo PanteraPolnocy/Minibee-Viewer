@@ -164,6 +164,13 @@ const BeeAndroidBridge = (function () {
         // would block every later confirm behind it); a dialog without such a
         // handler is simply dismissed.
         const top = dialogs[dialogs.length - 1];
+        // A dialog showing one pane of two (the log reader on a narrow
+        // screen) first steps back to its list, through its own back button.
+        const paneBack = top.querySelector<HTMLElement>('.script-editor__back');
+        if (isShown(paneBack)) {
+          paneBack.click();
+          return 'handled';
+        }
         top.dispatchEvent(new Event('cancel', { cancelable: true }));
         if (top.open) BeeUtils.dismissDialog(top);
         return 'handled';

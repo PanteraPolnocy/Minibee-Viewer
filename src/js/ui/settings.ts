@@ -373,191 +373,6 @@ const BeeSettingsUI = (function () {
     }).catch(function () {});
   }
 
-  function fmtLogSize(b) {
-    return b >= 1024 * 1024
-      ? t('units.mb', { value: (b / (1024 * 1024)).toFixed(1) })
-      : t('units.kb', { value: Math.max(1, Math.round(b / 1024)) });
-  }
-
-  // --- Log manager: list and delete the chat log files -----------------------
-
-  // The kinds of log file, in the order the manager lists them.
-  const LOG_KINDS = [
-    { kind: 'local', label: function () { return t('logs.kindLocal'); } },
-    { kind: 'avatars', label: function () { return t('logs.kindAvatars'); } },
-    { kind: 'groups', label: function () { return t('logs.kindGroups'); } }
-  ];
-
-  function openLogManager() {
-    const d = document.getElementById('log-manager-dialog') as HTMLDialogElement | null;
-    if (!d || typeof d.showModal !== 'function') return;
-    void renderLogManager();
-    if (!d.open) d.showModal();
-  }
-
-  async function deleteLogs(agent, kind, name, what) {
-    const ok = await BeeUtils.confirm({
-      title: t('logs.deleteTitle'),
-      message: t('logs.deleteMessage', { what: what }),
-      confirmLabel: t('logs.delete'),
-      danger: true
-    });
-    if (!ok) return;
-    try {
-      await BeeBridge.invoke('chat_log_delete', { agent: agent || '', kind: kind, name: name || null });
-      BeeUtils.showToast(t('logs.deleted'), 'success');
-    } catch (err) {
-      BeeUtils.showToast(BeeUtils.errText(err) || t('logs.deleteFailed'), 'error');
-    }
-    void renderLogManager();
-    updateChatLogUsage();
-  }
-
-  // Section titles for the log manager: the resolved avatar name when the
-  // cache knows it, the raw account id otherwise.
-  function accountLabel(agent, me) {
-    if (!agent) return t('logs.olderShared');
-    let label = '';
-    if (typeof BeeTransport !== 'undefined' && BeeTransport.getCachedNameInfo) {
-      const info = BeeTransport.getCachedNameInfo(agent);
-      label = (info && (info.displayName || info.label || info.userName)) || '';
-    }
-    if (!label && typeof BeeTransport !== 'undefined' && BeeTransport.queueNameResolve && BeeState.gridOnline()) {
-      BeeTransport.queueNameResolve(agent); // a names-updated event re-renders
-    }
-    if (agent === me) {
-      return label
-        ? t('logs.namedThisAccount', { name: label })
-        : t('logs.thisAccount');
-    }
-    return label || agent;
-  }
-
-  // Status lines (loading / empty / error) get a padded, muted note instead
-  // of bare text flush against the dialog edge.
-  function logManagerNote(list, text) {
-    list.innerHTML = '';
-    const note = document.createElement('div');
-    note.className = 'log-manager__empty';
-    note.textContent = text;
-    list.appendChild(note);
-  }
-
-  async function renderLogManager() {
-    const list = document.getElementById('log-manager-list');
-    if (!list) return;
-    logManagerNote(list, t('common.loading'));
-    let logs = [];
-    try {
-      const res = await BeeBridge.invoke('chat_log_list');
-      logs = (res && res.logs) || [];
-    } catch (_e) {
-      logManagerNote(list, t('logs.listUnavailable'));
-      return;
-    }
-    list.innerHTML = '';
-    if (!logs.length) {
-      logManagerNote(list, t('logs.noneOnDevice'));
-      return;
-    }
-    // One section per account ("" marks files from before logs were split per
-    // account): the logged-in account first, the shared leftovers last.
-    const me = String((BeeState.get().agent || {}).id || '').toLowerCase();
-    const agents = [];
-    logs.forEach(function (l) {
-      const a = String(l.agent || '');
-      if (agents.indexOf(a) === -1) agents.push(a);
-    });
-    agents.sort(function (a, b) {
-      const rank = function (x) { return x === me ? 0 : (x === '' ? 2 : 1); };
-      return rank(a) - rank(b) || a.localeCompare(b);
-    });
-    agents.forEach(function (agent) {
-      const mine = logs.filter(function (l) { return String(l.agent || '') === agent; });
-      if (agents.length > 1) {
-        const acc = document.createElement('div');
-        acc.className = 'log-manager__account';
-        acc.textContent = accountLabel(agent, me);
-        list.appendChild(acc);
-      }
-      renderLogKinds(list, agent, mine);
-    });
-  }
-
-  function renderLogKinds(list, agent, logs) {
-    LOG_KINDS.forEach(function (entry) {
-      const kind = entry.kind;
-      const rows = logs.filter(function (l) { return l.kind === kind; });
-      if (!rows.length) return;
-      const kindLabel = entry.label();
-      const head = document.createElement('div');
-      head.className = 'log-manager__head';
-      const title = document.createElement('span');
-      title.className = 'log-manager__kind';
-      title.textContent = t('logs.kindCount', { kind: kindLabel, count: rows.length });
-      head.appendChild(title);
-      const all = document.createElement('button');
-      all.type = 'button';
-      all.className = 'btn btn--ghost btn--sm';
-      all.textContent = t('logs.deleteAll');
-      all.addEventListener('click', function () {
-        // The section's own label, as written: lowercasing it would mangle
-        // "IM" and words in other languages.
-        void deleteLogs(agent, kind, null, t('logs.allInSection', { kind: kindLabel }));
-      });
-      head.appendChild(all);
-      list.appendChild(head);
-      rows.forEach(function (l) {
-        const row = document.createElement('div');
-        row.className = 'log-manager__row';
-        const name = document.createElement('span');
-        name.className = 'log-manager__name';
-        // An avatar log can carry a bare UUID as its filename (written before
-        // the name resolved); show the username instead when the name cache
-        // knows it - files are by username, so the list reads the same way -
-        // and ask it to find out when it doesn't yet.
-        // The nearby-chat file has one fixed name on disk in every language;
-        // it reads as the section does.
-        let display = kind === 'local' ? t('logs.nearbyChatFile') : l.name;
-        const isUuidName = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(l.name);
-        if (isUuidName && typeof BeeTransport !== 'undefined') {
-          if (kind === 'avatars') {
-            const info = BeeTransport.getCachedNameInfo ? BeeTransport.getCachedNameInfo(l.name) : null;
-            const resolved = info && (info.userName || info.label || info.displayName);
-            if (resolved) {
-              display = resolved;
-            } else if (BeeTransport.queueNameResolve && BeeState.gridOnline()) {
-              BeeTransport.queueNameResolve(l.name); // a names-updated event re-renders
-            }
-          } else if (kind === 'groups') {
-            const gname = BeeTransport.getGroupName ? BeeTransport.getGroupName(l.name) : '';
-            if (gname) {
-              display = gname;
-            } else if (BeeTransport.queueGroupNameResolve && BeeState.gridOnline()) {
-              BeeTransport.queueGroupNameResolve(l.name);
-            }
-          }
-        }
-        name.textContent = display;
-        name.title = l.name;
-        const size = document.createElement('span');
-        size.className = 'log-manager__size';
-        size.textContent = fmtLogSize(Number(l.bytes) || 0);
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'btn btn--ghost btn--sm';
-        del.textContent = t('logs.delete');
-        del.addEventListener('click', function () {
-          void deleteLogs(agent, l.kind, l.name, t('logs.theLogFor', { name: l.name }));
-        });
-        row.appendChild(name);
-        row.appendChild(size);
-        row.appendChild(del);
-        list.appendChild(row);
-      });
-    });
-  }
-
   // The chat-log figure is fetched fresh on every About open: the files grow
   // while the app runs, so a one-time load would go stale.
   function updateChatLogUsage() {
@@ -576,9 +391,10 @@ const BeeSettingsUI = (function () {
       const files = Number(u.files) || 0;
       let label = t('logs.noFiles');
       if (files) {
-        label = t('logs.usage', { size: fmtLogSize(Number(u.bytes) || 0), count: files });
+        label = t('logs.usage', { size: BeeLogReader.formatSize(u.bytes), count: files });
       }
-      // A link into the log manager, where files can be inspected and deleted.
+      // A link into the log reader, where the files can be read, searched
+      // and deleted.
       cell.innerHTML = '';
       const link = document.createElement('a');
       link.href = '#';
@@ -587,7 +403,7 @@ const BeeSettingsUI = (function () {
       link.title = t('logs.manageTitle');
       link.addEventListener('click', function (e) {
         e.preventDefault();
-        openLogManager();
+        BeeLogReader.open();
       });
       cell.appendChild(link);
       // The folder path is spelled out (a hover tooltip is useless on touch).
@@ -975,22 +791,8 @@ const BeeSettingsUI = (function () {
     });
     const copyBtn = document.getElementById('about-copy');
     if (copyBtn) copyBtn.addEventListener('click', copyAbout);
-    const logClose = document.getElementById('log-manager-close');
-    if (logClose) {
-      logClose.addEventListener('click', function () {
-        const d = document.getElementById('log-manager-dialog') as HTMLDialogElement | null;
-        if (d && d.open) BeeUtils.dismissDialog(d);
-      });
-    }
-    // UUID-named log files resolve to people and groups asynchronously.
-    if (typeof BeeTransport !== 'undefined' && BeeTransport.on) {
-      const rerenderIfOpen = function () {
-        const d = document.getElementById('log-manager-dialog') as HTMLDialogElement | null;
-        if (d && d.open) void renderLogManager();
-      };
-      BeeTransport.on('names-updated', rerenderIfOpen);
-      BeeTransport.on('group-names', rerenderIfOpen);
-    }
+    // Files deleted in the log reader change the figure the About tab shows.
+    BeeLogReader.onDeleted(updateChatLogUsage);
     const updateBtn = document.getElementById('about-check-update');
     if (updateBtn) {
       updateBtn.addEventListener('click', function () {
@@ -1005,16 +807,14 @@ const BeeSettingsUI = (function () {
       });
     }
     // A language switch: the controls are rebuilt in the new words, and the
-    // panes painted once from data already fetched (About, Packages, the log
-    // manager when it is open) are painted again from that data.
+    // panes painted once from data already fetched (About, Packages) are
+    // painted again from that data.
     BeeI18n.onChange(function () {
       buildControls();
       if (aboutInfo) renderAbout(aboutInfo);
       if (activeTab === 'about') updateChatLogUsage();
       const pk = document.getElementById('settings-packages');
       if (pk && pk.dataset.ready === '1' && packages) renderPackages(pk);
-      const d = document.getElementById('log-manager-dialog') as HTMLDialogElement | null;
-      if (d && d.open) void renderLogManager();
     });
   }
 

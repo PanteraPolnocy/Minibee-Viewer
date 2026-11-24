@@ -1306,12 +1306,55 @@
       </div>
     </dialog>
 
-    <!-- Chat log manager (opened from Bee -> About -> Chat logs) -->
-    <dialog id="log-manager-dialog" class="pay-dialog log-manager">
-      <h2 class="pay-dialog__title" data-i18n="logs.title"></h2>
-      <div id="log-manager-list" class="log-manager__list"></div>
-      <div class="pay-dialog__actions">
-        <button type="button" class="btn btn--ghost" id="log-manager-close" data-i18n="common.close"></button>
+    <!-- Chat log reader (BeeLogReader, opened from Bee -> About -> Chat logs):
+         the log files on the left, the chosen one on the right, read-only. -->
+    <dialog id="log-reader-dialog" class="log-reader" data-i18n-aria-label="logs.title">
+      <div class="log-reader__bar">
+        <h2 class="log-reader__title" data-i18n="logs.title"></h2>
+        <button type="button" id="log-reader-close" class="icon-btn" data-i18n-title="common.close" data-i18n-aria-label="common.close">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div id="log-reader-layout" class="scripts-layout">
+        <aside class="scripts-list log-reader__list" data-i18n-aria-label="logs.title">
+          <input type="search" id="log-reader-filter" class="scripts-list__filter" data-i18n-placeholder="logs.filterPlaceholder" data-i18n-aria-label="logs.filterPlaceholder" autocomplete="off">
+          <p id="log-reader-status" class="scripts-list__status" hidden></p>
+          <div id="log-reader-files" class="log-reader__files"></div>
+        </aside>
+        <section class="script-editor">
+          <div class="script-editor__head" id="log-reader-head" hidden>
+            <button type="button" id="log-reader-back" class="icon-btn script-editor__back" data-i18n-title="logs.backToList" data-i18n-aria-label="logs.backToList">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+            </button>
+            <div class="script-editor__titles">
+              <h3 id="log-reader-name" class="script-editor__name"></h3>
+              <span id="log-reader-state" class="script-editor__state"></span>
+            </div>
+            <button type="button" id="log-reader-delete" class="btn btn--ghost btn--sm" data-i18n="logs.delete"></button>
+          </div>
+          <div class="script-editor__body" id="log-reader-body" hidden>
+            <div class="log-reader__search">
+              <input type="search" id="log-reader-search" class="scripts-list__filter" maxlength="200" data-i18n-placeholder="logs.searchPlaceholder" data-i18n-aria-label="logs.searchPlaceholder" autocomplete="off">
+            </div>
+            <div id="log-reader-lines" class="log-reader__lines"></div>
+            <div id="log-reader-pager" class="log-reader__pager">
+              <button type="button" id="log-reader-first" class="icon-btn log-reader__step" data-i18n-title="logs.oldestPage" data-i18n-aria-label="logs.oldestPage">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M18.41 16.59 13.82 12l4.59-4.59L17 6l-6 6 6 6 1.41-1.41zM6 6h2v12H6V6z"/></svg>
+              </button>
+              <button type="button" id="log-reader-prev" class="icon-btn log-reader__step" data-i18n-title="logs.olderPage" data-i18n-aria-label="logs.olderPage">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12l4.58-4.59z"/></svg>
+              </button>
+              <span id="log-reader-page" class="log-reader__page" aria-live="polite"></span>
+              <button type="button" id="log-reader-next" class="icon-btn log-reader__step" data-i18n-title="logs.newerPage" data-i18n-aria-label="logs.newerPage">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6-6-6z"/></svg>
+              </button>
+              <button type="button" id="log-reader-last" class="icon-btn log-reader__step" data-i18n-title="logs.newestPage" data-i18n-aria-label="logs.newestPage">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M5.59 7.41 10.18 12l-4.59 4.59L7 18l6-6-6-6-1.41 1.41zM16 6h2v12h-2V6z"/></svg>
+              </button>
+            </div>
+          </div>
+          <p id="log-reader-empty" class="script-editor__empty" data-i18n="logs.pickHint"></p>
+        </section>
       </div>
     </dialog>
 
@@ -1628,6 +1671,7 @@
   <script src="js/ui/teleport-progress.js"></script>
   <script src="js/ui/avatar-thumb.js"></script>
   <script src="js/ui/profile.js"></script>
+  <script src="js/ui/log-reader.js"></script>
   <script src="js/ui/settings.js"></script>
   <script src="js/ui/currency.js"></script>
   <script src="js/ui/news.js"></script>

@@ -6227,77 +6227,204 @@ button.profile-uuid--menu:focus-visible {
   to { opacity: 1; }
 }
 
-/* Chat log manager: kind headers with delete-all, one row per file. */
-.log-manager {
-  width: min(92vw, 460px);
+/* Chat log reader: the Scripts and Notecards layout (a list and a pane, the
+   same classes) in a dialog. The log files on the left by account and kind,
+   the chosen one on the right, a page at a time. These rules stand before
+   that layout's narrow-screen block further down on purpose: where the two
+   meet (the width of the list), the narrow screen has to win. */
+.log-reader {
+  width: min(960px, calc(100vw - 24px - 2 * max(var(--safe-left), var(--safe-right))));
+  height: min(680px, calc(100vh - 24px - 2 * max(var(--safe-top), var(--safe-bottom))));
+  height: min(680px, calc(100dvh - 24px - 2 * max(var(--safe-top), var(--safe-bottom))));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text);
+  overflow: hidden;
 }
-.log-manager__list {
-  max-height: min(55vh, 420px);
-  overflow-y: auto;
-  margin: 10px 0 14px;
-  font-size: 0.84rem;
+/* Only while open: a display of its own would put a closed dialog on screen. */
+.log-reader[open] {
+  display: flex;
+  flex-direction: column;
 }
-.log-manager__empty {
-  padding: 26px 12px;
-  text-align: center;
-  color: var(--text-muted);
-}
-.log-manager__head {
+.log-reader::backdrop { background: var(--overlay); }
+.log-reader__bar {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 16px;
-  padding: 0 2px 6px;
+  padding-block: 4px;
+  padding-inline: 16px 6px;
+  background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
 }
-.log-manager__head:first-child { margin-top: 2px; }
-.log-manager__account {
-  margin-top: 22px;
+.log-reader__title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.log-reader__list { flex-basis: 290px; }
+.log-reader__files {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.log-reader__account {
+  margin-top: 16px;
   padding: 4px 2px;
   font-size: 0.8rem;
   font-weight: 700;
   border-bottom: 2px solid var(--accent);
   overflow-wrap: anywhere;
 }
-.log-manager__account:first-child { margin-top: 2px; }
-.log-manager__kind {
+.log-reader__account:first-child { margin-top: 0; }
+.log-reader__kind {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+  margin: 12px 0 4px;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.log-reader__kind:first-child { margin-top: 0; }
+.log-reader__kind-name {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--accent);
 }
-.log-manager__row {
+.log-reader__kind .btn {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+}
+.log-reader__file {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 7px 8px;
-  border-radius: var(--radius-sm);
+  gap: 2px;
 }
-.log-manager__row:hover {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+.log-reader__open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.log-manager__name {
+.log-reader__file-name {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.log-manager__size {
+.log-reader__file-size {
   flex: 0 0 auto;
-  min-width: 44px;
-  text-align: right;
   color: var(--text-muted);
   font-size: 0.74rem;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
-.log-manager__row .btn,
-.log-manager__head .btn {
+.log-reader__file-delete {
   flex: 0 0 auto;
-  padding: 3px 10px;
-  font-size: 0.72rem;
+  width: 30px;
+  height: 30px;
+}
+/* The pane's own bar is only there with a log open; its display would beat
+   the `hidden` attribute otherwise. */
+.log-reader .script-editor__head[hidden] { display: none; }
+.log-reader__search {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.log-reader__lines {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 6px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+/* A line of the log - a plain block, or a button while it is a search result. */
+.log-reader__line {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 2px 8px;
+  border: none;
+  border-inline-start: 3px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.log-reader__line--hit { cursor: pointer; }
+.log-reader__line--hit:hover { background: var(--bg-elevated); }
+/* Results are lines from all over the log: a little air tells them apart. */
+.log-reader__line--hit + .log-reader__line--hit { margin-top: 4px; }
+.log-reader__line--found {
+  background: var(--accent-dim);
+  border-inline-start-color: var(--accent);
+}
+.log-reader__stamp {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.log-reader__mark {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+.log-reader__note {
+  margin: 0;
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.log-reader__pager {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+.log-reader__pager[hidden] { display: none; }
+.log-reader__step {
+  width: 34px;
+  height: 34px;
+}
+.log-reader__step:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.log-reader__page {
+  min-width: 8.5em;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 640px) {
+  /* A phone gives the reader all the height there is, and fingers the room. */
+  .log-reader {
+    height: calc(100vh - 24px - 2 * max(var(--safe-top), var(--safe-bottom)));
+    height: calc(100dvh - 24px - 2 * max(var(--safe-top), var(--safe-bottom)));
+  }
+  .log-reader__file-delete,
+  .log-reader__step {
+    width: 40px;
+    height: 40px;
+  }
 }
 
 /* Radar voice badge: gray in-channel, green while speaking, dim when muted. */
@@ -6759,6 +6886,7 @@ html[dir="rtl"] .msg__body,
 html[dir="rtl"] .composer__input,
 html[dir="rtl"] .im-thread__body,
 html[dir="rtl"] .notecard-editor__input,
+html[dir="rtl"] .log-reader__line,
 html[dir="rtl"] .profile-interests__text,
 html[dir="rtl"] input[type="text"],
 html[dir="rtl"] input[type="search"],
@@ -6775,6 +6903,11 @@ html[dir="rtl"] .landmark-dialog__slurl,
 html[dir="rtl"] input[type="password"] {
   direction: ltr;
   unicode-bidi: isolate;
+}
+
+/* The log reader's page arrows point the way the pages run. */
+html[dir="rtl"] .log-reader__step svg {
+  transform: scaleX(-1);
 }
 
 /* The member list docks to the inline end. Its shadow has to fall back

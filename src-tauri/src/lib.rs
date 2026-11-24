@@ -162,6 +162,7 @@ pub fn run() {
             bridge::notecards::sl_notecard_create,
             chatlogs::chat_log_append,
             chatlogs::chat_log_tail,
+            chatlogs::chat_log_read,
             chatlogs::chat_log_usage,
             chatlogs::chat_log_list,
             chatlogs::chat_log_delete,

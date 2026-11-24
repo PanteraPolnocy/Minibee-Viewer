@@ -211,7 +211,7 @@ const NATIVE = [
   '.profile-tab', '.group-notices__item', 'button.profile-uuid--menu', '.profile-split__item',
   '.profile-link', '.profile-inline-link', '.scripts-list__item', '.script-signature__toggle',
   '.script-complete__item', '.script-diag', '.chat-radar__item', '.script-dialog__ignore--link',
-  '.script-dialog__object--link',
+  '.script-dialog__object--link', '.log-reader__line--hit',
   // A read-only field that opens a profile: focusable, clicked by Select.
   '.land-field--profile',
   // Labels around a real checkbox, which is what takes the focus.

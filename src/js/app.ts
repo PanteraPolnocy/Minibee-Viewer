@@ -648,6 +648,7 @@ const BeeApp = (function () {
       BeeTeleportProgress.init();
       BeeAvatarThumb.init();
       BeeProfile.init();
+      BeeLogReader.init();
       BeeSettingsUI.init();
       BeeNews.init();
       BeeInteract.init();
