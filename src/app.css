@@ -3435,6 +3435,33 @@ button.bee-menu__value--action:disabled {
 
 .objects-detail__actions .btn { flex: 0 1 auto; min-width: 92px; }
 
+/* Avatar actions: one strip above the list instead of a tab of their own.
+   These stand before the narrow-screen rules below on purpose: placed after
+   them they win, and the four buttons stack in one column on a phone. */
+.interact-avatar-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.interact-avatar-bar__state {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.interact-avatar-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
 @media (max-width: 640px) {
   .objects-controls {
     display: flex;
@@ -3556,31 +3583,6 @@ button.bee-menu__value--action:disabled {
 
 /* The custom-amount row sits under the buttons, so it needs its own gap. */
 #objects-pay-row { margin-top: 10px; }
-
-/* Avatar actions: one strip above the list instead of a tab of their own. */
-.interact-avatar-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin-bottom: 12px;
-  padding: 8px 10px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.interact-avatar-bar__state {
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-
-.interact-avatar-bar__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-left: auto;
-}
 
 #panel-news.panel--active {
   display: flex;
