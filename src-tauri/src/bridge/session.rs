@@ -69,6 +69,10 @@ pub enum Action {
     /// Rez any Current Outfit Folder attachments the sim didn't restore by
     /// itself, a little while after arriving in a region. See `outfit::restore`.
     RestoreOutfit { delay_ms: u64 },
+    /// The block list has this long to arrive; after that the messages kept
+    /// while the account was offline are asked for without it. See
+    /// `SessionState::offline_messages_request`.
+    OfflineMessagesDeadline { delay_ms: u64 },
 }
 
 impl Action {
@@ -158,6 +162,15 @@ pub struct SessionState {
     /// IM content dedup: key -> last-seen ms (see `note_im`/`im_recent`), capped
     /// at 600 entries.
     pub im_dedup: HashMap<String, u64>,
+    /// Where the fetch of messages kept while the account was offline stands.
+    pub offline: OfflineFetch,
+    /// The stored messages delivered this login, by what identifies one (see
+    /// `offline_replay`): the same stored message handed over twice is shown,
+    /// and written to the chat log, once.
+    pub offline_seen: HashSet<u64>,
+    /// What stands in each private conversation of this login, and what each
+    /// was handed as history (see `chathistory::Threads`).
+    pub im_threads: crate::bridge::chathistory::Threads,
     /// Transaction ids whose payment description has already been surfaced, so a
     /// repeated MoneyBalanceReply for the same transaction updates the balance
     /// without posting a second transaction card.
@@ -520,6 +533,29 @@ pub fn radar_range_m() -> f64 {
     RADAR_RANGE_M.load(Ordering::Relaxed) as f64
 }
 
+/// Two things the interface decides about messages, mirrored here. Whether
+/// what was sent while the account was offline is asked for at login (see
+/// `OfflineFetch`) has a switch of its own, on by default. Whether a private
+/// conversation opens with the earlier messages the grid keeps (see
+/// `chathistory`) follows the switch for keeping chat logs of people: a
+/// resident who keeps no transcripts is shown none from elsewhere either.
+/// That one is off until the interface says otherwise, as the logs are.
+static OFFLINE_MESSAGES: AtomicBool = AtomicBool::new(true);
+static GRID_HISTORY: AtomicBool = AtomicBool::new(false);
+
+pub fn set_message_options(offline_messages: bool, grid_history: bool) {
+    OFFLINE_MESSAGES.store(offline_messages, Ordering::Relaxed);
+    GRID_HISTORY.store(grid_history, Ordering::Relaxed);
+}
+
+pub fn offline_messages() -> bool {
+    OFFLINE_MESSAGES.load(Ordering::Relaxed)
+}
+
+pub fn grid_history() -> bool {
+    GRID_HISTORY.load(Ordering::Relaxed)
+}
+
 /// The grid's maturity ratings, in order: General (G), Moderate (M), Adult (A).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Maturity {
@@ -655,16 +691,103 @@ pub fn is_emote(text: &str) -> bool {
     text.starts_with("/me ") || text.starts_with("/me'")
 }
 
+/// One participant of a chat session, as its moderators see them.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct RosterEntry {
+    pub moderator: bool,
+    /// A moderator has taken away this participant's text chat.
+    pub text_muted: bool,
+    /// A moderator has taken away this participant's voice.
+    pub voice_muted: bool,
+}
+
 /// A chat session's live participant set, built up from delta updates.
 #[derive(Debug, Default, Clone)]
 pub struct ImRoster {
-    /// participant id -> (is_moderator, text-muted). Kept ordered for stable output.
-    pub participants: BTreeMap<String, (bool, bool)>,
+    /// participant id -> what is known of them. Kept ordered for stable output.
+    pub participants: BTreeMap<String, RosterEntry>,
     /// The local agent's own moderator flag, held onto across deltas that leave it out.
     pub self_moderator: bool,
 }
 
+/// Fetching what was sent while the account was offline. The grid keeps such
+/// messages until a client asks for them, and hands each one over once. They
+/// are asked for once a login: when the avatar has been placed in a region,
+/// and the block list is in - so that nothing from a blocked sender is shown
+/// - or has had its time to arrive.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct OfflineFetch {
+    /// The avatar has been placed in a region this login.
+    pub placed: bool,
+    /// The block list has arrived, came back empty, or failed.
+    pub blocks_known: bool,
+    /// The wait for the block list has been given its deadline.
+    pub deadline_set: bool,
+    /// The request went out.
+    pub asked: bool,
+}
+
+/// How long the block list may take before the stored messages are asked for
+/// without it.
+const OFFLINE_BLOCK_LIST_WAIT_MS: u64 = 20_000;
+
 impl SessionState {
+    /// The request for the messages kept while the account was offline, when
+    /// it is due: once a login, with the switch on (`enabled`), the avatar
+    /// placed and the block list known. `overdue` says the block list's
+    /// deadline has passed, which stands in for knowing it.
+    pub(crate) fn offline_messages_request(&mut self, enabled: bool, overdue: bool) -> Option<Action> {
+        if !enabled || self.offline.asked || !self.offline.placed || self.agent_id.is_empty() {
+            return None;
+        }
+        if !self.offline.blocks_known && !overdue {
+            return None;
+        }
+        self.offline.asked = true;
+        Some(Action::send(
+            "RetrieveInstantMessages",
+            json!({ "AgentData": [{ "AgentID": self.agent_id, "SessionID": self.session_uuid }] }),
+            true,
+        ))
+    }
+
+    /// The avatar is in a region: the request itself when the block list is
+    /// already in, the deadline for that list otherwise.
+    fn offline_messages_on_arrival(&mut self, enabled: bool) -> Option<Action> {
+        self.offline.placed = true;
+        if let Some(request) = self.offline_messages_request(enabled, false) {
+            return Some(request);
+        }
+        if enabled && !self.offline.asked && !self.offline.deadline_set {
+            self.offline.deadline_set = true;
+            return Some(Action::OfflineMessagesDeadline { delay_ms: OFFLINE_BLOCK_LIST_WAIT_MS });
+        }
+        None
+    }
+
+    /// The block list is in, or is known not to be coming.
+    fn offline_messages_on_block_list(&mut self, enabled: bool) -> Option<Action> {
+        self.offline.blocks_known = true;
+        self.offline_messages_request(enabled, false)
+    }
+
+    /// Whether this stored message was already handed over in this login. A
+    /// stored message carries the second it was sent, which with its sender,
+    /// kind, id and words tells it from every other; a second copy of all of
+    /// that is the same message delivered again, not somebody repeating
+    /// themselves.
+    fn offline_replay(&mut self, from_id: &str, dialog: i64, sent_at: i64, im_id: &str, text: &str) -> bool {
+        use std::hash::{Hash, Hasher};
+        // Far above what the grid keeps for one account.
+        const CAP: usize = 4096;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (from_id.to_ascii_lowercase(), dialog, sent_at, im_id.to_ascii_lowercase(), text).hash(&mut hasher);
+        if self.offline_seen.len() >= CAP {
+            self.offline_seen.clear();
+        }
+        !self.offline_seen.insert(hasher.finish())
+    }
+
     /// Insert a name only when we don't already have one (chat/radar hints).
     fn cache_name(&mut self, id: &str, name: &str) {
         if id.is_empty() || name.trim().is_empty() {
@@ -2122,6 +2245,11 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             if !state.mute_asked && !state.agent_id.is_empty() {
                 state.mute_asked = true;
                 actions.push(mute_list_request(state));
+            } else {
+                // The same answer to the zero-CRC request: there is no file
+                // to send, so what this session knows of the list is all
+                // there is to wait for.
+                actions.extend(state.offline_messages_on_block_list(offline_messages()));
             }
         }
 
@@ -2179,6 +2307,9 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                         if !ids.is_empty() {
                             actions.push(Action::ResolveNames(ids));
                         }
+                        // With the list in, stored messages can be asked for:
+                        // a blocked sender's are dropped on the way in.
+                        actions.extend(state.offline_messages_on_block_list(offline_messages()));
                     }
                 }
             }
@@ -2288,6 +2419,8 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
                     UiText::new("buddies.blockListRefused", json!({}))
                         .fields(&mut failed, "error");
                     actions.push(Action::emit("mute-list", failed));
+                    // The list is not coming; the stored messages do not wait for it.
+                    actions.extend(state.offline_messages_on_block_list(offline_messages()));
                 }
             }
         }
@@ -3679,6 +3812,8 @@ pub fn route(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             // A little later, rez whatever Current Outfit attachments the sim
             // didn't restore by itself (the delay lets its own restore finish).
             actions.push(Action::RestoreOutfit { delay_ms: 8000 });
+            // What was sent while the account was offline, once a login.
+            actions.extend(state.offline_messages_on_arrival(offline_messages()));
             if !state.agent_id.is_empty() {
                 actions.push(Action::send(
                     "MoneyBalanceRequest",
@@ -4537,24 +4672,30 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
                         // them, otherwise keep the prior value. Blindly recomputing would
                         // reset an omitted field to false, dropping a MOD badge or hiding the
                         // local moderator's controls.
-                        let prior = roster.participants.get(aid).copied().unwrap_or((false, false));
+                        let prior = roster.participants.get(aid).copied().unwrap_or_default();
                         let has_mod = agent_info.map_or(false, |i| i.get("is_moderator").is_some());
-                        let has_mutes = agent_info.map_or(false, |i| i.get("mutes").is_some());
+                        let mutes = agent_info.and_then(|i| i.get("mutes"));
                         // LLSD bools sometimes arrive as 0/1 ints (OpenSim), so accept both.
-                        let is_mod = if has_mod { truthy(agent_info.and_then(|i| i.get("is_moderator"))) } else { prior.0 };
-                        let muted = if has_mutes {
-                            truthy(agent_info.and_then(|i| i.get("mutes")).and_then(|m| m.get("text")))
-                        } else {
-                            prior.1
+                        let is_mod = if has_mod { truthy(agent_info.and_then(|i| i.get("is_moderator"))) } else { prior.moderator };
+                        // Text and voice are muted apart, and a delta names
+                        // only the one that changed: the other keeps its value.
+                        let muted_now = |kind: &str, before: bool| match mutes.and_then(|m| m.get(kind)) {
+                            Some(v) => truthy(Some(v)),
+                            None => before,
                         };
-                        roster.participants.insert(aid.clone(), (is_mod, muted));
+                        let entry = RosterEntry {
+                            moderator: is_mod,
+                            text_muted: muted_now("text", prior.text_muted),
+                            voice_muted: muted_now("voice", prior.voice_muted),
+                        };
+                        roster.participants.insert(aid.clone(), entry);
                         if same_uuid(aid, &agent_id) && has_mod {
                             roster.self_moderator = is_mod;
                         }
                     }
                 }
-                let snap: Vec<(String, bool, bool)> =
-                    roster.participants.iter().map(|(k, (m, u))| (k.clone(), *m, *u)).collect();
+                let snap: Vec<(String, RosterEntry)> =
+                    roster.participants.iter().map(|(k, entry)| (k.clone(), *entry)).collect();
                 (snap, roster.self_moderator)
             };
             // A private thread has no roster to show: the agents named (the ones
@@ -4562,7 +4703,7 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             // state for it, and tell the UI nothing - the tab is the person's.
             let named: Vec<&str> = snapshot
                 .iter()
-                .map(|(aid, _, _)| aid.as_str())
+                .map(|(aid, _)| aid.as_str())
                 .chain(
                     body.get("agent_updates")
                         .or_else(|| body.get("updates"))
@@ -4577,12 +4718,15 @@ pub fn route_eq(state: &mut SessionState, name: &str, body: &Value) -> Vec<Actio
             }
             let mut participants = Vec::new();
             let mut resolve = Vec::new();
-            for (aid, is_mod, muted) in &snapshot {
+            for (aid, entry) in &snapshot {
                 let name = state.cached_name(aid).unwrap_or("").to_string();
                 if name.is_empty() && !same_uuid(aid, &agent_id) {
                     resolve.push(aid.clone());
                 }
-                participants.push(json!({ "id": aid, "name": name, "online": true, "isModerator": is_mod, "muted": muted }));
+                participants.push(json!({
+                    "id": aid, "name": name, "online": true, "isModerator": entry.moderator,
+                    "muted": entry.text_muted, "voiceMuted": entry.voice_muted,
+                }));
             }
             let stype = if state.groups.contains(&sid.to_lowercase()) { "group" } else { "conference" };
             actions.push(Action::emit(
@@ -4894,6 +5038,15 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             || (matches!(dialog, 19 | 31) && state.is_muted(&im_id))
             || (is_session && state.is_muted_text(&im_id)))
     {
+        return actions;
+    }
+
+    // A message kept while the account was offline carries the second it was
+    // sent. The same stored message handed over a second time is dropped
+    // here, so it is shown - and written to the chat log - once.
+    let sent_at = inst_i64(&msg, "Timestamp");
+    let stored = offline != 0 && sent_at > 0;
+    if stored && state.offline_replay(&from_id, dialog, sent_at, &im_id, &text) {
         return actions;
     }
 
@@ -5293,6 +5446,12 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
             "text": &text, "outgoing": false, "emote": is_emote(&text),
         }
     });
+    // A stored message is dated by when it was sent, not by when it was
+    // fetched: that is the time the thread shows and the chat log records.
+    if stored {
+        payload["message"]["timestamp"] = json!(sent_at.saturating_mul(1000));
+        payload["message"]["offline"] = json!(true);
+    }
 
     if is_session && !session_im_id.is_empty() {
         let is_group = state.groups.contains(&session_im_id.to_lowercase()) || from_group;
@@ -5309,6 +5468,13 @@ fn route_im(state: &mut SessionState, decoded: &Value) -> Vec<Action> {
         payload["session"] = json!({ "id": &session_im_id, "type": stype, "title": title });
     } else {
         payload["sessionId"] = json!(xor_session_id(&state.agent_id, &from_id));
+        // The line stands in the private conversation from here on. A stored
+        // copy of it that the conversation is already showing as history
+        // gives way: the message names it, and the interface takes it out.
+        let said_at = if stored { (sent_at as u64).saturating_mul(1000) } else { state.now_ms };
+        if let Some(copy) = state.im_threads.said(&from_id, false, said_at, &text) {
+            payload["message"]["supersedes"] = json!(copy);
+        }
     }
 
     actions.push(Action::emit("im", payload));
@@ -6499,6 +6665,249 @@ mod tests {
         let p = emit_of(&a, "im").expect("im");
         assert_eq!(p["participant"]["name"], "Pantera Polnocy");
         assert_eq!(p["participant"]["userName"], "Ruth Resident");
+    }
+
+    /// A message the grid kept while the account was offline: the usual
+    /// packet, flagged, with the second it was sent.
+    fn stored_im(from: &str, sent_at: i64, text: &str) -> Value {
+        let mut pkt = im_packet(0, from, ME, false, "00000000-0000-0000-0000-000000000000", text, "");
+        pkt["blocks"]["MessageBlock"][0]["Offline"] = json!(1);
+        pkt["blocks"]["MessageBlock"][0]["Timestamp"] = json!(sent_at);
+        pkt
+    }
+
+    #[test]
+    fn a_stored_message_is_dated_by_when_it_was_sent_and_shown_once() {
+        const THIRD: &str = "33333333-3333-3333-3333-333333333333";
+        let mut st = me_state();
+        let sent = 1_795_500_000i64;
+        let a = route(&mut st, &stored_im(OTHER, sent, "are you there?"));
+        let im = emit_of(&a, "im").expect("the stored message");
+        assert_eq!(im["message"]["text"], "are you there?");
+        assert_eq!(im["message"]["timestamp"], sent * 1000);
+        assert_eq!(im["message"]["offline"], true);
+        // A stored message says nothing about its sender being online now.
+        assert!(im["participant"].get("online").is_none());
+
+        // The same stored message handed over a second time is dropped: one
+        // line in the thread, one line in the chat log.
+        assert!(route(&mut st, &stored_im(OTHER, sent, "are you there?")).is_empty());
+        assert!(route(&mut st, &stored_im(&OTHER.to_uppercase(), sent, "are you there?")).is_empty());
+        // Sent a second later, by somebody else, or in other words, it is
+        // another message.
+        assert!(emit_of(&route(&mut st, &stored_im(OTHER, sent + 1, "are you there?")), "im").is_some());
+        assert!(emit_of(&route(&mut st, &stored_im(THIRD, sent, "are you there?")), "im").is_some());
+        assert!(emit_of(&route(&mut st, &stored_im(OTHER, sent, "hello?")), "im").is_some());
+
+        // A live message carries no time of its own (the stamp is put on as
+        // it goes out), and somebody saying the same thing twice is not a replay.
+        let live = im_packet(0, OTHER, ME, false, "00000000-0000-0000-0000-000000000000", "ok", "");
+        let first = route(&mut st, &live);
+        let line = emit_of(&first, "im").expect("a live message");
+        assert!(line["message"].get("timestamp").is_none());
+        assert!(line["message"].get("offline").is_none());
+        assert!(emit_of(&route(&mut st, &live), "im").is_some());
+    }
+
+    #[test]
+    fn a_private_line_stands_in_its_conversation_and_takes_its_stored_copy_out_of_the_history() {
+        use crate::bridge::chathistory::stored_row;
+        const NOBODY: &str = "00000000-0000-0000-0000-000000000000";
+        const GROUP: &str = "44444444-4444-4444-4444-444444444444";
+        // 2026-11-24 10:00:00 UTC.
+        let now = 1_795_514_400_000u64;
+        let shown = |rows: &[Value]| rows.iter().map(|r| r["text"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+
+        // Said before the history is asked for: the grid's copy of the line
+        // is not handed back as history.
+        let mut st = me_state();
+        st.now_ms = now;
+        let first = route(&mut st, &im_packet(0, OTHER, ME, false, NOBODY, "hello", ""));
+        assert!(emit_of(&first, "im").expect("the line")["message"].get("supersedes").is_none());
+        let handed = st
+            .im_history_hand_over(
+                ME,
+                OTHER,
+                vec![
+                    stored_row(now - 3_600_000, OTHER, false, "earlier"),
+                    stored_row(now + 300, OTHER, false, "hello"),
+                    stored_row(now + 900, OTHER, false, "one more thing"),
+                ],
+            )
+            .expect("history");
+        assert_eq!(shown(&handed), vec!["earlier", "one more thing"]);
+
+        // The last of those was still on its way here. When it lands it
+        // names its copy, for the interface to take out of the history.
+        st.now_ms = now + 1500;
+        let late = route(&mut st, &im_packet(0, OTHER, ME, false, NOBODY, "one more thing", ""));
+        assert_eq!(emit_of(&late, "im").expect("the line")["message"]["supersedes"], handed[1]["id"]);
+        // Said again, it is a new line and nothing more gives way.
+        let again = route(&mut st, &im_packet(0, OTHER, ME, false, NOBODY, "one more thing", ""));
+        assert!(emit_of(&again, "im").expect("the line")["message"].get("supersedes").is_none());
+        // Nor do words of an hour ago said again now: "earlier" stays in the history.
+        let old = route(&mut st, &im_packet(0, OTHER, ME, false, NOBODY, "earlier", ""));
+        assert!(emit_of(&old, "im").expect("the line")["message"].get("supersedes").is_none());
+
+        // A message kept while the account was offline is told from its
+        // copy by the second it was sent, whenever it is delivered.
+        let mut st = me_state();
+        st.now_ms = now;
+        let sent = (now / 1000) as i64 - 7200;
+        let handed = st
+            .im_history_hand_over(ME, OTHER, vec![stored_row(sent as u64 * 1000 + 400, OTHER, false, "are you there?")])
+            .expect("history");
+        assert_eq!(handed.len(), 1);
+        let delivered = route(&mut st, &stored_im(OTHER, sent, "are you there?"));
+        assert_eq!(emit_of(&delivered, "im").expect("the stored message")["message"]["supersedes"], handed[0]["id"]);
+
+        // Delivered before the history is asked for, it is not in it at all.
+        let mut st = me_state();
+        st.now_ms = now;
+        route(&mut st, &stored_im(OTHER, sent, "are you there?"));
+        let handed = st
+            .im_history_hand_over(ME, OTHER, vec![stored_row(sent as u64 * 1000 + 400, OTHER, false, "are you there?")])
+            .expect("history");
+        assert!(handed.is_empty());
+
+        // A group's chat is no part of a private conversation: a member's
+        // line there leaves the history of the conversation with them alone.
+        let mut st = me_state();
+        st.now_ms = now;
+        st.groups.insert(GROUP.to_string());
+        let line = route(&mut st, &im_packet(17, OTHER, ME, true, GROUP, "hello", "Some Group"));
+        assert_eq!(emit_of(&line, "im").expect("the group line")["session"]["type"], "group");
+        let handed = st
+            .im_history_hand_over(ME, OTHER, vec![stored_row(now + 300, OTHER, false, "hello")])
+            .expect("history");
+        assert_eq!(handed.len(), 1);
+    }
+
+    #[test]
+    fn a_stored_message_from_a_blocked_sender_is_not_shown() {
+        let mut st = me_state();
+        st.muted.insert(OTHER.to_string(), 0);
+        assert!(route(&mut st, &stored_im(OTHER, 1_795_500_000, "hello")).is_empty());
+    }
+
+    #[test]
+    fn stored_messages_are_asked_for_once_when_the_block_list_is_known() {
+        let fresh = || SessionState { agent_id: ME.into(), session_uuid: "s".into(), now_ms: 1000, ..Default::default() };
+        let asks = |action: &Option<Action>| {
+            matches!(action, Some(Action::Send { name, reliable: true, .. }) if name == "RetrieveInstantMessages")
+        };
+
+        // Arrival first, the list later: the request waits for the list, and
+        // the wait gets a deadline.
+        let mut st = fresh();
+        assert_eq!(
+            st.offline_messages_on_arrival(true),
+            Some(Action::OfflineMessagesDeadline { delay_ms: OFFLINE_BLOCK_LIST_WAIT_MS }),
+        );
+        // A second arrival (a teleport) sets no second deadline.
+        assert_eq!(st.offline_messages_on_arrival(true), None);
+        let request = st.offline_messages_on_block_list(true);
+        assert!(asks(&request));
+        if let Some(Action::Send { blocks, .. }) = &request {
+            assert_eq!(blocks["AgentData"][0]["AgentID"], ME);
+            assert_eq!(blocks["AgentData"][0]["SessionID"], "s");
+        }
+        // Once a login: neither the deadline passing, nor the list arriving
+        // again, nor another region repeats it.
+        assert_eq!(st.offline_messages_request(true, true), None);
+        assert_eq!(st.offline_messages_on_block_list(true), None);
+        assert_eq!(st.offline_messages_on_arrival(true), None);
+
+        // The list first: the request goes out with the arrival.
+        let mut st = fresh();
+        assert_eq!(st.offline_messages_on_block_list(true), None, "the avatar is nowhere yet");
+        assert!(asks(&st.offline_messages_on_arrival(true)));
+
+        // The list never comes: its deadline stands in for it.
+        let mut st = fresh();
+        st.offline_messages_on_arrival(true);
+        assert!(asks(&st.offline_messages_request(true, true)));
+
+        // A deadline with the avatar still nowhere asks for nothing.
+        let mut st = fresh();
+        assert_eq!(st.offline_messages_request(true, true), None);
+
+        // With the switch off nothing is asked for and nothing is used up:
+        // turned on later in the session, the fetch still happens.
+        let mut st = fresh();
+        assert_eq!(st.offline_messages_on_arrival(false), None);
+        assert_eq!(st.offline_messages_on_block_list(false), None);
+        assert_eq!(st.offline_messages_request(false, true), None);
+        assert!(asks(&st.offline_messages_request(true, true)));
+    }
+
+    #[test]
+    fn the_block_list_arriving_or_failing_releases_the_stored_messages() {
+        let placed = || {
+            let mut st = SessionState { agent_id: ME.into(), session_uuid: "s".into(), now_ms: 1000, ..Default::default() };
+            st.offline.placed = true;
+            st
+        };
+        let asked = |actions: &[Action]| {
+            actions.iter().any(|a| matches!(a, Action::Send { name, .. } if name == "RetrieveInstantMessages"))
+        };
+
+        // The list's file comes in over the transfer channel.
+        let mut st = placed();
+        st.xfers.insert(7, XferIn { kind: "mute-list".into(), ..Default::default() });
+        let mut data = vec![0u8, 0, 0, 0];
+        data.extend_from_slice(b"1 22222222-2222-2222-2222-222222222222 Ruth Resident|0\n");
+        let done = route(&mut st, &json!({
+            "name": "SendXferPacket",
+            "blocks": {
+                "XferID": [{ "ID": "7", "Packet": 0x8000_0000u32 }],
+                "DataPacket": [{ "Data": B64.encode(&data) }],
+            },
+        }));
+        assert!(emit_of(&done, "mute-list").is_some());
+        assert!(asked(&done));
+        assert!(st.is_muted_text(OTHER), "the list is in force before the messages are asked for");
+
+        // The sim refuses the file: the messages do not wait for it for ever.
+        let mut st = placed();
+        st.xfers.insert(7, XferIn { kind: "mute-list".into(), ..Default::default() });
+        let aborted = route(&mut st, &json!({ "name": "AbortXfer", "blocks": { "XferID": [{ "ID": "7", "Result": -1 }] } }));
+        assert!(asked(&aborted));
+
+        // "Use your cached copy" twice over: there is no file, the list is
+        // what this session already knows. The first such answer is still
+        // followed by one more request, as before.
+        let mut st = placed();
+        let cached = json!({ "name": "UseCachedMuteList", "blocks": { "AgentData": [{ "AgentID": ME }] } });
+        let first = route(&mut st, &cached);
+        assert!(first.iter().any(|a| matches!(a, Action::Send { name, .. } if name == "MuteListRequest")));
+        assert!(!asked(&first));
+        assert!(asked(&route(&mut st, &cached)));
+    }
+
+    #[test]
+    fn a_moderators_voice_mute_is_kept_apart_from_the_text_one() {
+        const GROUP: &str = "aaaaaaaa-0000-0000-0000-00000000000a";
+        let mut st = me_state();
+        st.groups.insert(GROUP.into());
+        let update = |st: &mut SessionState, info: Value| {
+            let a = route_eq(st, "ChatterBoxSessionAgentListUpdates", &json!({
+                "session_id": GROUP,
+                "agent_updates": { OTHER: { "transition": "ENTER", "info": info } },
+            }));
+            emit_of(&a, "im-roster").expect("a roster")["participants"][0].clone()
+        };
+        let joined = update(&mut st, json!({ "is_moderator": false }));
+        assert_eq!((joined["muted"].clone(), joined["voiceMuted"].clone()), (json!(false), json!(false)));
+        // Voice goes; text was not mentioned and stays as it was.
+        let voiceless = update(&mut st, json!({ "mutes": { "voice": true } }));
+        assert_eq!((voiceless["muted"].clone(), voiceless["voiceMuted"].clone()), (json!(false), json!(true)));
+        // Text goes as well; this time voice is the one left out.
+        let silenced = update(&mut st, json!({ "mutes": { "text": true } }));
+        assert_eq!((silenced["muted"].clone(), silenced["voiceMuted"].clone()), (json!(true), json!(true)));
+        // Voice is given back, as a 0 where a false would do.
+        let heard = update(&mut st, json!({ "mutes": { "voice": 0 } }));
+        assert_eq!((heard["muted"].clone(), heard["voiceMuted"].clone()), (json!(true), json!(false)));
     }
 
     #[test]

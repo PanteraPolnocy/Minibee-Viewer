@@ -676,10 +676,31 @@ mod tests {
             "EstateCovenantRequest", "ParcelAccessListRequest", "ParcelAccessListUpdate",
             "ParcelObjectOwnersRequest", "ParcelReturnObjects", "ParcelSetOtherCleanTime",
             "ParcelBuy", "ParcelRelease", "ParcelBuyPass", "TransferRequest",
-            "GroupNoticesListRequest", "GroupNoticeRequest",
+            "GroupNoticesListRequest", "GroupNoticeRequest", "RetrieveInstantMessages",
         ];
         let missing: Vec<&str> = NAMES.iter().copied().filter(|n| reg.by_name(n).is_none()).collect();
         assert!(missing.is_empty(), "missing outbound messages: {missing:?}");
+    }
+
+    #[test]
+    fn the_request_for_stored_messages_goes_on_the_wire_as_the_session_builds_it() {
+        use crate::bridge::session::{Action, SessionState};
+        let reg = template::build_registry();
+        let mut st = SessionState {
+            agent_id: "11111111-1111-1111-1111-111111111111".into(),
+            session_uuid: "22222222-2222-2222-2222-222222222222".into(),
+            ..Default::default()
+        };
+        st.offline.placed = true;
+        let Some(Action::Send { name, blocks, reliable }) = st.offline_messages_request(true, true) else {
+            panic!("the request for the messages kept while offline");
+        };
+        assert!(reliable, "a request that is lost is not made again this login");
+        let pkt = encode(&reg, &name, &blocks, 1, FLAG_RELIABLE).expect("encode");
+        let dec = decode(&reg, &pkt).expect("decode");
+        assert_eq!(dec["name"], "RetrieveInstantMessages");
+        assert_eq!(dec["blocks"]["AgentData"][0]["AgentID"], "11111111-1111-1111-1111-111111111111");
+        assert_eq!(dec["blocks"]["AgentData"][0]["SessionID"], "22222222-2222-2222-2222-222222222222");
     }
 
     #[test]

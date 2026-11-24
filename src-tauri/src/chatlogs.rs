@@ -150,19 +150,31 @@ fn account_segments(base: &Path) -> Vec<String> {
     out
 }
 
+/// Appends take turns. Messages can arrive dozens at a time, and each is
+/// written by a command of its own on the thread pool: two of them in one
+/// file at once could run a line into the next.
+static APPENDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// A message as one line: embedded newlines become the visual "¦", so a log
+/// line always equals one message.
+pub fn one_line(text: &str) -> String {
+    text.chars().map(|c| if c == '\n' || c == '\r' { '¦' } else { c }).collect()
+}
+
 pub fn append_line(base: &Path, agent: &str, kind: &str, name: &str, line: &str) -> Result<(), String> {
     // New lines always belong to an account; only old files live in the shared folder.
     let segment = canonical_uuid(agent).ok_or_else(bad_log_account)?;
     let path = log_file(base, &segment, kind, name).ok_or_else(bad_log_target)?;
+    // One line per message; the line and its end go out in a single write.
+    let mut flat = one_line(line);
+    flat.push('\n');
+    let _turn = APPENDING.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
         .map_err(|e| ui_err("err.logOpenFailed", json!({ "error": e.to_string() })))?;
-    // One line per message: embedded newlines become the visual "¦" so a log
-    // line always equals one message.
-    let flat: String = line.chars().map(|c| if c == '\n' || c == '\r' { '¦' } else { c }).collect();
-    writeln!(file, "{flat}")
+    file.write_all(flat.as_bytes())
         .map_err(|e| ui_err("err.logWriteFailed", json!({ "error": e.to_string() })))
 }
 
@@ -607,6 +619,44 @@ mod tests {
         assert!(delete_logs(&base, AGENT, "..", None).is_err());
         assert!(delete_logs(&base, "not-an-account", "avatars", None).is_err());
         assert_eq!(usage(&base).1, 0);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn lines_written_at_the_same_moment_stay_whole() {
+        let base = std::env::temp_dir().join(format!("minibee-logburst-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        // A burst of messages for one conversation, each written by a thread
+        // of its own, the way the commands run on the pool.
+        let writers: Vec<_> = (0..8)
+            .map(|w| {
+                let base = base.clone();
+                std::thread::spawn(move || {
+                    for i in 0..25 {
+                        let line = format!("[t] writer {w} line {i} {}", "x".repeat(200));
+                        append_line(&base, AGENT, "avatars", "Some One", &line).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let text = std::fs::read_to_string(base.join(AGENT).join("logs/avatars/Some One.txt")).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 200);
+        let tail = "x".repeat(200);
+        let mut seen = std::collections::HashSet::new();
+        for line in &lines {
+            assert!(line.starts_with("[t] writer ") && line.ends_with(&tail), "a line ran into another: {line}");
+            assert!(seen.insert(*line), "a line was written twice: {line}");
+        }
+        // Each writer's own lines are in the order it wrote them.
+        for w in 0..8 {
+            let own: Vec<&&str> = lines.iter().filter(|l| l.starts_with(&format!("[t] writer {w} "))).collect();
+            let order: Vec<String> = (0..25).map(|i| format!("[t] writer {w} line {i} {tail}")).collect();
+            assert_eq!(own.iter().map(|l| l.to_string()).collect::<Vec<_>>(), order);
+        }
         let _ = std::fs::remove_dir_all(&base);
     }
 

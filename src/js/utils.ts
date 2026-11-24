@@ -34,13 +34,35 @@ const BeeUtils = (function () {
     return d.toLocaleTimeString(BeeI18n.dateLocale(), { hour: '2-digit', minute: '2-digit' });
   }
 
+  // The day, the short way a list shows it, with the year when it is not
+  // this one. In figures only: in English the date follows the device's own
+  // format, and a month's name would come out in the device's language.
+  function formatDay(d) {
+    const day: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'numeric' };
+    if (d.getFullYear() !== new Date().getFullYear()) day.year = 'numeric';
+    return d.toLocaleDateString(BeeI18n.dateLocale(), day);
+  }
+
+  // The hour and minute, with the day in front when it is not today's: the
+  // stamp of a message that may be days old (one kept while the account was
+  // offline says when it was sent, not when it arrived).
+  function formatStamp(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const now = new Date();
+    if (isNaN(d.getTime())) return formatTime(d);
+    const today = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate();
+    return today ? formatTime(d) : formatDay(d) + ' ' + formatTime(d);
+  }
+
   function formatRelative(date) {
     const d = date instanceof Date ? date : new Date(date);
     const diff = Date.now() - d.getTime();
     if (diff < 60000) return t('time.now');
     if (diff < 3600000) return t('time.minutesShort', { count: Math.floor(diff / 60000) });
     if (diff < 86400000) return t('time.hoursShort', { count: Math.floor(diff / 3600000) });
-    return formatTime(d);
+    // A day or more ago: the day says more than an hour of some other day.
+    return isNaN(diff) ? formatTime(d) : formatDay(d);
   }
 
   function initials(name) {
@@ -478,6 +500,7 @@ const BeeUtils = (function () {
     alert: alertDialog,
     errText: errText,
     formatTime: formatTime,
+    formatStamp: formatStamp,
     formatSltTime: formatSltTime,
     formatLindenBalance: formatLindenBalance,
     formatRelative: formatRelative,

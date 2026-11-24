@@ -3,6 +3,7 @@
 
 pub mod abuse;
 pub mod caps;
+pub mod chathistory;
 pub mod circuit;
 pub mod currency;
 pub mod events;

@@ -539,6 +539,19 @@ const BeeApp = (function () {
     }).catch(function () {});
   }
 
+  // What the Rust core does about messages follows two settings: whether it
+  // asks the grid at login for what was sent while the account was offline,
+  // and whether a private conversation opens with the earlier messages the
+  // grid keeps - which goes with keeping chat logs of people, and has no
+  // switch of its own. The core is told at startup and on every change.
+  function syncMessageOptions() {
+    if (typeof BeeBridge === 'undefined' || !BeeBridge.invoke || typeof BeeSettings === 'undefined') return;
+    BeeBridge.invoke('sl_set_message_options', {
+      offlineMessages: !!BeeSettings.get('imOfflineMessages'),
+      gridHistory: !!BeeSettings.get('chatLogsAvatars')
+    }).catch(function () {});
+  }
+
   // The maturity bands search and the Destination Guide show are applied by
   // the Rust core (query flags, feed filtering); it is told the choice at
   // startup and on every change.
@@ -614,10 +627,12 @@ const BeeApp = (function () {
         await BeeI18n.load(BeeSettings.get('language'));
         syncDataSaver(BeeSettings.get('dataSaver'));
         syncRadarAlerts();
+        syncMessageOptions();
         syncMaturity();
         BeeSettings.onChange(function (key, value) {
           if (key === 'dataSaver') syncDataSaver(value);
           if (key === 'radarAlerts' || key === 'radarRange') syncRadarAlerts();
+          if (key === 'imOfflineMessages' || key === 'chatLogsAvatars') syncMessageOptions();
           if (key === 'maturity') syncMaturity();
           if (key === 'language') void BeeI18n.load(value);
         });

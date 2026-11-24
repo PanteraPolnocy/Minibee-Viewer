@@ -111,6 +111,76 @@ test('a closed group chat stays closed', () => {
   assert.equal(BeeState.get().unreadImGroups, 1);
 });
 
+test('the history block is set whole, above the live lines, and is not news', () => {
+  const { BeeState } = boot();
+  login(BeeState);
+  const sid = personLine(BeeState, 'hello you');
+  const live = BeeState.get().imSessions[sid].messages[0];
+  const told = [];
+  BeeState.on('im-history', (e) => told.push(e.sessionId));
+  let heard = 0;
+  BeeState.on('im', () => { heard += 1; });
+  const ids = () => BeeState.get().imSessions[sid].messages.map((m) => m.id);
+
+  // Nothing to show and nothing shown: no change, no event.
+  assert.equal(BeeState.setImHistory(sid, []), false);
+  assert.deepEqual(told, []);
+
+  // The log's tail.
+  assert.equal(BeeState.setImHistory(sid, [
+    { id: 'h1', text: '[t] Alice: before', history: true },
+    { id: 'h2', text: '[t] Me: before too', history: true }
+  ]), true);
+  assert.deepEqual(ids(), ['h1', 'h2', live.id]);
+
+  // Another block takes the place of the first: nothing is shown twice.
+  BeeState.setImHistory(sid, [
+    { id: 'h1', text: '[t] Alice: before', history: true },
+    { id: 'g1', text: '[t] Alice: from the grid', history: true, grid: true }
+  ]);
+  assert.deepEqual(ids(), ['h1', 'g1', live.id]);
+  assert.deepEqual(told, [sid, sid]);
+
+  // History is context: no unread count, no preview, no sound, no log line.
+  const session = BeeState.get().imSessions[sid];
+  assert.equal(session.unread, 1, 'only the live line counts');
+  assert.equal(session.lastMessage, 'hello you');
+  assert.equal(heard, 0);
+
+  // A conversation that is gone takes no block.
+  assert.equal(BeeState.setImHistory('no-such-session', [{ id: 'x', text: 'x', history: true }]), false);
+});
+
+test('a message that names its stored copy takes it out of the history', () => {
+  const { BeeState } = boot();
+  login(BeeState);
+  const sid = BeeState.ensureImSession({ id: ALICE, name: 'Alice' });
+  BeeState.setImHistory(sid, [
+    { id: 'g1', text: '[t] Alice: earlier', history: true, grid: true },
+    { id: 'g2', text: '[t] Alice: are you there?', history: true, grid: true }
+  ]);
+  const dropped = [];
+  BeeState.on('im-history-dropped', (e) => dropped.push(e));
+  const ids = () => BeeState.get().imSessions[sid].messages.map((m) => m.id);
+
+  const arrived = Object.assign(line('are you there?'), { supersedes: 'g2' });
+  BeeState.addImMessage(sid, arrived, { id: ALICE, name: 'Alice' }, null);
+  assert.deepEqual(ids(), ['g1', arrived.id], 'the copy goes, the message stays');
+  assert.deepEqual(dropped, [{ sessionId: sid, id: 'g2' }]);
+  assert.equal(BeeState.get().imSessions[sid].unread, 1, 'it is news like any other message');
+
+  // A copy that is not on screen (the block was never shown) is nobody's loss.
+  const other = Object.assign(line('hello again'), { supersedes: 'not-shown' });
+  BeeState.addImMessage(sid, other, { id: ALICE, name: 'Alice' }, null);
+  assert.deepEqual(ids(), ['g1', arrived.id, other.id]);
+  assert.equal(dropped.length, 1);
+
+  // Only a history row can be named: a live line with that id stays.
+  const third = Object.assign(line('one more'), { supersedes: arrived.id });
+  BeeState.addImMessage(sid, third, { id: ALICE, name: 'Alice' }, null);
+  assert.deepEqual(ids(), ['g1', arrived.id, other.id, third.id]);
+});
+
 test('a closed group comes back when the user opens it', () => {
   const { BeeState, store, refused } = boot();
   login(BeeState);

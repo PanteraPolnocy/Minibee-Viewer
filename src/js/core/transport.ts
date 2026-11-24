@@ -101,6 +101,20 @@ const BeeTransport = (function () {
     return adapter.moderateSessionText(sessionId, agentId, muteText);
   }
 
+  function moderateSessionVoice(sessionId, agentId, muteVoice) {
+    if (!adapter || !adapter.moderateSessionVoice) {
+      return Promise.reject(new Error('Moderation unavailable'));
+    }
+    return adapter.moderateSessionVoice(sessionId, agentId, muteVoice);
+  }
+
+  // The earlier messages of a private conversation, as the grid keeps them
+  // (see the adapter); no adapter, no history.
+  function imHistory(peerId) {
+    if (!adapter || !adapter.imHistory) return Promise.resolve(null);
+    return adapter.imHistory(peerId);
+  }
+
   function replyScriptDialog(objectId, buttonIndex, buttonLabel, chatChannel) {
     if (!adapter || !adapter.replyScriptDialog) {
       return Promise.resolve({ sent: false });
@@ -501,6 +515,8 @@ const BeeTransport = (function () {
     leaveImSession: leaveImSession,
     inviteToSession: inviteToSession,
     moderateSessionText: moderateSessionText,
+    moderateSessionVoice: moderateSessionVoice,
+    imHistory: imHistory,
     replyScriptDialog: replyScriptDialog,
     replyScriptPermission: replyScriptPermission,
     acceptCallingCard: acceptCallingCard,

@@ -681,6 +681,9 @@ const BeeState = (function () {
       emit('im-session-reopened', { sessionId: resolvedId });
       emit('im-sessions-updated');
     }
+    // The core names the history row this message is the live arrival of
+    // (its stored copy was shown first): the row goes, the message stays.
+    if (msg && msg.supersedes) dropImHistoryRow(resolvedId, msg.supersedes);
     session.messages.push(msg);
     trimTranscript(session.messages);
     session.lastMessage = msg.text;
@@ -692,18 +695,37 @@ const BeeState = (function () {
     emit('im', { sessionId: resolvedId, message: msg });
   }
 
-  // Lines read back from the on-disk log slide in above the live transcript
-  // when a conversation opens. Once per session: the flag stops a remap or a
-  // slow second read from doubling them. History never touches unread counts,
-  // previews or timestamps - it is context, not news.
-  function addImHistory(sessionId, msgs) {
+  // The history block of a conversation sits above its live transcript: lines
+  // read back from the on-disk log, earlier messages the grid keeps, or the
+  // first above the second. BeeChatLogs builds the block and hands over the
+  // whole of it each time, so a second source never doubles the first. The
+  // flag says a block was set (a remap must not have it read again). History
+  // never touches unread counts, previews or timestamps - it is context, not
+  // news.
+  function setImHistory(sessionId, msgs) {
     const session = state.imSessions[sessionId];
-    if (!session || session.historyLoaded) return false;
+    if (!session) return false;
     session.historyLoaded = true;
-    if (!Array.isArray(msgs) || !msgs.length) return false;
-    session.messages = msgs.concat(session.messages);
+    const block = Array.isArray(msgs) ? msgs : [];
+    const live = session.messages.filter(function (m) { return !(m && m.history); });
+    if (!block.length && live.length === session.messages.length) return false;
+    session.messages = block.concat(live);
     trimTranscript(session.messages);
     emit('im-history', { sessionId: sessionId });
+    return true;
+  }
+
+  // One history row leaves the block: the message it was a stored copy of
+  // has arrived as a live line.
+  function dropImHistoryRow(sessionId, rowId) {
+    const session = state.imSessions[sessionId];
+    if (!session || !rowId) return false;
+    const at = session.messages.findIndex(function (m) {
+      return !!(m && m.history && m.id === rowId);
+    });
+    if (at === -1) return false;
+    session.messages.splice(at, 1);
+    emit('im-history-dropped', { sessionId: sessionId, id: rowId });
     return true;
   }
 
@@ -806,7 +828,7 @@ const BeeState = (function () {
     patchEventMessage: patchEventMessage,
     patchMessage: patchMessage,
     addImMessage: addImMessage,
-    addImHistory: addImHistory,
+    setImHistory: setImHistory,
     closeImSession: closeImSession,
     dismissImSession: dismissImSession,
     markImSessionRead: markImSessionRead,

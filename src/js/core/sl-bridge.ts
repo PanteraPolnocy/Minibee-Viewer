@@ -334,8 +334,9 @@ const BeeSLBridge = (function () {
   }
 
   // Spin up the UDP session + EventQueue from a login/relogin response and hand
-  // back the `connected` payload. Shared by both initial login and auto-reconnect.
-  async function finishSession(resp, grid) {
+  // back the `connected` payload. Shared by both initial login and auto-reconnect;
+  // `resumed` marks the latter, which keeps its conversations on screen.
+  async function finishSession(resp, grid, resumed?) {
     const data = resp.parsed;
     const caps = (resp.seedCaps && resp.seedCaps.ok && resp.seedCaps.caps) || {};
     // A stub until the first ParcelProperties lands. It has no name: the top
@@ -371,6 +372,9 @@ const BeeSLBridge = (function () {
         closedChats: typeof BeeState !== 'undefined' && typeof BeeState.refusedChats === 'function'
           ? BeeState.refusedChats(data.agent.id)
           : [],
+        // The conversations of the session this one replaces are still on
+        // screen: the core carries over what it knew of them.
+        resumed: !!resumed,
         connected: connected
       }
     });
@@ -394,7 +398,7 @@ const BeeSLBridge = (function () {
     // The core seals the replayed login's hash too, so a remembered record
     // stays current if the grid rotated it.
     if (resp.mfaSealed && rememberedMfaKey) saveMfaRecord(rememberedMfaKey, resp.mfaSealed, true);
-    return finishSession(resp, lastGrid || 'agni');
+    return finishSession(resp, lastGrid || 'agni', true);
   }
 
   function logout() {
@@ -570,8 +574,25 @@ const BeeSLBridge = (function () {
   function inviteToSession(sessionId, agentIds) {
     return invoke('sl_chat_session_invite', { sessionId: sessionId, agentIds: agentIds || [] }).then(function () { return { sent: true }; });
   }
+  // A moderator takes away, or gives back, one participant's text chat or
+  // voice in a group's chat; the two are apart.
+  function moderateSession(sessionId, agentId, muted, voice) {
+    return invoke('sl_chat_session_moderate', {
+      sessionId: sessionId, agentId: agentId, muted: !!muted, voice: !!voice
+    }).then(function () { return { sent: true }; });
+  }
   function moderateSessionText(sessionId, agentId, muteText) {
-    return invoke('sl_chat_session_moderate', { sessionId: sessionId, agentId: agentId, muteText: !!muteText }).then(function () { return { sent: true }; });
+    return moderateSession(sessionId, agentId, muteText, false);
+  }
+  function moderateSessionVoice(sessionId, agentId, muteVoice) {
+    return moderateSession(sessionId, agentId, muteVoice, true);
+  }
+  // The earlier messages of the private conversation with a resident, as the
+  // grid keeps them. The core decides whether anything is asked for (once a
+  // login, only with chat logs of people on) and leaves out what already
+  // stands in the conversation: { ok, rows } or { ok: false, reason }.
+  function imHistory(peerId) {
+    return invoke('sl_im_history', { agentId: peerId });
   }
   function leaveImSession(sessionId) {
     const session = (typeof BeeState !== 'undefined' && BeeState.get().imSessions) ? BeeState.get().imSessions[sessionId] : null;
@@ -937,7 +958,8 @@ const BeeSLBridge = (function () {
     acceptCallingCard: acceptCallingCard, declineCallingCard: declineCallingCard,
     acceptFriendship: acceptFriendship, declineFriendship: declineFriendship,
     openGroupChat: openGroupChat, startConference: startConference, inviteToSession: inviteToSession,
-    moderateSessionText: moderateSessionText, leaveImSession: leaveImSession,
+    moderateSessionText: moderateSessionText, moderateSessionVoice: moderateSessionVoice,
+    imHistory: imHistory, leaveImSession: leaveImSession,
     payResident: payResident, giveInventory: giveInventory,
     updateParcel: updateParcel, refreshParcel: refreshParcel,
     fetchParcelInfo: fetchParcelInfo, remoteParcel: remoteParcel,

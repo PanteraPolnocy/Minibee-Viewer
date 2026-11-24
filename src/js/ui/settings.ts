@@ -50,6 +50,10 @@ const BeeSettingsUI = (function () {
       { key: 'imSoundGroups', kind: 'toggle',
         label: function () { return t('settings.imSoundGroups'); } }
     ] },
+    { section: function () { return t('settings.sectionMessages'); }, items: [
+      { key: 'imOfflineMessages', kind: 'toggle',
+        label: function () { return t('settings.imOfflineMessages'); } }
+    ] },
     { section: function () { return t('settings.sectionNearbyChat'); }, items: [
       { key: 'chatRadarPanel', kind: 'toggle',
         label: function () { return t('settings.chatRadarPanel'); } }

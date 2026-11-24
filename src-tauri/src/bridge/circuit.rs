@@ -36,7 +36,15 @@ pub struct EngineInit {
     /// The chats to keep closed from the first packet on (see
     /// `SessionState::closed_chats`); normalized ids.
     pub closed_chats: HashSet<String>,
+    /// What the session this one resumes knew of its conversations (see
+    /// `Session::take_im_memory`); empty for a fresh login.
+    pub im_memory: ImMemory,
 }
+
+/// What the core remembers of a login's conversations beyond one circuit:
+/// the private conversations' lines and history (`chathistory::Threads`) and
+/// the stored messages already delivered (`SessionState::offline_seen`).
+pub type ImMemory = (crate::bridge::chathistory::Threads, HashSet<u64>);
 
 pub struct Session {
     pub udp: Arc<UdpSocket>,
@@ -336,6 +344,23 @@ impl Session {
         }
     }
 
+    /// Ask for the messages kept while the account was offline, unless this
+    /// login already has or the switch is off. `overdue` stops the wait for
+    /// the block list: its deadline has passed, or the user has just turned
+    /// the switch on and is not to be kept waiting.
+    pub async fn request_offline_messages(&self, overdue: bool) {
+        let request = self
+            .engine
+            .lock()
+            .unwrap()
+            .as_mut()
+            .and_then(|st| st.offline_messages_request(session::offline_messages(), overdue));
+        if let Some(session::Action::Send { name, blocks, reliable }) = request {
+            crate::dlog!("offline messages: asking the grid for what it kept (overdue={overdue})");
+            self.send_encoded(&name, &blocks, reliable).await;
+        }
+    }
+
     pub fn own_attachment_count(&self) -> usize {
         let guard = self.engine.lock().unwrap();
         match guard.as_ref() {
@@ -460,6 +485,49 @@ impl Session {
         if let Some(st) = self.engine.lock().unwrap().as_mut() {
             st.mute_asked = false;
         }
+    }
+
+    /// Whether the history of the private conversation with `peer` is to be
+    /// asked for now (see `SessionState::im_history_begin`).
+    pub fn im_history_begin(&self, peer: &str) -> Result<(), &'static str> {
+        match self.engine.lock().unwrap().as_mut() {
+            Some(st) => st.im_history_begin(peer, now_ms()),
+            None => Err("no-session"),
+        }
+    }
+
+    /// The page of the conversation with `peer` as it is to be shown (see
+    /// `SessionState::im_history_hand_over`).
+    pub fn im_history_hand_over(
+        &self,
+        me: &str,
+        peer: &str,
+        rows: Vec<crate::bridge::chathistory::Row>,
+    ) -> Result<Vec<Value>, &'static str> {
+        match self.engine.lock().unwrap().as_mut() {
+            Some(st) => st.im_history_hand_over(me, peer, rows),
+            None => Err("no-session"),
+        }
+    }
+
+    /// This account wrote `text` to `peer` in private: the line stands in
+    /// that conversation from now on (see `chathistory::Threads`).
+    pub fn note_sent_im(&self, peer: &str, text: &str) {
+        if let Some(st) = self.engine.lock().unwrap().as_mut() {
+            st.im_threads.said(peer, true, now_ms(), text);
+        }
+    }
+
+    /// What this session knows of `agent_id`'s conversations, taken out of
+    /// it for the session that resumes them after a reconnect. Nothing when
+    /// the session is another account's.
+    pub fn take_im_memory(&self, agent_id: &str) -> Option<ImMemory> {
+        let mut guard = self.engine.lock().unwrap();
+        let st = guard.as_mut()?;
+        if !st.agent_id.trim().eq_ignore_ascii_case(agent_id.trim()) {
+            return None;
+        }
+        Some((std::mem::take(&mut st.im_threads), std::mem::take(&mut st.offline_seen)))
     }
 
     /// Keep the inbound-filter set in step with a block/unblock the moment it is
@@ -1143,6 +1211,13 @@ impl Session {
                     crate::bridge::outfit::restore(&state, &me).await;
                 });
             }
+            Action::OfflineMessagesDeadline { delay_ms } => {
+                let me = self.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    me.request_offline_messages(true).await;
+                });
+            }
             Action::AcceptChatSession { session_id } => {
                 let state = app.state::<Arc<crate::bridge::state::AppState>>().inner().clone();
                 tokio::spawn(async move {
@@ -1480,6 +1555,8 @@ pub async fn open(
         circuit_code: e.circuit_code,
         caps: e.caps,
         closed_chats: e.closed_chats,
+        im_threads: e.im_memory.0,
+        offline_seen: e.im_memory.1,
         ..Default::default()
     });
     let engine_mode = engine_state.is_some();

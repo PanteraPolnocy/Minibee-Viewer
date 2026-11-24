@@ -497,8 +497,31 @@ pub(crate) async fn save_avatar_notes(
     }
 }
 
+/// What a moderator takes away from, or gives back to, a participant of a
+/// group chat: their text, or their voice. The two are separate switches on
+/// the grid's side, and a request names one of them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Moderated {
+    Text,
+    Voice,
+}
+
+impl Moderated {
+    /// The key the grid knows it by in `mute_info`.
+    fn key(self) -> &'static str {
+        match self {
+            Moderated::Text => "text",
+            Moderated::Voice => "voice",
+        }
+    }
+}
+
+/// A participant to moderate: who, which of their two channels, and whether
+/// it is being muted (true) or allowed again (false).
+pub(crate) type MuteUpdate<'a> = (&'a str, Moderated, bool);
+
 /// Build the LLSD body for a ChatSessionRequest (mirrors `chatSessionBodyXml` in sl-caps.js).
-fn chat_session_body(method: &str, session_id: &str, params: &[String], mute: Option<(&str, bool)>) -> String {
+fn chat_session_body(method: &str, session_id: &str, params: &[String], mute: Option<MuteUpdate>) -> String {
     let mut inner = format!("<key>method</key><string>{}</string>", xml_text(method));
     if !session_id.is_empty() {
         inner += &format!("<key>session-id</key><uuid>{}</uuid>", xml_text(session_id));
@@ -510,11 +533,12 @@ fn chat_session_body(method: &str, session_id: &str, params: &[String], mute: Op
             .map(|p| format!("<uuid>{}</uuid>", xml_text(p)))
             .collect();
         inner += &format!("<key>params</key><array>{arr}</array>");
-    } else if let Some((agent, text)) = mute {
+    } else if let Some((agent, what, muted)) = mute {
         inner += &format!(
-            "<key>params</key><map><key>agent_id</key><uuid>{}</uuid><key>mute_info</key><map><key>text</key><boolean>{}</boolean></map></map>",
+            "<key>params</key><map><key>agent_id</key><uuid>{}</uuid><key>mute_info</key><map><key>{}</key><boolean>{}</boolean></map></map>",
             xml_text(agent),
-            if text { "1" } else { "0" }
+            what.key(),
+            if muted { "1" } else { "0" }
         );
     }
     format!("<?xml version=\"1.0\"?><llsd><map>{inner}</map></llsd>")
@@ -573,7 +597,7 @@ pub(crate) async fn chat_session_post(
     method: &str,
     session_id: &str,
     params: &[String],
-    mute: Option<(&str, bool)>,
+    mute: Option<MuteUpdate<'_>>,
 ) -> Cmd {
     let session = state.active().ok_or_else(no_active_session)?;
     // POST to the bare cap URL. ChatSessionRequest is an opaque, sim-granted key
@@ -659,14 +683,20 @@ pub async fn sl_chat_session_invite(
     chat_session_post(state.inner(), "invite", &session_id, &agent_ids, None).await
 }
 
+/// A moderator's switch over one participant of a group chat: `voice` picks
+/// the participant's voice, anything else (or nothing) their text; `muted`
+/// takes it away or gives it back. The grid answers with a roster update
+/// that carries the new state to everyone's list.
 #[tauri::command]
 pub async fn sl_chat_session_moderate(
     state: State<'_, Arc<AppState>>,
     session_id: String,
     agent_id: String,
-    mute_text: bool,
+    muted: bool,
+    voice: Option<bool>,
 ) -> Cmd {
-    chat_session_post(state.inner(), "mute update", &session_id, &[], Some((&agent_id, mute_text))).await
+    let what = if voice.unwrap_or(false) { Moderated::Voice } else { Moderated::Text };
+    chat_session_post(state.inner(), "mute update", &session_id, &[], Some((&agent_id, what, muted))).await
 }
 
 /// RemoteParcelRequest: turn a region location into a parcel id, then fire off a
@@ -1043,9 +1073,23 @@ mod tests {
 
     #[test]
     fn chat_session_body_mute() {
-        let b = chat_session_body("mute update", "s", &[], Some(("agent1", true)));
-        assert!(b.contains("mute_info"));
-        assert!(b.contains("<boolean>1</boolean>"));
+        let b = chat_session_body("mute update", "s", &[], Some(("agent1", Moderated::Text, true)));
+        assert!(b.contains("<key>mute_info</key><map><key>text</key><boolean>1</boolean></map>"));
+        assert!(b.contains("<key>agent_id</key><uuid>agent1</uuid>"));
+    }
+
+    #[test]
+    fn chat_session_body_moderates_voice_apart_from_text() {
+        // Voice has a key of its own; muting it says nothing about text.
+        let mute = chat_session_body("mute update", "s", &[], Some(("agent1", Moderated::Voice, true)));
+        assert!(mute.contains("<key>mute_info</key><map><key>voice</key><boolean>1</boolean></map>"));
+        assert!(!mute.contains("<key>text</key>"));
+        let allow = chat_session_body("mute update", "s", &[], Some(("agent1", Moderated::Voice, false)));
+        assert!(allow.contains("<key>voice</key><boolean>0</boolean>"));
+        // What the grid reads back is the shape its moderation handler takes.
+        let back = codec::llsd::parse(&mute, "application/llsd+xml").unwrap();
+        assert_eq!(back["method"], "mute update");
+        assert_eq!(back["params"]["mute_info"]["voice"], true);
     }
 
     #[test]

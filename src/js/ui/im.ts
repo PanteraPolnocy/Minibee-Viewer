@@ -10,7 +10,8 @@ const BeeIm = (function () {
 
   const GROUP_GLYPH = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>';
   const MUTE_GLYPH = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"/></svg>';
-  const MUTE_BELL_GLYPH = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M20 18.69L7.84 6.14 5.27 3.49 4 4.76l2.8 2.8v.01c-.52.99-.8 2.16-.8 3.42v5l-2 2v1h13.73l2 2L21 19.72l-1-1.03zM12 22c1.11 0 2-.89 2-2h-4c0 1.11.89 2 2 2zm6-7.32V11c0-3.08-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68c-.15.03-.29.08-.42.12L18 14.68z"/></svg>';
+  const VOICE_MUTE_GLYPH = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3 3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/></svg>';
+  const MUTE_BELL_GLYPH ='<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M20 18.69L7.84 6.14 5.27 3.49 4 4.76l2.8 2.8v.01c-.52.99-.8 2.16-.8 3.42v5l-2 2v1h13.73l2 2L21 19.72l-1-1.03zM12 22c1.11 0 2-.89 2-2h-4c0 1.11.89 2 2 2zm6-7.32V11c0-3.08-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68c-.15.03-.29.08-.42.12L18 14.68z"/></svg>';
 
   let rosterVisible = true;
 
@@ -250,7 +251,7 @@ const BeeIm = (function () {
       renderThread(sessionId);
       return;
     }
-    renderSessions();
+    renderSessionsSoon();
   }
 
   function refreshSessionPresence(session) {
@@ -262,7 +263,27 @@ const BeeIm = (function () {
     }
   }
 
+  // The list is rebuilt whole, pictures and all. Messages can arrive dozens
+  // at a time (the ones kept while the account was offline come in one go at
+  // login), and a rebuild for each of them is what makes a viewer stall: the
+  // events that only report news ask for one rebuild a moment later, which
+  // shows the same. What the user does (open, close, switch) still rebuilds
+  // at once.
+  const SESSIONS_RENDER_DELAY_MS = 40;
+  let sessionsRenderTimer = null;
+  function renderSessionsSoon() {
+    if (sessionsRenderTimer) return;
+    sessionsRenderTimer = setTimeout(function () {
+      sessionsRenderTimer = null;
+      renderSessions();
+    }, SESSIONS_RENDER_DELAY_MS);
+  }
+
   function renderSessions() {
+    if (sessionsRenderTimer) {
+      clearTimeout(sessionsRenderTimer);
+      sessionsRenderTimer = null;
+    }
     const container = document.getElementById('im-sessions');
     if (!container) return;
     container.innerHTML = '';
@@ -309,6 +330,8 @@ const BeeIm = (function () {
     if (msg.history) {
       const row = document.createElement('div');
       row.className = 'msg msg--history';
+      // A row can leave on its own (see 'im-history-dropped'): it is found by its id.
+      if (msg.id) row.dataset.historyId = String(msg.id);
       const text = document.createElement('p');
       text.className = 'msg__body';
       text.textContent = String(msg.text || '');
@@ -339,7 +362,9 @@ const BeeIm = (function () {
 
     const time = document.createElement('span');
     time.className = 'msg__time';
-    time.textContent = String(BeeUtils.formatTime(msg.timestamp) || '');
+    // A message kept while the account was offline can be days old: the day
+    // is shown with the hour whenever it is not today.
+    time.textContent = String(BeeUtils.formatStamp(msg.timestamp) || '');
 
     meta.appendChild(name);
     meta.appendChild(time);
@@ -429,11 +454,29 @@ const BeeIm = (function () {
     syncImLayout();
   }
 
-  // Full rebuild - only for opening or switching sessions. Jumps to the latest
-  // message, which is what you expect when you open a conversation.
-  function renderThread(sessionId) {
+  // What the divider under the history block says: where the block came
+  // from. Earlier messages the grid keeps are named as such, also when older
+  // lines of the log on this device stand above them.
+  function historyFromGrid(session) {
+    return session.messages.some(function (msg) {
+      return !!(msg && msg.history && msg.grid);
+    });
+  }
+
+  function historyLabel(fromGrid) {
+    return fromGrid ? t('im.fromGridHistory') : t('im.fromChatLog');
+  }
+
+  // Full rebuild - for opening or switching sessions, which jumps to the
+  // latest message, as you expect when you open a conversation. `keepPlace`
+  // is for a rebuild that happens under a reader instead (the history block
+  // arriving a few seconds into a conversation): somebody who has scrolled
+  // up stays on the lines they were reading.
+  function renderThread(sessionId, keepPlace?) {
     const list = document.getElementById('im-messages');
     if (!list) return;
+    const fromBottom = list.scrollHeight - list.scrollTop;
+    const reading = !!keepPlace && (fromBottom - list.clientHeight) >= 40;
     list.innerHTML = '';
     const session = BeeState.get().imSessions[sessionId];
     if (!session) return;
@@ -448,12 +491,29 @@ const BeeIm = (function () {
       if (i === lastHistory) {
         const divider = document.createElement('div');
         divider.className = 'im-history-divider';
-        divider.textContent = t('im.fromChatLog');
+        const fromGrid = historyFromGrid(session);
+        if (fromGrid) divider.dataset.fromGrid = '1';
+        divider.textContent = historyLabel(fromGrid);
         list.appendChild(divider);
       }
     });
-    list.scrollTop = list.scrollHeight;
+    list.scrollTop = reading ? Math.max(0, list.scrollHeight - fromBottom) : list.scrollHeight;
     updateThreadHeader(session);
+  }
+
+  // One history row leaves the open thread: the message it was the stored
+  // copy of has come in as a live line. The divider goes with the last row.
+  function dropHistoryRow(rowId) {
+    const list = document.getElementById('im-messages');
+    if (!list || !rowId) return;
+    const row = Array.from(list.children).find(function (el: HTMLElement) {
+      return el.dataset && el.dataset.historyId === String(rowId);
+    });
+    if (row) row.remove();
+    if (!list.querySelector('.msg--history')) {
+      const divider = list.querySelector('.im-history-divider');
+      if (divider) divider.remove();
+    }
   }
 
   // Append a single new message to the already-rendered active thread, keeping
@@ -527,30 +587,43 @@ const BeeIm = (function () {
       item.appendChild(nameBtn);
 
       if (canModerate && !isSelf) {
-        const muteBtn = document.createElement('button');
-        muteBtn.type = 'button';
-        muteBtn.className = 'im-roster__mute' + (member.muted ? ' im-roster__mute--active' : '');
-        muteBtn.title = member.muted ? t('im.allowTextChat') : t('im.muteTextChat');
-        muteBtn.setAttribute('aria-label', muteBtn.title);
-        muteBtn.setAttribute('aria-pressed', member.muted ? 'true' : 'false');
-        muteBtn.innerHTML = MUTE_GLYPH;
-        muteBtn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          if (typeof BeeTransport.moderateSessionText !== 'function') {
-            BeeUtils.showToast(t('im.moderationUnavailable'), 'warning');
-            return;
-          }
-          muteBtn.disabled = true;
-          BeeTransport.moderateSessionText(sessionId, member.id, !member.muted)
-            .catch(function (err) {
-              BeeUtils.showToast(t('im.moderationFailed', { error: BeeUtils.errText(err) || String(err) }), 'warning');
-            })
-            .then(function () { muteBtn.disabled = false; });
-        });
-        item.appendChild(muteBtn);
+        item.appendChild(moderationButton(sessionId, member, false));
+        item.appendChild(moderationButton(sessionId, member, true));
       }
       list.appendChild(item);
     });
+  }
+
+  // A moderator's switch for one participant of a group's chat: their text
+  // chat, or (`voice`) their voice. Each is taken away and given back on its
+  // own; the roster the grid sends back says how things stand afterwards.
+  function moderationButton(sessionId, member, voice) {
+    const muted = voice ? !!member.voiceMuted : !!member.muted;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'im-roster__mute' + (voice ? ' im-roster__mute--voice' : '') +
+      (muted ? ' im-roster__mute--active' : '');
+    btn.title = voice
+      ? (muted ? t('im.allowVoiceChat') : t('im.muteVoiceChat'))
+      : (muted ? t('im.allowTextChat') : t('im.muteTextChat'));
+    btn.setAttribute('aria-label', btn.title);
+    btn.setAttribute('aria-pressed', muted ? 'true' : 'false');
+    btn.innerHTML = voice ? VOICE_MUTE_GLYPH : MUTE_GLYPH;
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const send = voice ? BeeTransport.moderateSessionVoice : BeeTransport.moderateSessionText;
+      if (typeof send !== 'function') {
+        BeeUtils.showToast(t('im.moderationUnavailable'), 'warning');
+        return;
+      }
+      btn.disabled = true;
+      send(sessionId, member.id, !muted)
+        .catch(function (err) {
+          BeeUtils.showToast(t('im.moderationFailed', { error: BeeUtils.errText(err) || String(err) }), 'warning');
+        })
+        .then(function () { btn.disabled = false; });
+    });
+    return btn;
   }
 
   function renderTyping() {
@@ -1324,14 +1397,14 @@ const BeeIm = (function () {
     }
 
     BeeState.on('im-session-new', function () {
-      renderSessions();
+      renderSessionsSoon();
     });
     BeeState.on('im-session-reopened', function (data) {
       if (data && data.sessionId) refreshIncomingImUi(data.sessionId);
-      else if (BeeNavigation.isTabActive('im')) renderSessions();
+      else if (BeeNavigation.isTabActive('im')) renderSessionsSoon();
     });
     BeeState.on('im-sessions-updated', function () {
-      renderSessions();
+      renderSessionsSoon();
       // Session metadata changed (rename, remap, roster, presence) - the message
       // list itself is untouched, so refresh the header only. A full renderThread
       // here would yank the reader's scrollback to the bottom.
@@ -1343,12 +1416,18 @@ const BeeIm = (function () {
     });
     BeeState.on('im-history', function (data) {
       if (!data || !data.sessionId) return;
-      // The log tail arrives just after the thread first paints; a rebuild here
-      // is safe - the reader is at the bottom of a freshly opened conversation.
+      // The log tail arrives just after the thread first paints; the grid's
+      // earlier messages can take a few seconds more. Either way the block
+      // goes in above what is on screen, and a reader who has scrolled up
+      // keeps their place.
       if (BeeNavigation.isTabActive('im') &&
           BeeState.get().activeImSession === data.sessionId) {
-        renderThread(data.sessionId);
+        renderThread(data.sessionId, true);
       }
+    });
+    BeeState.on('im-history-dropped', function (data) {
+      if (!data || !data.sessionId) return;
+      if (BeeState.get().activeImSession === data.sessionId) dropHistoryRow(data.id);
     });
     BeeState.on('im', function (data) {
       if (!data || !data.message) return;
@@ -1364,7 +1443,7 @@ const BeeIm = (function () {
     });
     BeeState.on('im-roster-updated', function (data) {
       if (!BeeNavigation.isTabActive('im')) return;
-      renderSessions();
+      renderSessionsSoon();
       const active = BeeState.get().activeImSession;
       if (active && data && active === data.sessionId) {
         const session = BeeState.get().imSessions[active];
@@ -1378,7 +1457,7 @@ const BeeIm = (function () {
     // here so members show real names instead of the "?" placeholder.
     BeeTransport.on('names-updated', function () {
       if (!BeeNavigation.isTabActive('im')) return;
-      renderSessions();
+      renderSessionsSoon();
       const active = BeeState.get().activeImSession;
       const session = active && BeeState.get().imSessions[active];
       if (session) updateThreadHeader(session);
@@ -1403,7 +1482,7 @@ const BeeIm = (function () {
         }, OTHER_TYPING_TIMEOUT_MS);
       }
       if (!BeeNavigation.isTabActive('im')) return;
-      renderSessions();
+      renderSessionsSoon();
       if (BeeState.get().activeImSession === data.sessionId) renderTyping();
     });
 
@@ -1416,7 +1495,7 @@ const BeeIm = (function () {
         const session = BeeState.get().imSessions[active];
         if (session) updateThreadHeader(session);
       }
-      renderSessions();
+      renderSessionsSoon();
     });
 
     BeeState.on('im-session-closed', function () {
@@ -1436,6 +1515,10 @@ const BeeIm = (function () {
       });
       if (meTyping.timer) clearTimeout(meTyping.timer);
       meTyping = { sessionId: null, active: false, lastSent: 0, timer: null };
+      if (sessionsRenderTimer) {
+        clearTimeout(sessionsRenderTimer);
+        sessionsRenderTimer = null;
+      }
       document.getElementById('im-sessions').innerHTML = '';
       document.getElementById('im-messages').innerHTML = '';
       updateSubtabBadges(null);
@@ -1455,7 +1538,7 @@ const BeeIm = (function () {
       const session = active ? BeeState.get().imSessions[active] : null;
       if (session) updateThreadHeader(session);
       document.querySelectorAll<HTMLElement>('.im-history-divider').forEach(function (divider) {
-        divider.textContent = t('im.fromChatLog');
+        divider.textContent = historyLabel(divider.dataset.fromGrid === '1');
       });
     });
 

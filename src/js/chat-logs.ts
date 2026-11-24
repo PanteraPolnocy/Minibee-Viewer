@@ -57,6 +57,31 @@ const BeeChatLogs = (function () {
     return '';
   }
 
+  // What is asked of one log file is asked in order: a request goes out when
+  // the one before it has been answered. A conversation's history is read
+  // before the first new line is written, so the tail never holds lines the
+  // conversation is showing as live; and a burst of lines - dozens kept
+  // while the account was offline arrive in one go - lands in the file in
+  // the order it was said, one at a time.
+  const fileTurns = new Map<string, Promise<any>>();
+  function nothing() {}
+  function inTurn(kind, name, ask) {
+    const key = kind + '/' + String(name).toLowerCase();
+    const mine = (fileTurns.get(key) || Promise.resolve()).then(ask);
+    const settled = mine.then(nothing, nothing);
+    fileTurns.set(key, settled);
+    settled.then(function () {
+      if (fileTurns.get(key) === settled) fileTurns.delete(key);
+    });
+    return mine;
+  }
+
+  function appendLine(kind, name, line) {
+    inTurn(kind, name, function () {
+      return BeeTransport.chatLogAppend(kind, name, line);
+    }).catch(nothing);
+  }
+
   // Lines for a person whose username nobody knows yet (a first contact whose
   // name lookup is still in flight) wait for it rather than land in a file
   // named after something else. Past a generous wait the UUID names the file;
@@ -65,9 +90,7 @@ const BeeChatLogs = (function () {
   const WAIT_FOR_NAME_MS = 30000;
 
   function appendLines(name, lines) {
-    lines.reduce(function (prev, line) {
-      return prev.then(function () { return BeeTransport.chatLogAppend('avatars', name, line); });
-    }, Promise.resolve()).catch(function () {});
+    lines.forEach(function (line) { appendLine('avatars', name, line); });
   }
 
   function flushWaiting(id, giveUp) {
@@ -127,7 +150,7 @@ const BeeChatLogs = (function () {
     const who = String(msg.fromName || (msg.outgoing ? t('logs.me') : t('common.unknown')));
     const line = '[' + stamp(msg.timestamp) + '] ' + who + ': ' + text;
     if (grouplike) {
-      BeeTransport.chatLogAppend('groups', groupLogName(session), line).catch(function () {});
+      appendLine('groups', groupLogName(session), line);
     } else {
       logAvatarLine(session.participant, line);
     }
@@ -142,16 +165,125 @@ const BeeChatLogs = (function () {
   const historyWaiting = new Map<string, any>(); // agent id -> { session, timer }
   const HISTORY_NAME_WAIT_MS = 10000;
 
+  // A conversation's history as its two sources gave it: the tail of the log
+  // file on this device, and - for a private conversation, see
+  // askGridHistory - the earlier messages the grid keeps. Neither is ever
+  // written to a log file: what is shown here is only shown.
+  const historyParts = new Map<string, { tail: any[]; grid: any[] | null }>();
+  // Counts the logins: an answer that comes back after the conversations
+  // were cleared belongs to none of the new ones.
+  let epoch = 0;
+
+  function partsOf(sessionId) {
+    let parts = historyParts.get(sessionId);
+    if (!parts) {
+      parts = { tail: [], grid: null };
+      historyParts.set(sessionId, parts);
+    }
+    return parts;
+  }
+
+  // The minute a log line is stamped with ("[2026-11-24 10:05] ..."), in this
+  // device's time; NaN for a line with no stamp.
+  const STAMPED = /^\[(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})\] /;
+  function lineMinute(line) {
+    const m = STAMPED.exec(String(line || ''));
+    if (!m) return NaN;
+    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
+  }
+
+  // The block as it is shown. The grid's messages are the fuller record
+  // (every device's), so where the two sources overlap they are the ones
+  // shown, and the log contributes only what is older: its lines stamped
+  // with a minute before the grid's first message. A line of that message's
+  // own minute or later is taken for one the grid has too - better a line
+  // of context short than the same message twice.
+  function historyBlock(parts) {
+    if (!parts.grid || !parts.grid.length) return parts.tail;
+    const first = Math.floor(parts.grid[0].timestamp / 60000) * 60000;
+    const older = parts.tail.filter(function (line) { return line.minute < first; });
+    return older.concat(parts.grid);
+  }
+
+  function showHistory(sessionId) {
+    const parts = historyParts.get(sessionId);
+    if (parts) BeeState.setImHistory(sessionId, historyBlock(parts));
+  }
+
   function fetchHistory(session, kind, name) {
     if (typeof BeeTransport.chatLogTail !== 'function') return;
-    BeeTransport.chatLogTail(kind, name, HISTORY_LINES).then(function (res) {
+    const sessionId = session.id;
+    const mine = epoch;
+    inTurn(kind, name, function () {
+      return BeeTransport.chatLogTail(kind, name, HISTORY_LINES);
+    }).then(function (res) {
       const lines = res && Array.isArray(res.lines) ? res.lines : [];
-      if (!lines.length) return;
-      const msgs = lines.map(function (line, i) {
-        return { id: 'history:' + session.id + ':' + i, text: String(line), history: true };
+      if (!lines.length || mine !== epoch) return;
+      partsOf(sessionId).tail = lines.map(function (line, i) {
+        return {
+          id: 'history:' + sessionId + ':' + i, text: String(line), history: true,
+          minute: lineMinute(line)
+        };
       });
-      BeeState.addImHistory(session.id, msgs);
-    }).catch(function () {});
+      showHistory(sessionId);
+    }).catch(nothing);
+  }
+
+  // A private thread: the only kind the grid keeps earlier messages of.
+  function isPrivate(session) {
+    return !!session && (!session.type || session.type === 'p2p') &&
+      !(session.participant && session.participant.isSession);
+  }
+
+  // One of the grid's messages as a history line, in the shape the log's own
+  // lines have. The core hands over the name and the words (on one line);
+  // the stamp is this device's time, like everything else on screen.
+  function gridLine(session, row) {
+    const agent = BeeState.get().agent || {};
+    const who = row.outgoing
+      ? String(agent.displayName || agent.name || row.fromName || t('logs.me'))
+      : String(row.fromName || (session.participant && session.participant.name) || t('common.unknown'));
+    const at = Number(row.timestamp) || 0;
+    return {
+      id: String(row.id), history: true, grid: true, timestamp: at,
+      text: '[' + stamp(at) + '] ' + who + ': ' + String(row.text || '')
+    };
+  }
+
+  // A private conversation was opened: the core is asked for the earlier
+  // messages the grid keeps of it. Whether anything is fetched is the core's
+  // decision (only with chat logs of people on, once a login, not too often
+  // after a failure), and it leaves out what already stands in the
+  // conversation; this only shows what comes back. `gridSettled` remembers
+  // the conversations the core has nothing more to say about, `gridAsking`
+  // the ones whose answer is still on its way.
+  const gridSettled = new Set<string>();
+  const gridAsking = new Set<string>();
+  function askGridHistory(sessionId) {
+    if (!sessionId || gridSettled.has(sessionId) || gridAsking.has(sessionId)) return;
+    if (typeof BeeTransport.imHistory !== 'function') return;
+    const session = BeeState.get().imSessions[sessionId];
+    if (!isPrivate(session)) return;
+    const peer = String((session.participant && session.participant.id) || '').toLowerCase();
+    if (!looksUuid(peer)) return;
+    const mine = epoch;
+    gridAsking.add(sessionId);
+    Promise.resolve(BeeTransport.imHistory(peer)).then(function (res) {
+      if (mine === epoch) gridAsking.delete(sessionId);
+      if (!res || mine !== epoch) return;
+      if (!res.ok) {
+        if (res.reason === 'done') gridSettled.add(sessionId);
+        return;
+      }
+      gridSettled.add(sessionId);
+      const now = BeeState.get().imSessions[sessionId];
+      if (!now) return;
+      const rows = Array.isArray(res.rows) ? res.rows : [];
+      partsOf(sessionId).grid = rows.map(function (row) { return gridLine(now, row); });
+      showHistory(sessionId);
+    }).catch(function () {
+      if (mine === epoch) gridAsking.delete(sessionId);
+    });
   }
 
   function loadHistory(session) {
@@ -195,6 +327,10 @@ const BeeChatLogs = (function () {
     historyWaiting.forEach(function (entry) { clearTimeout(entry.timer); });
     historyWaiting.clear();
     historyTried.clear();
+    historyParts.clear();
+    gridSettled.clear();
+    gridAsking.clear();
+    epoch += 1;
   }
 
   // One-time question, asked on the first login this install sees. The
@@ -227,7 +363,7 @@ const BeeChatLogs = (function () {
     if (!text.trim()) return;
     const who = String(msg.fromName || (msg.outgoing ? t('logs.me') : t('common.unknown')));
     const line = '[' + stamp(msg.timestamp) + '] ' + who + ': ' + text;
-    BeeTransport.chatLogAppend('local', LOCAL_LOG_NAME, line).catch(function () {});
+    appendLine('local', LOCAL_LOG_NAME, line);
   }
 
   function init() {
@@ -238,14 +374,28 @@ const BeeChatLogs = (function () {
     // new tab with nothing in it: that one reads its log tail afresh.
     BeeState.on('im-session-closed', function (sessionId) {
       historyTried.delete(sessionId);
+      historyParts.delete(sessionId);
+      gridSettled.delete(sessionId);
+    });
+    // The message a history row was the stored copy of came in live, and the
+    // row left the screen: it is not put back when the block is next built.
+    BeeState.on('im-history-dropped', function (data) {
+      const parts = data && historyParts.get(data.sessionId);
+      if (!parts || !parts.grid) return;
+      parts.grid = parts.grid.filter(function (row) { return row.id !== data.id; });
     });
     BeeState.on('change', function (partial) {
-      if (partial && partial.connected === true) void maybeAsk();
+      if (!partial) return;
+      if (partial.connected === true) void maybeAsk();
+      // A conversation comes on screen: opened, or the tab it is open in shown.
+      if (partial.activeImSession) askGridHistory(partial.activeImSession);
+      else if (partial.activeTab === 'im') askGridHistory(BeeState.get().activeImSession);
     });
-    // A name lookup landed: file whatever was waiting on it, both ways.
+    // A name lookup landed: read and file whatever was waiting on it - the
+    // history first, so that the lines about to be written are not in it.
     BeeTransport.on('names-updated', function () {
-      Array.from(waiting.keys()).forEach(function (id) { flushWaiting(id, false); });
       Array.from(historyWaiting.keys()).forEach(function (id) { flushHistoryWaiting(id, false); });
+      Array.from(waiting.keys()).forEach(function (id) { flushWaiting(id, false); });
     });
     // The session is going away; nothing waiting can be lost with it.
     function flushAll() {

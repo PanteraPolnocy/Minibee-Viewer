@@ -34,6 +34,8 @@ Also in the app: **Bee -> Privacy**.
 
 After login, traffic to simulators and Linden services is governed by [Linden Lab's privacy policy](https://www.lindenlab.com/privacy).
 
+Second Life keeps instant messages on its own servers: the ones sent to you while you were logged out, and a history of private conversations. Minibee asks for the first at login (a switch in Bee -> Settings -> Messages turns that off). It asks for the second only if you keep chat logs of people, and only for a conversation you open; the request names the two accounts and nothing else. What comes back is shown in that conversation and is not stored by Minibee - it is never written to the log files.
+
 Your password is **not** sent anywhere except the login server you picked.
 
 ---

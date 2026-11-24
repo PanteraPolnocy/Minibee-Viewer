@@ -59,6 +59,10 @@ const BeeSettings = (function () {
     // default: a busy group would ding all day.
     imSound: { type: 'boolean', default: true },
     imSoundGroups: { type: 'boolean', default: false },
+    // Ask the grid at login for the messages it kept while the account was
+    // offline (on by default). The Rust core does the asking; it is told at
+    // startup and on change, and a switch-on in mid-session fetches at once.
+    imOfflineMessages: { type: 'boolean', default: true },
     // Data saver: the Rust core asks the sim for objects within 48 m instead
     // of 128 m and caps the object stream, which is what eats mobile data in
     // a busy region. Off by default; the core is told on startup and on change.

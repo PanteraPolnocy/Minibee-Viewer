@@ -28,6 +28,42 @@ test('escapeHtml handles null/undefined without throwing', () => {
   assert.equal(BeeUtils.escapeHtml(undefined), '');
 });
 
+// --- formatStamp / formatRelative -------------------------------------------
+//
+// A message kept while the account was offline is dated by when it was sent,
+// which can be days back: its stamp has to say which day.
+
+test('formatStamp: the hour alone today, the day with it otherwise', () => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 5);
+  assert.equal(BeeUtils.formatStamp(today), BeeUtils.formatTime(today));
+  assert.equal(BeeUtils.formatStamp(today.getTime()), BeeUtils.formatTime(today), 'a timestamp reads the same');
+
+  const days = 24 * 60 * 60 * 1000;
+  const lastWeek = new Date(today.getTime() - 7 * days);
+  const stamped = BeeUtils.formatStamp(lastWeek);
+  assert.ok(stamped.endsWith(' ' + BeeUtils.formatTime(lastWeek)), stamped);
+  assert.ok(stamped.includes(String(lastWeek.getDate())), 'the day of the month is there: ' + stamped);
+  assert.notEqual(stamped, BeeUtils.formatTime(lastWeek));
+
+  // Another year is named.
+  const longAgo = new Date(now.getFullYear() - 2, 4, 17, 9, 5);
+  assert.ok(BeeUtils.formatStamp(longAgo).includes(String(now.getFullYear() - 2)));
+
+  // Nothing to format is not turned into two of it.
+  assert.equal(BeeUtils.formatStamp(undefined), BeeUtils.formatTime(undefined));
+});
+
+test('formatRelative: a day or more ago is a day, not an hour of some other day', () => {
+  const minutes = 60 * 1000;
+  assert.equal(BeeUtils.formatRelative(Date.now() - 5 * minutes), '5m');
+  assert.equal(BeeUtils.formatRelative(Date.now() - 3 * 60 * minutes), '3h');
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * minutes);
+  const shown = BeeUtils.formatRelative(threeDaysAgo);
+  assert.ok(shown.includes(String(threeDaysAgo.getDate())), shown);
+  assert.notEqual(shown, BeeUtils.formatTime(threeDaysAgo));
+});
+
 // --- shouldPreserveDraft ---------------------------------------------------
 //
 // Guards the profile notes field across the pane rebuilds that every async

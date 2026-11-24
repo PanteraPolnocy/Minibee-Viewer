@@ -818,13 +818,21 @@ pub async fn sl_im_send(
     let (s, agent, sess) = active_ids(&state)?;
     let dialog = dialog.unwrap_or(0);
     let id = im_id.unwrap_or_else(|| ZERO_UUID.to_string());
+    let from_group = from_group.unwrap_or(false);
+    let to_id = if to_id.is_empty() { ZERO_UUID.to_string() } else { to_id };
+    // A plain message to a resident is a line of the private conversation
+    // with them: the core keeps count of those (see `chathistory::Threads`).
+    let to_resident = crate::bridge::inventory::is_uuid(&to_id) && !crate::bridge::inventory::is_zero_uuid(&to_id);
+    if dialog == 0 && !from_group && to_resident {
+        s.note_sent_im(&to_id, &text);
+    }
     s.send_encoded(
         "ImprovedInstantMessage",
         &json!({
             "AgentData": [{ "AgentID": agent, "SessionID": sess }],
             "MessageBlock": [{
-                "FromGroup": from_group.unwrap_or(false),
-                "ToAgentID": if to_id.is_empty() { ZERO_UUID.to_string() } else { to_id },
+                "FromGroup": from_group,
+                "ToAgentID": to_id,
                 "ParentEstateID": 0, "RegionID": ZERO_UUID, "Position": [0.0, 0.0, 0.0],
                 "Offline": 0, "Dialog": dialog, "ID": id, "Timestamp": 0,
                 "FromAgentName": vstr(""), "Message": vstr(&text), "BinaryBucket": vstr(""),
@@ -1618,6 +1626,31 @@ pub async fn sl_set_data_saver(state: State<'_, Arc<AppState>>, enabled: bool) -
 pub async fn sl_set_radar_alerts(enabled: bool, range: u32) -> Cmd {
     crate::bridge::session::set_radar_alerts(enabled, range);
     Ok(json!({ "ok": true, "enabled": enabled, "range": range.clamp(1, 1024) }))
+}
+
+/// What the interface has decided about messages, told at startup and on
+/// every change: whether what was sent while the account was offline is
+/// fetched at login (`offline_messages`, a switch of its own), and whether a
+/// private conversation opens with the earlier messages the grid keeps
+/// (`grid_history`, which follows the switch for keeping chat logs of
+/// people). Turning the first on in the middle of a session fetches at once.
+#[tauri::command]
+pub async fn sl_set_message_options(
+    state: State<'_, Arc<AppState>>,
+    offline_messages: bool,
+    grid_history: bool,
+) -> Cmd {
+    let fetched_before = crate::bridge::session::offline_messages();
+    crate::bridge::session::set_message_options(offline_messages, grid_history);
+    // Only the switch going on fetches here. The same call arrives when the
+    // other setting changes, and a login's own fetch must be left to wait
+    // for the block list.
+    if offline_messages && !fetched_before {
+        if let Some(s) = state.active() {
+            s.request_offline_messages(true).await;
+        }
+    }
+    Ok(json!({ "ok": true, "offlineMessages": offline_messages, "gridHistory": grid_history }))
 }
 
 /// The device's network changed (the Android shell reports a wifi/mobile
@@ -3637,6 +3670,15 @@ pub async fn sl_start_session(app: AppHandle, state: State<'_, Arc<AppState>>, p
     if !old.is_empty() {
         crate::dlog!("session start: closing {} previous circuit(s)", old.len());
     }
+    // A reconnect keeps its conversations on screen (`resumed`, said by the
+    // interface, which alone knows it did): what the core knew of them goes
+    // on to the new session. A fresh login starts with none.
+    let resumed = params.get("resumed").and_then(|v| v.as_bool()).unwrap_or(false);
+    let im_memory = if resumed {
+        old.iter().find_map(|s| s.take_im_memory(&agent_id)).unwrap_or_default()
+    } else {
+        Default::default()
+    };
     for s in old {
         s.close();
     }
@@ -3654,6 +3696,7 @@ pub async fn sl_start_session(app: AppHandle, state: State<'_, Arc<AppState>>, p
             circuit_code,
             caps: caps_map.clone(),
             closed_chats,
+            im_memory,
         }),
     )
     .await?;

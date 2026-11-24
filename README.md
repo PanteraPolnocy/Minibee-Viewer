@@ -127,7 +127,9 @@ The **IM** tab keeps 1:1, group, and conference conversations in one list:
 - **Group chat** - open from the Land tab's parcel group or a group profile. It also opens by itself when someone posts in a group - unless you closed or muted that group's chat (see below).
 - **Conference chat** - start from the IM tab or a buddy's menu; **Invite** adds more people to an open conference.
 - **Roster** - member sidebar with online state; click someone for a 1:1.
-- **Moderation** - in **group** sessions, moderators can mute/unmute a participant's text. Ad-hoc conferences don't get moderation controls (that's deliberate - it's a group thing).
+- **Moderation** - in **group** sessions, moderators can mute/unmute a participant's text chat or voice, each on its own. Ad-hoc conferences don't get moderation controls (that's deliberate - it's a group thing).
+- **Messages sent while you were away** - fetched at login, once the block list is in (so nothing from a blocked resident shows), and dated by when they were sent. **Bee -> Settings -> Messages** has the switch; it is on by default.
+- **Earlier messages** - with chat logs of people on, a private conversation you open shows the latest messages Second Life keeps of it (up to a hundred, other devices' included) above the live ones. They are only shown: nothing fetched that way is written to the log files, a message already on screen is not repeated, and with logs off nothing is asked for.
 - **Mute and Leave** - both are ways of turning a group's chat away, and both are remembered per account. **Mute** keeps the open chat but makes it quiet: no count, no sound, nothing on the IM icon - and once its tab is gone (after the next login, say) that chat no longer opens by itself. **Leave** (the X on a group chat) exits the chat on the server and keeps it closed: new messages neither reopen it nor count. Either way the chat comes back when you open it from the group (**Open group chat** on its profile); a muted one stays muted until you unmute it there. A conference you leave stays away for the rest of the login.
 
 You can pay another resident from the IM pay dialog.

@@ -218,6 +218,7 @@ pub fn run() {
             commands::sl_logout,
             commands::sl_set_data_saver,
             commands::sl_set_radar_alerts,
+            commands::sl_set_message_options,
             commands::sl_set_max_maturity,
             commands::sl_network_changed,
             commands::sl_accept_teleport_offer,
@@ -257,6 +258,7 @@ pub fn run() {
             bridge::caps::sl_chat_session_start_conference,
             bridge::caps::sl_chat_session_invite,
             bridge::caps::sl_chat_session_moderate,
+            bridge::chathistory::sl_im_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
